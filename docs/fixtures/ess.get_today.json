@@ -1,0 +1,21 @@
+{
+  "message": {
+    "date": "2026-10-10",
+    "server_time": "2026-10-10 10:42:15.512339",
+    "shift_name": "General shift",
+    "shift_start": "09:30",
+    "shift_end": "18:30",
+    "status": "checked_in",
+    "attendance": null,
+    "checkins": [
+      {
+        "name": "EMP-CKIN-10-2026-000231",
+        "log_type": "IN",
+        "time": "2026-10-10 09:41:07",
+        "location": "TBO Smart ±12 m",
+        "latitude": 10.0158,
+        "longitude": 76.3418
+      }
+    ]
+  }
+}

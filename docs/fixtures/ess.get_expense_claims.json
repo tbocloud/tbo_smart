@@ -1,0 +1,44 @@
+{
+  "message": {
+    "data": [
+      {
+        "name": "HR-EXP-2026-00035",
+        "expense_type": "Food",
+        "amount": 480.0,
+        "sanctioned_amount": 0.0,
+        "date": "2026-10-08",
+        "description": "Lunch during the Galom go-live review",
+        "status": "Pending",
+        "approver": "Arun Babu",
+        "approver_id": "arun.babu@teambackoffice.com",
+        "receipt": "bill-paragon-0810.jpg"
+      },
+      {
+        "name": "HR-EXP-2026-00031",
+        "expense_type": "Travel",
+        "amount": 1240.0,
+        "sanctioned_amount": 1240.0,
+        "date": "2026-10-06",
+        "description": "Client visit, Galom Kakkanad (cab both ways)",
+        "status": "Paid",
+        "approver": "Arun Babu",
+        "approver_id": "arun.babu@teambackoffice.com",
+        "receipt": "uber-0610.pdf"
+      },
+      {
+        "name": "HR-EXP-2026-00022",
+        "expense_type": "Travel",
+        "amount": 2150.0,
+        "sanctioned_amount": 0.0,
+        "date": "2026-09-18",
+        "description": "Cab to Infopark",
+        "status": "Rejected",
+        "approver": "Arun Babu",
+        "approver_id": "arun.babu@teambackoffice.com",
+        "receipt": null
+      }
+    ],
+    "page": 1,
+    "has_more": false
+  }
+}

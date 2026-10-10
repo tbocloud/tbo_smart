@@ -1,0 +1,37 @@
+{
+  "message": [
+    {
+      "id": "niranjana@teambackoffice.com",
+      "employee": "HR-EMP-00051",
+      "employee_name": "Niranjana",
+      "image": null,
+      "department": "ERP - TBO",
+      "designation": "Frappe Developer",
+      "attendance": "in",
+      "checked_in_at": "2026-10-10 09:18:02",
+      "leave_type": null
+    },
+    {
+      "id": "reshma@teambackoffice.com",
+      "employee": "HR-EMP-00047",
+      "employee_name": "Reshma",
+      "image": null,
+      "department": "ERP - TBO",
+      "designation": "Frappe Developer",
+      "attendance": "leave",
+      "checked_in_at": null,
+      "leave_type": "Casual Leave"
+    },
+    {
+      "id": "najath@teambackoffice.com",
+      "employee": "HR-EMP-00042",
+      "employee_name": "Najath Thekkeyil",
+      "image": null,
+      "department": "ERP - TBO",
+      "designation": "Frappe Developer",
+      "attendance": "not_yet",
+      "checked_in_at": null,
+      "leave_type": null
+    }
+  ]
+}

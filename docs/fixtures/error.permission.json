@@ -1,0 +1,4 @@
+{
+  "exc_type": "PermissionError",
+  "_server_messages": "[\"{\\\"message\\\": \\\"Only managers with direct reports can see team attendance.\\\", \\\"title\\\": \\\"Message\\\", \\\"indicator\\\": \\\"red\\\", \\\"raise_exception\\\": 1}\"]"
+}

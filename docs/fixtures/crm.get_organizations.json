@@ -1,0 +1,20 @@
+{
+  "message": {
+    "data": [
+      {
+        "name": "Galom International Private Limited",
+        "organization_name": "Galom International Private Limited",
+        "territory": "India",
+        "industry": "Distribution",
+        "website": "https://galom.in",
+        "no_of_employees": "51-200",
+        "open_deals": 1,
+        "erpnext_customers": [
+          "Galom International Private Limited"
+        ]
+      }
+    ],
+    "page": 1,
+    "has_more": false
+  }
+}

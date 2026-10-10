@@ -1,0 +1,29 @@
+{
+  "message": {
+    "data": [
+      {
+        "name": "CRM-DEAL-2026-00031",
+        "title": "Hydrotech UAE",
+        "organization": "Hydrotech UAE",
+        "contact": "Mohammed Irfan",
+        "stage": "Proposal/Quotation",
+        "stage_type": "Ongoing",
+        "amount": 1850000.0,
+        "currency": "INR",
+        "probability": 60.0,
+        "expected_close": "2026-10-24",
+        "closed_on": null,
+        "owner": "Ruvaishid",
+        "owner_id": "ruvaishid@teambackoffice.com",
+        "lost_reason": null,
+        "next_step": "Pricing call",
+        "phone": "+971 55 902 1148",
+        "email": "irfan@hydrotech.ae",
+        "next_follow_up": "2026-10-10 15:00:00",
+        "created": "2026-09-10 10:00:00.000000"
+      }
+    ],
+    "page": 1,
+    "has_more": false
+  }
+}

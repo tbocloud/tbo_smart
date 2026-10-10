@@ -1,0 +1,34 @@
+{
+  "message": [
+    {
+      "id": "CRM-TASK-2026-00198",
+      "kind": "task",
+      "subject": "Next step on the jewellery ERP",
+      "status": "Todo",
+      "priority": "Medium",
+      "due": "2026-10-08 11:00:00",
+      "overdue": true,
+      "with": "Ajith Kumar",
+      "organization": "Thrissur Gold House",
+      "ref": {
+        "doctype": "lead",
+        "name": "CRM-LEAD-2026-00138"
+      }
+    },
+    {
+      "id": "CRM-TASK-2026-00205",
+      "kind": "task",
+      "subject": "AMC renewal: agree hours",
+      "status": "In Progress",
+      "priority": "High",
+      "due": "2026-10-10 11:30:00",
+      "overdue": false,
+      "with": "Rahul Menon",
+      "organization": "Galom International Private Limited",
+      "ref": {
+        "doctype": "deal",
+        "name": "CRM-DEAL-2026-00035"
+      }
+    }
+  ]
+}

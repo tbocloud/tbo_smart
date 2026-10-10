@@ -1,0 +1,80 @@
+{
+  "message": {
+    "lead_sources": [
+      "Cold call",
+      "LinkedIn",
+      "Referral",
+      "Trade show",
+      "Website",
+      "WhatsApp"
+    ],
+    "lead_statuses": [
+      {
+        "name": "New",
+        "type": "Open"
+      },
+      {
+        "name": "Contacted",
+        "type": "Ongoing"
+      },
+      {
+        "name": "Nurture",
+        "type": "Ongoing"
+      },
+      {
+        "name": "Qualified",
+        "type": "Won"
+      },
+      {
+        "name": "Unqualified",
+        "type": "Lost"
+      },
+      {
+        "name": "Junk",
+        "type": "Lost"
+      }
+    ],
+    "deal_stages": [
+      {
+        "name": "Qualification",
+        "type": "Open",
+        "probability": 10.0
+      },
+      {
+        "name": "Demo/Making",
+        "type": "Ongoing",
+        "probability": 25.0
+      },
+      {
+        "name": "Proposal/Quotation",
+        "type": "Ongoing",
+        "probability": 50.0
+      },
+      {
+        "name": "Negotiation",
+        "type": "Ongoing",
+        "probability": 70.0
+      },
+      {
+        "name": "Ready to Close",
+        "type": "Ongoing",
+        "probability": 90.0
+      },
+      {
+        "name": "Won",
+        "type": "Won",
+        "probability": 100.0
+      },
+      {
+        "name": "Lost",
+        "type": "Lost",
+        "probability": 0.0
+      }
+    ],
+    "lost_reasons": [
+      "Customer went with a competitor",
+      "Other",
+      "Price too high"
+    ]
+  }
+}

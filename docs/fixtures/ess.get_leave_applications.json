@@ -1,0 +1,50 @@
+{
+  "message": {
+    "data": [
+      {
+        "name": "HR-LAP-2026-00091",
+        "leave_type": "Casual Leave",
+        "from_date": "2026-10-23",
+        "to_date": "2026-10-23",
+        "half_day": true,
+        "half_day_date": "2026-10-23",
+        "days": 0.5,
+        "status": "Open",
+        "approver": "Arun Babu",
+        "approver_id": "arun.babu@teambackoffice.com",
+        "reason": "Bank visit for home loan papers",
+        "posting_date": "2026-10-10"
+      },
+      {
+        "name": "HR-LAP-2026-00088",
+        "leave_type": "Casual Leave",
+        "from_date": "2026-10-07",
+        "to_date": "2026-10-07",
+        "half_day": false,
+        "half_day_date": null,
+        "days": 1.0,
+        "status": "Approved",
+        "approver": "Arun Babu",
+        "approver_id": "arun.babu@teambackoffice.com",
+        "reason": "Family function in Thrissur",
+        "posting_date": "2026-10-01"
+      },
+      {
+        "name": "HR-LAP-2026-00063",
+        "leave_type": "Privilege Leave",
+        "from_date": "2026-08-03",
+        "to_date": "2026-08-07",
+        "half_day": false,
+        "half_day_date": null,
+        "days": 5.0,
+        "status": "Rejected",
+        "approver": "Arun Babu",
+        "approver_id": "arun.babu@teambackoffice.com",
+        "reason": "Trip to Munnar",
+        "posting_date": "2026-07-20"
+      }
+    ],
+    "page": 1,
+    "has_more": true
+  }
+}

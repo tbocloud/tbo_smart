@@ -1,0 +1,46 @@
+{
+  "message": {
+    "name": "Galom International Private Limited",
+    "organization_name": "Galom International Private Limited",
+    "territory": "India",
+    "industry": "Distribution",
+    "website": "https://galom.in",
+    "no_of_employees": "51-200",
+    "open_deals": 1,
+    "erpnext_customers": [
+      "Galom International Private Limited"
+    ],
+    "contacts": [
+      {
+        "name": "Rahul Menon",
+        "contact": "Rahul Menon-Galom",
+        "designation": "Finance Manager",
+        "phone": "+91 98460 22314",
+        "email": "rahul@galom.in"
+      }
+    ],
+    "deals": [
+      {
+        "name": "CRM-DEAL-2026-00035",
+        "title": "Galom International Private Limited",
+        "organization": "Galom International Private Limited",
+        "contact": "Rahul Menon",
+        "stage": "Negotiation",
+        "stage_type": "Ongoing",
+        "amount": 360000.0,
+        "currency": "INR",
+        "probability": 80.0,
+        "expected_close": "2026-10-24",
+        "closed_on": null,
+        "owner": "Ruvaishid",
+        "owner_id": "ruvaishid@teambackoffice.com",
+        "lost_reason": null,
+        "next_step": "Pricing call",
+        "phone": "+971 55 902 1148",
+        "email": "irfan@hydrotech.ae",
+        "next_follow_up": "2026-10-10 15:00:00",
+        "created": "2026-09-10 10:00:00.000000"
+      }
+    ]
+  }
+}
