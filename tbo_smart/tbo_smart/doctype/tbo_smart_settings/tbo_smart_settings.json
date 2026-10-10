@@ -1,0 +1,42 @@
+{
+ "actions": [],
+ "creation": "2026-10-10 10:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "enable_mobile_push"
+ ],
+ "fields": [
+  {
+   "default": "0",
+   "description": "Send an Expo push to the user's TBO Smart devices for each new notification on this site.",
+   "fieldname": "enable_mobile_push",
+   "fieldtype": "Check",
+   "label": "Mobile push"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-10-10 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tbo Smart",
+ "name": "TBO Smart Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
