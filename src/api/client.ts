@@ -24,12 +24,15 @@ export type DemoState = {
   network: "online" | "offline";
   data: "normal" | "slow" | "empty" | "error";
   connections: Record<Site, Connection>;
+  /** "Preview as" in More: staff sees their own work, manager adds the Team hub. */
+  role: "staff" | "manager";
 };
 
 export const demo: DemoState = {
   network: "online",
   data: "normal",
   connections: { hub: "connected", ess: "connected" },
+  role: "staff",
 };
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

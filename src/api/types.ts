@@ -66,6 +66,7 @@ export type TaskActivity = {
 
 export type Task = {
   name: string;
+  assigned_to: string; // user email
   subject: string;
   project: string;
   project_name: string;
@@ -161,6 +162,7 @@ export type Scoreboard = {
   champion: ScoreLine;
   me: ScoreLine & { rank: number; of: number; delta_rank: number; breakdown: { label: string; points: number }[] };
   leaders: (ScoreLine & { rank: number })[];
+  departments: DepartmentScore[];
 };
 
 // ---------- ESS (TBO India HR) ----------
@@ -235,4 +237,154 @@ export type SalarySlip = {
   net_pay: number;
   working_days: number;
   payment_days: number;
+};
+
+// ---------- CRM (Frappe CRM + ERPNext on tboindia) ----------
+
+export type LeadStatus = "New" | "Contacted" | "Qualified" | "Unqualified";
+
+export type CrmActivity = {
+  id: string;
+  at: string;
+  who: string;
+  kind: "call" | "email" | "meeting" | "note" | "whatsapp" | "stage";
+  text: string;
+};
+
+export type CrmNote = { id: string; at: string; who: string; text: string };
+
+export type Lead = {
+  name: string;
+  lead_name: string;
+  organization: string;
+  designation?: string;
+  status: LeadStatus;
+  source: string;
+  owner: string;
+  phone: string;
+  whatsapp?: string;
+  email: string;
+  territory: string;
+  last_contact?: string;
+  next_follow_up?: string;
+  notes: CrmNote[];
+  activities: CrmActivity[];
+};
+
+export type DealStage = "Qualification" | "Demo" | "Proposal" | "Negotiation" | "Won" | "Lost";
+
+export type Deal = {
+  name: string;
+  title: string;
+  organization: string; // CRM Organization / ERPNext Customer name
+  contact: string;
+  stage: DealStage;
+  amount: number; // INR
+  probability: number;
+  expected_close: string;
+  owner: string;
+  closed_on?: string;
+  lost_reason?: string;
+  stage_history: { stage: DealStage; at: string }[];
+  activities: CrmActivity[];
+  tasks: { id: string; title: string; due: string; done: boolean }[];
+  notes: CrmNote[];
+};
+
+export type CustomerHealth = "Good" | "At risk";
+
+export type OrgContact = { name: string; designation: string; phone: string; email: string };
+
+export type Organization = {
+  name: string; // ERPNext Customer
+  territory: string;
+  industry: string;
+  health: CustomerHealth;
+  health_reason: string;
+  amc?: { hours_total: number; hours_used: number; renews_on: string };
+  contacts: OrgContact[];
+};
+
+export type FollowUp = {
+  id: string;
+  kind: "call" | "meeting";
+  subject: string;
+  with: string;
+  organization: string;
+  due: string;
+  owner: string;
+  ref: { doctype: "lead" | "deal"; name: string };
+};
+
+// ---------- Management ----------
+
+export type TeamMember = Person & {
+  id: string;
+  department: string;
+  attendance: "in" | "not_yet" | "leave";
+  checked_in_at?: string;
+  leave_type?: string;
+  overdue: number;
+  escalated: number;
+  open_tasks: number;
+  score: number;
+  on_time_pct: number;
+  leave_balance: number;
+  tasks: { name: string; subject: string; project: string; due: string; status: string }[];
+};
+
+export type Escalation = {
+  id: string;
+  kind: "task" | "ticket";
+  ref: string; // TASK-… or ticket number
+  title: string;
+  owner: string;
+  level: number;
+  since: string; // when it first went overdue / breached
+  reason: string;
+};
+
+export type ApprovalKind = "leave" | "expense" | "review";
+
+export type Approval = {
+  id: string;
+  kind: ApprovalKind;
+  who: string;
+  title: string;
+  detail: string;
+  submitted: string;
+  amount?: number;
+  ref: string;
+};
+
+export type Rag = "green" | "amber" | "red";
+
+export type ProjectHealth = {
+  name: string;
+  project_name: string;
+  customer: string;
+  rag: Rag;
+  progress: number; // 0–100
+  overdue: number;
+  next_milestone: { title: string; due: string };
+  hours_used: number;
+  hours_estimate: number;
+};
+
+export type SlaSummary = {
+  open: number;
+  breaching_soon: number;
+  breached: number;
+  unassigned: number;
+  oldest_unassigned?: Ticket;
+};
+
+export type DepartmentScore = {
+  department: string;
+  people: number;
+  done: number;
+  on_time_pct: number | null;
+  overdue: number;
+  hours: number;
+  champion?: string;
 };
