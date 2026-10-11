@@ -4,7 +4,13 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
-  "enable_mobile_push"
+  "enable_mobile_push",
+  "microsoft_sso_section",
+  "enable_microsoft_sso",
+  "microsoft_tenant_id",
+  "column_break_sso",
+  "microsoft_mobile_client_id",
+  "oauth_client"
  ],
  "fields": [
   {
@@ -13,12 +19,50 @@
    "fieldname": "enable_mobile_push",
    "fieldtype": "Check",
    "label": "Mobile push"
+  },
+  {
+   "fieldname": "microsoft_sso_section",
+   "fieldtype": "Section Break",
+   "label": "Single sign-in with Microsoft"
+  },
+  {
+   "default": "0",
+   "description": "Let the TBO Smart app sign in with a Microsoft (Entra ID) account and get this site's own tokens for the matching user.",
+   "fieldname": "enable_microsoft_sso",
+   "fieldtype": "Check",
+   "label": "Single sign-in with Microsoft"
+  },
+  {
+   "description": "Directory (tenant) ID of TBO's Entra ID, a GUID. Separate several with commas.",
+   "fieldname": "microsoft_tenant_id",
+   "fieldtype": "Small Text",
+   "label": "Microsoft tenant ID",
+   "mandatory_depends_on": "eval:doc.enable_microsoft_sso"
+  },
+  {
+   "fieldname": "column_break_sso",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Application (client) ID of the TBO Smart mobile app registration in Entra ID.",
+   "fieldname": "microsoft_mobile_client_id",
+   "fieldtype": "Data",
+   "label": "Mobile Entra client ID",
+   "mandatory_depends_on": "eval:doc.enable_microsoft_sso"
+  },
+  {
+   "description": "The TBO Smart OAuth Client. Tokens from single sign-in are issued for it, so refresh and revoke work as usual.",
+   "fieldname": "oauth_client",
+   "fieldtype": "Link",
+   "label": "OAuth Client",
+   "options": "OAuth Client",
+   "mandatory_depends_on": "eval:doc.enable_microsoft_sso"
   }
  ],
  "index_web_pages_for_search": 0,
  "issingle": 1,
  "links": [],
- "modified": "2026-10-10 10:00:00.000000",
+ "modified": "2026-10-11 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Smart Settings",
