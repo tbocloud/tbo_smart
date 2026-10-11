@@ -4,10 +4,10 @@ This is the contract for the TBO Smart mobile app's **tboindia.tbocloud.in** hal
 self-service (HRMS), CRM (Frappe CRM) and the manager views. The hub (TBO Support) has its
 own contract in `tbocloud/helpdesk`.
 
-- **Code:** `tbo_smart/api/mobile/{ess,crm,manager,device}.py` and `tbo_smart/push.py`.
+- **Code:** `tbo_smart/api/mobile/{capabilities,ess,crm,manager,device}.py` and `tbo_smart/push.py`.
 - **Fixtures:** `docs/fixtures/<module>.<method>.json`. Each one is the full HTTP body that
   Frappe returns (`{"message": ...}`).
-- **Status:** v1, 2026-10-10. Any change gets a version note in the changelog at the end of
+- **Status:** v1.1, 2026-10-11. Any change gets a version note in the changelog at the end of
   this file.
 
 ## 1. Conventions
@@ -21,7 +21,7 @@ own contract in `tbocloud/helpdesk`.
 | Writes | `POST` with a JSON body. Writes are refused over GET. |
 | Lists | `page` (1-based, default 1) and `page_length` (default 20, max 100). The response is `{"data": [...], "page": n, "has_more": bool}`. Short, bounded lists (options, holidays, approvals, team, follow-ups) return a bare array. |
 | Dates | `YYYY-MM-DD`. Datetimes are `YYYY-MM-DD HH:MM:SS[.ffffff]` in the **site time zone** (Asia/Kolkata), with no offset. |
-| Money | Numbers in the document's currency. Sales snapshot values are in the CRM base currency. |
+| Money | Numbers in the document's currency. Sales snapshot and sales insights values are in the CRM base currency. |
 | Errors | HTTP 4xx/5xx with Frappe's body: `exc_type` plus `_server_messages`, a JSON string holding a list of JSON strings, each `{message, title}`. Map them as shown below. |
 
 Error mapping for the app:
@@ -68,7 +68,7 @@ See `fixtures/error.no_employee.json` and `fixtures/error.permission.json`.
 
 - Access tokens last **3600 s** (oauthlib default). A refresh token comes with each access
   token.
-- On sign-out, call `unregister_device` (§6), then revoke the refresh token.
+- On sign-out, call `unregister_device` (§7), then revoke the refresh token.
 
 ### 2.3 PKCE on Frappe v15: supported, not enforced
 
@@ -108,8 +108,8 @@ still apply.
 
 | Method | Verb | Params | Returns | Reuses |
 | --- | --- | --- | --- | --- |
-| `get_me` | GET | – | Employee, plus `is_manager` (has active direct reports), `is_approver`, `is_sales_manager` | – |
-| `check_in` | POST | `log_type` (`IN`/`OUT`), `latitude?`, `longitude?`, `accuracy?` (m) | the punch | HRMS `Employee Checkin` controller (shift, geofence) |
+| `get_me` | GET | – | Employee, plus `capabilities` (§4) and the v1 aliases `is_manager` (= `team_today`), `is_approver` (= `approve_leave` or `approve_expense`), `is_sales_manager` (= `crm_manager`) | `capabilities.get_capabilities` |
+| `check_in` | POST | `log_type` (`IN`/`OUT`), `latitude?`, `longitude?`, `accuracy?` (m) | the punch (needs `checkin_allowed`) | HRMS `Employee Checkin` controller (shift, geofence) |
 | `get_today` | GET | – | `{date, server_time, shift_name, shift_start, shift_end, status, attendance, checkins[]}` | `hrms…shift_assignment.get_employee_shift` |
 | `get_attendance` | GET | `year`, `month` (1–12) | `[{date, status}]` | `hrms.api.get_attendance_calendar_events` |
 | `get_holidays` | GET | `year?` (default: this year) | `[{date, description}]` (weekly offs excluded) | `hrms.api.get_holidays_for_employee` |
@@ -159,7 +159,7 @@ Fixtures: `ess.<method>.json`.
   - `half_day_date` defaults to `from_date`.
 - **`cancel_leave`** works on your own application only.
   - **Open draft:** it is withdrawn, which means deleted. This needs the **Delete** permission
-    on Leave Application, which the Employee role does **not** have by default. See §7.
+    on Leave Application, which the Employee role does **not** have by default. See §8.
   - **Approved (submitted):** it is cancelled through `doc.cancel()`. This needs **Cancel**,
     which Employee also lacks by default.
   - Anything else is refused.
@@ -184,14 +184,66 @@ Fixtures: `ess.<method>.json`.
   - It then uses Frappe's `download_pdf`, which checks read/print permission again.
   - We do **not** reuse `hrms.api.download_salary_slip`, because it has no ownership check.
 
-## 4. Manager: `tbo_smart.api.mobile.manager`
+## 4. Capabilities: what the app may show
+
+Sign-in is per user. The app shows exactly what that user's **tboindia roles and settings**
+allow, and nothing is configured in the app. One function,
+`tbo_smart.api.mobile.capabilities.get_capabilities`, computes the flags. They come back:
+
+- in `ess.get_me` as `capabilities`;
+- from `tbo_smart.api.mobile.capabilities.get_my_capabilities` (GET, no params). This also
+  works for a user **without an Employee**, for example a CRM-only user, so call it when
+  `get_me` returns `no_employee`.
+
+Every endpoint checks the **same flag** it advertises, so the app never offers something the
+server would refuse. Flags are computed on every call, not cached, so a role changed in the
+ERP takes effect on the next request.
+
+| Flag | Granted when | Endpoints that check it |
+| --- | --- | --- |
+| `ess` | The user has an **active Employee** (`Employee.user_id`). | every `ess.*` method (else `NoEmployeeError`) |
+| `checkin_allowed` | `ess` and **HR Settings → Allow Employee Checkin from Mobile App**. | `ess.check_in` |
+| `geolocation_required` | `checkin_allowed` and **HR Settings → Allow Geolocation Tracking**. The app must send latitude and longitude; HRMS refuses a punch without them and enforces shift-location radii. | `ess.check_in` (HRMS) |
+| `approve_leave` | **HR Manager** or **HR User**; or the user is the **Leave Approver** of an active Employee or a Department (Department Approver, Leave Approvers); or a **Workflow** on Leave Application has a transition one of their roles may perform. The **Leave Approver** role alone, with nobody to approve, is not enough. | `manager.get_approvals` (leave part), `manager.decide_approval(kind="leave")` |
+| `approve_expense` | The same rule for Expense Claim: HR Manager / HR User, named **Expense Approver** of an Employee or Department, or a workflow role. | `manager.get_approvals` (expense part), `manager.decide_approval(kind="expense")` |
+| `team_today` | `ess` and at least one **active direct report** (`Employee.reports_to`). | `manager.get_team_today` |
+| `team_insights` | `team_today`, or the **HR Manager** role. | `manager.get_team_insights` |
+| `team_scope` | `company` for an HR Manager (every active employee of their company; every company if they have no Employee), `direct_reports` for other managers, else `null`. Never includes the caller. | `manager.get_team_insights` |
+| `crm` | **Sales User**, **Sales Manager** or **System Manager**: the roles Frappe CRM itself lets into the CRM app (`crm.api.check_app_permission`). | every `crm.*` method |
+| `crm_manager` | `crm` and **Sales Manager** or **System Manager**, as CRM's dashboard decides "manager". | – |
+| `crm_scope` | The widest CRM visibility, the rule in `crm.permissions.org_hierarchy`: `all` for System Manager; with **FCRM Settings → Sales hierarchy** on and the user in it, `team` if anyone is below them, else `own` (this limits even a Sales Manager); a Sales Manager outside the hierarchy `all`; everyone else `own`. `null` without `crm`. | `crm.get_leads`, `get_deals`, `get_my_follow_ups`, `get_sales_insights` |
+| `crm_scopes` | The `scope` values the user may pass, narrowest first: `own` → `["mine"]`; `team` → `["mine", "team"]`; `all` → `["mine", "team", "all"]`, without `team` when they have no sales team. Show a switcher only when there is more than one. | same |
+| `sales_insights` | `crm_manager`. | `crm.get_sales_insights`, `manager.get_sales_snapshot` |
+
+### 4.1 CRM scope
+
+| `scope` | Leads and deals (`get_leads`, `get_deals`) | Follow-ups (`get_my_follow_ups`) | Sales insights |
+| --- | --- | --- | --- |
+| `mine` | Owned by me. At my widest scope (staff always), no extra filter: CRM's own rule already gives "owned by me or assigned to me". | Assigned to me (the default) | `deal_owner` / `lead_owner` = me |
+| `team` | Owner in my CRM sales team (me and everyone below me). At my widest scope, CRM's rule (owned by or assigned to the team). | Assigned to my sales team | owner in my sales team |
+| `all` | No owner filter: everything CRM lets me read. | Any open task I can read | no owner filter |
+
+- `get_leads` and `get_deals` default to the widest scope, which is exactly the v1
+  behaviour. `get_my_follow_ups` defaults to `mine`.
+- A scope that is not in `crm_scopes` is refused with `PermissionError`
+  (`fixtures/error.scope.json`). Staff are therefore always `mine`.
+- Lists still go through `frappe.get_list`, so CRM's permission rules apply on top of the
+  scope: a scope can only narrow what CRM shows, never widen it.
+- Sales insights read aggregates with query-builder queries, as CRM's dashboard does, and
+  filter on the owner, as the dashboard filters a Sales User to their own records.
+
+Fixtures: `capabilities.get_my_capabilities.json` (a sales head who manages a team) and
+`ess.get_me.json` (a developer who is also a Sales User).
+
+## 5. Manager: `tbo_smart.api.mobile.manager`
 
 | Method | Verb | Params | Returns | Who may call |
 | --- | --- | --- | --- | --- |
-| `get_team_today` | GET | – | `[{id, employee, employee_name, image, department, designation, attendance, checked_in_at, leave_type}]` | Employees with at least one **active direct report** (`Employee.reports_to`). Others get `PermissionError`. |
-| `get_approvals` | GET | – | `[Approval]`, newest first | Users with **Leave Approver** or **Expense Approver**. Others get `PermissionError`. |
-| `decide_approval` | POST | `kind` (`leave`/`expense`), `name`, `approve` (bool), `reason?` (required to reject) | `{kind, name, status, docstatus}` | The document's named approver, or a workflow role (below) |
-| `get_sales_snapshot` | GET | – | `{currency, by_stage[], pipeline, weighted, won_this_month{count, amount}, closing_this_week[]}` | **Sales Manager** or **System Manager**. Others get `PermissionError`. |
+| `get_team_today` | GET | – | `[{id, employee, employee_name, image, department, designation, attendance, checked_in_at, leave_type}]` | `team_today`. Others get `PermissionError`. |
+| `get_approvals` | GET | – | `[Approval]`, newest first | `approve_leave` or `approve_expense`; each kind only with its flag. Others get `PermissionError`. |
+| `decide_approval` | POST | `kind` (`leave`/`expense`), `name`, `approve` (bool), `reason?` (required to reject) | `{kind, name, status, docstatus}` | `approve_<kind>`, and then the document's named approver, an HR Manager / HR User, or a workflow role (below) |
+| `get_team_insights` | GET | `period` (`week`/`month`/`quarter`/`year`, default `month`) | Team insights (§5.1) | `team_insights` |
+| `get_sales_snapshot` | GET | – | `{currency, by_stage[], pipeline, weighted, won_this_month{count, amount}, closing_this_week[]}` | `sales_insights`. Covers the caller's widest `crm_scope`. Prefer `crm.get_sales_insights`. |
 
 - **`get_team_today`**
   - `attendance` is `leave` (an approved, submitted Leave Application covers today), `in`
@@ -202,11 +254,13 @@ Fixtures: `ess.<method>.json`.
 - **`get_approvals`** reuses the HRMS PWA queries: `hrms.api.get_leave_applications` and
   `get_expense_claims` with `for_approval=True`.
   - **No workflow:** drafts where I am the approver (`leave_approver` or `expense_approver`),
-    Open leave and Draft claims, never my own.
+    Open leave and Draft claims, never my own. An **HR Manager / HR User** gets every open
+    one they can read, as in HRMS.
   - **With a Workflow on the doctype:** documents in the states my roles can move.
 - **`decide_approval`** follows the HRMS path. It never writes the status directly.
   - **No workflow:**
-    - Only the named approver may decide; others get `PermissionError`.
+    - Only the named approver, or an HR Manager / HR User (who can submit any of these in
+      HRMS), may decide; others get `PermissionError`.
     - **Leave:** sets `status` to Approved or Rejected, then `submit()`. HRMS then creates the
       leave ledger, updates attendance and notifies the employee.
     - **Expense:** sets `approval_status`, fills `sanctioned_amount` = `amount` on approved
@@ -224,11 +278,40 @@ Fixtures: `ess.<method>.json`.
   - `won_this_month` counts Won-type deals with `closed_date` in this calendar month.
   - `closing_this_week` lists open deals with an expected closure on or before today + 7.
     That includes overdue ones (`overdue: true`), up to 50.
-  - A Sales Manager sees every deal, as in CRM.
+  - It covers the caller's widest `crm_scope`: every deal for a Sales Manager outside the
+    sales hierarchy, their team's deals inside it.
 
-## 5. CRM: `tbo_smart.api.mobile.crm`
+### 5.1 Team insights (`get_team_insights`)
 
-Lists use `frappe.get_list`, so Frappe CRM's own rules decide visibility:
+Read-only aggregates for **management by insight, not surveillance**. Fixture:
+`manager.get_team_insights.json`.
+
+- **Team:** `team_scope` (§4): active direct reports, or the HR Manager's company.
+- **Period:** the current `period` **to date** (`from_date`…`to_date` = today). `previous` is
+  the same number of days from the start of the previous period, so a half-finished month is
+  compared fairly. Weeks start on the site's **first day of the week**.
+- **`attendance`** counts submitted Attendance records of the team in the period:
+  - `present_pct` = (Present + Work From Home + ½ × Half Day) ÷ all records × 100;
+  - `late` = records with **Late Entry** ticked; `absent` = Absent records;
+    `on_leave_days` = On Leave records; `marked_days` = all records;
+  - `*_delta` = current minus previous (percentage points for `present_pct`);
+  - `on_leave_today` = people with approved, submitted leave covering today;
+    `checked_in_today` = people with an IN punch today (a count only).
+- **`trend`**: 8 periods, oldest first, the last one the current period. Each has the same
+  KPIs as `attendance` (without the today counts).
+- **`pending`**: the team's Open leave applications and Draft expense claims: `count`,
+  `oldest_days` (age of the oldest by posting date) and, for expenses, `amount`.
+- **`people`**: names appear only here, and only as counts: up to 10 people with late
+  check-ins or absences in the period, most first. Nobody else is named.
+- **Never returned:** check-in times, coordinates, the device / location text, or any
+  per-day record of a person.
+- Computed with a fixed set of grouped queries (no per-person queries), and cached for **5 minutes** per
+  (user, period, team scope); `generated_at` says when.
+
+## 6. CRM: `tbo_smart.api.mobile.crm`
+
+Every method needs the `crm` capability (§4). Lists use `frappe.get_list`, so Frappe CRM's
+own rules decide visibility, and `scope` (§4.1) narrows it:
 
 - a **Sales User** sees the leads and deals they own or that are assigned to them;
 - the **sales hierarchy** extends that to their team when it is on;
@@ -239,17 +322,18 @@ Writes are normal inserts and saves under the session user.
 | Method | Verb | Params | Returns |
 | --- | --- | --- | --- |
 | `get_options` | GET | – | `{lead_sources[], lead_statuses[{name,type}], deal_stages[{name,type,probability}], lost_reasons[]}` |
-| `get_leads` | GET | `status?`, `search?`, `include_converted?` (default false), `page`, `page_length` | page of Lead |
+| `get_leads` | GET | `status?`, `scope?` (§4.1), `search?`, `include_converted?` (default false), `page`, `page_length` | page of Lead |
 | `get_lead` | GET | `name` | Lead plus `notes[]`, `tasks[]`, `activities[]` |
 | `create_lead` | POST | `lead_name`, `organization?`, `email?`, `mobile_no?`, `source?`, `note?` | the new Lead (owner = me) |
 | `set_lead_status` | POST | `name`, `status` | `{name, status}` |
 | `convert_lead` | POST | `name` | the Deal (an already-converted lead returns its existing deal) |
-| `get_deals` | GET | `stage?`, `mine?`, `search?`, `page`, `page_length` | page of Deal |
+| `get_deals` | GET | `stage?`, `scope?` (§4.1), `mine?` (v1 alias of `scope=mine`), `search?`, `page`, `page_length` | page of Deal |
 | `get_deal` | GET | `name` | Deal plus `erpnext_customer`, `stage_history[]`, `notes[]`, `tasks[]`, `activities[]` |
 | `move_deal_stage` | POST | `name`, `stage`, `lost_reason?` (required for a Lost-type stage) | the Deal |
 | `get_organizations` | GET | `search?`, `page`, `page_length` | page of Organization |
 | `get_organization` | GET | `name` | Organization plus `contacts[]` and `deals[]` |
-| `get_my_follow_ups` | GET | – | `[FollowUp]`: my open CRM Tasks due today or overdue, oldest first |
+| `get_my_follow_ups` | GET | `scope?` (§4.1, default `mine`) | `[FollowUp]`: open CRM Tasks due today or overdue, oldest first, with `assigned_to` and `assigned_to_name` |
+| `get_sales_insights` | GET | `period` (`week`/`month`/`quarter`/`year`, default `month`), `scope?` (§4.1, default widest), `stalled_days?` (default 14, 1–365) | Sales insights (§6.1); needs `sales_insights` |
 | `log_activity` | POST | `doctype` (`lead`/`deal`), `name`, `kind` (`call`/`note`/`meeting`/`email`/`whatsapp`), `text`, `next_follow_up?`, `phone?` | the record's `{notes, tasks, activities}` |
 | `add_follow_up` | POST | `doctype`, `name`, `due`, `title?` | `{id, subject, due, status}` |
 | `set_task_done` | POST | `name` (CRM Task), `done` (bool) | `{id, status, done}` |
@@ -287,11 +371,42 @@ Writes are normal inserts and saves under the session user.
     AMC doctype and none is installed locally). The AMC hours live on the hub. The app
     should take them from the hub's customer API.
   - **Customer health is not included** either. It has no source on tboindia.
-- **Follow-ups** are CRM Tasks with `assigned_to` = me, a status other than Done or Canceled,
-  and `due_date` ≤ end of today. `kind` is always `"task"`, since CRM tasks have no
-  call/meeting type.
+- **Follow-ups** are CRM Tasks assigned to the scope's people (me by default), a status
+  other than Done or Canceled, and `due_date` ≤ end of today. `kind` is always `"task"`,
+  since CRM tasks have no call/meeting type.
 
-## 6. Devices and push: `tbo_smart.api.mobile.device` and `tbo_smart.push`
+### 6.1 Sales insights (`get_sales_insights`)
+
+Read-only aggregates for the scope. Fixture: `crm.get_sales_insights.json`.
+
+- **Value** is `deal_value × exchange_rate` in the FCRM base currency (`currency`), Frappe
+  CRM's dashboard formula. **Weighted** is value × probability ÷ 100.
+- **Period** and **previous** work as in team insights (§5.1). Deltas are current minus
+  previous (percentage points for rates).
+- **`pipeline`**: every open stage (type not Won or Lost) in CRM order, also empty ones:
+  `count`, `value`, `weighted`, `avg_age_days` (days since the deal was created) and
+  `avg_days_in_stage` (days since it entered its current stage, from CRM's status change
+  log). Totals at the top.
+- **`won` / `lost`**: deals closed in the period, `count` and `value` with deltas.
+  - Won counts by `closed_date`, as CRM's dashboard does.
+  - CRM keeps no date for a loss, so a lost deal closes on the day it entered its Lost stage
+    (status change log), else on its last edit.
+  - `win_rate` = won ÷ (won + lost) × 100 by count.
+- **`stalled`**: open deals with **no activity for `stalled_days`**: not edited, and no call
+  log, note, task change or comment on them since then. `count`, `value`, and the 10
+  biggest with `idle_since` (last edit).
+- **`leads_funnel`**: leads created in the period (`new`); `qualified` = a Won-type CRM Lead
+  Status (defaults: Qualified, Converted) or converted; `converted` = became a deal. With
+  percentages of `new` and deltas.
+- **`activity`**: per person in the scope, `calls` (CRM Call Logs: the receiver for
+  incoming, the caller otherwise), `notes` (FCRM Notes written) and `tasks_done` (CRM Tasks
+  set to Done in the period, by assignee). Most active first.
+- **`trend`**: 8 periods, oldest first: `won_value`, `won_count` and `new_leads`.
+- **`closing`**: the 10 biggest open deals expected to close in the **whole current period**.
+- Computed with a fixed set of grouped queries (no per-deal or per-person queries), and cached for **5 minutes** per
+  (user, period, scope, stalled days); `generated_at` says when.
+
+## 7. Devices and push: `tbo_smart.api.mobile.device` and `tbo_smart.push`
 
 | Method | Verb | Params | Returns |
 | --- | --- | --- | --- |
@@ -335,7 +450,7 @@ Writes are normal inserts and saves under the session user.
 | CRM Organization | `/crm/org/<name>` |
 | Anything else | `/alerts` |
 
-## 7. Roles and permissions to check on tboindia before launch
+## 8. Roles and permissions to check on tboindia before launch
 
 1. **HRMS and CRM are installed.** `tbo_smart` declares
    `required_apps = ["erpnext", "hrms", "crm"]`. Confirm with
@@ -350,10 +465,17 @@ Writes are normal inserts and saves under the session user.
    - **Allow Employee Checkin from Mobile App:** on, or `check_in` refuses.
    - **Allow Geolocation Tracking:** on to store coordinates and enforce shift-location radii.
    - Check **Leave Approver Mandatory** and **Expense Approver Mandatory**.
+   - Team insights count late check-ins from Attendance **Late Entry**, which HRMS sets when
+     the shift type's late-entry grace period is configured and attendance is marked from
+     check-ins.
 4. **Approvers.** Set **Leave Approver** and **Expense Approver** on each Employee or
    Department.
    - HRMS gives those users the **Leave Approver** and **Expense Approver** roles; check them.
-   - Managers need **Employee → Reports To** set on their team for `get_team_today`.
+   - Managers need **Employee → Reports To** set on their team for `get_team_today` and
+     team insights.
+   - Approvers are recognised by these Employee and Department fields (§4), not by the
+     Leave Approver / Expense Approver role alone.
+   - Give **HR Manager** only to people who should see company-wide team insights.
 5. **Withdrawing leave from the app.** The Employee role has no Delete or Cancel on Leave
    Application, so `cancel_leave` returns 403. Pick one:
    - grant **Employee → Delete, If Owner** on Leave Application (Role Permission Manager), or
@@ -363,15 +485,19 @@ Writes are normal inserts and saves under the session user.
    account. If approvers should approve without posting, add a **Workflow**;
    `decide_approval` follows it.
 7. **CRM.**
-   - Sales staff need **Sales User**; heads need **Sales Manager** for `get_sales_snapshot`.
+   - Sales staff need **Sales User**; heads need **Sales Manager** for sales insights.
    - Turn on **FCRM Settings → Sales hierarchy** if team leads should see their team's deals.
+     Inside the hierarchy a Sales Manager is limited to their subtree (`crm_scope = team`);
+     outside it they see everything (`all`).
+   - Win rates count lost deals by the day they entered a Lost stage, so move deals to Lost
+     in CRM (with a reason) rather than leaving them open.
    - Set **FCRM Settings → Currency** for the snapshot.
    - Fill in **User → Mobile No** for anyone who logs calls.
 8. **OAuth Client** as in §2.1. Restrict **Allowed Roles** to `Employee`.
 9. **Push.** Tick **TBO Smart Settings → Mobile push** only when the app build with Expo
    push ships. The workers (`short` queue) must be running.
 
-## 8. Mismatches with the app (`tbo_smart_mobile/src/api`)
+## 9. Mismatches with the app (`tbo_smart_mobile/src/api`)
 
 | # | App today | Backend | Who changes |
 | --- | --- | --- | --- |
@@ -382,7 +508,7 @@ Writes are normal inserts and saves under the session user.
 | 5 | `AttendanceStatus` lacks `Half Day`, `Work From Home` | HRMS returns them | **App**: widen the type |
 | 6 | `LeaveBalance` has `allocated, used, balance` | Also `pending` | **App** (optional field) |
 | 7 | `LeaveApplication.approver` is a name | `approver` (full name) plus `approver_id` (email), `half_day_date`, `posting_date` | **App** (additive) |
-| 8 | `cancelLeave` sets status Cancelled | Open drafts are **withdrawn (deleted)**, approved leave is cancelled; both need permission (§7.5) | **App** handles 403 and `withdrawn`; **owner** decides on permission |
+| 8 | `cancelLeave` sets status Cancelled | Open drafts are **withdrawn (deleted)**, approved leave is cancelled; both need permission (§8.5) | **App** handles 403 and `withdrawn`; **owner** decides on permission |
 | 9 | `getLeaveApprover()` → string | `{leave_approver, leave_approver_name, is_mandatory}` | **App** |
 | 10 | `createClaim({…, date, receipt})` with a file name | Params `expense_date`, `receipt_filename`, `receipt_base64` | **App** |
 | 11 | `ExpenseClaim` | Also `sanctioned_amount`, `approver_id` | **App** (additive) |
@@ -401,11 +527,13 @@ Writes are normal inserts and saves under the session user.
 | 24 | `logActivity(ref, {kind, text, nextFollowUp})` | `log_activity(doctype, name, kind, text, next_follow_up, phone)`. Returns the timeline | **App** (rename) |
 | 25 | `setLeadFollowUp(name, date)` | `add_follow_up(doctype, name, due, title?)` creates a CRM Task | **App** |
 | 26 | `FollowUp.kind` is `call`/`meeting`; `owner` | `kind` is always `task`. Adds `status`, `priority`, `overdue`; no `owner` (always me) | **App** |
-| 27 | `Organization` = ERPNext Customer with `health`, `health_reason`, `amc`, `contacts` | CRM Organization with `erpnext_customers[]`, `open_deals`, `contacts[]` and `deals[]` (detail). **No `health` or `amc`** (§5) | **App**: drop health; take AMC from the hub |
+| 27 | `Organization` = ERPNext Customer with `health`, `health_reason`, `amc`, `contacts` | CRM Organization with `erpnext_customers[]`, `open_deals`, `contacts[]` and `deals[]` (detail). **No `health` or `amc`** (§6) | **App**: drop health; take AMC from the hub |
 | 28 | `SalesSnapshot` camelCase (`byStage`, `wonThisMonth`, `closingThisWeek: Deal[]`) | snake_case (`by_stage`, `won_this_month`, `closing_this_week` with slim rows), plus `currency` | **App** |
 | 29 | ESS `getNotifications` / `markNotificationsRead` | Not part of this backend. The push payload carries the route. A notification list for tboindia is a follow-up. | **Backend** (v1.1) if the app keeps an ESS notification list |
+| 30 | Screens shown by role or a "Preview as" switch | `get_me().capabilities` (or `capabilities.get_my_capabilities` without an Employee) decides every screen, and `crm_scopes` decides the Mine / Team / All switcher | **App** |
+| 31 | Manager dashboards built from per-person lists | `manager.get_team_insights` and `crm.get_sales_insights` return ready aggregates, deltas and 8-period trends; render them as they come | **App** |
 
-## 9. Tests
+## 10. Tests
 
 The tests are in `tbo_smart/tests/test_mobile_{ess,crm,manager,push}.py`, with helpers in
 `tbo_smart/test_utils.py`. They cover:
@@ -414,6 +542,13 @@ The tests are in `tbo_smart/tests/test_mobile_{ess,crm,manager,push}.py`, with h
 - **Manager:** endpoints refuse non-managers and non-approvers; only the named approver can
   decide.
 - **CRM:** visibility follows CRM rules.
+- **Capabilities** (`test_mobile_capabilities.py`): each role combination (plain employee,
+  leave approver, expense approver, Sales User, Sales Manager, HR Manager, manager with
+  reports, user without an Employee), the HR Settings flags, and scope enforcement (staff
+  cannot ask for `team` or `all`; a manager switches; the sales hierarchy gives `team`).
+- **Insights** (`test_mobile_insights.py`): period windows, figures on fixtures, refusal
+  without the capability or outside the scope, and no location or punch time in team
+  insights.
 - **Push:** off by default, payload, dead-token cleanup, never raises.
 
 They need a site with **erpnext, hrms and crm** installed and `allow_tests` on:
@@ -423,3 +558,9 @@ those apps on Frappe version-15.
 ## Changelog
 
 - **v1 (2026-10-10):** first contract. ESS, manager, CRM, devices and Expo push.
+- **v1.1 (2026-10-11):** capabilities from real roles (§4) in `get_me` and
+  `capabilities.get_my_capabilities`; every endpoint checks the flag it advertises (CRM now
+  needs `crm`; approvals follow named approvers and HR roles, not the approver roles alone).
+  `scope` on `get_leads`, `get_deals` and `get_my_follow_ups`. New read-only
+  `manager.get_team_insights` and `crm.get_sales_insights`. `get_sales_snapshot` follows the
+  caller's `crm_scope`. Follow-ups add `assigned_to` and `assigned_to_name`.

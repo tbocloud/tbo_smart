@@ -1,0 +1,133 @@
+{
+  "message": {
+    "period": "month",
+    "from_date": "2026-10-01",
+    "to_date": "2026-10-11",
+    "previous": {
+      "from_date": "2026-09-01",
+      "to_date": "2026-09-11"
+    },
+    "scope": "direct_reports",
+    "team_size": 8,
+    "generated_at": "2026-10-11 09:42:17.204118",
+    "attendance": {
+      "present_pct": 95.0,
+      "late": 3,
+      "absent": 1,
+      "on_leave_days": 2,
+      "marked_days": 60,
+      "present_pct_delta": 1.4,
+      "late_delta": -3,
+      "absent_delta": 0,
+      "on_leave_today": 1,
+      "checked_in_today": 6
+    },
+    "trend": [
+      {
+        "label": "2026-03",
+        "from_date": "2026-03-01",
+        "to_date": "2026-03-31",
+        "present_pct": 91.2,
+        "late": 9,
+        "absent": 3,
+        "on_leave_days": 2,
+        "marked_days": 168
+      },
+      {
+        "label": "2026-04",
+        "from_date": "2026-04-01",
+        "to_date": "2026-04-30",
+        "present_pct": 93.0,
+        "late": 7,
+        "absent": 2,
+        "on_leave_days": 2,
+        "marked_days": 168
+      },
+      {
+        "label": "2026-05",
+        "from_date": "2026-05-01",
+        "to_date": "2026-05-31",
+        "present_pct": 90.4,
+        "late": 11,
+        "absent": 4,
+        "on_leave_days": 2,
+        "marked_days": 168
+      },
+      {
+        "label": "2026-06",
+        "from_date": "2026-06-01",
+        "to_date": "2026-06-30",
+        "present_pct": 92.8,
+        "late": 8,
+        "absent": 2,
+        "on_leave_days": 2,
+        "marked_days": 168
+      },
+      {
+        "label": "2026-07",
+        "from_date": "2026-07-01",
+        "to_date": "2026-07-31",
+        "present_pct": 94.1,
+        "late": 5,
+        "absent": 1,
+        "on_leave_days": 2,
+        "marked_days": 168
+      },
+      {
+        "label": "2026-08",
+        "from_date": "2026-08-01",
+        "to_date": "2026-08-31",
+        "present_pct": 92.5,
+        "late": 7,
+        "absent": 3,
+        "on_leave_days": 2,
+        "marked_days": 168
+      },
+      {
+        "label": "2026-09",
+        "from_date": "2026-09-01",
+        "to_date": "2026-09-30",
+        "present_pct": 93.6,
+        "late": 6,
+        "absent": 2,
+        "on_leave_days": 2,
+        "marked_days": 168
+      },
+      {
+        "label": "2026-10",
+        "from_date": "2026-10-01",
+        "to_date": "2026-10-31",
+        "present_pct": 95.0,
+        "late": 3,
+        "absent": 1,
+        "on_leave_days": 2,
+        "marked_days": 60
+      }
+    ],
+    "pending": {
+      "leave": {
+        "count": 2,
+        "oldest_days": 3
+      },
+      "expense": {
+        "count": 1,
+        "oldest_days": 6,
+        "amount": 4820.0
+      }
+    },
+    "people": [
+      {
+        "employee": "HR-EMP-00042",
+        "employee_name": "Najath Thekkeyil",
+        "late": 2,
+        "absent": 0
+      },
+      {
+        "employee": "HR-EMP-00051",
+        "employee_name": "Sanika Menon",
+        "late": 1,
+        "absent": 1
+      }
+    ]
+  }
+}

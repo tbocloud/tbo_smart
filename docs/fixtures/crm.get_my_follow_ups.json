@@ -13,7 +13,9 @@
       "ref": {
         "doctype": "lead",
         "name": "CRM-LEAD-2026-00138"
-      }
+      },
+      "assigned_to": "najath@teambackoffice.com",
+      "assigned_to_name": "Najath Thekkeyil"
     },
     {
       "id": "CRM-TASK-2026-00205",
@@ -28,7 +30,9 @@
       "ref": {
         "doctype": "deal",
         "name": "CRM-DEAL-2026-00035"
-      }
+      },
+      "assigned_to": "najath@teambackoffice.com",
+      "assigned_to_name": "Najath Thekkeyil"
     }
   ]
 }
