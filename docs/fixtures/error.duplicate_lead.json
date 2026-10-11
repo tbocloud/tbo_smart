@@ -1,0 +1,29 @@
+{
+  "exc_type": "DuplicateLead",
+  "matches": [
+    {
+      "kind": "lead",
+      "name": null,
+      "title": "Someone on the team already has this lead",
+      "owner_name": "Deepa Nair",
+      "status": null,
+      "match_on": [
+        "phone"
+      ],
+      "can_open": false
+    },
+    {
+      "kind": "contact",
+      "name": "Faisal Al Mansoori-Al Noor Trading LLC",
+      "title": "Faisal Al Mansoori",
+      "owner_name": "Ruvaishid",
+      "status": "Passive",
+      "match_on": [
+        "phone",
+        "email"
+      ],
+      "can_open": false
+    }
+  ],
+  "_server_messages": "[\"{\\\"message\\\": \\\"This looks like a lead the team already has. Check the matches or create it anyway.\\\", \\\"title\\\": \\\"Possible duplicate\\\", \\\"indicator\\\": \\\"red\\\", \\\"raise_exception\\\": 1}\"]"
+}

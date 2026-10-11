@@ -1,0 +1,16 @@
+{
+  "message": {
+    "data": [
+      {
+        "user": "deepa@teambackoffice.com",
+        "full_name": "Deepa Nair",
+        "image": null
+      },
+      {
+        "user": "ruvaishid@teambackoffice.com",
+        "full_name": "Ruvaishid",
+        "image": "/files/ruvaishid.jpg"
+      }
+    ]
+  }
+}

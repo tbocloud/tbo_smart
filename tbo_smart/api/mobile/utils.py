@@ -56,13 +56,16 @@ def page_envelope(rows: list, page: int, page_length: int) -> dict:
 	return {"data": rows[:page_length], "page": max(int(page or 1), 1), "has_more": len(rows) > page_length}
 
 
-def get_full_names(users: set | list) -> dict[str, str]:
-	"""Map user ids to full names in one query."""
+def get_full_names(users: set | list, fallback_to_id: bool = True) -> dict[str, str]:
+	"""Map user ids to full names in one query. Without `fallback_to_id`, users with no full
+	name are left out instead of mapping to their id (email)."""
 	users = [u for u in set(users) if u]
 	if not users:
 		return {}
 	User = frappe.qb.DocType("User")
 	rows = frappe.qb.from_(User).select(User.name, User.full_name).where(User.name.isin(users)).run()
+	if not fallback_to_id:
+		return {name: full_name for name, full_name in rows if full_name}
 	return {name: full_name or name for name, full_name in rows}
 
 

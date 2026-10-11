@@ -1,4 +1,4 @@
-# TBO Smart API: ESS, CRM and manager (tboindia side), v1
+# TBO Smart API: ESS, CRM and manager (tboindia side), v1.3
 
 This is the contract for the TBO Smart mobile app's **tboindia.tbocloud.in** half: HR
 self-service (HRMS), CRM (Frappe CRM) and the manager views. The hub (TBO Support) has its
@@ -7,7 +7,7 @@ own contract in `tbocloud/helpdesk`.
 - **Code:** `tbo_smart/api/mobile/{auth,capabilities,ess,crm,manager,device}.py` and `tbo_smart/push.py`.
 - **Fixtures:** `docs/fixtures/<module>.<method>.json`. Each one is the full HTTP body that
   Frappe returns (`{"message": ...}`).
-- **Status:** v1.2, 2026-10-11. Any change gets a version note in the changelog at the end of
+- **Status:** v1.3, 2026-10-11. Any change gets a version note in the changelog at the end of
   this file.
 
 ## 1. Conventions
@@ -32,6 +32,7 @@ Error mapping for the app:
 | `AuthenticationError` | 401 | `unauthenticated` | Single sign-in only (§2.5): the Microsoft ID token failed verification or was already used. |
 | `PermissionError` | 403 | `forbidden` | Not your document, not your role, or a setting is off. |
 | `DuplicateEntryError` | 409 | `duplicate` | For example, a second punch within 60 s. |
+| `DuplicateLead` | 409 | `duplicate_lead` | `crm.create_lead` found possible duplicates. The body also has `matches` (§6.2). Show them, then resend with `force=1` if the user still wants the lead. |
 | `ValidationError` and subclasses (`CheckinRadiusExceededError`, `OverlapError`, `InsufficientLeaveBalanceError`, …) | 417 | `invalid` | Show the message. |
 | `RateLimitExceededError` | 429 | `rate_limited` | Retry later. |
 | `DoesNotExistError` | 404 | `not_found` | |
@@ -462,7 +463,9 @@ Writes are normal inserts and saves under the session user.
 | `get_options` | GET | – | `{lead_sources[], lead_statuses[{name,type}], deal_stages[{name,type,probability}], lost_reasons[]}` |
 | `get_leads` | GET | `status?`, `scope?` (§4.1), `search?`, `include_converted?` (default false), `page`, `page_length` | page of Lead |
 | `get_lead` | GET | `name` | Lead plus `notes[]`, `tasks[]`, `activities[]` |
-| `create_lead` | POST | `lead_name`, `organization?`, `email?`, `mobile_no?`, `source?`, `note?` | the new Lead (owner = me) |
+| `create_lead` | POST | `lead_name`, `organization?`, `email?`, `mobile_no?`, `source?`, `note?`, and for lead capture (§6.2) `follow_up_on?`, `follow_up_note?`, `assign_to?`, `source_channel?`, `card_image?`, `force?` | the new Lead (owner = me), as `get_lead`. Possible duplicates without `force`: 409 `DuplicateLead` |
+| `check_duplicates` | GET | `phone?`, `email?`, `organization?` | `{data: {matches: [Match]}}` (§6.2) |
+| `get_assignable_users` | GET | – | `{data: [{user, full_name, image}]}`: who I may pass as `assign_to` (§6.2) |
 | `set_lead_status` | POST | `name`, `status` | `{name, status}` |
 | `convert_lead` | POST | `name` | the Deal (an already-converted lead returns its existing deal) |
 | `get_deals` | GET | `stage?`, `scope?` (§4.1), `mine?` (v1 alias of `scope=mine`), `search?`, `page`, `page_length` | page of Deal |
@@ -512,6 +515,69 @@ Writes are normal inserts and saves under the session user.
 - **Follow-ups** are CRM Tasks assigned to the scope's people (me by default), a status
   other than Done or Canceled, and `due_date` ≤ end of today. `kind` is always `"task"`,
   since CRM tasks have no call/meeting type.
+
+### 6.2 Lead capture (v1.3)
+
+Business card scan, picking from phone contacts and WhatsApp share all happen **on the
+device**. They end in the same two calls: `check_duplicates` while the form is filled in,
+then `create_lead`. Fixtures: `crm.check_duplicates.json`, `crm.create_lead.json`,
+`crm.get_assignable_users.json`, `error.duplicate_lead.json`.
+
+**`check_duplicates(phone?, email?, organization?)`**, needs `crm`:
+
+- **Normalising.**
+  - `phone`: digits only, then the **last 9 digits**, so `+971 50 418 2276`,
+    `00971-50-418-2276`, `050 418 2276` and `504182276` are the same number, with or
+    without the country code or trunk 0. A phone with fewer than 7 digits is ignored.
+    Stored numbers are normalised the same way in SQL (`REGEXP_REPLACE`, `RIGHT`).
+  - `email`: trimmed and compared case-insensitively.
+  - `organization`: outer whitespace trimmed and compared case-insensitively.
+  - No usable key: `matches` is empty.
+- **Where it looks**, in this order, with one grouped query per doctype:
+
+| `kind` | DocType | phone | email | organization | `status` |
+| --- | --- | --- | --- | --- | --- |
+| `lead` | CRM Lead, not converted (a converted lead is found through its deal) | `mobile_no`, `phone` | `email` | `organization` | lead status |
+| `deal` | CRM Deal and its contacts (`CRM Contacts` rows) | deal `mobile_no`, `phone`; contact rows `mobile_no`, `phone` | deal `email`; contact rows `email` | `organization` | deal stage |
+| `organization` | CRM Organization | – | – | `organization_name` | `null` |
+| `contact` | Contact | `phone_nos[].phone`, `mobile_no`, `phone` | `email_ids[].email_id`, `email_id` | – | contact status |
+| `customer` | ERPNext Customer | – | – | `customer_name` | `Active` / `Disabled` |
+
+- At most **10** matches in all, newest first within each kind.
+- **Permissions.** One `frappe.get_list` per doctype finds which matches the caller may read,
+  so CRM's rules (owner, assignment, sales hierarchy, shares) apply.
+  - Readable: full details.
+  - Not readable: `name: null`, `title: "Someone on the team already has this <kind>"`,
+    `status: null`, `can_open: false`. Only `owner_name` and `match_on` are shown.
+    `owner_name` is then the owner's full name only, never their user id; it is `null` if
+    they have no full name.
+- **Match:** `{kind, name, title, owner_name, status, match_on: ["phone"|"email"|"organization"], can_open}`.
+  - `owner_name` is the full name of the lead or deal owner, the customer's account manager
+    (else its creator), or the creator of an organization or contact.
+  - `can_open` is true for readable leads, deals and organizations, the kinds with an app
+    screen. Readable contacts and customers show their details, but `can_open` is false.
+
+**`create_lead`, new optional params.** Everything is checked **before** the insert, because
+Frappe CRM's lead insert commits; a refused request leaves no lead.
+
+| Param | Behaviour |
+| --- | --- |
+| `force` (bool, default false) | Runs the same duplicate check on `mobile_no`, `email` and `organization`. Matches and no `force`: HTTP **409**, `exc_type: "DuplicateLead"`, `matches: [Match]` at the top level of the body, nothing created. With `force`: the lead is created with a note `Created despite possible duplicate of lead CRM-LEAD-… (Faisal); a lead owned by Deepa`. Hidden matches are named only by kind and owner there too. |
+| `assign_to` (user email) | Allowed when `crm_scopes` has `all` (any CRM user), or has `team` and the assignee is in my sales team (`get_sales_team`). Otherwise `PermissionError`. The assignee must be an **enabled system user with a CRM role** (Sales User, Sales Manager or System Manager), else `ValidationError`. My own email is always allowed and changes nothing. The lead stays **owned by me**; the assignee is added with Frappe's `assign_to.add`, the call CRM's own Assign To dialog makes, so it shows under Assigned To in CRM, the assignee can read the lead, and CRM and Frappe notify them. |
+| `follow_up_on` (date or datetime) | A **CRM Task** "Follow up with {lead name}", Todo, due then (a bare date means 00:00), assigned to the assignee if `assign_to` was given, else to me. It shows as the lead's `next_follow_up`. |
+| `follow_up_note` (str) | The task's description, and also an FCRM Note on the lead. Without `follow_up_on` it is just the note. |
+| `source_channel` | `card_scan`, `contacts`, `whatsapp_share` or `manual`; anything else is a `ValidationError`. Always stored as an FCRM Note `Captured in TBO Smart: Business card scan (card_scan)` (labels: Business card scan, Phone contacts, WhatsApp share, Typed in). For reports, filter FCRM Note titles starting with `Captured in TBO Smart:`; the code is in brackets. CRM Lead has no source-detail field. If `source` is not sent, the lead's **Source** is set only when a CRM Lead Source already exists with one of these names (never created): `card_scan` → Business Card, Card Scan, Visiting Card; `contacts` → Phone Contacts, Phone Contact, Contacts; `whatsapp_share` → WhatsApp, WhatsApp Share; `manual` → none. |
+| `card_image` (base64 JPEG) | At most **2 MB** decoded; a `data:image/jpeg;base64,` prefix and line breaks are allowed. Not base64, too large or not a JPEG: `ValidationError`. Saved through HRMS `upload_base64_file` (as for expense receipts) as a **private** File `<lead>-card.jpg` attached to the lead, auto-rotated by its EXIF tag. |
+
+The order of notes on a new lead: `note`, `follow_up_note`, the capture note, then the
+duplicate note.
+
+**`get_assignable_users()`**, needs `crm`: `{data: [{user, full_name, image}]}`, ordered by
+name. Enabled system users with a CRM role: everyone for `crm_scopes` with `all`; me and my
+sales team for `team`; an **empty list** for staff (`own`). Show the "Assign to" picker only
+when it is not empty.
+
+**`get_options`** already returns `lead_sources` (since v1); unchanged.
 
 ### 6.1 Sales insights (`get_sales_insights`)
 
@@ -673,13 +739,20 @@ Read-only aggregates for the scope. Fixture: `crm.get_sales_insights.json`.
 
 ## 10. Tests
 
-The tests are in `tbo_smart/tests/test_mobile_{ess,crm,manager,push,sso}.py`, with helpers in
+The tests are in `tbo_smart/tests/test_mobile_{ess,crm,lead_capture,manager,push,sso}.py`, with helpers in
 `tbo_smart/test_utils.py`. They cover:
 
 - **ESS:** own-only data and server-time check-in.
 - **Manager:** endpoints refuse non-managers and non-approvers; only the named approver can
   decide.
 - **CRM:** visibility follows CRM rules.
+- **Lead capture** (`test_mobile_lead_capture.py`): phone formats (`+971 50…`, `050…`,
+  `00971`, spaces and brackets), email and organization case, matches across leads,
+  organizations, contacts and customers; hidden matches without details; 409 without
+  `force`, then creation with the duplicate note; the follow-up task's due date, assignee
+  and description; `assign_to` refused for staff and outside the team, allowed for a manager
+  and a team lead within scope, refused for a non-CRM assignee; the private card image; the
+  source channel note and Lead Source mapping.
 - **Capabilities** (`test_mobile_capabilities.py`): each role combination (plain employee,
   leave approver, expense approver, Sales User, Sales Manager, HR Manager, manager with
   reports, user without an Employee), the HR Settings flags, and scope enforcement (staff
@@ -715,3 +788,7 @@ those apps on Frappe version-15.
   OAuth Bearer Tokens.
   New TBO Smart Settings fields: Single sign-in with Microsoft, Microsoft tenant ID, Mobile
   Entra client ID and OAuth Client.
+- **v1.3 (2026-10-11):** lead capture (§6.2). New `crm.check_duplicates` and
+  `crm.get_assignable_users`. `crm.create_lead` adds `follow_up_on`, `follow_up_note`,
+  `assign_to`, `source_channel`, `card_image` and `force`, and refuses likely duplicates with
+  HTTP 409 `DuplicateLead` unless forced. `get_options` already had `lead_sources`.
