@@ -525,7 +525,8 @@ def serialize_duplicates(matches: list) -> list[dict]:
 			(doctype, name)
 			for name in frappe.get_list(doctype, filters={"name": ("in", names)}, pluck="name")
 		}
-	owners = get_full_names({match.owner for match in matches})
+	# Hidden matches may show the owner's name, never their user id (email).
+	owners = get_full_names({match.owner for match in matches}, fallback_to_id=False)
 	result = []
 	for match in matches:
 		visible = (match.doctype, match.name) in readable
@@ -536,7 +537,7 @@ def serialize_duplicates(matches: list) -> list[dict]:
 				"title": match.title
 				if visible
 				else _("Someone on the team already has this {0}").format(match.kind),
-				"owner_name": owners.get(match.owner, match.owner),
+				"owner_name": owners.get(match.owner, match.owner if visible else None),
 				"status": match.status if visible else None,
 				"match_on": match.match_on,
 				"can_open": visible and match.kind in OPENABLE_KINDS,
@@ -550,7 +551,7 @@ def describe_duplicates(matches: list[dict]) -> str:
 	parts = [
 		f"{match['kind']} {match['name']} ({match['title']})"
 		if match["name"]
-		else _("a {0} owned by {1}").format(match["kind"], match["owner_name"])
+		else _("a {0} owned by {1}").format(match["kind"], match["owner_name"] or _("someone on the team"))
 		for match in matches
 	]
 	return _("Created despite possible duplicate of {0}").format("; ".join(parts))

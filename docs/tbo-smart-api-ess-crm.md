@@ -413,6 +413,8 @@ then `create_lead`. Fixtures: `crm.check_duplicates.json`, `crm.create_lead.json
   - Readable: full details.
   - Not readable: `name: null`, `title: "Someone on the team already has this <kind>"`,
     `status: null`, `can_open: false`. Only `owner_name` and `match_on` are shown.
+    `owner_name` is then the owner's full name only, never their user id; it is `null` if
+    they have no full name.
 - **Match:** `{kind, name, title, owner_name, status, match_on: ["phone"|"email"|"organization"], can_open}`.
   - `owner_name` is the full name of the lead or deal owner, the customer's account manager
     (else its creator), or the creator of an organization or contact.

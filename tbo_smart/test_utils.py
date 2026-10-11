@@ -245,6 +245,11 @@ def make_card_image_base64() -> str:
 	return base64.b64encode(content.getvalue()).decode()
 
 
+def find_match(matches: list[dict], kind: str, name: str | None = None) -> dict:
+	"""The first check_duplicates match of `kind` (and `name`, when given); StopIteration if none."""
+	return next(row for row in matches if row["kind"] == kind and (name is None or row["name"] == name))
+
+
 def get_note_texts(lead: dict) -> list[str]:
 	"""The note texts of a lead returned by crm.get_lead / create_lead."""
 	return [note["text"] for note in lead["notes"]]

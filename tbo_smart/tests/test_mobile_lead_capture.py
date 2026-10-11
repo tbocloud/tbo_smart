@@ -10,6 +10,7 @@ from tbo_smart.test_utils import (
 	delete_crm_records,
 	disable_sales_hierarchy,
 	enable_sales_hierarchy,
+	find_match,
 	get_note_texts,
 	make_card_image_base64,
 	make_contact,
@@ -46,9 +47,6 @@ class TestMobileLeadCapture(FrappeTestCase):
 		disable_sales_hierarchy((TEAM_LEAD, TEAM_REP))
 		delete_crm_records(CRM_PEOPLE)
 
-	def match_for(self, matches: list, kind: str, name: str | None = None) -> dict:
-		return next(row for row in matches if row["kind"] == kind and (name is None or row["name"] == name))
-
 	# ---------- check_duplicates ----------
 
 	def test_phone_matches_in_any_format(self):
@@ -61,7 +59,7 @@ class TestMobileLeadCapture(FrappeTestCase):
 			f"({mobile[:2]}) {mobile[2:5]}-{mobile[5:]}",
 		):
 			matches = crm.check_duplicates(phone=phone)["data"]["matches"]
-			row = self.match_for(matches, "lead", lead)
+			row = find_match(matches, "lead", lead)
 			self.assertEqual(row["match_on"], ["phone"], phone)
 			self.assertTrue(row["can_open"])
 			self.assertEqual(row["title"], "Phone Match")
@@ -82,19 +80,19 @@ class TestMobileLeadCapture(FrappeTestCase):
 		frappe.set_user(SELLER)
 
 		by_email = crm.check_duplicates(email=f"  RAVI.{tag}@example.COM ")["data"]["matches"]
-		self.assertEqual(self.match_for(by_email, "lead", lead)["match_on"], ["email"])
-		contact_row = self.match_for(by_email, "contact")
+		self.assertEqual(find_match(by_email, "lead", lead)["match_on"], ["email"])
+		contact_row = find_match(by_email, "contact")
 		self.assertEqual(contact_row["match_on"], ["email"])
 		self.assertFalse(contact_row["can_open"])
 
 		by_organization = crm.check_duplicates(organization=f"  gulf star {tag.upper()} ")["data"]["matches"]
-		self.assertEqual(self.match_for(by_organization, "lead", lead)["match_on"], ["organization"])
-		self.assertTrue(self.match_for(by_organization, "organization")["can_open"])
-		self.assertEqual(self.match_for(by_organization, "customer")["title"], organization)
+		self.assertEqual(find_match(by_organization, "lead", lead)["match_on"], ["organization"])
+		self.assertTrue(find_match(by_organization, "organization")["can_open"])
+		self.assertEqual(find_match(by_organization, "customer")["title"], organization)
 
 		both = crm.check_duplicates(email=f"ravi.{tag}@example.com", organization=organization)
 		self.assertEqual(
-			self.match_for(both["data"]["matches"], "lead", lead)["match_on"], ["email", "organization"]
+			find_match(both["data"]["matches"], "lead", lead)["match_on"], ["email", "organization"]
 		)
 
 	def test_hidden_matches_say_a_match_exists_without_details(self):
@@ -118,7 +116,7 @@ class TestMobileLeadCapture(FrappeTestCase):
 		self.assertNotIn("Secret Prospect", json.dumps(matches))
 
 		frappe.set_user(MANAGER)
-		row = self.match_for(crm.check_duplicates(phone=mobile)["data"]["matches"], "lead", hidden)
+		row = find_match(crm.check_duplicates(phone=mobile)["data"]["matches"], "lead", hidden)
 		self.assertEqual(row["title"], "Secret Prospect")
 
 	def test_check_duplicates_needs_crm(self):
