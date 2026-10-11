@@ -1,0 +1,25 @@
+{
+  "message": {
+    "data": [
+      {
+        "name": "CRM-LEAD-2026-00141",
+        "lead_name": "Faisal Al Mansoori",
+        "organization": "Al Noor Trading LLC",
+        "designation": "Operations Manager",
+        "status": "New",
+        "source": "Website",
+        "owner": "Ruvaishid",
+        "owner_id": "ruvaishid@teambackoffice.com",
+        "phone": "+971 50 418 2276",
+        "email": "faisal@alnoortrading.ae",
+        "territory": "UAE",
+        "converted": false,
+        "last_contact": null,
+        "next_follow_up": "2026-10-10 16:00:00",
+        "created": "2026-10-10 08:40:12.000000"
+      }
+    ],
+    "page": 1,
+    "has_more": true
+  }
+}

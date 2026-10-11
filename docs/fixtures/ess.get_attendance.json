@@ -1,0 +1,36 @@
+{
+  "message": [
+    {
+      "date": "2026-10-01",
+      "status": "Present"
+    },
+    {
+      "date": "2026-10-02",
+      "status": "Holiday"
+    },
+    {
+      "date": "2026-10-04",
+      "status": "Weekly off"
+    },
+    {
+      "date": "2026-10-05",
+      "status": "Present"
+    },
+    {
+      "date": "2026-10-06",
+      "status": "Work From Home"
+    },
+    {
+      "date": "2026-10-07",
+      "status": "On Leave"
+    },
+    {
+      "date": "2026-10-08",
+      "status": "Half Day"
+    },
+    {
+      "date": "2026-10-09",
+      "status": "Absent"
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "message": {
+    "data": [
+      {
+        "name": "Sal Slip/HR-EMP-00042/00009",
+        "month": "2026-09",
+        "start_date": "2026-09-01",
+        "end_date": "2026-09-30",
+        "currency": "INR",
+        "gross": 52000.0,
+        "deductions": 5180.0,
+        "net_pay": 46820.0,
+        "working_days": 26.0,
+        "payment_days": 25.0,
+        "pdf_url": "/api/method/tbo_smart.api.mobile.ess.download_salary_slip?name=Sal%20Slip/HR-EMP-00042/00009"
+      }
+    ],
+    "page": 1,
+    "has_more": false
+  }
+}

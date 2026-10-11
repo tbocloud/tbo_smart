@@ -1,0 +1,19 @@
+{
+  "message": {
+    "name": "HR-EMP-00042",
+    "employee_name": "Najath Thekkeyil",
+    "user": "najath@teambackoffice.com",
+    "designation": "Frappe Developer",
+    "department": "ERP - TBO",
+    "company": "TBO India",
+    "branch": "Kakkanad, Kochi",
+    "reports_to": "Arun Babu",
+    "reports_to_id": "HR-EMP-00007",
+    "date_of_joining": "2024-06-03",
+    "phone": "+91 98470 12321",
+    "image": null,
+    "is_manager": false,
+    "is_approver": false,
+    "is_sales_manager": false
+  }
+}

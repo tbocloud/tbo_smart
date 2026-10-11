@@ -1,0 +1,67 @@
+{
+  "message": {
+    "currency": "INR",
+    "by_stage": [
+      {
+        "stage": "Qualification",
+        "type": "Open",
+        "count": 1,
+        "amount": 600000.0
+      },
+      {
+        "stage": "Demo/Making",
+        "type": "Ongoing",
+        "count": 1,
+        "amount": 420000.0
+      },
+      {
+        "stage": "Proposal/Quotation",
+        "type": "Ongoing",
+        "count": 1,
+        "amount": 1850000.0
+      },
+      {
+        "stage": "Negotiation",
+        "type": "Ongoing",
+        "count": 2,
+        "amount": 1300000.0
+      },
+      {
+        "stage": "Ready to Close",
+        "type": "Ongoing",
+        "count": 0,
+        "amount": 0.0
+      }
+    ],
+    "pipeline": 4170000.0,
+    "weighted": 2083000.0,
+    "won_this_month": {
+      "count": 2,
+      "amount": 425000.0
+    },
+    "closing_this_week": [
+      {
+        "name": "CRM-DEAL-2026-00029",
+        "organization": "Sahelmed",
+        "lead_name": "Salim Al Harthy",
+        "stage": "Negotiation",
+        "amount": 940000.0,
+        "probability": 75.0,
+        "expected_closure_date": "2026-10-14",
+        "deal_owner": "ruvaishid@teambackoffice.com",
+        "overdue": false
+      },
+      {
+        "name": "CRM-DEAL-2026-00035",
+        "organization": "Galom International Private Limited",
+        "lead_name": "Rahul Menon",
+        "stage": "Negotiation",
+        "amount": 360000.0,
+        "probability": 80.0,
+        "expected_closure_date": "2026-10-16",
+        "deal_owner": "arun.babu@teambackoffice.com",
+        "overdue": false
+      }
+    ]
+  }
+}

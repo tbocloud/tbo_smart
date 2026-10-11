@@ -1,0 +1,12 @@
+{
+  "to": "ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]",
+  "title": "Your Leave Application HR-LAP-2026-00091 has been Approved by Arun Babu",
+  "body": "",
+  "sound": "default",
+  "data": {
+    "site": "ess",
+    "doctype": "Leave Application",
+    "name": "HR-LAP-2026-00091",
+    "route": "/hr/leave"
+  }
+}

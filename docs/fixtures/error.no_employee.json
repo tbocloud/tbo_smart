@@ -1,0 +1,4 @@
+{
+  "exc_type": "NoEmployeeError",
+  "_server_messages": "[\"{\\\"message\\\": \\\"No active Employee record is linked to najath@teambackoffice.com. Ask HR to link one.\\\", \\\"title\\\": \\\"No employee record\\\", \\\"indicator\\\": \\\"red\\\", \\\"raise_exception\\\": 1}\"]"
+}

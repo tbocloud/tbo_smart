@@ -1,0 +1,60 @@
+{
+  "message": {
+    "name": "CRM-LEAD-2026-00141",
+    "lead_name": "Faisal Al Mansoori",
+    "organization": "Al Noor Trading LLC",
+    "designation": "Operations Manager",
+    "status": "New",
+    "source": "Website",
+    "owner": "Ruvaishid",
+    "owner_id": "ruvaishid@teambackoffice.com",
+    "phone": "+971 50 418 2276",
+    "email": "faisal@alnoortrading.ae",
+    "territory": "UAE",
+    "converted": false,
+    "last_contact": null,
+    "next_follow_up": "2026-10-10 16:00:00",
+    "created": "2026-10-10 08:40:12.000000",
+    "notes": [
+      {
+        "id": "a1b2c3d4e5",
+        "at": "2026-10-10 08:40:12.000000",
+        "who": "Ruvaishid",
+        "text": "Needs inventory + VAT invoicing for 3 branches. Currently on Tally."
+      }
+    ],
+    "tasks": [
+      {
+        "id": "CRM-TASK-2026-00211",
+        "title": "Follow up with Faisal Al Mansoori",
+        "due": "2026-10-10 16:00:00",
+        "status": "Todo",
+        "done": false,
+        "assigned_to": "ruvaishid@teambackoffice.com"
+      }
+    ],
+    "activities": [
+      {
+        "id": "f9e8d7c6b5",
+        "at": "2026-10-10 10:05:00",
+        "who": "Ruvaishid",
+        "kind": "call",
+        "text": "Intro call, 12 min. Wants a demo."
+      },
+      {
+        "id": "k1l2m3",
+        "at": "2026-10-10 09:30:00.000000",
+        "who": "Ruvaishid",
+        "kind": "comment",
+        "text": "WhatsApp: Shared the brochure"
+      },
+      {
+        "id": "a1b2c3d4e5",
+        "at": "2026-10-10 08:40:12.000000",
+        "who": "Ruvaishid",
+        "kind": "note",
+        "text": "Needs inventory + VAT invoicing for 3 branches. Currently on Tally."
+      }
+    ]
+  }
+}
