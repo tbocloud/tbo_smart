@@ -13,6 +13,7 @@ from tbo_smart.test_utils import (
 	get_test_rsa_key,
 	make_microsoft_id_token,
 	make_oauth_client,
+	make_staff,
 	make_user,
 	mock_microsoft_jwks,
 	refresh_oauth_token,
@@ -26,7 +27,8 @@ OTHER_TENANT = "99999999-8888-7777-6666-555555555555"
 
 class TestMobileSSO(FrappeTestCase):
 	def setUp(self):
-		make_user(STAFF, ["Employee"])
+		# ERPNext drops the Employee role from a User without an Employee, so STAFF needs one.
+		make_staff(STAFF)
 		make_user(SALES_ONLY, ["Sales User"])
 		make_user(DISABLED, ["Employee"])
 		frappe.db.set_value("User", DISABLED, "enabled", 0)
@@ -135,6 +137,7 @@ class TestMobileSSO(FrappeTestCase):
 		settings.microsoft_tenant_id = "common"
 		with self.assertRaises(frappe.ValidationError):
 			settings.save()
+		settings = frappe.get_doc("TBO Smart Settings")
 		settings.microsoft_tenant_id = f"{MS_TEST_TENANT.upper()}\n{OTHER_TENANT}"
 		settings.microsoft_mobile_client_id = MS_TEST_CLIENT_ID
 		settings.save()
