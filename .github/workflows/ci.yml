@@ -52,7 +52,8 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v3
         with:
-          node-version: 18
+          # Frappe CRM's dependencies need Node 20 or newer
+          node-version: 20
           check-latest: true
 
       - name: Cache pip
@@ -91,7 +92,8 @@ jobs:
         run: |
           bench get-app erpnext --branch version-15
           bench get-app hrms --branch version-15
-          bench get-app crm --branch main
+          # the CRM fork tboindia runs
+          bench get-app https://github.com/tbocloud/crm --branch main
           bench get-app tbo_smart $GITHUB_WORKSPACE
           bench setup requirements --dev
           bench new-site --db-root-password root --admin-password admin test_site
