@@ -363,22 +363,14 @@ def make_microsoft_id_token(
 def mock_microsoft_jwks():
 	"""Patch the JWKS download so Microsoft's key set is the test public key.
 
-	Also forgets the cached per-tenant clients and the key-refresh cooldown. Use as a context
-	manager or start()/stop(); the started mock counts the downloads.
+	Also forgets the shared key set and the key-refresh cooldown. Use as a context manager or
+	start()/stop(); the started mock counts the downloads.
 	"""
 	jwk = json.loads(RSAAlgorithm.to_jwk(get_test_rsa_key().public_key()))
 	jwk.update({"kid": MS_TEST_KEY_ID, "use": "sig", "alg": "RS256"})
-	auth.JWKS_CLIENTS.clear()
+	frappe.cache.delete_value(auth.jwks_cache_key(MS_TEST_TENANT))
 	frappe.cache.delete_value(auth.jwks_refresh_key(MS_TEST_TENANT), make_keys=False)
-	jwk_set = {"keys": [jwk]}
-
-	def fetch_data(client: jwt.PyJWKClient) -> dict:
-		# Fill the client's cache like the real download does, so caching is exercised too.
-		if client.jwk_set_cache is not None:
-			client.jwk_set_cache.put(jwk_set)
-		return jwk_set
-
-	return patch.object(jwt.PyJWKClient, "fetch_data", autospec=True, side_effect=fetch_data)
+	return patch.object(jwt.PyJWKClient, "fetch_data", return_value={"keys": [jwk]})
 
 
 def make_oauth_client(roles: list[str] | tuple = ("Employee",)) -> str:

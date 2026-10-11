@@ -148,9 +148,11 @@ Errors (Frappe's error body, mapped as in §1):
 2. The token's `tid` is one of the configured tenants (checked before any key is fetched).
 3. RS256 signature against that tenant's keys,
    `https://login.microsoftonline.com/<tid>/discovery/v2.0/keys`. PyJWT's `PyJWKClient`
-   caches the key set per worker for an hour. An unknown `kid` refetches it at most once per
-   tenant every 5 minutes across all workers (a Redis `SET NX` cooldown), so made-up key ids
-   cannot make the site hammer Microsoft. No other algorithm is accepted.
+   downloads the key set, and it is shared by every worker through Redis for an hour. An
+   unknown `kid` downloads it again at most once per tenant every 5 minutes (a Redis `SET NX`
+   cooldown). The new set replaces the shared one, so all workers see rotated keys at once,
+   while made-up key ids cannot make the site hammer Microsoft. No other algorithm is
+   accepted.
 4. `iss` is exactly `https://login.microsoftonline.com/<tid>/v2.0`, `aud` is the mobile
    client ID, and `exp`, `iat`, `iss`, `aud`, `tid` are present.
 5. `exp` and `nbf` hold, with 120 s of clock leeway.

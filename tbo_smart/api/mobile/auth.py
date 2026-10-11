@@ -30,12 +30,12 @@ REPLAY_CACHE_PREFIX = "tbo_smart:sso:used"
 # A key id that is not in the cached set triggers at most one key download per tenant this often.
 JWKS_REFRESH_COOLDOWN_SECONDS = 300
 JWKS_REFRESH_CACHE_PREFIX = "tbo_smart:sso:jwks_refresh"
+# Microsoft's key set per tenant, shared by every worker through Redis.
+JWKS_CACHE_PREFIX = "tbo_smart:sso:jwks"
+JWKS_CACHE_SECONDS = 3600
 GUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 USER_CLAIMS = ("email", "preferred_username", "upn")
 BLOCKED_USERS = ("Administrator", "Guest")
-
-# One JWKS client per tenant for the life of the worker; PyJWKClient caches the key set.
-JWKS_CLIENTS: dict[str, jwt.PyJWKClient] = {}
 
 
 # Guest by design: the caller has no session yet. Reviewed: POST only, rate-limited, and
@@ -129,31 +129,44 @@ def verify_microsoft_id_token(id_token: str, settings: frappe._dict, nonce: str 
 
 
 def get_signing_key(tenant: str, kid: str | None):
-	"""The tenant's public key for `kid`, from the key set cached for an hour.
+	"""The tenant's public key for `kid`, from a key set shared by all workers for an hour.
 
-	An unknown `kid` refetches the set at most once per tenant every 5 minutes across all
-	workers, so tokens with made-up key ids cannot make this site hammer Microsoft.
+	An unknown `kid` downloads the set again at most once per tenant every 5 minutes, and the
+	new set replaces the shared one, so every worker sees rotated keys at once while made-up
+	key ids cannot make this site hammer Microsoft.
 	"""
-	client = get_jwks_client(tenant)
-	key = find_signing_key(client.get_signing_keys(), kid)
+	key = find_signing_key(get_jwk_set(tenant), kid)
 	if key is None and claim_jwks_refresh(tenant):
-		key = find_signing_key(client.get_signing_keys(refresh=True), kid)
+		key = find_signing_key(download_jwk_set(tenant), kid)
 	if key is None:
 		raise jwt.PyJWKClientError("unknown signing key")
 	return key
 
 
-def find_signing_key(keys: list[jwt.PyJWK], kid: str | None):
-	return next((key.key for key in keys if kid and key.key_id == kid), None)
+def find_signing_key(jwk_set: dict, kid: str | None):
+	keys = jwt.PyJWKSet.from_dict(jwk_set).keys
+	return next(
+		(key.key for key in keys if kid and key.key_id == kid and key.public_key_use in (None, "sig")), None
+	)
 
 
-def get_jwks_client(tenant: str) -> jwt.PyJWKClient:
-	"""The cached key-set client for a tenant's v2.0 signing keys."""
-	if tenant not in JWKS_CLIENTS:
-		JWKS_CLIENTS[tenant] = jwt.PyJWKClient(
-			f"{MICROSOFT_LOGIN}/{tenant}/discovery/v2.0/keys", lifespan=3600, timeout=10
-		)
-	return JWKS_CLIENTS[tenant]
+def get_jwk_set(tenant: str) -> dict:
+	"""The tenant's key set from the shared cache, downloading it when there is none."""
+	return frappe.cache.get_value(jwks_cache_key(tenant), expires=True) or download_jwk_set(tenant)
+
+
+def download_jwk_set(tenant: str) -> dict:
+	"""Fetch the tenant's v2.0 signing keys with PyJWT's PyJWKClient and share them for an hour."""
+	client = jwt.PyJWKClient(
+		f"{MICROSOFT_LOGIN}/{tenant}/discovery/v2.0/keys", cache_jwk_set=False, timeout=10
+	)
+	jwk_set = client.fetch_data()
+	frappe.cache.set_value(jwks_cache_key(tenant), jwk_set, expires_in_sec=JWKS_CACHE_SECONDS)
+	return jwk_set
+
+
+def jwks_cache_key(tenant: str) -> str:
+	return f"{JWKS_CACHE_PREFIX}:{tenant}"
 
 
 def jwks_refresh_key(tenant: str) -> str:
@@ -161,7 +174,7 @@ def jwks_refresh_key(tenant: str) -> str:
 
 
 def claim_jwks_refresh(tenant: str) -> bool:
-	"""True for the first caller in each cooldown window; everyone else uses the cached set."""
+	"""True for the first caller in each cooldown window; everyone else uses the shared set."""
 	# Raw SET NX for an atomic check-and-mark; make_key adds the site prefix, so it stays per site.
 	return bool(
 		frappe.cache.set(jwks_refresh_key(tenant), 1, ex=JWKS_REFRESH_COOLDOWN_SECONDS, nx=True)  # nosemgrep
