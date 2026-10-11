@@ -13,7 +13,14 @@ from frappe.query_builder.functions import Count, IfNull, Min, Sum
 from frappe.utils import add_days, cint, date_diff, flt, getdate, now_datetime, strip_html
 from hrms.api import get_expense_claims, get_leave_applications
 
-from tbo_smart.api.mobile.capabilities import HR_APPROVER_ROLES, get_capabilities, require, scope_users
+from tbo_smart.api.mobile.capabilities import (
+	DECISION_WORDS,
+	HR_APPROVER_ROLES,
+	get_capabilities,
+	is_decision,
+	require,
+	scope_users,
+)
 from tbo_smart.api.mobile.crm import CLOSED_STAGE_TYPES, deal_value, get_crm_currency, owned_by
 from tbo_smart.api.mobile.utils import (
 	cached_insights,
@@ -425,10 +432,9 @@ def set_decision(doc, kind: str, approve: bool) -> None:
 
 def pick_workflow_action(doc, approve: bool) -> str:
 	"""The transition open to me whose action or next state reads as approve / reject."""
-	words = ("approv",) if approve else ("reject",)
+	words = DECISION_WORDS[:1] if approve else DECISION_WORDS[1:]
 	for transition in get_transitions(doc):
-		label = f"{transition.action} {transition.next_state}".lower()
-		if any(word in label for word in words):
+		if is_decision(transition.action, transition.next_state, words):
 			return transition.action
 	frappe.throw(
 		_("No workflow action to {0} {1} is open to you.").format(

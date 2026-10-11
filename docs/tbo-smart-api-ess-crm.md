@@ -204,7 +204,7 @@ ERP takes effect on the next request.
 | `ess` | The user has an **active Employee** (`Employee.user_id`). | every `ess.*` method (else `NoEmployeeError`) |
 | `checkin_allowed` | `ess` and **HR Settings → Allow Employee Checkin from Mobile App**. | `ess.check_in` |
 | `geolocation_required` | `checkin_allowed` and **HR Settings → Allow Geolocation Tracking**. The app must send latitude and longitude; HRMS refuses a punch without them and enforces shift-location radii. | `ess.check_in` (HRMS) |
-| `approve_leave` | **HR Manager** or **HR User**; or the user is the **Leave Approver** of an active Employee or a Department (Department Approver, Leave Approvers); or a **Workflow** on Leave Application has a transition one of their roles may perform. The **Leave Approver** role alone, with nobody to approve, is not enough. | `manager.get_approvals` (leave part), `manager.decide_approval(kind="leave")` |
+| `approve_leave` | **HR Manager** or **HR User**; or the user is the **Leave Approver** of an active Employee or a Department (Department Approver, Leave Approvers); or a **Workflow** on Leave Application has an approve or reject transition (action or next state containing "approv" / "reject") allowed to one of their own roles (not All or Guest). The **Leave Approver** role alone, with nobody to approve, is not enough. | `manager.get_approvals` (leave part), `manager.decide_approval(kind="leave")` |
 | `approve_expense` | The same rule for Expense Claim: HR Manager / HR User, named **Expense Approver** of an Employee or Department, or a workflow role. | `manager.get_approvals` (expense part), `manager.decide_approval(kind="expense")` |
 | `team_today` | `ess` and at least one **active direct report** (`Employee.reports_to`). | `manager.get_team_today` |
 | `team_insights` | `team_today`, or the **HR Manager** role. | `manager.get_team_insights` |
@@ -297,7 +297,9 @@ Read-only aggregates for **management by insight, not surveillance**. Fixture:
   - `*_delta` = current minus previous (percentage points for `present_pct`);
   - `on_leave_today` = people with approved, submitted leave covering today;
     `checked_in_today` = people with an IN punch today (a count only).
-- **`trend`**: 8 periods, oldest first, the last one the current period. Each has the same
+- **`trend`**: 8 periods, oldest first, the last one the current period. `label` is
+  `YYYY-MM` (month), `YYYY-Qn` (quarter), `YYYY` (year) or the week's first day
+  `YYYY-MM-DD` (week). Each has the same
   KPIs as `attendance` (without the today counts).
 - **`pending`**: the team's Open leave applications and Draft expense claims: `count`,
   `oldest_days` (age of the oldest by posting date) and, for expenses, `amount`.
@@ -306,7 +308,7 @@ Read-only aggregates for **management by insight, not surveillance**. Fixture:
 - **Never returned:** check-in times, coordinates, the device / location text, or any
   per-day record of a person.
 - Computed with a fixed set of grouped queries (no per-person queries), and cached for **5 minutes** per
-  (user, period, team scope); `generated_at` says when.
+  (user, day, period, team scope); `generated_at` says when.
 
 ## 6. CRM: `tbo_smart.api.mobile.crm`
 
@@ -404,7 +406,7 @@ Read-only aggregates for the scope. Fixture: `crm.get_sales_insights.json`.
 - **`trend`**: 8 periods, oldest first: `won_value`, `won_count` and `new_leads`.
 - **`closing`**: the 10 biggest open deals expected to close in the **whole current period**.
 - Computed with a fixed set of grouped queries (no per-deal or per-person queries), and cached for **5 minutes** per
-  (user, period, scope, stalled days); `generated_at` says when.
+  (user, day, period, scope, stalled days); `generated_at` says when.
 
 ## 7. Devices and push: `tbo_smart.api.mobile.device` and `tbo_smart.push`
 

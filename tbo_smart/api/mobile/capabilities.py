@@ -16,6 +16,8 @@ CRM_ROLES = {"Sales User", "Sales Manager", "System Manager"}
 CRM_MANAGER_ROLES = {"Sales Manager", "System Manager"}
 # The `scope` a caller may pass for each crm_scope, narrowest first.
 CRM_SCOPE_PARAMS = {"own": ["mine"], "team": ["mine", "team"], "all": ["mine", "team", "all"]}
+# A workflow transition counts as a decision when its action or next state reads like one.
+DECISION_WORDS = ("approv", "reject")
 APPROVAL_FIELDS = {
 	"leave": ("Leave Application", "leave_approver", "leave_approvers"),
 	"expense": ("Expense Claim", "expense_approver", "expense_approvers"),
@@ -68,7 +70,8 @@ def get_capabilities() -> frappe._dict:
 
 def can_approve(kind: str, user: str, roles: set) -> bool:
 	"""HR Manager / HR User, the named approver of any active employee or department, or a
-	user whose roles can move a step of the doctype's workflow."""
+	user whose own roles (not All or Guest) can take an approve or reject step of the
+	doctype's workflow."""
 	if roles & HR_APPROVER_ROLES:
 		return True
 	doctype, employee_field, department_field = APPROVAL_FIELDS[kind]
@@ -79,10 +82,21 @@ def can_approve(kind: str, user: str, roles: set) -> bool:
 	):
 		return True
 	workflow = get_workflow_name(doctype)
-	return bool(
-		workflow
-		and frappe.db.exists("Workflow Transition", {"parent": workflow, "allowed": ("in", list(roles))})
+	own_roles = list(roles - {"All", "Guest"})
+	if not workflow or not own_roles:
+		return False
+	transitions = frappe.get_all(
+		"Workflow Transition",
+		filters={"parent": workflow, "allowed": ("in", own_roles)},
+		fields=["action", "next_state"],
 	)
+	return any(is_decision(row.action, row.next_state, DECISION_WORDS) for row in transitions)
+
+
+def is_decision(action: str | None, next_state: str | None, words: tuple) -> bool:
+	"""Whether a workflow transition's action or next state contains one of `words`."""
+	label = f"{action or ''} {next_state or ''}".lower()
+	return any(word in label for word in words)
 
 
 def get_crm_scope(user: str, roles: set) -> str:

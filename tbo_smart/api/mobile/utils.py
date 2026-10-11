@@ -119,7 +119,8 @@ def shift_period(start, period: str, offset: int):
 
 def period_label(start, period: str) -> str:
 	if period == "week":
-		return start.strftime("%G-W%V")
+		# The week's first day, by the site's own week start (ISO week numbers assume Monday).
+		return start.isoformat()
 	if period == "month":
 		return start.strftime("%Y-%m")
 	if period == "quarter":
@@ -141,8 +142,13 @@ def in_window(day, from_date, to_date) -> bool:
 
 
 def cached_insights(kind: str, parts: tuple, build) -> dict:
-	"""`build()` cached for a few minutes per (kind, user, *parts)."""
-	key = ":".join([INSIGHTS_CACHE_PREFIX, kind, frappe.session.user, *(str(part) for part in parts)])
+	"""`build()` cached for a few minutes per (kind, user, today, *parts).
+
+	Today is in the key so a request after midnight never gets yesterday's figures.
+	"""
+	key = ":".join(
+		[INSIGHTS_CACHE_PREFIX, kind, frappe.session.user, str(getdate()), *(str(part) for part in parts)]
+	)
 	value = frappe.cache.get_value(key, expires=True)
 	if value is None:
 		value = build()
