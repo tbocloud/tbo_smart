@@ -1,0 +1,14 @@
+{
+  "message": {
+    "v": 1,
+    "data": {
+      "access_token": "Qp3sXvYc0Lw8Rk2NtE6uHa9JdF1mBz",
+      "refresh_token": "Wn7gTj4KxPe2Ls9VbQ5rYc8MdH3oZa",
+      "expires_in": 3600,
+      "token_type": "Bearer",
+      "scope": "all openid",
+      "user": "priya.nair@tbo.example",
+      "full_name": "Priya Nair"
+    }
+  }
+}

@@ -1,16 +1,32 @@
 """Factories and toggles shared by the tbo_smart tests. Never define helpers inside test files."""
 
+import functools
+import json
+import time
+from unittest.mock import patch
+
 import erpnext
 import frappe
+import jwt
+from cryptography.hazmat.primitives.asymmetric import rsa
 from erpnext.setup.doctype.employee.test_employee import make_employee
+from frappe.integrations.oauth2 import get_token
 from frappe.utils import add_days, get_year_ending, get_year_start, getdate, now_datetime, nowdate
 from frappe.utils.nestedset import rebuild_tree
 from hrms.tests.test_utils import before_tests as hrms_before_tests
+from jwt.algorithms import RSAAlgorithm
+from werkzeug.test import EnvironBuilder
+from werkzeug.wrappers import Request as WerkzeugRequest
 
+from tbo_smart.api.mobile import auth
 from tbo_smart.api.mobile.capabilities import get_capabilities
 from tbo_smart.api.mobile.utils import INSIGHTS_CACHE_PREFIX
 
 TEST_HOLIDAY_LIST = "TBO Smart Test Holidays"
+MS_TEST_TENANT = "11111111-2222-3333-4444-555555555555"
+MS_TEST_CLIENT_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+MS_TEST_KEY_ID = "tbo-smart-test-key"
+TEST_OAUTH_CLIENT_APP = "TBO Smart SSO Test"
 
 
 def before_tests() -> None:
@@ -303,3 +319,117 @@ def delete_crm_records(owners: list[str] | tuple) -> None:
 		frappe.db.delete(doctype, {owner_field: ("in", list(owners))})
 	# CRM's committing after_insert already persisted these fixtures, so the delete must persist too.
 	frappe.db.commit()  # nosemgrep
+
+
+# ---------- Single sign-in with Microsoft ----------
+
+
+@functools.cache
+def get_test_rsa_key(label: str = "signing") -> rsa.RSAPrivateKey:
+	"""A 2048-bit RSA private key generated once per test run; `label` gives a different key."""
+	return rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+
+def make_microsoft_id_token(email: str, key: rsa.RSAPrivateKey | None = None, **claims) -> str:
+	"""An RS256 ID token shaped like Entra ID v2 for the test tenant and mobile client.
+
+	Signed with the test key unless `key` is given. `claims` override the defaults; a claim
+	set to None is left out. Each call gets a fresh `uti`.
+	"""
+	now = int(time.time())
+	payload = {
+		"iss": f"{auth.MICROSOFT_LOGIN}/{MS_TEST_TENANT}/v2.0",
+		"aud": MS_TEST_CLIENT_ID,
+		"tid": MS_TEST_TENANT,
+		"sub": frappe.generate_hash(length=20),
+		"oid": frappe.generate_hash(length=20),
+		"email": email,
+		"preferred_username": email,
+		"name": email.split("@")[0],
+		"iat": now,
+		"nbf": now,
+		"exp": now + 3600,
+		"uti": frappe.generate_hash(length=22),
+		"ver": "2.0",
+		**claims,
+	}
+	payload = {name: value for name, value in payload.items() if value is not None}
+	return jwt.encode(payload, key or get_test_rsa_key(), algorithm="RS256", headers={"kid": MS_TEST_KEY_ID})
+
+
+def mock_microsoft_jwks():
+	"""Patch the JWKS download so Microsoft's key set is the test public key.
+
+	Also forgets the cached per-tenant clients. Use as a context manager or start()/stop().
+	"""
+	jwk = json.loads(RSAAlgorithm.to_jwk(get_test_rsa_key().public_key()))
+	jwk.update({"kid": MS_TEST_KEY_ID, "use": "sig", "alg": "RS256"})
+	auth.JWKS_CLIENTS.clear()
+	return patch.object(jwt.PyJWKClient, "fetch_data", return_value={"keys": [jwk]})
+
+
+def make_oauth_client(roles: list[str] | tuple = ("Employee",)) -> str:
+	"""The test OAuth Client (scopes `all openid`, redirect tbosmart://oauth/callback) with
+	exactly `roles` as its Allowed Roles. Returns its name, which is also its client_id."""
+	name = frappe.db.get_value("OAuth Client", {"app_name": TEST_OAUTH_CLIENT_APP})
+	client = frappe.get_doc("OAuth Client", name) if name else frappe.new_doc("OAuth Client")
+	client.update(
+		{
+			"app_name": TEST_OAUTH_CLIENT_APP,
+			"scopes": "all openid",
+			"redirect_uris": "tbosmart://oauth/callback",
+			"default_redirect_uri": "tbosmart://oauth/callback",
+			"skip_authorization": 1,
+			"grant_type": "Authorization Code",
+			"response_type": "Code",
+		}
+	)
+	client.set("allowed_roles", [{"role": role} for role in roles])
+	client.save(ignore_permissions=True)
+	return client.name
+
+
+def enable_microsoft_sso(oauth_client: str) -> None:
+	"""Turn single sign-in on for the test tenant, mobile client and `oauth_client`."""
+	frappe.db.set_single_value(
+		"TBO Smart Settings",
+		{
+			"enable_microsoft_sso": 1,
+			"microsoft_tenant_id": MS_TEST_TENANT,
+			"microsoft_mobile_client_id": MS_TEST_CLIENT_ID,
+			"oauth_client": oauth_client,
+		},
+	)
+
+
+def disable_microsoft_sso() -> None:
+	frappe.db.set_single_value("TBO Smart Settings", "enable_microsoft_sso", 0)
+
+
+def delete_oauth_tokens(oauth_client: str) -> None:
+	"""Delete every OAuth Bearer Token of `oauth_client` and commit.
+
+	Frappe's save_bearer_token commits, so tokens outlive the test's rollback."""
+	frappe.db.delete("OAuth Bearer Token", {"client": oauth_client})
+	# The tokens were committed by Frappe's OAuth validator, so the cleanup must persist too.
+	frappe.db.commit()  # nosemgrep
+
+
+def refresh_oauth_token(refresh_token: str, client_id: str) -> frappe._dict:
+	"""Call Frappe's own `get_token` with grant_type=refresh_token, as the app does, and
+	return the response body it sets."""
+	environ = EnvironBuilder(
+		method="POST",
+		base_url="https://tbosmart.test",
+		path="/api/method/frappe.integrations.oauth2.get_token",
+		data={"grant_type": "refresh_token", "refresh_token": refresh_token, "client_id": client_id},
+	).get_environ()
+	previous_request = getattr(frappe.local, "request", None)
+	previous_response = frappe.local.response
+	frappe.local.request = WerkzeugRequest(environ)
+	try:
+		get_token()
+		return frappe._dict(frappe.local.response)
+	finally:
+		frappe.local.request = previous_request
+		frappe.local.response = previous_response

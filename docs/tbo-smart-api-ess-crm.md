@@ -4,10 +4,10 @@ This is the contract for the TBO Smart mobile app's **tboindia.tbocloud.in** hal
 self-service (HRMS), CRM (Frappe CRM) and the manager views. The hub (TBO Support) has its
 own contract in `tbocloud/helpdesk`.
 
-- **Code:** `tbo_smart/api/mobile/{capabilities,ess,crm,manager,device}.py` and `tbo_smart/push.py`.
+- **Code:** `tbo_smart/api/mobile/{auth,capabilities,ess,crm,manager,device}.py` and `tbo_smart/push.py`.
 - **Fixtures:** `docs/fixtures/<module>.<method>.json`. Each one is the full HTTP body that
   Frappe returns (`{"message": ...}`).
-- **Status:** v1.1, 2026-10-11. Any change gets a version note in the changelog at the end of
+- **Status:** v1.2, 2026-10-11. Any change gets a version note in the changelog at the end of
   this file.
 
 ## 1. Conventions
@@ -29,6 +29,7 @@ Error mapping for the app:
 | `exc_type` | HTTP | App `code` | Meaning |
 | --- | --- | --- | --- |
 | `NoEmployeeError` | 404 | `no_employee` | No active Employee has `user_id` = this user. HR must link one. |
+| `AuthenticationError` | 401 | `unauthenticated` | Single sign-in only (§2.5): the Microsoft ID token failed verification or was already used. |
 | `PermissionError` | 403 | `forbidden` | Not your document, not your role, or a setting is off. |
 | `DuplicateEntryError` | 409 | `duplicate` | For example, a second punch within 60 s. |
 | `ValidationError` and subclasses (`CheckinRadiusExceededError`, `OverlapError`, `InsufficientLeaveBalanceError`, …) | 417 | `invalid` | Show the message. |
@@ -98,6 +99,121 @@ curl -X POST https://tboindia.tbocloud.in/api/method/frappe.integrations.oauth2.
 curl -H "Authorization: Bearer $ACCESS" \
   https://tboindia.tbocloud.in/api/method/tbo_smart.api.mobile.ess.get_me
 ```
+
+### 2.5 Single sign-in with Microsoft: `tbo_smart.api.mobile.auth`
+
+The app signs in **once**, with Microsoft, and gets its own tokens from each site. The hub
+(TBO Support) has the same endpoint with the same request and response, so the app calls
+both the same way. What a user may do on each site still comes from that site's roles
+(§4): a CRM-only user signs in fine and simply has no `ess`.
+
+**Flow**
+
+1. The app runs Microsoft's Authorization Code + PKCE flow against
+   `https://login.microsoftonline.com/<tenant>/oauth2/v2.0/authorize` with scopes
+   `openid profile email offline_access` and a fresh `nonce`, and gets an **ID token**.
+2. The app posts that ID token to each site (here and on the hub).
+3. Each site verifies it and returns its own Frappe access and refresh token for the matching
+   user. From then on the app uses them exactly as in §2.2: Bearer calls, `get_token` with
+   `grant_type=refresh_token`, and `revoke_token` on sign-out.
+4. The Microsoft tokens never go anywhere else. When a site's refresh token stops working,
+   the app gets a new ID token from Microsoft (silently, with its Microsoft refresh token)
+   and exchanges it again.
+
+**Endpoint**
+
+| | |
+| --- | --- |
+| Method | `POST /api/method/tbo_smart.api.mobile.auth.exchange_microsoft_token` (JSON or form body, no `Authorization` header) |
+| Body | `id_token` (required): the Microsoft ID token. `nonce` (optional): the nonce the app sent to Microsoft; when given, the token's `nonce` must equal it. |
+| Rate limit | 30 calls per minute per IP, then 429 `RateLimitExceededError`. |
+| Response | `{"v": 1, "data": {access_token, refresh_token, expires_in, token_type, scope, user, full_name}}` inside Frappe's `message`. See `fixtures/auth.exchange_microsoft_token.json`. Unlike the lists here (`{data, page, has_more}`), this method uses the hub's `{v, data}` envelope so one app function reads both sites. |
+
+- `expires_in` is 3600 and `token_type` is `Bearer`; `scope` is `all openid`.
+- `user` is the site's User id (its email) and `full_name` its full name.
+
+Errors (Frappe's error body, mapped as in §1):
+
+| `exc_type` | HTTP | When |
+| --- | --- | --- |
+| `AuthenticationError` | 401 | The token fails any check below, was already used, or Microsoft's keys could not be fetched. Sign in with Microsoft again. |
+| `PermissionError` | 403 | The switch is off or not set up; no enabled User matches; the user is disabled; or the user has none of the OAuth Client's Allowed Roles. The message says which. |
+| `RateLimitExceededError` | 429 | Too many calls from this IP. |
+
+**Validation, in order**
+
+1. The switch **Single sign-in with Microsoft** is on and the tenant ID, mobile client ID and
+   OAuth Client are set.
+2. The token's `tid` is one of the configured tenants (checked before any key is fetched).
+3. RS256 signature against that tenant's keys,
+   `https://login.microsoftonline.com/<tid>/discovery/v2.0/keys`. PyJWT's `PyJWKClient`
+   caches the key set per worker and refetches only for an unknown `kid`. No other algorithm
+   is accepted.
+4. `iss` is exactly `https://login.microsoftonline.com/<tid>/v2.0`, `aud` is the mobile
+   client ID, and `exp`, `iat`, `iss`, `aud`, `tid` are present.
+5. `exp` and `nbf` hold, with 120 s of clock leeway.
+6. `nonce` matches when the app sends one (constant-time compare).
+7. Replay guard: the token's `uti` (or `jti`) is stored in Redis with `SET NX`. It stays there
+   for 10 minutes, or until the token expires if that is later. A second exchange of the same
+   token is refused, and a token with neither claim is refused.
+8. The user is the first enabled User whose email (or name) matches `email`, then
+   `preferred_username`, then `upn`, ignoring case. Users are never created.
+   `Administrator` and `Guest` never match.
+9. The user must hold one of the OAuth Client's **Allowed Roles**, the same rule as the
+   normal sign-in.
+10. The token is made by oauthlib's `BearerToken` and saved by Frappe's own
+    `OAuthWebRequestValidator.save_bearer_token`, the same code `get_token` uses. It is an
+    **OAuth Bearer Token** for the configured OAuth Client with scopes `all openid`, a 3600 s
+    expiry and a refresh token.
+
+**Owner setup (once)**
+
+1. **Entra ID** (portal.azure.com → Microsoft Entra ID → App registrations → New
+   registration), in TBO's tenant:
+   - **Name:** `TBO Smart`.
+   - **Supported account types:** accounts in this organizational directory only.
+   - **Platform:** *Mobile and desktop applications*. **Redirect URI:**
+     `tbosmart://oauth/callback`.
+   - **Authentication → Allow public client flows:** Yes. Create **no** client secret; the
+     app is a public client and uses PKCE.
+   - **API permissions:** Microsoft Graph delegated `openid`, `profile`, `email`,
+     `offline_access`. Grant admin consent so staff are not prompted.
+   - Copy the **Application (client) ID** and the **Directory (tenant) ID**. Give both to the
+     app build too.
+   - Optional: under **Token configuration**, add the `email` optional claim so `email` is
+     always present (the site falls back to `preferred_username` otherwise).
+2. **tboindia** → **/app/tbo-smart-settings**:
+   - **Microsoft tenant ID:** the Directory (tenant) ID. Several tenants can be listed,
+     separated by commas. `common` and `organizations` are refused.
+   - **Mobile Entra client ID:** the Application (client) ID.
+   - **OAuth Client:** the TBO Smart client from §2.1. Its **Allowed Roles** now decide who
+     may use the app here. Add `Sales User` next to `Employee` if CRM-only staff should sign
+     in.
+   - Tick **Single sign-in with Microsoft**.
+3. **Hub** → HD Settings: the same tenant ID, mobile client ID and the hub's own OAuth Client.
+
+**Security notes**
+
+- **Only this site's tokens leave the site.** Each site trusts the Microsoft ID token only
+  long enough to pick the user, then issues its own token. A token stolen from one site does
+  not work on the other.
+- **The tenant is the trust boundary.** Only GUID tenants are accepted, so no outside
+  Microsoft account (personal or another company's) can sign in. Inside the tenant, `email`,
+  `preferred_username` and `upn` are controlled by TBO's own Entra admins.
+- **No user is ever created.** Access stays with each site's User list, `enabled` flag,
+  roles and the OAuth Client's Allowed Roles. Disabling a user here also stops their existing
+  tokens, because Frappe checks `enabled` on every Bearer call.
+- **MFA and Conditional Access** are enforced by Microsoft at sign-in. Frappe's own password
+  and two-factor checks do not run for this path.
+- **Replay** is blocked by the one-time `uti`/`jti` and by `nonce` when sent. The audience
+  check means an ID token issued to any other app is refused.
+- **Nothing sensitive is logged.** The ID token and the issued tokens are never written to
+  logs or error messages.
+- **Rate-limited** per IP. Signature checks are cheap, and the limit keeps a misbehaving
+  client from hammering the Microsoft key endpoint.
+- **Turning it off** (untick the switch) refuses new exchanges at once. Tokens already
+  issued keep working until they expire or are revoked; revoke them from
+  **/app/oauth-bearer-token** if needed.
 
 ## 3. ESS: `tbo_smart.api.mobile.ess`
 
@@ -537,7 +653,7 @@ Read-only aggregates for the scope. Fixture: `crm.get_sales_insights.json`.
 
 ## 10. Tests
 
-The tests are in `tbo_smart/tests/test_mobile_{ess,crm,manager,push}.py`, with helpers in
+The tests are in `tbo_smart/tests/test_mobile_{ess,crm,manager,push,sso}.py`, with helpers in
 `tbo_smart/test_utils.py`. They cover:
 
 - **ESS:** own-only data and server-time check-in.
@@ -552,6 +668,12 @@ The tests are in `tbo_smart/tests/test_mobile_{ess,crm,manager,push}.py`, with h
   without the capability or outside the scope, and no location or punch time in team
   insights.
 - **Push:** off by default, payload, dead-token cleanup, never raises.
+- **Single sign-in** (`test_mobile_sso.py`): a locally generated RSA key signs the ID tokens
+  and the JWKS download is mocked. A valid token issues tokens linked to the OAuth Client;
+  wrong `aud`, `iss` or `tid`, expired or not-yet-valid, bad signature, nonce mismatch and
+  replay are refused with 401; unknown, disabled and role-less users get 403; the switch
+  off refuses; `common` is refused as a tenant; and the issued refresh token works through
+  Frappe's `get_token`.
 
 They need a site with **erpnext, hrms and crm** installed and `allow_tests` on:
 `bench --site <site> run-tests --app tbo_smart`. CI (`.github/workflows/ci.yml`) installs
@@ -566,3 +688,7 @@ those apps on Frappe version-15.
   `scope` on `get_leads`, `get_deals` and `get_my_follow_ups`. New read-only
   `manager.get_team_insights` and `crm.get_sales_insights`. `get_sales_snapshot` follows the
   caller's `crm_scope`. Follow-ups add `assigned_to` and `assigned_to_name`.
+- **v1.2 (2026-10-11):** single sign-in with Microsoft (§2.5):
+  `auth.exchange_microsoft_token` trades an Entra ID token for this site's own OAuth tokens.
+  New TBO Smart Settings fields: Single sign-in with Microsoft, Microsoft tenant ID, Mobile
+  Entra client ID and OAuth Client.
