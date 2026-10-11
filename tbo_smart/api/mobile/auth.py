@@ -32,6 +32,10 @@ REPLAY_CACHE_PREFIX = "tbo_smart:sso:used"
 # A key id that is not in the cached set triggers at most one key download per tenant this often.
 JWKS_REFRESH_COOLDOWN_SECONDS = 300
 JWKS_REFRESH_CACHE_PREFIX = "tbo_smart:sso:jwks_refresh"
+# Delete the cooldown only while it still holds this worker's owner token (atomic in Redis).
+RELEASE_IF_OWNER = (
+	'if redis.call("get", KEYS[1]) == ARGV[1] then return redis.call("del", KEYS[1]) end return 0'
+)
 # Microsoft's key set per tenant, shared by every worker through Redis.
 JWKS_CACHE_PREFIX = "tbo_smart:sso:jwks"
 JWKS_CACHE_SECONDS = 3600
@@ -137,8 +141,14 @@ def get_signing_key(tenant: str, kid: str | None):
 	key ids cannot make this site hammer Microsoft.
 	"""
 	key = find_signing_key(get_jwk_set(tenant), kid)
-	if key is None and claim_jwks_refresh(tenant):
-		key = find_signing_key(download_jwk_set(tenant), kid)
+	if key is None and (owner := claim_jwks_refresh(tenant)):
+		try:
+			jwk_set = download_jwk_set(tenant)
+		except jwt.PyJWTError:
+			# A failed download must not hold off the next try for the whole cooldown.
+			release_jwks_refresh(tenant, owner)
+			raise
+		key = find_signing_key(jwk_set, kid)
 	if key is None:
 		raise jwt.PyJWKClientError("unknown signing key")
 	return key
@@ -174,12 +184,20 @@ def jwks_refresh_key(tenant: str) -> str:
 	return frappe.cache.make_key(f"{JWKS_REFRESH_CACHE_PREFIX}:{tenant}")
 
 
-def claim_jwks_refresh(tenant: str) -> bool:
-	"""True for the first caller in each cooldown window; everyone else uses the shared set."""
+def claim_jwks_refresh(tenant: str) -> str | None:
+	"""An owner token for the first caller in each cooldown window; None for everyone else,
+	who uses the shared set."""
+	owner = frappe.generate_hash(length=16)
 	# Raw SET NX for an atomic check-and-mark; make_key adds the site prefix, so it stays per site.
-	return bool(
-		frappe.cache.set(jwks_refresh_key(tenant), 1, ex=JWKS_REFRESH_COOLDOWN_SECONDS, nx=True)  # nosemgrep
+	claimed = frappe.cache.set(  # nosemgrep
+		jwks_refresh_key(tenant), owner, ex=JWKS_REFRESH_COOLDOWN_SECONDS, nx=True
 	)
+	return owner if claimed else None
+
+
+def release_jwks_refresh(tenant: str, owner: str) -> None:
+	"""Drop this caller's cooldown claim, never a newer one from another worker."""
+	frappe.cache.eval(RELEASE_IF_OWNER, 1, jwks_refresh_key(tenant), owner)
 
 
 def claim_token_once(claims: dict) -> None:

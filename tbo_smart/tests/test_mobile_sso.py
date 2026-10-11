@@ -1,9 +1,10 @@
 import time
 
 import frappe
+import jwt
 from frappe.tests.utils import FrappeTestCase
 
-from tbo_smart.api.mobile.auth import exchange_microsoft_token
+from tbo_smart.api.mobile.auth import exchange_microsoft_token, jwks_refresh_key
 from tbo_smart.test_utils import (
 	MS_TEST_CLIENT_ID,
 	MS_TEST_TENANT,
@@ -112,6 +113,12 @@ class TestMobileSSO(FrappeTestCase):
 		self.assertEqual(self.jwks_download.call_count, 2)
 		exchange_microsoft_token(make_microsoft_id_token(STAFF))
 		self.assertEqual(self.jwks_download.call_count, 2)
+
+	def test_a_failed_key_download_releases_the_cooldown(self):
+		exchange_microsoft_token(make_microsoft_id_token(STAFF))
+		self.jwks_download.side_effect = jwt.PyJWKClientConnectionError("Microsoft is down")
+		self.assertRejected(make_microsoft_id_token(STAFF, kid="rotated-key"))
+		self.assertFalse(frappe.cache.exists(jwks_refresh_key(MS_TEST_TENANT)))
 
 	def test_user_is_matched_by_email_not_by_user_name(self):
 		# The exchange commits, so the changed email is put back before tearDown commits again.
