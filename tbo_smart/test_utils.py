@@ -3,9 +3,24 @@
 import erpnext
 import frappe
 from erpnext.setup.doctype.employee.test_employee import make_employee
-from frappe.utils import add_days, get_year_ending, get_year_start, getdate, nowdate
+from frappe.utils import add_days, get_year_ending, get_year_start, getdate, now_datetime, nowdate
+from frappe.utils.nestedset import rebuild_tree
+from hrms.tests.test_utils import before_tests as hrms_before_tests
+
+from tbo_smart.api.mobile.capabilities import get_capabilities
+from tbo_smart.api.mobile.utils import INSIGHTS_CACHE_PREFIX
 
 TEST_HOLIDAY_LIST = "TBO Smart Test Holidays"
+
+
+def before_tests() -> None:
+	"""Set up a fresh test site the way HRMS does before its own tests: run the setup wizard
+	(company _Test Company in INR, fiscal year, chart of accounts, departments, designations)
+	when no Company exists, enable all roles and give the company a holiday list.
+
+	`run-tests --app tbo_smart` runs only this app's before_tests hook, so without this a new
+	CI site has no Company or Department and make_employee fails."""
+	hrms_before_tests()
 
 
 def make_user(email: str, roles: list[str] | tuple = ()) -> str:
@@ -20,6 +35,8 @@ def make_user(email: str, roles: list[str] | tuple = ()) -> str:
 			}
 		).insert(ignore_permissions=True)
 	user = frappe.get_doc("User", email)
+	# Tests call this while signed in as a plain user, who may not save a User.
+	user.flags.ignore_permissions = True
 	user.add_roles(*roles)
 	return email
 
@@ -50,6 +67,13 @@ def ensure_company_holiday_list() -> str:
 		).insert(ignore_permissions=True)
 	frappe.db.set_value("Company", company, "default_holiday_list", TEST_HOLIDAY_LIST)
 	return TEST_HOLIDAY_LIST
+
+
+def delete_checkins(employee: str) -> None:
+	"""Remove an employee's Employee Checkins, so the 60-second double-punch guard starts clean.
+
+	Tests in a class share one transaction, so a punch from an earlier test is still there."""
+	frappe.db.delete("Employee Checkin", {"employee": employee})
 
 
 def set_hr_settings(**values) -> None:
@@ -178,3 +202,104 @@ def make_mobile_device(user: str, token: str, platform: str = "android") -> str:
 	device.insert(ignore_permissions=True)
 	frappe.db.set_value("TBO Mobile Device", device.name, "owner", user)
 	return device.name
+
+
+def make_attendance(employee: str, day: str, status: str = "Present", late_entry: int = 0) -> str:
+	"""A submitted Attendance for one employee and day, inserted as Administrator."""
+	attendance = frappe.get_doc(
+		{
+			"doctype": "Attendance",
+			"employee": employee,
+			"company": frappe.db.get_value("Employee", employee, "company"),
+			"attendance_date": day,
+			"status": status,
+			"late_entry": late_entry,
+		}
+	)
+	attendance.insert(ignore_permissions=True)
+	attendance.submit()
+	return attendance.name
+
+
+def make_sales_hierarchy_node(user: str, reports_to: str | None = None) -> str:
+	"""A CRM Sales Hierarchy node for `user` under the node `reports_to`; rebuilds the tree."""
+	node = frappe.get_doc(
+		{
+			"doctype": "CRM Sales Hierarchy",
+			"user": user,
+			"reports_to": reports_to,
+			"is_group": 1,
+		}
+	)
+	node.insert(ignore_permissions=True)
+	rebuild_tree("CRM Sales Hierarchy")
+	return node.name
+
+
+def enable_sales_hierarchy() -> None:
+	frappe.db.set_single_value("FCRM Settings", "enable_sales_hierarchy", 1)
+
+
+def disable_sales_hierarchy(users: list[str] | tuple = ()) -> None:
+	"""Turn the CRM sales hierarchy off and delete the nodes of `users`.
+
+	CRM Lead and Deal inserts commit (their after_insert assigns and shares), so a setting
+	changed in a test is already persisted; the cleanup is committed for the same reason.
+	"""
+	frappe.db.set_single_value("FCRM Settings", "enable_sales_hierarchy", 0)
+	for user in users:
+		frappe.db.delete("CRM Sales Hierarchy", {"user": user})
+	frappe.cache.delete_value("crm_sales_hierarchy_subtree")
+	# CRM's committing after_insert already persisted the fixtures, so the undo must persist too.
+	frappe.db.commit()  # nosemgrep
+
+
+def clear_insights_cache() -> None:
+	"""Drop every cached team or sales insight so a test sees its own fixtures."""
+	frappe.cache.delete_keys(INSIGHTS_CACHE_PREFIX)
+
+
+def age_document(doctype: str, name: str, days: int) -> None:
+	"""Move a document's `modified` back by `days` without touching anything else."""
+	frappe.db.set_value(doctype, name, "modified", add_days(now_datetime(), -days), update_modified=False)
+
+
+def capabilities_as(user: str) -> frappe._dict:
+	"""Switch the session to `user` and return their capabilities."""
+	frappe.set_user(user)
+	return get_capabilities()
+
+
+def get_deal_base_value(name: str) -> float:
+	"""A deal's value in the CRM base currency (deal_value x exchange_rate), as insights count it."""
+	deal_value, exchange_rate = frappe.db.get_value("CRM Deal", name, ["deal_value", "exchange_rate"])
+	return deal_value * (exchange_rate or 1)
+
+
+def get_all_keys(value) -> list[str]:
+	"""Every dict key anywhere in a nested API response."""
+	keys = []
+	if isinstance(value, dict):
+		for key, item in value.items():
+			keys += [key, *get_all_keys(item)]
+	elif isinstance(value, list):
+		for item in value:
+			keys += get_all_keys(item)
+	return keys
+
+
+def delete_crm_records(owners: list[str] | tuple) -> None:
+	"""Delete the CRM Deals, Leads, Notes and Tasks of `owners` and commit.
+
+	CRM inserts commit, so their fixtures outlive the test's rollback; this keeps reruns
+	and later classes starting from a clean slate.
+	"""
+	for doctype, owner_field in (
+		("CRM Deal", "deal_owner"),
+		("CRM Lead", "lead_owner"),
+		("FCRM Note", "owner"),
+		("CRM Task", "assigned_to"),
+	):
+		frappe.db.delete(doctype, {owner_field: ("in", list(owners))})
+	# CRM's committing after_insert already persisted these fixtures, so the delete must persist too.
+	frappe.db.commit()  # nosemgrep

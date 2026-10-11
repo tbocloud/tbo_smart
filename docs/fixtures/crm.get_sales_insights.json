@@ -1,0 +1,242 @@
+{
+  "message": {
+    "period": "month",
+    "from_date": "2026-10-01",
+    "to_date": "2026-10-11",
+    "previous": {
+      "from_date": "2026-09-01",
+      "to_date": "2026-09-11"
+    },
+    "scope": "all",
+    "currency": "INR",
+    "pipeline": {
+      "count": 23,
+      "value": 6840000.0,
+      "weighted": 2712000.0,
+      "by_stage": [
+        {
+          "stage": "Qualification",
+          "type": "Open",
+          "count": 9,
+          "value": 1620000.0,
+          "weighted": 162000.0,
+          "avg_age_days": 12.4,
+          "avg_days_in_stage": 8.1
+        },
+        {
+          "stage": "Demo/Making",
+          "type": "Ongoing",
+          "count": 6,
+          "value": 1980000.0,
+          "weighted": 495000.0,
+          "avg_age_days": 27.0,
+          "avg_days_in_stage": 11.5
+        },
+        {
+          "stage": "Proposal/Quotation",
+          "type": "Ongoing",
+          "count": 4,
+          "value": 1450000.0,
+          "weighted": 725000.0,
+          "avg_age_days": 39.8,
+          "avg_days_in_stage": 9.0
+        },
+        {
+          "stage": "Negotiation",
+          "type": "Ongoing",
+          "count": 3,
+          "value": 1240000.0,
+          "weighted": 868000.0,
+          "avg_age_days": 52.3,
+          "avg_days_in_stage": 14.7
+        },
+        {
+          "stage": "Ready to Close",
+          "type": "Ongoing",
+          "count": 1,
+          "value": 550000.0,
+          "weighted": 462000.0,
+          "avg_age_days": 61.0,
+          "avg_days_in_stage": 4.0
+        },
+        {
+          "stage": "On Hold",
+          "type": "On Hold",
+          "count": 0,
+          "value": 0.0,
+          "weighted": 0.0,
+          "avg_age_days": null,
+          "avg_days_in_stage": null
+        }
+      ]
+    },
+    "won": {
+      "count": 2,
+      "value": 940000.0,
+      "count_delta": 0,
+      "value_delta": 180000.0,
+      "previous_count": 2,
+      "previous_value": 760000.0
+    },
+    "lost": {
+      "count": 1,
+      "value": 320000.0,
+      "count_delta": -1,
+      "value_delta": -410000.0,
+      "previous_count": 2,
+      "previous_value": 730000.0
+    },
+    "win_rate": 66.7,
+    "win_rate_delta": 16.7,
+    "stalled": {
+      "days": 14,
+      "count": 3,
+      "value": 1180000.0,
+      "deals": [
+        {
+          "name": "CRM-DEAL-2026-00031",
+          "title": "Al Noor Trading",
+          "stage": "Negotiation",
+          "value": 640000.0,
+          "owner": "Arun Babu",
+          "owner_id": "arun@teambackoffice.com",
+          "idle_since": "2026-09-19 16:02:44.118204"
+        },
+        {
+          "name": "CRM-DEAL-2026-00027",
+          "title": "Sahelmed",
+          "stage": "Demo/Making",
+          "value": 380000.0,
+          "owner": "Deepa Nair",
+          "owner_id": "deepa@teambackoffice.com",
+          "idle_since": "2026-09-22 10:15:09.551930"
+        },
+        {
+          "name": "CRM-DEAL-2026-00040",
+          "title": "Thrissur Gold House",
+          "stage": "Qualification",
+          "value": 160000.0,
+          "owner": "Deepa Nair",
+          "owner_id": "deepa@teambackoffice.com",
+          "idle_since": "2026-09-25 12:40:31.007113"
+        }
+      ]
+    },
+    "leads_funnel": {
+      "new": 17,
+      "qualified": 6,
+      "converted": 3,
+      "qualified_pct": 35.3,
+      "converted_pct": 17.6,
+      "new_delta": 2,
+      "converted_delta": 1
+    },
+    "activity": [
+      {
+        "user": "deepa@teambackoffice.com",
+        "name": "Deepa Nair",
+        "calls": 14,
+        "notes": 9,
+        "tasks_done": 6,
+        "total": 29
+      },
+      {
+        "user": "arun@teambackoffice.com",
+        "name": "Arun Babu",
+        "calls": 8,
+        "notes": 5,
+        "tasks_done": 4,
+        "total": 17
+      }
+    ],
+    "trend": [
+      {
+        "label": "2026-03",
+        "from_date": "2026-03-01",
+        "to_date": "2026-03-31",
+        "won_value": 620000.0,
+        "won_count": 3,
+        "new_leads": 34
+      },
+      {
+        "label": "2026-04",
+        "from_date": "2026-04-01",
+        "to_date": "2026-04-30",
+        "won_value": 410000.0,
+        "won_count": 2,
+        "new_leads": 29
+      },
+      {
+        "label": "2026-05",
+        "from_date": "2026-05-01",
+        "to_date": "2026-05-31",
+        "won_value": 980000.0,
+        "won_count": 4,
+        "new_leads": 41
+      },
+      {
+        "label": "2026-06",
+        "from_date": "2026-06-01",
+        "to_date": "2026-06-30",
+        "won_value": 540000.0,
+        "won_count": 3,
+        "new_leads": 38
+      },
+      {
+        "label": "2026-07",
+        "from_date": "2026-07-01",
+        "to_date": "2026-07-31",
+        "won_value": 1250000.0,
+        "won_count": 5,
+        "new_leads": 45
+      },
+      {
+        "label": "2026-08",
+        "from_date": "2026-08-01",
+        "to_date": "2026-08-31",
+        "won_value": 760000.0,
+        "won_count": 3,
+        "new_leads": 36
+      },
+      {
+        "label": "2026-09",
+        "from_date": "2026-09-01",
+        "to_date": "2026-09-30",
+        "won_value": 890000.0,
+        "won_count": 4,
+        "new_leads": 40
+      },
+      {
+        "label": "2026-10",
+        "from_date": "2026-10-01",
+        "to_date": "2026-10-31",
+        "won_value": 940000.0,
+        "won_count": 2,
+        "new_leads": 17
+      }
+    ],
+    "closing": [
+      {
+        "name": "CRM-DEAL-2026-00035",
+        "title": "Galom International Private Limited",
+        "stage": "Ready to Close",
+        "value": 550000.0,
+        "probability": 90.0,
+        "expected_close": "2026-10-24",
+        "owner": "Arun Babu",
+        "owner_id": "arun@teambackoffice.com"
+      },
+      {
+        "name": "CRM-DEAL-2026-00038",
+        "title": "Kerala Spices Export",
+        "stage": "Proposal/Quotation",
+        "value": 420000.0,
+        "probability": 50.0,
+        "expected_close": "2026-10-30",
+        "owner": "Deepa Nair",
+        "owner_id": "deepa@teambackoffice.com"
+      }
+    ],
+    "generated_at": "2026-10-11 09:42:17.881402"
+  }
+}

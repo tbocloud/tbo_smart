@@ -1,0 +1,20 @@
+{
+  "message": {
+    "ess": true,
+    "checkin_allowed": true,
+    "geolocation_required": true,
+    "approve_leave": true,
+    "approve_expense": true,
+    "team_today": true,
+    "team_insights": true,
+    "team_scope": "direct_reports",
+    "crm": true,
+    "crm_manager": true,
+    "crm_scope": "all",
+    "crm_scopes": [
+      "mine",
+      "all"
+    ],
+    "sales_insights": true
+  }
+}

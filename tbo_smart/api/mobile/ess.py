@@ -36,6 +36,7 @@ from hrms.api import get_leave_types as hrms_get_leave_types
 from hrms.hr.doctype.leave_application.leave_application import get_leave_details
 from hrms.hr.doctype.shift_assignment.shift_assignment import get_employee_shift
 
+from tbo_smart.api.mobile.capabilities import get_capabilities, require
 from tbo_smart.api.mobile.utils import get_full_names, get_session_employee, page_envelope, page_window
 
 DUPLICATE_PUNCH_SECONDS = 60
@@ -47,7 +48,11 @@ APP_DEVICE_ID = "TBO Smart"
 
 @frappe.whitelist()
 def get_me() -> dict:
-	"""The session user's Employee, plus whether they manage anyone."""
+	"""The session user's Employee and capabilities (what the app may show them).
+
+	is_manager, is_approver and is_sales_manager are v1 aliases of team_today,
+	approve_leave or approve_expense, and crm_manager.
+	"""
 	employee = get_session_employee(
 		[
 			"user_id",
@@ -63,7 +68,7 @@ def get_me() -> dict:
 	reports_to_name = (
 		frappe.db.get_value("Employee", employee.reports_to, "employee_name") if employee.reports_to else None
 	)
-	roles = set(frappe.get_roles())
+	capabilities = get_capabilities()
 	return {
 		"name": employee.name,
 		"employee_name": employee.employee_name,
@@ -77,9 +82,10 @@ def get_me() -> dict:
 		"date_of_joining": employee.date_of_joining,
 		"phone": employee.cell_number,
 		"image": employee.image,
-		"is_manager": bool(frappe.db.exists("Employee", {"reports_to": employee.name, "status": "Active"})),
-		"is_approver": bool(roles & {"Leave Approver", "Expense Approver"}),
-		"is_sales_manager": bool(roles & {"Sales Manager", "System Manager"}),
+		"is_manager": capabilities.team_today,
+		"is_approver": capabilities.approve_leave or capabilities.approve_expense,
+		"is_sales_manager": capabilities.crm_manager,
+		"capabilities": capabilities,
 	}
 
 
@@ -97,10 +103,8 @@ def check_in(
 	"""Record an Employee Checkin at server time. HRMS validates the shift and the geofence."""
 	if log_type not in ("IN", "OUT"):
 		frappe.throw(_("Log type must be IN or OUT."))
-	if not cint(frappe.db.get_single_value("HR Settings", "allow_employee_checkin_from_mobile_app")):
-		frappe.throw(_("Check-in from the mobile app is turned off in HR Settings."), frappe.PermissionError)
-
 	employee = get_session_employee()
+	require("checkin_allowed", _("Check-in from the mobile app is turned off in HR Settings."))
 	now = now_datetime()
 	if frappe.db.exists(
 		"Employee Checkin",
