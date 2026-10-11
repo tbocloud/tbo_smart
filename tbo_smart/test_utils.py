@@ -1,11 +1,15 @@
 """Factories and toggles shared by the tbo_smart tests. Never define helpers inside test files."""
 
+import base64
+import io
+
 import erpnext
 import frappe
 from erpnext.setup.doctype.employee.test_employee import make_employee
 from frappe.utils import add_days, get_year_ending, get_year_start, getdate, now_datetime, nowdate
 from frappe.utils.nestedset import rebuild_tree
 from hrms.tests.test_utils import before_tests as hrms_before_tests
+from PIL import Image
 
 from tbo_smart.api.mobile.capabilities import get_capabilities
 from tbo_smart.api.mobile.utils import INSIGHTS_CACHE_PREFIX
@@ -184,6 +188,66 @@ def make_crm_deal(owner: str, status: str = "Qualification", deal_value: float =
 	)
 	deal.insert(ignore_permissions=True)
 	return deal.name
+
+
+def make_test_mobile() -> str:
+	"""A random 9-digit mobile number without country code or trunk 0 (e.g. 504182276).
+
+	CRM inserts commit, so duplicate-check tests use a fresh number each time and never
+	match a lead left by another test or an earlier run."""
+	return "50" + str(int(frappe.generate_hash(length=12), 16))[-7:].zfill(7)
+
+
+def make_crm_organization(name: str) -> str:
+	"""A CRM Organization named `name`, inserted as Administrator."""
+	organization = frappe.get_doc({"doctype": "CRM Organization", "organization_name": name})
+	organization.insert(ignore_permissions=True)
+	return organization.name
+
+
+def make_contact(first_name: str, phone: str | None = None, email: str | None = None) -> str:
+	"""A Contact with an optional primary mobile (phone_nos) and primary email (email_ids)."""
+	contact = frappe.get_doc({"doctype": "Contact", "first_name": first_name})
+	if phone:
+		contact.append("phone_nos", {"phone": phone, "is_primary_mobile_no": 1})
+	if email:
+		contact.append("email_ids", {"email_id": email, "is_primary": 1})
+	contact.insert(ignore_permissions=True)
+	return contact.name
+
+
+def make_customer(customer_name: str) -> str:
+	"""An ERPNext Customer (Company) in the first leaf customer group and territory."""
+	customer = frappe.get_doc(
+		{
+			"doctype": "Customer",
+			"customer_name": customer_name,
+			"customer_type": "Company",
+			"customer_group": frappe.db.get_value("Customer Group", {"is_group": 0}, "name"),
+			"territory": frappe.db.get_value("Territory", {"is_group": 0}, "name"),
+		}
+	)
+	customer.insert(ignore_permissions=True)
+	return customer.name
+
+
+def make_crm_lead_source(name: str) -> str:
+	"""A CRM Lead Source named `name`, if the site does not have it yet."""
+	if not frappe.db.exists("CRM Lead Source", name):
+		frappe.get_doc({"doctype": "CRM Lead Source", "source_name": name}).insert(ignore_permissions=True)
+	return name
+
+
+def make_card_image_base64() -> str:
+	"""A small real JPEG as base64, as the app sends a scanned business card."""
+	content = io.BytesIO()
+	Image.new("RGB", (8, 8), "white").save(content, format="JPEG")
+	return base64.b64encode(content.getvalue()).decode()
+
+
+def get_note_texts(lead: dict) -> list[str]:
+	"""The note texts of a lead returned by crm.get_lead / create_lead."""
+	return [note["text"] for note in lead["notes"]]
 
 
 def enable_mobile_push() -> None:

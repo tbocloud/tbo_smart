@@ -1,0 +1,44 @@
+{
+  "message": {
+    "data": {
+      "matches": [
+        {
+          "kind": "lead",
+          "name": "CRM-LEAD-2026-00141",
+          "title": "Faisal Al Mansoori",
+          "owner_name": "Ruvaishid",
+          "status": "Contacted",
+          "match_on": ["phone", "organization"],
+          "can_open": true
+        },
+        {
+          "kind": "lead",
+          "name": null,
+          "title": "Someone on the team already has this lead",
+          "owner_name": "Deepa Nair",
+          "status": null,
+          "match_on": ["phone"],
+          "can_open": false
+        },
+        {
+          "kind": "organization",
+          "name": "Al Noor Trading LLC",
+          "title": "Al Noor Trading LLC",
+          "owner_name": "Ruvaishid",
+          "status": null,
+          "match_on": ["organization"],
+          "can_open": true
+        },
+        {
+          "kind": "customer",
+          "name": "Al Noor Trading LLC",
+          "title": "Al Noor Trading LLC",
+          "owner_name": "Najath",
+          "status": "Active",
+          "match_on": ["organization"],
+          "can_open": false
+        }
+      ]
+    }
+  }
+}

@@ -6,18 +6,38 @@ that further within the caller's crm_scopes. Writes are normal inserts and saves
 session user. Contract: docs/tbo-smart-api-ess-crm.md.
 """
 
+import base64
+import binascii
+import re
+
 import frappe
 from crm.api.activities import get_linked_notes, get_linked_tasks
 from crm.api.comment import add_comment
 from crm.api.dashboard import TimestampDiff
 from crm.fcrm.doctype.crm_lead.crm_lead import convert_to_deal
 from frappe import _
+from frappe.desk.form.assign_to import add as add_assignment
 from frappe.query_builder import Case
-from frappe.query_builder.functions import Avg, Coalesce, Count, Date, IfNull, Max, Min, Sum
+from frappe.query_builder.functions import (
+	Avg,
+	Coalesce,
+	Count,
+	CustomFunction,
+	Date,
+	IfNull,
+	Lower,
+	Max,
+	Min,
+	Sum,
+	Trim,
+)
 from frappe.utils import add_days, cint, flt, get_datetime, now_datetime, strip_html
+from hrms.api import upload_base64_file
 from pypika.terms import EmptyCriterion, LiteralValue
 
 from tbo_smart.api.mobile.capabilities import (
+	CRM_ROLES,
+	get_sales_team,
 	list_scope_users,
 	require,
 	resolve_crm_scope,
@@ -41,6 +61,33 @@ COMMENT_LABELS = {"meeting": "Meeting", "email": "Email", "whatsapp": "WhatsApp"
 CLOSED_STAGE_TYPES = ["Won", "Lost"]
 STALLED_DAYS = 14
 INSIGHT_LIST_LIMIT = 10
+
+DUPLICATE_LIMIT = 10
+# Phones match on their last 9 digits, so +971 50 418 2276, 050 418 2276 and 504182276 are one number.
+PHONE_MATCH_DIGITS = 9
+MIN_PHONE_DIGITS = 7
+# How the app captured a lead: a label for the capture note, and CRM Lead Source names it may map to.
+SOURCE_CHANNELS = {
+	"card_scan": ("Business card scan", ("Business Card", "Card Scan", "Visiting Card")),
+	"contacts": ("Phone contacts", ("Phone Contacts", "Phone Contact", "Contacts")),
+	"whatsapp_share": ("WhatsApp share", ("WhatsApp", "WhatsApp Share")),
+	"manual": ("Typed in", ()),
+}
+CAPTURE_NOTE_PREFIX = "Captured in TBO Smart:"
+CARD_IMAGE_MAX_BYTES = 2 * 1024 * 1024
+JPEG_MAGIC = b"\xff\xd8\xff"
+# Kinds the app has a screen for; contacts and customers are shown but not opened.
+OPENABLE_KINDS = ("lead", "deal", "organization")
+
+RegexpReplace = CustomFunction("REGEXP_REPLACE", ["value", "pattern", "replacement"])
+Right = CustomFunction("RIGHT", ["value", "length"])
+
+
+class DuplicateLead(frappe.ValidationError):
+	"""create_lead found possible duplicates and was not forced; the response carries `matches`."""
+
+	http_status_code = 409
+
 
 LEAD_FIELDS = [
 	"name",
@@ -147,12 +194,35 @@ def create_lead(
 	mobile_no: str | None = None,
 	source: str | None = None,
 	note: str | None = None,
+	follow_up_on: str | None = None,
+	follow_up_note: str | None = None,
+	assign_to: str | None = None,
+	source_channel: str | None = None,
+	card_image: str | None = None,
+	force: bool = False,
 ) -> dict:
-	"""Create a lead owned by the session user, with an optional first note."""
-	require_crm()
+	"""Create a lead owned by the session user.
+
+	Everything is checked before the insert, because CRM's lead insert commits: the assignee,
+	the source channel, the card image and possible duplicates. Duplicates without `force`
+	raise DuplicateLead (HTTP 409) with the matches in the response.
+	"""
+	capabilities = require_crm()
 	first_name, _space, last_name = (lead_name or "").strip().partition(" ")
 	if not first_name:
 		frappe.throw(_("Give the lead a name."))
+	assignee = check_assignee(capabilities, assign_to)
+	channel = check_source_channel(source_channel)
+	card = check_card_image(card_image)
+	matches = find_duplicates(mobile_no, email, organization)
+	if matches and not cint(force):
+		frappe.response["matches"] = matches
+		frappe.throw(
+			_("This looks like a lead the team already has. Check the matches or create it anyway."),
+			DuplicateLead,
+			title=_("Possible duplicate"),
+		)
+
 	lead = frappe.new_doc("CRM Lead")
 	lead.update(
 		{
@@ -161,14 +231,329 @@ def create_lead(
 			"organization": organization,
 			"email": email,
 			"mobile_no": mobile_no,
-			"source": source,
+			"source": source or get_channel_lead_source(channel),
 			"lead_owner": frappe.session.user,
 		}
 	)
 	lead.insert()
+	if assignee:
+		add_assignment({"assign_to": [assignee], "doctype": "CRM Lead", "name": lead.name})
 	if note:
 		add_note("CRM Lead", lead.name, note)
+	if follow_up_note:
+		add_note("CRM Lead", lead.name, follow_up_note)
+	if follow_up_on:
+		add_follow_up_task(
+			"CRM Lead",
+			lead.name,
+			follow_up_on,
+			assigned_to=assignee or frappe.session.user,
+			description=follow_up_note,
+		)
+	if channel:
+		add_note("CRM Lead", lead.name, f"{CAPTURE_NOTE_PREFIX} {SOURCE_CHANNELS[channel][0]} ({channel})")
+	if matches:
+		add_note("CRM Lead", lead.name, describe_duplicates(matches))
+	if card:
+		upload_base64_file(card, f"{lead.name}-card.jpg", "CRM Lead", lead.name)
 	return get_lead(lead.name)
+
+
+@frappe.whitelist()
+def get_assignable_users() -> dict:
+	"""Enabled CRM users the session user may assign a new lead to: anyone for crm_scope all,
+	their sales team for team, nobody for staff (own)."""
+	capabilities = require_crm()
+	return {"data": get_crm_users(assignable_team(capabilities))}
+
+
+@frappe.whitelist()
+def check_duplicates(
+	phone: str | None = None, email: str | None = None, organization: str | None = None
+) -> dict:
+	"""Leads, deals, organizations, contacts and ERPNext customers that look like this person.
+
+	Records the caller cannot read come back without their name, title or status."""
+	require_crm()
+	return {"data": {"matches": find_duplicates(phone, email, organization)}}
+
+
+# ---------- Lead capture: assignment, channel, card image ----------
+
+
+def assignable_team(capabilities: frappe._dict) -> list[str] | None:
+	"""Who the caller may assign to: None = any CRM user (all), their sales team (team), else []."""
+	if "all" in capabilities.crm_scopes:
+		return None
+	if "team" in capabilities.crm_scopes:
+		return get_sales_team(frappe.session.user)
+	return []
+
+
+def get_crm_users(users: list[str] | None) -> list[dict]:
+	"""Enabled system users with a CRM role, limited to `users` unless None (one query)."""
+	if users == []:
+		return []
+	User = frappe.qb.DocType("User")
+	HasRole = frappe.qb.DocType("Has Role")
+	query = (
+		frappe.qb.from_(User)
+		.join(HasRole)
+		.on((HasRole.parent == User.name) & (HasRole.parenttype == "User"))
+		.select(User.name.as_("user"), User.full_name, User.user_image.as_("image"))
+		.distinct()
+		.where(
+			(User.enabled == 1)
+			& (User.user_type == "System User")
+			& User.name.notin(["Administrator", "Guest"])
+			& HasRole.role.isin(list(CRM_ROLES))
+		)
+		.orderby(User.full_name)
+	)
+	if users is not None:
+		query = query.where(User.name.isin(users))
+	return query.run(as_dict=True)
+
+
+def check_assignee(capabilities: frappe._dict, assign_to: str | None) -> str | None:
+	"""The user to assign the new lead to, or None. Assigning to yourself is the default (you
+	own the lead), so it is always allowed and adds nothing."""
+	assign_to = (assign_to or "").strip()
+	if not assign_to or assign_to == frappe.session.user:
+		return None
+	team = assignable_team(capabilities)
+	if team is not None and assign_to not in team:
+		frappe.throw(_("You can only assign leads to people in your sales team."), frappe.PermissionError)
+	if not get_crm_users([assign_to]):
+		frappe.throw(_("{0} is not an active CRM user.").format(assign_to))
+	return assign_to
+
+
+def check_source_channel(source_channel: str | None) -> str | None:
+	if not source_channel:
+		return None
+	if source_channel not in SOURCE_CHANNELS:
+		frappe.throw(_("source_channel must be one of {0}.").format(", ".join(SOURCE_CHANNELS)))
+	return source_channel
+
+
+def get_channel_lead_source(channel: str | None) -> str | None:
+	"""An existing CRM Lead Source that names the channel; never creates one."""
+	names = SOURCE_CHANNELS[channel][1] if channel else ()
+	if not names:
+		return None
+	return frappe.db.get_value("CRM Lead Source", {"name": ("in", names)}, "name")
+
+
+def check_card_image(card_image: str | None) -> str | None:
+	"""The base64 of a JPEG of at most 2 MB (a data: URL prefix is allowed), else ValidationError."""
+	if not card_image:
+		return None
+	content = card_image.split(",", 1)[1] if card_image.startswith("data:") else card_image
+	content = "".join(content.split())
+	try:
+		decoded = base64.b64decode(content, validate=True)
+	except (binascii.Error, ValueError):
+		frappe.throw(_("The card image is not valid base64."))
+	if len(decoded) > CARD_IMAGE_MAX_BYTES:
+		frappe.throw(_("The card image is larger than 2 MB."))
+	if not decoded.startswith(JPEG_MAGIC):
+		frappe.throw(_("The card image must be a JPEG."))
+	return content
+
+
+# ---------- Duplicates ----------
+
+
+def duplicate_keys(phone: str | None, email: str | None, organization: str | None) -> frappe._dict:
+	"""Normalised search keys: the phone's last 9 digits (7 at least), the lowercase email, and
+	the lowercase organization with outer whitespace trimmed."""
+	digits = re.sub(r"\D", "", phone or "")
+	return frappe._dict(
+		phone=digits[-PHONE_MATCH_DIGITS:] if len(digits) >= MIN_PHONE_DIGITS else None,
+		email=(email or "").strip().lower() or None,
+		organization=(organization or "").strip().lower() or None,
+	)
+
+
+def any_of(criteria: list):
+	combined = EmptyCriterion()
+	for criterion in criteria:
+		combined |= criterion
+	return combined
+
+
+def phone_criterion(fields: list, key: str):
+	return any_of([Right(RegexpReplace(field, "[^0-9]", ""), len(key)) == key for field in fields])
+
+
+def text_criterion(fields: list, key: str):
+	return any_of([Lower(Trim(field)) == key for field in fields])
+
+
+def duplicate_sources() -> list[frappe._dict]:
+	"""Per kind: the query, the fields each key is compared with, and the columns to return."""
+	Lead = frappe.qb.DocType("CRM Lead")
+	Deal = frappe.qb.DocType("CRM Deal")
+	DealContact = frappe.qb.DocType("CRM Contacts")
+	Organization = frappe.qb.DocType("CRM Organization")
+	Contact = frappe.qb.DocType("Contact")
+	ContactPhone = frappe.qb.DocType("Contact Phone")
+	ContactEmail = frappe.qb.DocType("Contact Email")
+	Customer = frappe.qb.DocType("Customer")
+	return [
+		frappe._dict(
+			kind="lead",
+			doctype="CRM Lead",
+			table=Lead,
+			# A converted lead is found through its deal.
+			query=frappe.qb.from_(Lead).where(Lead.converted == 0),
+			phone=[Lead.mobile_no, Lead.phone],
+			email=[Lead.email],
+			organization=[Lead.organization],
+			title=Coalesce(Lead.lead_name, Lead.organization, Lead.name),
+			owner=Lead.lead_owner,
+			status=Lead.status,
+		),
+		frappe._dict(
+			kind="deal",
+			doctype="CRM Deal",
+			table=Deal,
+			query=frappe.qb.from_(Deal)
+			.left_join(DealContact)
+			.on((DealContact.parent == Deal.name) & (DealContact.parenttype == "CRM Deal")),
+			phone=[Deal.mobile_no, Deal.phone, DealContact.mobile_no, DealContact.phone],
+			email=[Deal.email, DealContact.email],
+			organization=[Deal.organization],
+			title=Coalesce(Deal.organization, Deal.lead_name, Deal.name),
+			owner=Deal.deal_owner,
+			status=Deal.status,
+		),
+		frappe._dict(
+			kind="organization",
+			doctype="CRM Organization",
+			table=Organization,
+			query=frappe.qb.from_(Organization),
+			phone=[],
+			email=[],
+			organization=[Organization.organization_name],
+			title=Organization.organization_name,
+			owner=Organization.owner,
+			status=None,
+		),
+		frappe._dict(
+			kind="contact",
+			doctype="Contact",
+			table=Contact,
+			query=frappe.qb.from_(Contact)
+			.left_join(ContactPhone)
+			.on((ContactPhone.parent == Contact.name) & (ContactPhone.parenttype == "Contact"))
+			.left_join(ContactEmail)
+			.on((ContactEmail.parent == Contact.name) & (ContactEmail.parenttype == "Contact")),
+			phone=[ContactPhone.phone, Contact.mobile_no, Contact.phone],
+			email=[ContactEmail.email_id, Contact.email_id],
+			organization=[],
+			title=Coalesce(Contact.full_name, Contact.name),
+			owner=Contact.owner,
+			status=Contact.status,
+		),
+		frappe._dict(
+			kind="customer",
+			doctype="Customer",
+			table=Customer,
+			query=frappe.qb.from_(Customer),
+			phone=[],
+			email=[],
+			organization=[Customer.customer_name],
+			title=Customer.customer_name,
+			owner=Coalesce(Customer.account_manager, Customer.owner),
+			status=Case().when(Customer.disabled == 1, "Disabled").else_("Active"),
+		),
+	]
+
+
+def find_duplicates(phone: str | None, email: str | None, organization: str | None) -> list[dict]:
+	"""Up to 10 records matching the phone, email or organization, leads first: one grouped
+	query per doctype, then one frappe.get_list per doctype for what the caller may read."""
+	keys = duplicate_keys(phone, email, organization)
+	matches = []
+	for source in duplicate_sources():
+		remaining = DUPLICATE_LIMIT - len(matches)
+		if remaining <= 0:
+			break
+		matches += search_duplicates(source, keys, remaining)
+	return serialize_duplicates(matches)
+
+
+def search_duplicates(source: frappe._dict, keys: frappe._dict, limit: int) -> list[frappe._dict]:
+	checks = {}
+	if keys.phone and source.phone:
+		checks["phone"] = phone_criterion(source.phone, keys.phone)
+	if keys.email and source.email:
+		checks["email"] = text_criterion(source.email, keys.email)
+	if keys.organization and source.organization:
+		checks["organization"] = text_criterion(source.organization, keys.organization)
+	if not checks:
+		return []
+	table = source.table
+	status = Max(source.status) if source.status is not None else LiteralValue("NULL")
+	rows = (
+		source.query.select(
+			table.name,
+			Max(source.title).as_("title"),
+			Max(source.owner).as_("owner"),
+			status.as_("status"),
+			*(Max(Case().when(check, 1).else_(0)).as_(f"on_{key}") for key, check in checks.items()),
+		)
+		.where(any_of(list(checks.values())))
+		.groupby(table.name)
+		.orderby(Max(table.modified), order=frappe.qb.desc)
+		.limit(limit)
+	).run(as_dict=True)
+	for row in rows:
+		row.kind, row.doctype = source.kind, source.doctype
+		row.match_on = [key for key in checks if row.get(f"on_{key}")]
+	return rows
+
+
+def serialize_duplicates(matches: list) -> list[dict]:
+	"""Details only for records the caller can read; for the rest, that a match exists and whose."""
+	readable = set()
+	for doctype in {match.doctype for match in matches}:
+		names = [match.name for match in matches if match.doctype == doctype]
+		readable |= {
+			(doctype, name)
+			for name in frappe.get_list(doctype, filters={"name": ("in", names)}, pluck="name")
+		}
+	owners = get_full_names({match.owner for match in matches})
+	result = []
+	for match in matches:
+		visible = (match.doctype, match.name) in readable
+		result.append(
+			{
+				"kind": match.kind,
+				"name": match.name if visible else None,
+				"title": match.title
+				if visible
+				else _("Someone on the team already has this {0}").format(match.kind),
+				"owner_name": owners.get(match.owner, match.owner),
+				"status": match.status if visible else None,
+				"match_on": match.match_on,
+				"can_open": visible and match.kind in OPENABLE_KINDS,
+			}
+		)
+	return result
+
+
+def describe_duplicates(matches: list[dict]) -> str:
+	"""The note on a lead created despite matches. Hidden records are named by kind and owner only."""
+	parts = [
+		f"{match['kind']} {match['name']} ({match['title']})"
+		if match["name"]
+		else _("a {0} owned by {1}").format(match["kind"], match["owner_name"])
+		for match in matches
+	]
+	return _("Created despite possible duplicate of {0}").format("; ".join(parts))
 
 
 @frappe.whitelist(methods=["POST"])
@@ -1004,7 +1389,15 @@ def add_call(reference_doctype: str, name: str, text: str, phone: str | None = N
 	return call
 
 
-def add_follow_up_task(reference_doctype: str, name: str, due: str, title: str | None = None):
+def add_follow_up_task(
+	reference_doctype: str,
+	name: str,
+	due: str,
+	title: str | None = None,
+	assigned_to: str | None = None,
+	description: str | None = None,
+):
+	"""A Todo CRM Task on the record, assigned to `assigned_to` (default: me); CRM assigns it on insert."""
 	label = frappe.db.get_value(
 		reference_doctype, name, "lead_name" if reference_doctype == "CRM Lead" else "organization"
 	)
@@ -1012,9 +1405,10 @@ def add_follow_up_task(reference_doctype: str, name: str, due: str, title: str |
 	task.update(
 		{
 			"title": title or _("Follow up with {0}").format(label or name),
+			"description": frappe.utils.escape_html(description) if description else None,
 			"status": "Todo",
 			"priority": "Medium",
-			"assigned_to": frappe.session.user,
+			"assigned_to": assigned_to or frappe.session.user,
 			"due_date": get_datetime(due),
 			"reference_doctype": reference_doctype,
 			"reference_docname": name,
