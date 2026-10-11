@@ -330,11 +330,12 @@ def get_test_rsa_key(label: str = "signing") -> rsa.RSAPrivateKey:
 	return rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
 
-def make_microsoft_id_token(email: str, key: rsa.RSAPrivateKey | None = None, **claims) -> str:
+def make_microsoft_id_token(address: str, key: rsa.RSAPrivateKey | None = None, **claims) -> str:
 	"""An RS256 ID token shaped like Entra ID v2 for the test tenant and mobile client.
 
-	Signed with the test key unless `key` is given. `claims` override the defaults; a claim
-	set to None is left out. Each call gets a fresh `uti`.
+	`address` goes into `email` and `preferred_username`. Signed with the test key unless
+	`key` is given. `claims` override the defaults; a claim set to None is left out. Each call
+	gets a fresh `uti`.
 	"""
 	now = int(time.time())
 	payload = {
@@ -343,9 +344,9 @@ def make_microsoft_id_token(email: str, key: rsa.RSAPrivateKey | None = None, **
 		"tid": MS_TEST_TENANT,
 		"sub": frappe.generate_hash(length=20),
 		"oid": frappe.generate_hash(length=20),
-		"email": email,
-		"preferred_username": email,
-		"name": email.split("@")[0],
+		"email": address,
+		"preferred_username": address,
+		"name": address.split("@")[0],
 		"iat": now,
 		"nbf": now,
 		"exp": now + 3600,
