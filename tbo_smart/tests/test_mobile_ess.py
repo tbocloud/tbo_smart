@@ -5,6 +5,7 @@ from frappe.utils import add_months, get_first_day, getdate, now_datetime
 from tbo_smart.api.mobile import ess
 from tbo_smart.api.mobile.utils import NoEmployeeError
 from tbo_smart.test_utils import (
+	delete_checkins,
 	make_expense_claim_type,
 	make_leave_allocation,
 	make_leave_application,
@@ -26,6 +27,7 @@ class TestMobileESS(FrappeTestCase):
 		make_user(APPROVER, ["Leave Approver", "Expense Approver"])
 		self.staff = make_staff(STAFF, leave_approver=APPROVER, expense_approver=APPROVER)
 		self.other = make_staff(OTHER)
+		delete_checkins(self.staff)
 		frappe.set_user(STAFF)
 
 	def tearDown(self):

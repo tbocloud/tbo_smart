@@ -35,6 +35,8 @@ def make_user(email: str, roles: list[str] | tuple = ()) -> str:
 			}
 		).insert(ignore_permissions=True)
 	user = frappe.get_doc("User", email)
+	# Tests call this while signed in as a plain user, who may not save a User.
+	user.flags.ignore_permissions = True
 	user.add_roles(*roles)
 	return email
 
@@ -65,6 +67,13 @@ def ensure_company_holiday_list() -> str:
 		).insert(ignore_permissions=True)
 	frappe.db.set_value("Company", company, "default_holiday_list", TEST_HOLIDAY_LIST)
 	return TEST_HOLIDAY_LIST
+
+
+def delete_checkins(employee: str) -> None:
+	"""Remove an employee's Employee Checkins, so the 60-second double-punch guard starts clean.
+
+	Tests in a class share one transaction, so a punch from an earlier test is still there."""
+	frappe.db.delete("Employee Checkin", {"employee": employee})
 
 
 def set_hr_settings(**values) -> None:
