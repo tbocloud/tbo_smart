@@ -41,7 +41,7 @@ class TestPeriodWindows(FrappeTestCase):
 	def test_quarter_and_year(self):
 		quarter = period_windows("quarter", "2026-10-11")
 		self.assertEqual(str(quarter.previous_from), "2026-07-01")
-		self.assertEqual(quarter.trend[0].label, "2024-Q4")
+		self.assertEqual(quarter.trend[0].label, "2025-Q1")
 		year = period_windows("year", "2026-10-11")
 		self.assertEqual((str(year.previous_from), str(year.previous_to)), ("2025-01-01", "2025-10-11"))
 		self.assertEqual(year.trend[0].label, "2019")

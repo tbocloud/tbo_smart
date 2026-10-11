@@ -180,7 +180,7 @@ doc_events = {
 # Testing
 # -------
 
-# before_tests = "tbo_smart.install.before_tests"
+before_tests = "tbo_smart.test_utils.before_tests"
 
 # Overriding Methods
 # ------------------------------

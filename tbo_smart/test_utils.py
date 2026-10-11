@@ -5,11 +5,22 @@ import frappe
 from erpnext.setup.doctype.employee.test_employee import make_employee
 from frappe.utils import add_days, get_year_ending, get_year_start, getdate, now_datetime, nowdate
 from frappe.utils.nestedset import rebuild_tree
+from hrms.tests.test_utils import before_tests as hrms_before_tests
 
 from tbo_smart.api.mobile.capabilities import get_capabilities
 from tbo_smart.api.mobile.utils import INSIGHTS_CACHE_PREFIX
 
 TEST_HOLIDAY_LIST = "TBO Smart Test Holidays"
+
+
+def before_tests() -> None:
+	"""Set up a fresh test site the way HRMS does before its own tests: run the setup wizard
+	(company _Test Company in INR, fiscal year, chart of accounts, departments, designations)
+	when no Company exists, enable all roles and give the company a holiday list.
+
+	`run-tests --app tbo_smart` runs only this app's before_tests hook, so without this a new
+	CI site has no Company or Department and make_employee fails."""
+	hrms_before_tests()
 
 
 def make_user(email: str, roles: list[str] | tuple = ()) -> str:
