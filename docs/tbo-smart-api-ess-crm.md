@@ -69,8 +69,9 @@ See `fixtures/error.no_employee.json` and `fixtures/error.permission.json`.
 | Discovery | GET | `/api/method/frappe.integrations.oauth2.openid_configuration` |
 
 - Access tokens last **3600 s** (oauthlib default). A refresh token comes with each access
-  token.
-- On sign-out, call `unregister_device` (§7), then revoke the refresh token.
+  token from this PKCE flow. Tokens from single sign-in (§2.5) have **no** refresh token.
+- On sign-out, call `unregister_device` (§7), then revoke the refresh token (or, after single
+  sign-in, the access token).
 
 ### 2.3 PKCE on Frappe v15: supported, not enforced
 
@@ -114,12 +115,17 @@ both the same way. What a user may do on each site still comes from that site's 
    `https://login.microsoftonline.com/<tenant>/oauth2/v2.0/authorize` with scopes
    `openid profile email offline_access` and a fresh `nonce`, and gets an **ID token**.
 2. The app posts that ID token to each site (here and on the hub).
-3. Each site verifies it and returns its own Frappe access and refresh token for the matching
-   user. From then on the app uses them exactly as in §2.2: Bearer calls, `get_token` with
-   `grant_type=refresh_token`, and `revoke_token` on sign-out.
-4. The Microsoft tokens never go anywhere else. When a site's refresh token stops working,
-   the app gets a new ID token from Microsoft (silently, with its Microsoft refresh token)
-   and exchanges it again.
+3. Each site verifies it and returns its own Frappe **access token only** (3600 s) for the
+   matching user. There is **no refresh token**. The app makes Bearer calls as in §2.2 and
+   calls `revoke_token` on sign-out.
+4. When the access token is about to expire (or a call returns 401), the app gets a fresh ID
+   token from Microsoft (silently, with its Microsoft refresh token, which never leaves the
+   phone) and exchanges it again. `get_token` with `grant_type=refresh_token` is refused for
+   these tokens because none was issued.
+5. **Microsoft is the only login.** When TBO disables someone's Microsoft account, Microsoft
+   refuses the silent refresh, so the app cannot get a new ID token. Their access to this site
+   ends when the current access token expires, within an hour at most. Disabling the User
+   here ends it at once (see the security notes).
 
 **Endpoint**
 
@@ -128,7 +134,7 @@ both the same way. What a user may do on each site still comes from that site's 
 | Method | `POST /api/method/tbo_smart.api.mobile.auth.exchange_microsoft_token` (JSON or form body, no `Authorization` header) |
 | Body | `id_token` (required): the Microsoft ID token. `nonce` (optional): the nonce the app sent to Microsoft; when given, the token's `nonce` must equal it. |
 | Rate limit | 30 calls per minute per IP, then 429 `RateLimitExceededError`. |
-| Response | `{"v": 1, "data": {access_token, refresh_token, expires_in, token_type, scope, user, full_name}}` inside Frappe's `message`. See `fixtures/auth.exchange_microsoft_token.json`. Unlike the lists here (`{data, page, has_more}`), this method uses the hub's `{v, data}` envelope so one app function reads both sites. |
+| Response | `{"v": 1, "data": {access_token, expires_in, token_type, scope, user, full_name}}` (no `refresh_token`) inside Frappe's `message`. See `fixtures/auth.exchange_microsoft_token.json`. Unlike the lists here (`{data, page, has_more}`), this method uses the hub's `{v, data}` envelope so one app function reads both sites. |
 
 - `expires_in` is 3600 and `token_type` is `Bearer`; `scope` is `all openid`.
 - `user` is the site's User id (its email) and `full_name` its full name.
@@ -169,8 +175,9 @@ Errors (Frappe's error body, mapped as in §1):
    normal sign-in.
 10. The token is made by oauthlib's `BearerToken` and saved by Frappe's own
     `OAuthWebRequestValidator.save_bearer_token`, the same code `get_token` uses. It is an
-    **OAuth Bearer Token** for the configured OAuth Client with scopes `all openid`, a 3600 s
-    expiry and a refresh token.
+    **OAuth Bearer Token** for the configured OAuth Client with scopes `all openid` and a 3600 s
+    expiry. It has **no refresh token**, so Frappe's `get_token` refresh finds nothing to
+    refresh.
 
 **Owner setup (once)**
 
@@ -207,8 +214,15 @@ Errors (Frappe's error body, mapped as in §1):
   Microsoft account (personal or another company's) can sign in. Inside the tenant, `email`,
   `preferred_username` and `upn` are controlled by TBO's own Entra admins.
 - **No user is ever created.** Access stays with each site's User list, `enabled` flag,
-  roles and the OAuth Client's Allowed Roles. Disabling a user here also stops their existing
-  tokens, because Frappe checks `enabled` on every Bearer call.
+  roles and the OAuth Client's Allowed Roles.
+- **Leavers lose access everywhere.** Microsoft is the only login and the site issues no
+  refresh token, so disabling the Microsoft account ends access within an hour at most.
+  On this site, disabling the User ends it at once, in two ways:
+  - Frappe refuses every Bearer call whose user is disabled
+    (`OAuthWebRequestValidator.validate_bearer_token` checks `User.enabled`).
+  - A `doc_events` User `on_update` hook (`auth.revoke_tokens_of_disabled_user`) sets
+    every Active OAuth Bearer Token of that user to Revoked. This also covers tokens from the
+    older PKCE sign-in, and tokens stay dead if the user is enabled again.
 - **MFA and Conditional Access** are enforced by Microsoft at sign-in. Frappe's own password
   and two-factor checks do not run for this path.
 - **Replay** is blocked by the one-time `uti`/`jti` and by `nonce` when sent. The audience
@@ -217,9 +231,9 @@ Errors (Frappe's error body, mapped as in §1):
   logs or error messages.
 - **Rate-limited** per IP. Signature checks are cheap, and the limit keeps a misbehaving
   client from hammering the Microsoft key endpoint.
-- **Turning it off** (untick the switch) refuses new exchanges at once. Tokens already
-  issued keep working until they expire or are revoked; revoke them from
-  **/app/oauth-bearer-token** if needed.
+- **Turning it off** (untick the switch) refuses new exchanges at once. Access tokens
+  already issued keep working until they expire (an hour at most) or are revoked in
+  **/app/oauth-bearer-token**.
 
 ## 3. ESS: `tbo_smart.api.mobile.ess`
 
@@ -675,11 +689,12 @@ The tests are in `tbo_smart/tests/test_mobile_{ess,crm,manager,push,sso}.py`, wi
   insights.
 - **Push:** off by default, payload, dead-token cleanup, never raises.
 - **Single sign-in** (`test_mobile_sso.py`): a locally generated RSA key signs the ID tokens
-  and the JWKS download is mocked. A valid token issues tokens linked to the OAuth Client;
+  and the JWKS download is mocked. A valid token issues an access token linked to the OAuth Client, with no refresh token;
   wrong `aud`, `iss` or `tid`, expired or not-yet-valid, bad signature, nonce mismatch and
   replay are refused with 401; unknown, disabled and role-less users get 403; the switch
-  off refuses; `common` is refused as a tenant; and the issued refresh token works through
-  Frappe's `get_token`.
+  off refuses; `common` is refused as a tenant; a refresh through Frappe's `get_token` is
+  refused; a disabled user's existing token is rejected by Frappe's Bearer check; and
+  disabling a User revokes their tokens.
 
 They need a site with **erpnext, hrms and crm** installed and `allow_tests` on:
 `bench --site <site> run-tests --app tbo_smart`. CI (`.github/workflows/ci.yml`) installs
@@ -695,6 +710,8 @@ those apps on Frappe version-15.
   `manager.get_team_insights` and `crm.get_sales_insights`. `get_sales_snapshot` follows the
   caller's `crm_scope`. Follow-ups add `assigned_to` and `assigned_to_name`.
 - **v1.2 (2026-10-11):** single sign-in with Microsoft (§2.5):
-  `auth.exchange_microsoft_token` trades an Entra ID token for this site's own OAuth tokens.
+  `auth.exchange_microsoft_token` trades an Entra ID token for this site's own access token
+  (no refresh token; the app re-exchanges a fresh ID token). Disabling a User revokes their
+  OAuth Bearer Tokens.
   New TBO Smart Settings fields: Single sign-in with Microsoft, Microsoft tenant ID, Mobile
   Entra client ID and OAuth Client.

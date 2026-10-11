@@ -10,7 +10,7 @@ import frappe
 import jwt
 from cryptography.hazmat.primitives.asymmetric import rsa
 from erpnext.setup.doctype.employee.test_employee import make_employee
-from frappe.integrations.oauth2 import get_token
+from frappe.integrations.oauth2 import get_oauth_server, get_token
 from frappe.utils import add_days, get_year_ending, get_year_start, getdate, now_datetime, nowdate
 from frappe.utils.nestedset import rebuild_tree
 from hrms.tests.test_utils import before_tests as hrms_before_tests
@@ -438,3 +438,16 @@ def refresh_oauth_token(refresh_token: str, client_id: str) -> frappe._dict:
 	finally:
 		frappe.local.request = previous_request
 		frappe.local.response = previous_response
+
+
+def bearer_token_is_valid(access_token: str) -> bool:
+	"""Whether Frappe's OAuth server accepts `access_token` for an `all` scoped Bearer call,
+	the check frappe.auth.validate_oauth runs on every request."""
+	valid, _request = get_oauth_server().verify_request(
+		f"https://tbosmart.test/api/method/frappe.auth.get_logged_user?access_token={access_token}",
+		"GET",
+		None,
+		{},
+		["all"],
+	)
+	return valid

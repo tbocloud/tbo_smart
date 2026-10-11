@@ -2,8 +2,10 @@
 
 The app signs in once with Microsoft (Authorization Code + PKCE) and sends the ID token to
 each site. This site verifies it, finds the enabled User with that email and issues a
-normal Frappe OAuth Bearer Token for the TBO Smart OAuth Client, so `get_token` (refresh)
-and `revoke_token` work on it unchanged. The hub exposes the same contract.
+Frappe OAuth Bearer Token for the TBO Smart OAuth Client: an access token only, with no
+refresh token. Microsoft is the only login, so the app gets new access by exchanging a fresh
+ID token; once TBO disables someone's Microsoft account, their access here ends within the
+hour. The hub exposes the same contract.
 Contract: docs/tbo-smart-api-ess-crm.md §2.5.
 """
 
@@ -43,7 +45,7 @@ BLOCKED_USERS = ("Administrator", "Guest")
 @frappe.whitelist(allow_guest=True, methods=["POST"])  # nosemgrep
 @rate_limit(limit=30, seconds=60)
 def exchange_microsoft_token(id_token: str, nonce: str | None = None) -> dict:
-	"""Verify a Microsoft ID token and issue this site's access and refresh token for its user."""
+	"""Verify a Microsoft ID token and issue this site's access token (no refresh token) for its user."""
 	settings = get_sso_settings()
 	claims = verify_microsoft_id_token(id_token, settings, nonce)
 	user = find_user(claims)
@@ -53,7 +55,6 @@ def exchange_microsoft_token(id_token: str, nonce: str | None = None) -> dict:
 		"v": API_VERSION,
 		"data": {
 			"access_token": token["access_token"],
-			"refresh_token": token["refresh_token"],
 			"expires_in": token["expires_in"],
 			"token_type": "Bearer",
 			"scope": token["scope"],
@@ -240,16 +241,34 @@ def check_client_roles(user: str, oauth_client: str) -> None:
 
 
 def issue_bearer_token(user: str, oauth_client: str) -> dict:
-	"""An access and refresh token made and saved the way Frappe's OAuth server does.
+	"""An access token made and saved the way Frappe's OAuth server does, without a refresh token.
 
-	oauthlib's BearerToken generates the tokens (3600 s) and Frappe's own validator saves the
-	OAuth Bearer Token, so refresh and revoke treat it like any other.
+	oauthlib's BearerToken generates it (3600 s) and Frappe's own validator saves the OAuth
+	Bearer Token, so Bearer calls and revoke treat it like any other. With no refresh token
+	stored, `get_token` has nothing to refresh: new access always goes back to Microsoft.
 	"""
 	request = Request("")
 	request.user = user
 	request.scopes = list(SCOPES)
 	request.client = {"name": oauth_client}
 	validator = OAuthWebRequestValidator()
-	token = BearerToken(validator).create_token(request, refresh_token=True)
+	token = BearerToken(validator).create_token(request, refresh_token=False)
 	validator.save_bearer_token(token, request)
 	return token
+
+
+def revoke_tokens_of_disabled_user(doc, method=None) -> None:
+	"""User on_update: a disabled User loses every active OAuth Bearer Token at once.
+
+	Frappe already refuses Bearer calls for a disabled user; revoking also covers anyone who
+	is enabled again later, so old tokens never come back to life.
+	"""
+	if doc.enabled:
+		return
+	OAuthBearerToken = frappe.qb.DocType("OAuth Bearer Token")
+	(
+		frappe.qb.update(OAuthBearerToken)
+		.set(OAuthBearerToken.status, "Revoked")
+		.where((OAuthBearerToken.user == doc.name) & (OAuthBearerToken.status == "Active"))
+		.run()
+	)

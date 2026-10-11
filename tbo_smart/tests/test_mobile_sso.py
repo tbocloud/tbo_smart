@@ -7,6 +7,7 @@ from tbo_smart.api.mobile.auth import exchange_microsoft_token
 from tbo_smart.test_utils import (
 	MS_TEST_CLIENT_ID,
 	MS_TEST_TENANT,
+	bearer_token_is_valid,
 	delete_oauth_tokens,
 	disable_microsoft_sso,
 	enable_microsoft_sso,
@@ -51,7 +52,7 @@ class TestMobileSSO(FrappeTestCase):
 		with self.assertRaises(frappe.AuthenticationError):
 			exchange_microsoft_token(id_token, nonce)
 
-	def test_valid_token_issues_tokens_linked_to_the_client(self):
+	def test_valid_token_issues_an_access_token_linked_to_the_client(self):
 		response = exchange_microsoft_token(make_microsoft_id_token(STAFF, nonce="n-1"), "n-1")
 		self.assertEqual(response["v"], 1)
 		data = response["data"]
@@ -60,11 +61,13 @@ class TestMobileSSO(FrappeTestCase):
 		self.assertEqual(data["expires_in"], 3600)
 		self.assertEqual(data["scope"], "all openid")
 		self.assertTrue(data["full_name"])
+		self.assertNotIn("refresh_token", data)
+		self.assertTrue(bearer_token_is_valid(data["access_token"]))
 
 		token = frappe.get_doc("OAuth Bearer Token", data["access_token"])
 		self.assertEqual(token.client, self.client)
 		self.assertEqual(token.user, STAFF)
-		self.assertEqual(token.refresh_token, data["refresh_token"])
+		self.assertFalse(token.refresh_token)
 		self.assertEqual(token.status, "Active")
 		self.assertEqual(token.scopes, "all openid")
 
@@ -162,11 +165,37 @@ class TestMobileSSO(FrappeTestCase):
 		settings.save()
 		self.assertEqual(settings.microsoft_tenant_id, f"{MS_TEST_TENANT}, {OTHER_TENANT}")
 
-	def test_refresh_through_frappe_get_token(self):
-		data = self.exchange()["data"]
-		refreshed = refresh_oauth_token(data["refresh_token"], self.client)
-		self.assertTrue(refreshed.access_token)
-		self.assertNotEqual(refreshed.access_token, data["access_token"])
-		token = frappe.get_doc("OAuth Bearer Token", refreshed.access_token)
-		self.assertEqual(token.user, STAFF)
-		self.assertEqual(token.client, self.client)
+	def test_refresh_through_frappe_get_token_is_refused(self):
+		access_token = self.exchange()["data"]["access_token"]
+		for attempt in (access_token, ""):
+			try:
+				body = refresh_oauth_token(attempt, self.client)
+			except frappe.DoesNotExistError:
+				# Frappe's validate_refresh_token raises when no token has this refresh token.
+				body = frappe._dict(error="invalid_grant")
+			self.assertFalse(body.get("access_token"))
+			self.assertTrue(body.get("error"))
+
+	def test_a_disabled_users_existing_token_is_rejected(self):
+		access_token = self.exchange()["data"]["access_token"]
+		self.assertTrue(bearer_token_is_valid(access_token))
+		# Straight to the DB, so only Frappe's own Bearer check is under test, not the revoke hook.
+		frappe.db.set_value("User", STAFF, "enabled", 0)
+		try:
+			self.assertFalse(bearer_token_is_valid(access_token))
+		finally:
+			frappe.db.set_value("User", STAFF, "enabled", 1)
+
+	def test_disabling_a_user_revokes_their_tokens(self):
+		access_token = self.exchange()["data"]["access_token"]
+		frappe.set_user("Administrator")
+		user = frappe.get_doc("User", STAFF)
+		user.enabled = 0
+		user.save()
+		try:
+			self.assertEqual(frappe.db.get_value("OAuth Bearer Token", access_token, "status"), "Revoked")
+		finally:
+			user.reload()
+			user.enabled = 1
+			user.save()
+		self.assertFalse(bearer_token_is_valid(access_token))

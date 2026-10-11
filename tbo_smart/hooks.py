@@ -146,6 +146,7 @@ required_apps = ["erpnext", "hrms", "crm"]
 doc_events = {
 	"Notification Log": {"after_insert": "tbo_smart.push.on_notification_log"},
 	"PWA Notification": {"after_insert": "tbo_smart.push.on_pwa_notification"},
+	"User": {"on_update": "tbo_smart.api.mobile.auth.revoke_tokens_of_disabled_user"},
 }
 
 # doc_events = {
