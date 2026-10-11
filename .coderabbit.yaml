@@ -1,0 +1,46 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# CodeRabbit reviews every pull request. Its approval is what lets the merge bot
+# (tbocloud/ai-review) merge, so request_changes_workflow must stay on.
+language: en-US
+tone_instructions: "Be direct and specific. Name the file and line, say what breaks and for whom, and suggest the fix. Skip praise and style nitpicks the linters already catch."
+early_access: false
+
+reviews:
+  profile: chill
+  request_changes_workflow: true
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: true
+  sequence_diagrams: false
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - main
+  # findings are fixed in the PR itself; a bot-opened PR can't be approved by the bot
+  pre_merge_checks:
+    docstrings:
+      mode: "off"
+  finishing_touches:
+    docstrings:
+      enabled: false
+    autofix:
+      enabled: false
+  path_filters:
+    - "!**/yarn.lock"
+    - "!**/*.min.js"
+    - "!tbo_smart/public/**"
+  path_instructions:
+    - path: "tbo_smart/api/**"
+      instructions: |
+        This is the tboindia.tbocloud.in (ERPNext + HRMS + Frappe CRM) backend of the TBO Smart mobile app.
+        Every whitelisted method must be typed, act as the session user, check permissions explicitly
+        (own data only for ESS; capabilities from tbo_smart/api/mobile/capabilities.py), use POST for writes,
+        and reuse HRMS/CRM functions instead of copying their logic. Flag N+1 queries and any endpoint that
+        returns other people's salary, location or leave details.
+    - path: "tbo_smart/tests/**"
+      instructions: "Test helpers belong in tbo_smart/test_utils.py with docstrings, not inline in test files."
+
+chat:
+  auto_reply: true
