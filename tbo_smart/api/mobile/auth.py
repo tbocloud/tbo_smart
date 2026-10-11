@@ -27,6 +27,9 @@ LEEWAY_SECONDS = 120
 # An ID token's uti/jti is remembered at least this long (and until it expires).
 REPLAY_SECONDS = 600
 REPLAY_CACHE_PREFIX = "tbo_smart:sso:used"
+# A key id that is not in the cached set triggers at most one key download per tenant this often.
+JWKS_REFRESH_COOLDOWN_SECONDS = 300
+JWKS_REFRESH_CACHE_PREFIX = "tbo_smart:sso:jwks_refresh"
 GUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 USER_CLAIMS = ("email", "preferred_username", "upn")
 BLOCKED_USERS = ("Administrator", "Guest")
@@ -99,10 +102,9 @@ def verify_microsoft_id_token(id_token: str, settings: frappe._dict, nonce: str 
 		tenant = str(jwt.decode(id_token, options={"verify_signature": False}).get("tid") or "").lower()
 		if tenant not in settings.tenants:
 			raise jwt.InvalidIssuerError("tenant not allowed")
-		signing_key = get_jwks_client(tenant).get_signing_key_from_jwt(id_token)
 		claims = jwt.decode(
 			id_token,
-			signing_key.key,
+			get_signing_key(tenant, jwt.get_unverified_header(id_token).get("kid")),
 			algorithms=["RS256"],
 			audience=settings.client_id,
 			issuer=f"{MICROSOFT_LOGIN}/{tenant}/v2.0",
@@ -126,13 +128,44 @@ def verify_microsoft_id_token(id_token: str, settings: frappe._dict, nonce: str 
 	return claims
 
 
+def get_signing_key(tenant: str, kid: str | None):
+	"""The tenant's public key for `kid`, from the key set cached for an hour.
+
+	An unknown `kid` refetches the set at most once per tenant every 5 minutes across all
+	workers, so tokens with made-up key ids cannot make this site hammer Microsoft.
+	"""
+	client = get_jwks_client(tenant)
+	key = find_signing_key(client.get_signing_keys(), kid)
+	if key is None and claim_jwks_refresh(tenant):
+		key = find_signing_key(client.get_signing_keys(refresh=True), kid)
+	if key is None:
+		raise jwt.PyJWKClientError("unknown signing key")
+	return key
+
+
+def find_signing_key(keys: list[jwt.PyJWK], kid: str | None):
+	return next((key.key for key in keys if kid and key.key_id == kid), None)
+
+
 def get_jwks_client(tenant: str) -> jwt.PyJWKClient:
 	"""The cached key-set client for a tenant's v2.0 signing keys."""
 	if tenant not in JWKS_CLIENTS:
 		JWKS_CLIENTS[tenant] = jwt.PyJWKClient(
-			f"{MICROSOFT_LOGIN}/{tenant}/discovery/v2.0/keys", cache_keys=True, lifespan=3600, timeout=10
+			f"{MICROSOFT_LOGIN}/{tenant}/discovery/v2.0/keys", lifespan=3600, timeout=10
 		)
 	return JWKS_CLIENTS[tenant]
+
+
+def jwks_refresh_key(tenant: str) -> str:
+	return frappe.cache.make_key(f"{JWKS_REFRESH_CACHE_PREFIX}:{tenant}")
+
+
+def claim_jwks_refresh(tenant: str) -> bool:
+	"""True for the first caller in each cooldown window; everyone else uses the cached set."""
+	# Raw SET NX for an atomic check-and-mark; make_key adds the site prefix, so it stays per site.
+	return bool(
+		frappe.cache.set(jwks_refresh_key(tenant), 1, ex=JWKS_REFRESH_COOLDOWN_SECONDS, nx=True)  # nosemgrep
+	)
 
 
 def claim_token_once(claims: dict) -> None:
@@ -164,9 +197,8 @@ def find_user(claims: dict) -> frappe._dict:
 		address = str(claims.get(claim) or "").strip().lower()
 		if "@" not in address:
 			continue
-		user = frappe.db.get_value(
-			"User", {"email": address}, ["name", "full_name", "enabled"], as_dict=True
-		) or frappe.db.get_value("User", address, ["name", "full_name", "enabled"], as_dict=True)
+		# By User.email only: a User's name can be an old address that now belongs to someone else.
+		user = frappe.db.get_value("User", {"email": address}, ["name", "full_name", "enabled"], as_dict=True)
 		if not user or user.name in BLOCKED_USERS:
 			continue
 		if not user.enabled:

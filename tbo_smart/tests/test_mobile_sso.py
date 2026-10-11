@@ -35,7 +35,7 @@ class TestMobileSSO(FrappeTestCase):
 		self.client = make_oauth_client(["Employee", "Sales User"])
 		enable_microsoft_sso(self.client)
 		jwks = mock_microsoft_jwks()
-		jwks.start()
+		self.jwks_download = jwks.start()
 		self.addCleanup(jwks.stop)
 		frappe.set_user("Guest")
 
@@ -101,6 +101,25 @@ class TestMobileSSO(FrappeTestCase):
 	def test_bad_signature_is_rejected(self):
 		self.assertRejected(make_microsoft_id_token(STAFF, key=get_test_rsa_key("attacker")))
 		self.assertRejected("not-a-jwt")
+
+	def test_unknown_key_id_refetches_keys_once_per_cooldown(self):
+		self.assertRejected(make_microsoft_id_token(STAFF, kid="made-up-1"))
+		self.assertRejected(make_microsoft_id_token(STAFF, kid="made-up-2"))
+		# The first download fills the cache; only one refresh is allowed in the cooldown.
+		self.assertEqual(self.jwks_download.call_count, 2)
+		exchange_microsoft_token(make_microsoft_id_token(STAFF))
+		self.assertEqual(self.jwks_download.call_count, 2)
+
+	def test_user_is_matched_by_email_not_by_user_name(self):
+		# The exchange commits, so the changed email is put back before tearDown commits again.
+		frappe.db.set_value("User", SALES_ONLY, "email", "sso.sales.new@tbosmart.test")
+		try:
+			with self.assertRaises(frappe.PermissionError):
+				exchange_microsoft_token(make_microsoft_id_token(SALES_ONLY))
+			response = exchange_microsoft_token(make_microsoft_id_token("sso.sales.new@tbosmart.test"))
+			self.assertEqual(response["data"]["user"], SALES_ONLY)
+		finally:
+			frappe.db.set_value("User", SALES_ONLY, "email", SALES_ONLY)
 
 	def test_nonce_mismatch_is_rejected(self):
 		self.assertRejected(make_microsoft_id_token(STAFF, nonce="expected"), nonce="other")

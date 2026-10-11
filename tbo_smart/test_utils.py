@@ -330,11 +330,13 @@ def get_test_rsa_key(label: str = "signing") -> rsa.RSAPrivateKey:
 	return rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
 
-def make_microsoft_id_token(address: str, key: rsa.RSAPrivateKey | None = None, **claims) -> str:
+def make_microsoft_id_token(
+	address: str, key: rsa.RSAPrivateKey | None = None, kid: str = MS_TEST_KEY_ID, **claims
+) -> str:
 	"""An RS256 ID token shaped like Entra ID v2 for the test tenant and mobile client.
 
 	`address` goes into `email` and `preferred_username`. Signed with the test key unless
-	`key` is given. `claims` override the defaults; a claim set to None is left out. Each call
+	`key` is given, with header `kid`. `claims` override the defaults; a claim set to None is left out. Each call
 	gets a fresh `uti`.
 	"""
 	now = int(time.time())
@@ -355,18 +357,28 @@ def make_microsoft_id_token(address: str, key: rsa.RSAPrivateKey | None = None, 
 		**claims,
 	}
 	payload = {name: value for name, value in payload.items() if value is not None}
-	return jwt.encode(payload, key or get_test_rsa_key(), algorithm="RS256", headers={"kid": MS_TEST_KEY_ID})
+	return jwt.encode(payload, key or get_test_rsa_key(), algorithm="RS256", headers={"kid": kid})
 
 
 def mock_microsoft_jwks():
 	"""Patch the JWKS download so Microsoft's key set is the test public key.
 
-	Also forgets the cached per-tenant clients. Use as a context manager or start()/stop().
+	Also forgets the cached per-tenant clients and the key-refresh cooldown. Use as a context
+	manager or start()/stop(); the started mock counts the downloads.
 	"""
 	jwk = json.loads(RSAAlgorithm.to_jwk(get_test_rsa_key().public_key()))
 	jwk.update({"kid": MS_TEST_KEY_ID, "use": "sig", "alg": "RS256"})
 	auth.JWKS_CLIENTS.clear()
-	return patch.object(jwt.PyJWKClient, "fetch_data", return_value={"keys": [jwk]})
+	frappe.cache.delete_value(auth.jwks_refresh_key(MS_TEST_TENANT), make_keys=False)
+	jwk_set = {"keys": [jwk]}
+
+	def fetch_data(client: jwt.PyJWKClient) -> dict:
+		# Fill the client's cache like the real download does, so caching is exercised too.
+		if client.jwk_set_cache is not None:
+			client.jwk_set_cache.put(jwk_set)
+		return jwk_set
+
+	return patch.object(jwt.PyJWKClient, "fetch_data", autospec=True, side_effect=fetch_data)
 
 
 def make_oauth_client(roles: list[str] | tuple = ("Employee",)) -> str:

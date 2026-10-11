@@ -51,7 +51,8 @@ See `fixtures/error.no_employee.json` and `fixtures/error.permission.json`.
    - **Scopes:** `all openid` (space separated)
    - **Redirect URIs:** `tbosmart://oauth/callback`
    - **Default Redirect URI:** `tbosmart://oauth/callback`
-   - **Allowed Roles:** add `Employee` so that only staff can sign in. Leave it empty to allow every user.
+   - **Allowed Roles:** add `Employee` so that only staff can sign in. Left empty, Frappe fills
+     in `Desk User` on save, which allows every desk user.
 3. Save. Give the **Client ID** to the app build.
    - The **Client Secret** is not used: the app is a public client and must not embed it.
 4. With the client's **Skip Authorization** ticked, there is no consent screen whatever **OAuth Provider Settings** says (`frappe/integrations/oauth2.py` `authorize`).
@@ -147,8 +148,9 @@ Errors (Frappe's error body, mapped as in §1):
 2. The token's `tid` is one of the configured tenants (checked before any key is fetched).
 3. RS256 signature against that tenant's keys,
    `https://login.microsoftonline.com/<tid>/discovery/v2.0/keys`. PyJWT's `PyJWKClient`
-   caches the key set per worker and refetches only for an unknown `kid`. No other algorithm
-   is accepted.
+   caches the key set per worker for an hour. An unknown `kid` refetches it at most once per
+   tenant every 5 minutes across all workers (a Redis `SET NX` cooldown), so made-up key ids
+   cannot make the site hammer Microsoft. No other algorithm is accepted.
 4. `iss` is exactly `https://login.microsoftonline.com/<tid>/v2.0`, `aud` is the mobile
    client ID, and `exp`, `iat`, `iss`, `aud`, `tid` are present.
 5. `exp` and `nbf` hold, with 120 s of clock leeway.
@@ -156,8 +158,10 @@ Errors (Frappe's error body, mapped as in §1):
 7. Replay guard: the token's `uti` (or `jti`) is stored in Redis with `SET NX`. It stays there
    for 10 minutes, or until the token expires if that is later. A second exchange of the same
    token is refused, and a token with neither claim is refused.
-8. The user is the first enabled User whose email (or name) matches `email`, then
-   `preferred_username`, then `upn`, ignoring case. Users are never created.
+8. The user is the first User whose **email** matches `email`, then `preferred_username`,
+   then `upn`, ignoring case. A User's name (id) is never matched, because it can be an old
+   address that now belongs to someone else. A disabled match is refused. Users are never
+   created.
    `Administrator` and `Guest` never match.
 9. The user must hold one of the OAuth Client's **Allowed Roles**, the same rule as the
    normal sign-in.
