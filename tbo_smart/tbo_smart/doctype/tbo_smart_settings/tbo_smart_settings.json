@@ -16,7 +16,8 @@
   "finance_bde_can_see_amounts",
   "column_break_finance",
   "finance_crm_access",
-  "finance_crm_roles"
+  "finance_crm_roles",
+  "finance_crm_granted"
  ],
  "fields": [
   {
@@ -104,6 +105,15 @@
    "fieldtype": "Small Text",
    "label": "Finance roles in the CRM",
    "description": "One role per line."
+  },
+  {
+   "fieldname": "finance_crm_granted",
+   "fieldtype": "Small Text",
+   "label": "CRM read rows added",
+   "hidden": 1,
+   "read_only": 1,
+   "no_copy": 1,
+   "description": "Custom DocPerm rows this setting added, so turning it off removes exactly those."
   }
  ],
  "index_web_pages_for_search": 0,

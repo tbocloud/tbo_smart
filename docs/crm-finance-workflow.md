@@ -865,8 +865,8 @@ one-off backfill run regardless.
   (`prevdoc_docname` → `Quotation.crm_deal`, or the party when *Quotation To* is CRM Deal);
   Sales Invoice from its items' sales orders, else those orders' quotations.
 - Payment Entry: `crm_deal` always follows the references. Every Sales Invoice / Sales Order
-  reference must carry the same deal; otherwise it is blank. A receipt without references
-  keeps whatever it has.
+  reference must carry the same deal; otherwise it is blank. A receipt with no invoice or
+  order reference (an advance booked on account) keeps a deal typed on it.
 - **Decision:** no guessing from the customer. A Sales Invoice made straight from a
   Quotation gets the deal from the mapper; one typed by hand with no source stays blank
   unless someone fills the (editable) field. Customer-based guessing would attach a repeat
@@ -921,7 +921,9 @@ always agree).
 | `submit_quotation(deal, quotation)` | POST | Submits a draft of the deal; the discount/commission control refuses it while an approval is missing. |
 | `can_create_desk_quotations()` | GET | Overrides Frappe CRM's `can_create_quotations` (`override_whitelisted_methods`): False while the workflow is on, so the deal's desk "Create Quotation" action disappears; otherwise CRM's own answer. |
 
-Editing in the CRM is limited to drafts and to the fields above; "Open in ERPNext" stays for
+A quotation belongs to the deal when its `crm_deal` is the deal or it is made out to the deal
+(*Quotation To* = CRM Deal), the same rule the Finance tab lists by. Editing in the CRM is
+limited to drafts and to the fields above; "Open in ERPNext" stays for
 anything else. **Deviation:** the plan only asked for drafts; Submit was added so a BDE never
 needs `/app` for a quotation within their limit.
 
@@ -972,8 +974,10 @@ sales hierarchy for a user, doctype and permission type). tbo_smart registers
 `has_crm_app_access` and `has_unrestricted_crm_access`: both are True only for the
 `finance_crm_roles` while the workflow and `finance_crm_access` are on, and the second only
 for CRM Deal reads. Saving TBO Smart Settings with access on adds a read Custom DocPerm on CRM
-Deal and CRM Organization for each of those roles (which also opens the FCRM module to them).
-Turning access off leaves those rows, but the hooks stop admitting the roles. Deploy the CRM
+Deal and CRM Organization for each of those roles (which also opens the FCRM module to them)
+and remembers which rows it added (hidden field `finance_crm_granted`). Turning access off,
+or taking a role off the list, deletes exactly those rows; rows that existed before are
+never touched. Deploy the CRM
 fork first: without its hooks, Accounts still read the Finance tab data through the API, but
 cannot open `/crm`.
 

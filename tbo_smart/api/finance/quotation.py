@@ -96,7 +96,7 @@ def save_quotation(deal: str, values: dict | str, quotation: str | None = None) 
 	else:
 		if not frappe.has_permission("Quotation", "create"):
 			frappe.throw(_("You cannot create quotations."), frappe.PermissionError)
-		doc = new_quotation(frappe.get_doc("CRM Deal", deal), values["company"])
+		doc = new_quotation(frappe.get_doc("CRM Deal", deal), values.get("company"))
 	apply_values(doc, values)
 	if doc.is_new():
 		doc.insert()
@@ -138,7 +138,7 @@ def get_editable_quotation(deal: str, quotation: str, ptype: str):
 	if not frappe.db.exists("Quotation", quotation):
 		frappe.throw(_("Quotation {0} not found.").format(quotation), frappe.DoesNotExistError)
 	doc = frappe.get_doc("Quotation", quotation)
-	if doc.get("crm_deal") != deal:
+	if not belongs_to_deal(doc, deal):
 		frappe.throw(
 			_("Quotation {0} does not belong to this deal.").format(quotation), frappe.PermissionError
 		)
@@ -146,6 +146,11 @@ def get_editable_quotation(deal: str, quotation: str, ptype: str):
 	if ptype != "read" and doc.docstatus != 0:
 		frappe.throw(_("Only a draft quotation can be changed here. Open it in ERPNext."))
 	return doc
+
+
+def belongs_to_deal(doc, deal: str) -> bool:
+	"""Linked by Frappe CRM's crm_deal, or made out to the deal itself (as the Finance tab lists)."""
+	return doc.get("crm_deal") == deal or (doc.quotation_to == "CRM Deal" and doc.party_name == deal)
 
 
 def get_party(deal) -> dict:

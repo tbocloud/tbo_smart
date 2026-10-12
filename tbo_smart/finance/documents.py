@@ -43,7 +43,9 @@ class FinanceDocument:
 
 	def set_deal(self):
 		if self.doc.doctype == "Payment Entry":
-			self.doc.crm_deal = RESOLVERS["Payment Entry"](self.doc)
+			# with references the deal always follows them; without any, a typed deal stays
+			if has_order_or_invoice_reference(self.doc):
+				self.doc.crm_deal = RESOLVERS["Payment Entry"](self.doc)
 		elif not self.doc.get("crm_deal"):
 			self.doc.crm_deal = RESOLVERS[self.doc.doctype](self.doc)
 
@@ -62,6 +64,12 @@ class FinanceDocument:
 			QuotationApprovalPending,
 			title=_("Quotation approval pending"),
 		)
+
+
+def has_order_or_invoice_reference(doc) -> bool:
+	return any(
+		row.reference_doctype in ("Sales Invoice", "Sales Order") for row in doc.get("references") or []
+	)
 
 
 def validate(doc, method=None):

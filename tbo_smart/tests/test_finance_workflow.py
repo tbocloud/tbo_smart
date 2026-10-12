@@ -100,6 +100,16 @@ class TestDealLinks(FinanceTestCase):
 		FinanceDocument(entry).validate()
 		self.assertFalse(entry.crm_deal)
 
+	def test_payment_without_references_keeps_a_typed_deal(self):
+		deal = make_finance_deal(BDE)
+		entry = make_receipt(
+			"Sales Order", make_order_from_quotation(make_deal_quotation(deal).name).name, 100, submit=False
+		)
+		entry.set("references", [])
+		entry.crm_deal = deal
+		FinanceDocument(entry).validate()
+		self.assertEqual(entry.crm_deal, deal)
+
 	def test_switched_off_leaves_links_alone(self):
 		deal = make_finance_deal(BDE)
 		quotation = make_deal_quotation(deal)
@@ -273,6 +283,19 @@ class TestQuotationApi(FinanceTestCase):
 		with self.assertRaises(frappe.ValidationError):
 			quotation_api.save_quotation(deal, values, saved["name"])
 
+	def test_quotation_made_out_to_the_deal_is_editable(self):
+		deal = make_finance_deal(BDE)
+		frappe.set_user(BDE)
+		saved = quotation_api.save_quotation(
+			deal, {"items": [{"item_code": make_quotation_item(), "qty": 1, "price_list_rate": 10}]}
+		)
+		frappe.set_user("Administrator")
+		frappe.db.set_value(
+			"Quotation", saved["name"], {"crm_deal": None, "quotation_to": "CRM Deal", "party_name": deal}
+		)
+		frappe.set_user(BDE)
+		self.assertEqual(quotation_api.get_quotation_form(deal, saved["name"])["name"], saved["name"])
+
 	def test_refuses_other_deals_and_bad_input(self):
 		deal = make_finance_deal(BDE)
 		other = make_finance_deal(OTHER_BDE)
@@ -399,15 +422,19 @@ class TestFinanceTabAccess(FinanceTestCase):
 		with self.assertRaises(frappe.ValidationError):
 			report_api.get_bde_conversion()
 
-	def test_settings_grant_crm_read(self):
+	def test_settings_grant_and_revoke_crm_read(self):
+		frappe.db.delete("Custom DocPerm", {"parent": "CRM Organization", "role": "Accounts User"})
 		settings = frappe.get_single("TBO Smart Settings")
 		settings.update(
 			{"enable_finance_workflow": 1, "finance_crm_access": 1, "finance_crm_roles": "Accounts User\n"}
 		)
 		settings.save(ignore_permissions=True)
-		self.assertTrue(
-			frappe.db.exists("Custom DocPerm", {"parent": "CRM Deal", "role": "Accounts User", "read": 1})
-		)
+		row = {"parent": "CRM Organization", "role": "Accounts User", "read": 1}
+		self.assertTrue(frappe.db.exists("Custom DocPerm", row))
+		settings.reload()
+		settings.finance_crm_access = 0
+		settings.save(ignore_permissions=True)
+		self.assertFalse(frappe.db.exists("Custom DocPerm", row))
 		settings.finance_crm_roles = "No Such Role"
 		with self.assertRaises(frappe.ValidationError):
 			settings.save(ignore_permissions=True)

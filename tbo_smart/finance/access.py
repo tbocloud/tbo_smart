@@ -85,13 +85,30 @@ def has_unrestricted_crm_access(user: str, doctype: str, ptype: str | None = Non
 	return doctype == "CRM Deal" and (ptype or "read") in READ_PTYPES and is_finance_user(user)
 
 
-def grant_crm_read() -> None:
-	"""Give the finance roles read on CRM Deal and CRM Organization (a Custom DocPerm each),
-	which also opens the FCRM module to them. Run when the settings are saved with CRM access
-	on; turning it off leaves the rows, but the hooks above stop admitting those roles."""
-	if not finance_crm_access_on():
-		return
-	for role in get_crm_roles():
-		for doctype in CRM_READ_DOCTYPES:
-			if not frappe.db.exists("Custom DocPerm", {"parent": doctype, "role": role, "permlevel": 0}):
-				add_permission(doctype, role, 0, "read")
+def sync_crm_read(granted: list) -> list:
+	"""Keep the finance roles' read Custom DocPerm on CRM Deal and CRM Organization (which also
+	opens the FCRM module to them) in line with the settings. `granted` lists the rows this
+	setting added earlier; rows for roles no longer wanted, or all of them once access is off,
+	are deleted. Rows that existed before are never touched. Returns the rows it now owns."""
+	wanted = (
+		{(doctype, role) for role in get_crm_roles() for doctype in CRM_READ_DOCTYPES}
+		if finance_crm_access_on()
+		else set()
+	)
+	kept = []
+	for name in granted:
+		row = frappe.db.get_value("Custom DocPerm", name, ["parent", "role"], as_dict=True)
+		if not row:
+			continue
+		if (row.parent, row.role) in wanted:
+			kept.append(name)
+			wanted.discard((row.parent, row.role))
+		else:
+			frappe.delete_doc("Custom DocPerm", name, ignore_permissions=True, force=True)
+			frappe.clear_cache(doctype=row.parent)
+	for doctype, role in sorted(wanted):
+		if frappe.db.exists("Custom DocPerm", {"parent": doctype, "role": role, "permlevel": 0}):
+			continue
+		add_permission(doctype, role, 0, "read")
+		kept.append(frappe.db.get_value("Custom DocPerm", {"parent": doctype, "role": role, "permlevel": 0}))
+	return kept

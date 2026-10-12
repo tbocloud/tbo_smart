@@ -6,7 +6,7 @@ from frappe import _
 from frappe.model.document import Document
 
 from tbo_smart.api.mobile.auth import GUID, parse_tenant_ids
-from tbo_smart.finance.access import grant_crm_read
+from tbo_smart.finance.access import sync_crm_read
 
 
 class TBOSmartSettings(Document):
@@ -23,6 +23,7 @@ class TBOSmartSettings(Document):
 		enable_mobile_push: DF.Check
 		finance_bde_can_see_amounts: DF.Check
 		finance_crm_access: DF.Check
+		finance_crm_granted: DF.SmallText | None
 		finance_crm_roles: DF.SmallText | None
 		microsoft_mobile_client_id: DF.Data | None
 		microsoft_tenant_id: DF.SmallText | None
@@ -57,4 +58,8 @@ class TBOSmartSettings(Document):
 		self.finance_crm_roles = "\n".join(roles) or None
 
 	def grant_finance_crm_read(self):
-		grant_crm_read()
+		"""Add the finance roles' CRM read rows, or remove the ones this setting added."""
+		granted = sync_crm_read(frappe.parse_json(self.finance_crm_granted or "[]"))
+		value = frappe.as_json(granted) if granted else None
+		if value != (self.finance_crm_granted or None):
+			self.db_set("finance_crm_granted", value)
