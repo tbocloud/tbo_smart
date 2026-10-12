@@ -507,18 +507,26 @@ class TestWithoutCrm(FrappeTestCase):
 			finance_setup.setup_finance()
 			backfill_finance_deal_links.execute()
 
+		# Phase 4's Bank Transaction fields are part of these finance fields
 		create_fields.assert_not_called()
 		backfill.assert_not_called()
 		allocation_start.assert_not_called()
 
 	def test_finance_off_without_crm(self):
-		from tbo_smart.finance import allocation_enabled, exceptions_enabled, finance_enabled
+		from tbo_smart.finance import (
+			allocation_enabled,
+			exceptions_enabled,
+			finance_enabled,
+			reconciliation_enabled,
+		)
 
 		frappe.db.set_single_value(
-			"TBO Smart Settings", {"enable_finance_workflow": 1, "enable_fund_allocation": 1}
+			"TBO Smart Settings",
+			{"enable_finance_workflow": 1, "enable_fund_allocation": 1, "enable_reconciliation": 1},
 		)
 		with patch("frappe.get_installed_apps", return_value=["frappe", "erpnext", "tbo_smart"]):
 			self.assertFalse(finance_enabled())
 			self.assertFalse(allocation_enabled())
+			self.assertFalse(reconciliation_enabled())
 			self.assertFalse(exceptions_enabled())
 		frappe.db.rollback()

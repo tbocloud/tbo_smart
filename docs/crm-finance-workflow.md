@@ -1,6 +1,6 @@
-# CRM finance workflow: lead to reconciled cash (living spec, v0.4)
+# CRM finance workflow: lead to reconciled cash (living spec, v0.5)
 
-**Status:** Phases 1 to 3 built (owner approved start 2026-10-12; management sign-off and
+**Status:** Phases 1 to 4 built (owner approved start 2026-10-12; management sign-off and
 open questions pending). Every phase ships behind its own switch in TBO Smart Settings, off by
 default, so a deploy changes nothing until the owner turns it on. This file is the living
 spec: every change updates it in the same pull request, and it describes what is built, not
@@ -232,11 +232,13 @@ New "Finance workflow" section. **Built in Phase 1:**
 | `amount_tolerance` | Currency | 1.00. Transfer differences at or below this are not exceptions. |
 | `transfer_pending_days` | Int | 5. A transfer not confirmed by India after this many days raises an exception. |
 
-Planned for later phases (each phase adds its own switch, off by default):
+**Built in Phase 4** (section "Reconciliation and approvals (Phase 4)"):
 
 | Field | Type | Default |
 | --- | --- | --- |
+| `enable_reconciliation` ("Reconciliation and approvals (Phase 4)") | Check | 0. Needs Phase 1 on. |
 | `unmatched_alert_days` | Int | 3 |
+| `second_approval_amount` ("Second approval above") | Currency | Blank: one approver is enough (Q5). |
 
 ### 3.3 New doctype: TBO Fund Allocation (submittable)
 
@@ -809,12 +811,12 @@ Each phase ships on its own behind its own switch in TBO Smart Settings (Phase 1
 | Q2 | Are TBO KSA and TBO India both Companies on tboindia ERPNext? If KSA's books are elsewhere, how do we get its receipts? | Both on tboindia; Phase 3 reads the companies from settings, and if the invoicing company does not exist allocation is skipped with an Error Log warning. Phase 1: a deal's `tbo_company` defaults to ERPNext CRM Settings' company, so today's behaviour holds (default chosen, pending confirmation). |
 | Q3 | Exchange-rate source for SAR→INR differences: the bank's achieved rate, or a reference rate (SAMA/RBI) on a date? | Bank's achieved rate: the transfer's `effective_rate` = received ÷ sent (default chosen, pending confirmation). |
 | Q4 | Does a refund to a client reverse India's share? If India was already paid, is the excess netted against the next transfer or paid back? | Yes, a Reversal allocation; netted in the next transfer (default chosen, pending confirmation). |
-| Q5 | Who approves exceptions (waivers, accepted differences, extensions)? Is there an amount limit above which Management must also approve? | Finance Manager; no limit |
+| Q5 | Who approves exceptions (waivers, accepted differences, extensions)? Is there an amount limit above which Management must also approve? | Finance Manager (TBO Finance Approver); a second, different approver above `second_approval_amount`, blank = not required (default chosen, pending confirmation). |
 | Q6 | Is the 50% base the amount credited to the client, or the cash after the client's bank charges? | Credited to the client (`allocation_base_after_bank_charges` = 0; default chosen, pending confirmation). |
 | Q7 | Who bears transfer bank charges: KSA, India, or shared? | KSA bears the transfer charges: they never reduce what a transfer settles (default chosen, pending confirmation). Only invoices of the KSA company are allocated. |
 | Q8 | Is withholding tax deducted on KSA→India transfers? If so, does it count as paid to India? | Not deducted automatically; a transfer can record `withholding_tax`, which counts as settled, and a difference is a known exception type (default chosen, pending confirmation). |
 | Q9 | Does KSA issue a tax invoice for advances (VAT due on advance receipt), or receive advances against a Sales Order only? Are Sales Orders used at all? | SO + advance PE; advance tax invoice if the advisor requires it |
-| Q10 | Accounts staff post invoices and payments and reconcile banks in ERPNext screens (`/app`); CRM shows and approves. Is that acceptable, or must Accounts also post from CRM? | Acceptable (ERPNext stays the accounting screen) |
+| Q10 | Accounts staff post invoices and payments and reconcile banks in ERPNext screens (`/app`); CRM shows and approves. Is that acceptable, or must Accounts also post from CRM? | Acceptable: matching stays in ERPNext's Bank Reconciliation Tool; the CRM verifies and decides (default chosen, pending confirmation). |
 | Q11 | Is a Microsoft Teams digest required now? | Email + in-app/push now; Teams later (default chosen, pending confirmation; `build_digest` returns structured data for a later Teams post). |
 | Q12 | Which deal status creates the ERPNext Customer, and what does onboarding require (CR no., VAT no., contract, PO)? | Phase 1 leaves it to ERPNext CRM Settings' status as configured; "Onboarding complete" is a single tick, no checklist yet (default chosen, pending confirmation). |
 | Q13 | Quotation adjustment: does the % apply to the quotation value (discount), the commission, or both? (Owned by the discount-control feature; must be configurable.) | Configurable; no default chosen |
@@ -1231,6 +1233,66 @@ allocation exceptions hidden), the reporting preview and settings validation.
 4. Accounts book each transfer as a Payment Entry (Pay) in ERPNext, then record it on the CRM's
    **Allocations** page; India confirms there with its receipt.
 
+### 14.7 Phase 4: reconciliation and approvals (built)
+
+Switch: **TBO Smart Settings → Reconciliation and approvals (Phase 4)**
+(`enable_reconciliation`), off by default; needs Phase 1. While it is off the Bank
+Transaction hooks and the nightly check do nothing and the bank-line APIs refuse.
+
+**Bank Transaction fields** (created on migrate, allow on submit, read-only):
+`tbo_verification` (Unverified / Verified), `tbo_matched_by`, `tbo_verified_by`,
+`tbo_verified_on`, `tbo_dedupe_key` (hidden, indexed), `tbo_possible_duplicate_of`.
+
+**Hooks** - `tbo_smart/finance/reconciliation.py`.
+
+| Event | What happens |
+| --- | --- |
+| Line imported (`before_insert`) | Dedupe key = sha1(bank account, date, direction, amount, normalised reference or description). A non-cancelled line with the same key sets `tbo_possible_duplicate_of`; the line is **not blocked** and a "Possible duplicate" exception (action Mark duplicate) is raised. |
+| Line matched or unmatched in the Bank Reconciliation Tool (`before_update_after_submit`) | Records who matched it (`tbo_matched_by`) and sets it back to Unverified. A **Verified** line refuses any change to its matches unless an **approved "Correct entry"** exception covers it (that also blocks the tool's Unreconcile on it). Each approval allows one change: the change stamps the exception's `used_on`, and an exception already used no longer counts. |
+| After matching (`on_update_after_submit`) | Matched Payment Entries totalling more than the tolerance away from the bank amount raise an "Amount mismatch" exception (T13: 34,450 against 34,500). Matching a transfer leg fills the TBO Fund Transfer's bank line. |
+| Nightly | A line still Pending or Unreconciled after `unmatched_alert_days` raises one "Unmatched bank line" exception. |
+
+**Verification ("nothing reconciled until verified")** - `verify_bank_line` (POST): Accounts
+Manager or TBO Finance Approver, on a Reconciled line, and never the person who matched it.
+**Deviation:** the plan said to read the matcher from Version; the hook records it in
+`tbo_matched_by` instead, which survives a later edit and is cheaper to check. Verifying
+both legs of a transfer moves it to **Closed** (Matched while both legs are matched but not
+yet both verified).
+
+**Second approver (Q5)** - with `second_approval_amount` set, an exception whose largest of
+difference / expected / actual is above it needs two approvals by two different approvers
+(neither the requester): the first sets `first_approved_by` and keeps it Pending Approval.
+Reopening a rejected exception clears the first approval, since the request can be edited
+again; the earlier approval stays in the timeline and Version history.
+
+**Stage and closure (§2 stage 15)** - with Phase 4 on, the computed stage continues past
+Collected: **Settling** while India's share on the deal is still open (Phase 3), then
+**Reconciled** once every receipt of the deal is on a verified bank line. **On Exception**
+takes priority while an exception on the deal is Open or Pending Approval (an exception's save
+recomputes its deal's stage). *Close finance* then needs the deal **Reconciled**, i.e.
+collected, share transferred, receipts verified and no open exception; with Phase 4 off it
+still needs only Collected.
+
+**CRM** - the Finance exceptions page lists every category (category filter), is open once
+any of Phases 2-4 is on, shows "first approval" progress, and gains a **Bank lines** tab:
+matched lines waiting for verification (with Verify for a second person) and unmatched lines
+with their age and duplicate flag (`get_bank_queue`, which reads through Bank Transaction
+permissions, so User Permissions on company apply). Finance tab: the stage strip shows
+Settling and Reconciled, and Close follows the closable stage.
+
+**Tests** - `tbo_smart/tests/test_finance_reconciliation.py`: duplicates flagged not
+blocked (and no key while off), match → verify by a second person → lock, amount mismatch,
+unmatched ageing once, two approvers above the amount, the stage running to Reconciled and
+closing, On Exception, and the bank queue refused to salespeople.
+
+### 14.8 What the owner switches on after deploying Phase 4
+
+1. Tick **Reconciliation and approvals (Phase 4)**; check **Days before an unmatched bank
+   line is an exception** (3).
+2. If management answers Q5 with a limit, set **Second approval above**.
+3. Accounts keep importing statements and matching in ERPNext; a second Accounts Manager or
+   TBO Finance Approver verifies on the CRM's Finance exceptions → Bank lines tab.
+
 ---
 
 ## Changelog
@@ -1241,3 +1303,4 @@ allocation exceptions hidden), the reporting preview and settings validation.
 | 0.2 | 2026-10-12 | Phase 1 built (owner approved the start). §14.1 records what was built, decisions and deviations; §3.1, §3.2, §7 and §12 updated. |
 | 0.3 | 2026-10-12 | Phase 2 built: receivables, reminders, escalation, exceptions (Receivable) and digest (§14.3); §3.2 and §12 updated with the defaults chosen. |
 | 0.4 | 2026-10-12 | Phase 3 built: fund allocation per receipt and transfers, memo only (§14.5); §3.2 and §12 updated. |
+| 0.5 | 2026-10-13 | Phase 4 built: bank-line duplicate, mismatch and ageing checks, maker-checker verification and lock, second approver, Settling / Reconciled / On Exception stages and closure (§14.7). |

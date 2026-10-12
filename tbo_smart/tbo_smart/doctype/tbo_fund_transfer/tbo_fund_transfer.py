@@ -225,16 +225,30 @@ class TBOFundTransfer(Document):
 			)
 		)
 
+	def legs_verified(self) -> bool:
+		"""Phase 4: both legs matched to bank lines that a second person verified."""
+		lines = [self.ksa_bank_transaction, self.india_bank_transaction]
+		if not all(lines):
+			return False
+		verified = frappe.get_all(
+			"Bank Transaction", filters={"name": ("in", lines), "tbo_verification": "Verified"}, pluck="name"
+		)
+		return len(set(verified)) == 2
+
 	def set_status(self, save: bool = False):
-		"""Draft → Sent (sending leg submitted) → Received (India's receipt linked); Difference
-		while an exception on it is open. Matched and Closed arrive with Phase 4 (verified bank
-		lines)."""
+		"""Draft → Sent (sending leg submitted) → Received (India's receipt linked) → Matched (both
+		legs matched to bank lines) → Closed (both lines verified, Phase 4); Difference while an
+		exception on it is open."""
 		if self.docstatus == 0:
 			status = "Draft"
 		elif self.docstatus == 2:
 			status = "Cancelled"
 		elif not self.is_new() and self.has_open_exception():
 			status = "Difference"
+		elif self.legs_verified():
+			status = "Closed"
+		elif self.ksa_bank_transaction and self.india_bank_transaction:
+			status = "Matched"
 		elif self.india_payment_entry:
 			status = "Received"
 		else:

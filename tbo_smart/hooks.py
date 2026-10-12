@@ -179,12 +179,22 @@ doc_events = {
 		],
 	},
 	"Journal Entry": {"on_submit": "tbo_smart.finance.allocation.journal_submitted"},
+	"Bank Transaction": {
+		"before_insert": "tbo_smart.finance.reconciliation.line_before_insert",
+		"after_insert": "tbo_smart.finance.reconciliation.line_after_insert",
+		"before_update_after_submit": "tbo_smart.finance.reconciliation.line_before_update_after_submit",
+		"on_update_after_submit": "tbo_smart.finance.reconciliation.line_on_update_after_submit",
+	},
 }
 
 after_migrate = ["tbo_smart.finance.setup.after_migrate"]
 
 scheduler_events = {
-	"daily": ["tbo_smart.finance.stage.recompute_all", "tbo_smart.finance.transfers.flag_pending_transfers"],
+	"daily": [
+		"tbo_smart.finance.stage.recompute_all",
+		"tbo_smart.finance.transfers.flag_pending_transfers",
+		"tbo_smart.finance.reconciliation.flag_unmatched_lines",
+	],
 	"cron": {
 		# Phase 2 (receivables): digest at 08:00, reminders at 09:00, site time
 		"0 8 * * *": ["tbo_smart.finance.digest.send_digest"],

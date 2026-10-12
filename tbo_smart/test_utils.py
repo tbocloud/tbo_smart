@@ -786,6 +786,8 @@ def reset_finance_settings() -> None:
 			"weekly_client_reminders": 0,
 			"invoicing_company": None,
 			"enable_fund_allocation": 0,
+			"enable_reconciliation": 0,
+			"second_approval_amount": 0,
 			"partner_company": None,
 			"accounts_lead": None,
 			"escalation_sales_head": None,
@@ -996,3 +998,86 @@ def get_allocation(payment_entry: str, kind: str = "Receipt") -> frappe._dict | 
 		"TBO Fund Allocation", {"payment_entry": payment_entry, "allocation_type": kind, "docstatus": 1}
 	)
 	return frappe.get_doc("TBO Fund Allocation", name) if name else None
+
+
+# ---------- Finance workflow Phase 4: reconciliation ----------
+
+
+def enable_reconciliation(**settings) -> None:
+	"""Phases 1 and 4 on (plus anything in `settings`, e.g. enable_fund_allocation=1)."""
+	enable_finance_workflow(enable_reconciliation=1, unmatched_alert_days=3, **settings)
+
+
+def make_company_bank_account(company: str | None = None) -> str:
+	"""A company Bank Account ("TBO Test Bank") on its own Bank-type GL account. Returns its name."""
+	company = company or erpnext.get_default_company()
+	abbr = frappe.get_cached_value("Company", company, "abbr")
+	if not frappe.db.exists("Bank", "TBO Test Bank"):
+		frappe.get_doc({"doctype": "Bank", "bank_name": "TBO Test Bank"}).insert(ignore_permissions=True)
+	gl = f"TBO Bank - {abbr}"
+	if not frappe.db.exists("Account", gl):
+		parent = frappe.db.get_value(
+			"Account", {"company": company, "is_group": 1, "account_type": "Bank"}
+		) or frappe.db.get_value("Account", {"company": company, "is_group": 1, "root_type": "Asset"})
+		frappe.get_doc(
+			{
+				"doctype": "Account",
+				"account_name": "TBO Bank",
+				"parent_account": parent,
+				"company": company,
+				"account_type": "Bank",
+			}
+		).insert(ignore_permissions=True)
+	name = frappe.db.get_value("Bank Account", {"account": gl})
+	if not name:
+		name = (
+			frappe.get_doc(
+				{
+					"doctype": "Bank Account",
+					"account_name": f"TBO Main {abbr}",
+					"bank": "TBO Test Bank",
+					"account": gl,
+					"is_company_account": 1,
+					"company": company,
+				}
+			)
+			.insert(ignore_permissions=True)
+			.name
+		)
+	return name
+
+
+def make_bank_line(
+	bank_account: str, amount: float, reference: str = "", days_ago: int = 0, submit: bool = True
+):
+	"""A Bank Transaction (deposit when `amount` > 0, withdrawal when < 0), as Bank Statement
+	Import makes it."""
+	line = frappe.get_doc(
+		{
+			"doctype": "Bank Transaction",
+			"date": add_days(nowdate(), -days_ago),
+			"bank_account": bank_account,
+			"company": frappe.db.get_value("Bank Account", bank_account, "company"),
+			"deposit": amount if amount > 0 else 0,
+			"withdrawal": -amount if amount < 0 else 0,
+			"currency": frappe.get_cached_value(
+				"Company", frappe.db.get_value("Bank Account", bank_account, "company"), "default_currency"
+			),
+			"reference_number": reference,
+			"description": f"Statement line {reference}",
+		}
+	)
+	line.insert(ignore_permissions=True)
+	if submit:
+		line.submit()
+	return line
+
+
+def match_bank_line(line: str, payment_entry: str, amount: float) -> None:
+	"""Match a bank line to a Payment Entry the way the Bank Reconciliation Tool does."""
+	from erpnext.accounts.doctype.bank_reconciliation_tool.bank_reconciliation_tool import reconcile_vouchers
+
+	reconcile_vouchers(
+		line,
+		json.dumps([{"payment_doctype": "Payment Entry", "payment_name": payment_entry, "amount": amount}]),
+	)

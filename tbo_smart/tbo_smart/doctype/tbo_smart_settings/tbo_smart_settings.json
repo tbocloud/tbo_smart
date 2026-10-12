@@ -39,7 +39,12 @@
   "allocation_base_after_bank_charges",
   "default_vat_rate",
   "amount_tolerance",
-  "transfer_pending_days"
+  "transfer_pending_days",
+  "reconciliation_section",
+  "enable_reconciliation",
+  "unmatched_alert_days",
+  "column_break_reconciliation",
+  "second_approval_amount"
  ],
  "fields": [
   {
@@ -294,12 +299,43 @@
    "fieldname": "transfer_pending_days",
    "fieldtype": "Int",
    "label": "Days before a transfer counts as pending"
+  },
+  {
+   "fieldname": "reconciliation_section",
+   "fieldtype": "Section Break",
+   "label": "Reconciliation and approvals (Phase 4)",
+   "depends_on": "eval:doc.enable_finance_workflow"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_reconciliation",
+   "fieldtype": "Check",
+   "label": "Reconciliation and approvals (Phase 4)",
+   "description": "Duplicate and amount checks on bank lines, a second person verifies each matched line, verified lines lock, unmatched lines age into exceptions, and the post-sale stage goes on to Settling, Reconciled and Closed. Needs Phase 1 on."
+  },
+  {
+   "default": "3",
+   "depends_on": "eval:doc.enable_reconciliation",
+   "fieldname": "unmatched_alert_days",
+   "fieldtype": "Int",
+   "label": "Days before an unmatched bank line is an exception"
+  },
+  {
+   "fieldname": "column_break_reconciliation",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:doc.enable_reconciliation",
+   "fieldname": "second_approval_amount",
+   "fieldtype": "Currency",
+   "label": "Second approval above",
+   "description": "Open question Q5. Exceptions above this amount need a second, different approver. Blank: one approver is enough."
   }
  ],
  "index_web_pages_for_search": 0,
  "issingle": 1,
  "links": [],
- "modified": "2026-10-12 23:00:00.000000",
+ "modified": "2026-10-13 00:30:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Smart Settings",

@@ -10,7 +10,7 @@ from frappe import _
 from frappe.utils import flt
 
 from tbo_smart.api.finance.receivables import get_invoice_in_scope
-from tbo_smart.finance import receivables_enabled
+from tbo_smart.finance import exceptions_enabled
 from tbo_smart.finance.access import can_see_amounts
 from tbo_smart.tbo_smart.doctype.tbo_finance_exception.tbo_finance_exception import TRANSITIONS, is_approver
 
@@ -45,6 +45,7 @@ LIST_FIELDS = [
 	"resolution_reference_name",
 	"owner",
 	"requested_by",
+	"first_approved_by",
 	"approved_by",
 	"approved_on",
 	"decision_remarks",
@@ -108,8 +109,7 @@ def get_exceptions(
 ) -> dict:
 	"""Exceptions the user may read (TBO Finance Exception permission rules), newest first,
 	with whether the user may decide each one."""
-	if not receivables_enabled():
-		frappe.throw(_("Receivables are not switched on."), frappe.ValidationError)
+	require_exceptions()
 	filters = {}
 	for field, value in (("status", status), ("category", category), ("crm_deal", crm_deal)):
 		if value:
@@ -125,7 +125,7 @@ def get_exceptions(
 		row["can_decide"] = (
 			approver
 			and row.status == "Pending Approval"
-			and frappe.session.user not in {row.owner, row.requested_by}
+			and frappe.session.user not in {row.owner, row.requested_by, row.first_approved_by}
 		)
 	return {"rows": rows, "is_approver": approver}
 
@@ -133,14 +133,19 @@ def get_exceptions(
 @frappe.whitelist(methods=["POST"])
 def decide_exception(name: str, action: str, remarks: str | None = None) -> dict:
 	"""request_approval, approve, reject or reopen. The doctype enforces who may do what."""
-	if not receivables_enabled():
-		frappe.throw(_("Receivables are not switched on."), frappe.ValidationError)
+	require_exceptions()
 	if action not in TRANSITIONS:
 		frappe.throw(_("Unknown action {0}.").format(action))
 	doc = frappe.get_doc(DOCTYPE, name)
 	doc.check_permission("read")
 	doc.apply_action(action, remarks)
 	return serialize(doc)
+
+
+def require_exceptions() -> None:
+	"""The exceptions list and decisions are open once any phase that raises them is on."""
+	if not exceptions_enabled():
+		frappe.throw(_("Finance exceptions are not switched on."), frappe.ValidationError)
 
 
 def serialize(doc) -> dict:
