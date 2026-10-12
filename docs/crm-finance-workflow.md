@@ -1,7 +1,7 @@
-# CRM finance workflow: lead to reconciled cash (living spec, v0.2)
+# CRM finance workflow: lead to reconciled cash (living spec, v0.3)
 
-**Status:** Phase 1 built (owner approved start 2026-10-12; management sign-off and open
-questions pending). Every phase ships behind its own switch in TBO Smart Settings, off by
+**Status:** Phases 1 and 2 built (owner approved start 2026-10-12; management sign-off and
+open questions pending). Every phase ships behind its own switch in TBO Smart Settings, off by
 default, so a deploy changes nothing until the owner turns it on. This file is the living
 spec: every change updates it in the same pull request, and it describes what is built, not
 what was first planned. §14 lists what each phase actually built, with its decisions and
@@ -204,11 +204,23 @@ New "Finance workflow" section. **Built in Phase 1:**
 | `finance_crm_access` ("Let finance roles open the CRM") | Check | 0 (G5). |
 | `finance_crm_roles` ("Finance roles in the CRM") | Small Text, one role per line | `Accounts User`, `Accounts Manager`. Validated: every line must be a Role. |
 
+**Built in Phase 2** (section "Receivables and reminders (Phase 2)"):
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `enable_finance_receivables` ("Receivables and reminders (Phase 2)") | Check | 0. Needs Phase 1 on too. Switches on the reminder job, the digest, the Receivables and Finance exceptions pages and the receivable actions on the Finance tab. |
+| `send_client_reminders` ("Send reminder emails to clients") | Check | **0** (Q14: wording, language and mailbox not agreed). Internal tasks, notifications and draft dunnings run either way. |
+| `weekly_client_reminders` ("Weekly client reminder after D+30") | Check | 0 |
+| `reminder_sender` | Link Email Account | Blank: the site's default outgoing account. |
+| `invoicing_company` | Link Company | Blank: reminders for every company. Set it to TBO KSA (Q2; Phase 3 also reads it). |
+| `accounts_lead` ("KSA Accounts lead") | Link User | Owns collection on deals with no accounts owner (Q18). |
+| `escalation_sales_head`, `escalation_finance_manager` | Link User | Notified at D+15 and D+30; the Finance Manager also gets the digest in the app. |
+| `management_digest_recipients` | Small Text (emails) | Blank: no digest email. |
+
 Planned for later phases (each phase adds its own switch, off by default):
 
 | Field | Type | Default |
 | --- | --- | --- |
-| `invoicing_company` | Link Company | KSA **[verify on site]** |
 | `partner_company` | Link Company | India **[verify on site]** |
 | `allocation_percent` | Percent | 50 |
 | `allocation_start_date` | Date | Agreed go-live date. Receipts before it get no allocation. |
@@ -216,10 +228,6 @@ Planned for later phases (each phase adds its own switch, off by default):
 | `default_vat_rate` | Percent | 15. Used only when a receipt has no document to read a VAT ratio from. |
 | `amount_tolerance` | Currency | 1.00 (in the transfer currency). Differences at or below this are not exceptions. |
 | `unmatched_alert_days` | Int | 3 |
-| `enable_receivable_reminders` | Check | 0 |
-| `reminder_sender` | Link Email Account | KSA accounts mailbox **[verify on site]** |
-| `escalation_sales_head`, `escalation_finance_manager` | Link User | – |
-| `management_digest_recipients` | Small Text (emails) | – |
 
 ### 3.3 New doctype: TBO Fund Allocation (submittable)
 
@@ -798,15 +806,15 @@ Each phase ships on its own behind its own switch in TBO Smart Settings (Phase 1
 | Q8 | Is withholding tax deducted on KSA→India transfers? If so, does it count as paid to India? | No WHT; if any, it counts as settled |
 | Q9 | Does KSA issue a tax invoice for advances (VAT due on advance receipt), or receive advances against a Sales Order only? Are Sales Orders used at all? | SO + advance PE; advance tax invoice if the advisor requires it |
 | Q10 | Accounts staff post invoices and payments and reconcile banks in ERPNext screens (`/app`); CRM shows and approves. Is that acceptable, or must Accounts also post from CRM? | Acceptable (ERPNext stays the accounting screen) |
-| Q11 | Is a Microsoft Teams digest required now? | Email + in-app/push now; Teams later |
+| Q11 | Is a Microsoft Teams digest required now? | Email + in-app/push now; Teams later (default chosen, pending confirmation; `build_digest` returns structured data for a later Teams post). |
 | Q12 | Which deal status creates the ERPNext Customer, and what does onboarding require (CR no., VAT no., contract, PO)? | Phase 1 leaves it to ERPNext CRM Settings' status as configured; "Onboarding complete" is a single tick, no checklist yet (default chosen, pending confirmation). |
 | Q13 | Quotation adjustment: does the % apply to the quotation value (discount), the commission, or both? (Owned by the discount-control feature; must be configurable.) | Configurable; no default chosen |
 | Q13b | Exact maximum % per designation: BDE, BDM, Head – Sales & Marketing, Director (CEO is unlimited). | None set; settings left empty until decided |
-| Q14 | Reminder wording, languages (English/Arabic) and sender mailbox; should clients get reminders at D−3? | English; KSA accounts mailbox; yes |
+| Q14 | Reminder wording, languages (English/Arabic) and sender mailbox; should clients get reminders at D−3? | English Email Templates, default outgoing account; client emails **off** (`send_client_reminders` = 0) until confirmed (default chosen, pending confirmation). |
 | Q15 | Does India ever invoice clients directly (INR deals)? Are those outside the 50% rule? | Yes, outside the rule; per-deal company field |
 | Q16 | Allocation start date, and whether past receipts should be back-calculated for reporting only. | Go-live date; report-only back-calculation |
 | Q17 | Can BDEs see invoice and payment amounts for their own deals? | Yes; not allocation. Setting `finance_bde_can_see_amounts`, default on (default chosen, pending confirmation). |
-| Q18 | Who is the "accounts owner" for each client (KSA Accounts staff list)? | Assigned per deal |
+| Q18 | Who is the "accounts owner" for each client (KSA Accounts staff list)? | Per deal (`tbo_accounts_owner`); fallback the KSA Accounts lead in settings, then the deal owner (default chosen, pending confirmation). |
 
 ### 12.2 Verify on site (tboindia.tbocloud.in)
 
@@ -1008,6 +1016,115 @@ tick for now, Q12), `tbo_project` and `tbo_accounts_owner` (Phase 2).
 5. For the guard to bite, the discount-control feature's **Enforce adjustment limits** must
    also be on (TBO Quotation Approval Settings).
 
+### 14.3 Phase 2: receivables, reminders, escalation, exceptions and digest (built)
+
+Switch: **TBO Smart Settings → Receivables and reminders (Phase 2)**
+(`enable_finance_receivables`), off by default; it also needs Phase 1 on. While it is off the
+jobs do nothing, the APIs refuse with a ValidationError and the CRM hides the pages and
+actions. Fields, roles, Email Templates and the CRM Task property setter are created on
+migrate either way (`tbo_smart.finance.setup.setup_finance`), and change nothing by
+themselves.
+
+**Created on migrate:** CRM Deal `tbo_accounts_owner`; Payment Schedule `tbo_last_reminder`
+and `tbo_last_reminder_on` (allow on submit, read-only); CRM Task `tbo_task_type`,
+`tbo_sales_invoice`, `tbo_promised_date`, `tbo_promised_amount` and `tbo_escalation_level`;
+property setter **CRM Task → track_changes = 1** (G14); roles **TBO Finance Approver** and
+**TBO Management**; English Email Templates "TBO Payment Due Soon", "TBO Payment Due Today"
+and "TBO Payment Reminder" (Finance edits the wording there). Dunning Types "Reminder 2" and
+"Final Notice" are created per company, no fee and no interest, the first time the job needs
+one. Saving the settings with both switches on adds a public **Collections** view
+(collection tasks, due date first) to the CRM Tasks page.
+
+**Reminder job** - `tbo_smart/finance/reminders.py`, daily at 09:00 site time (cron
+`0 9 * * *`; the site's time zone stands in for Asia/Riyadh). It reads each open Payment
+Schedule row of submitted, non-return invoices (of `invoicing_company` when set) and runs
+the latest step that is due, once per row:
+
+| Step | Client email (only with `send_client_reminders`) | Internal | Level |
+| --- | --- | --- | --- |
+| D-3 | "TBO Payment Due Soon" + invoice PDF | - | 0 |
+| D0 | "TBO Payment Due Today" | Collection CRM Task "Collect {invoice}" for the accounts owner, due today, linked to the deal | 1 |
+| D+7 | "TBO Payment Reminder" | Task escalated (High); accounts owner and deal owner notified | 2 |
+| D+15 | - | **Draft** Dunning "Reminder 2" for Accounts to submit and send; sales head, accounts lead and the deal owner's manager (CRM sales hierarchy) notified | 3 |
+| D+30 | - | **Draft** Dunning "Final Notice"; Finance Manager notified; in the digest | 4 |
+| Weekly after D+30 | "TBO Payment Reminder" only with `weekly_client_reminders` | Task re-dated to today; owners notified | 4 |
+
+- A missed day never sends a backlog: only the latest due step runs, and a row never goes
+  back to a step it passed. The row's `tbo_last_reminder`/`_on` make re-runs harmless.
+- Accounts owner = the deal's `tbo_accounts_owner`, else the KSA Accounts lead, else the deal
+  owner (Q18). Notifications are Notification Logs (bell, email per user settings, and mobile
+  push through `tbo_smart.push`).
+- Client emails go through Frappe's Communication (`make`), so each is on the invoice's
+  timeline and linked to the deal's; CC the deal owner; sender = `reminder_sender` or the
+  default account. A mail failure is logged and never stops the internal steps.
+- **Deviation:** the plan said D+7 "reassigns the task with the BDE added". CRM Task has a
+  single assignee, so the task stays with the accounts owner and the BDE is notified instead.
+
+**Exceptions** - doctype **TBO Finance Exception** (§3.5, all fields; Phase 2 uses the
+Receivable category) and `tbo_smart/api/finance/exceptions.py`.
+
+| Request (Receivables page or Finance tab) | Requested action | Effect once approved |
+| --- | --- | --- |
+| Extension request | Extend due date (`new_due_date`, whole invoice or one term) | The job counts days from the new date and restarts the steps for that row. **The invoice is not changed**: ERPNext has no supported way to edit a submitted invoice's payment terms, so ageing in ERPNext's own reports keeps the booked date. |
+| Pause request / Client dispute | Pause reminders (`pause_until`) | The job skips the row (or invoice) until that date. |
+| Write-off request | Waive balance | Approval needs the credit note or write-off journal entry linked (`resolution_reference_*`); the job then stops for that invoice. |
+
+- Status flow: Open → Pending Approval → Approved / Rejected, Rejected → Open, only through
+  `decide_exception` (`request_approval`, `approve`, `reject`, `reopen`); editing the status
+  directly is refused. A request from the CRM goes straight to Pending Approval.
+- Maker-checker: only TBO Finance Approver (or System Manager) decides, and never the person
+  who raised it or sent it for approval (`requested_by`). A rejection needs a reason.
+- **Deviation:** no Frappe Workflow fixture. The rules live in the controller and the API,
+  which keeps them testable and avoids a desk workflow nobody uses; Version
+  (`track_changes`), `requested_by`, `approved_by`/`approved_on`, decision remarks and a
+  timeline comment per step are the audit trail.
+- Who sees them (`permission_query_conditions` / `has_permission`): accounts, finance,
+  management, Sales Manager and System Manager see all; a salesperson sees the ones they
+  raised and those on their own (or team's) deals, and can only edit their own.
+
+**Receivables page and follow-ups** - `tbo_smart/api/finance/receivables.py`.
+
+| Method | HTTP | Returns / does |
+| --- | --- | --- |
+| `get_receivables(company, customer, deal_owner, accounts_owner)` | GET | Open invoices with ageing by each term's due date (not due, 1-30, 31-60, 61-90, 90+), overdue, days overdue, deal and accounts owner, escalation level, last reminder, promise to pay, open exceptions and terms; totals per client and per currency. Up to 2,000 invoices. |
+| `add_collection_follow_up(invoice, due_date, remark, promised_date, promised_amount)` | POST | Updates the invoice's open collection task (or creates one assigned to me): next date, promise to pay, and the remark appended with time and user. |
+| `set_accounts_owner(deal, user)` | POST | Accounts, finance and managers only. |
+
+- Scope: accounts, finance, management, Sales Manager, System Manager and the Phase 1
+  finance roles see every invoice; a salesperson sees invoices of their own (or team's)
+  deals; invoices with no deal only appear to the first group. With "BDE can see
+  invoice/payment amounts" off, salespeople get a 403 (the page is about amounts).
+- **Deviation:** outstanding and ageing come from the invoices and their Payment Schedule
+  rows (ERPNext keeps both in step with the payment ledger), not from the Accounts
+  Receivable report class. Unallocated advances are therefore not in the page; ERPNext's
+  AR report remains the accounting view.
+
+**Daily digest** - `tbo_smart/finance/digest.py`, 08:00 site time. `build_digest` returns
+the totals per currency, terms that fell overdue since yesterday, terms 30+ days overdue and
+how many exceptions are open or waiting; `send_digest` emails it to the digest recipients and
+notifies the Finance Manager in the app. Payable and pending transfers join with Phase 3.
+
+**Finance tab additions:** accounts owner (editable by accounts and managers), *Add
+follow-up* and *Request exception* on each open invoice, collection details (level, promise)
+on follow-ups, and an Exceptions section.
+
+**Tests** - `tbo_smart/tests/test_finance_receivables.py`: the step rule (missed days,
+weekly cadence), each step once with task, notifications and draft dunnings, paid invoices
+and the switch, client emails only when on (with the deal timeline link), extension /
+pause / waiver approvals with maker-checker and their effect on the job, exception
+visibility, receivables ageing, scope, follow-ups and accounts owner, hidden amounts, the
+digest and the setup records.
+
+### 14.4 What the owner switches on after deploying Phase 2
+
+1. TBO Smart Settings → **Receivables and reminders (Phase 2)** (Phase 1 must be on).
+2. Set **Invoicing company** (TBO KSA), **KSA Accounts lead**, **Head - Sales & Marketing**,
+   **Finance Manager** and **Daily digest recipients**.
+3. Give the Finance Manager the **TBO Finance Approver** role, and set each deal's accounts
+   owner (Finance tab) as Accounts takes them on.
+4. When management agrees the wording (Q14): edit the three Email Templates, set
+   **Reminder sender**, then tick **Send reminder emails to clients**.
+
 ---
 
 ## Changelog
@@ -1016,3 +1133,4 @@ tick for now, Q12), `tbo_project` and `tbo_accounts_owner` (Phase 2).
 | --- | --- | --- |
 | 0.1 | 2026-10-12 | First plan for management approval. Quotation approval delegated to the separate "Quotation discount/commission approval" feature; its designation roles used in §9. |
 | 0.2 | 2026-10-12 | Phase 1 built (owner approved the start). §14.1 records what was built, decisions and deviations; §3.1, §3.2, §7 and §12 updated. |
+| 0.3 | 2026-10-12 | Phase 2 built: receivables, reminders, escalation, exceptions (Receivable) and digest (§14.3); §3.2 and §12 updated with the defaults chosen. |
