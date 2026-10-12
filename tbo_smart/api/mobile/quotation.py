@@ -18,7 +18,6 @@ from tbo_smart.tbo_smart.doctype.tbo_quotation_approval_settings.tbo_quotation_a
 )
 
 TABS = ("waiting", "mine")
-APPROVER_ONLY = _("Only BDM, Sales & Marketing Head, Director and CEO decide quotation approvals.")
 
 
 @frappe.whitelist()
@@ -35,7 +34,7 @@ def get_approvals(tab: str = "waiting") -> list[dict]:
 		frappe.throw(_("Tab must be one of {0}.").format(", ".join(TABS)))
 	if tab == "mine":
 		return adjustments.get_adjustment_requests("mine")
-	require("approve_quotations", APPROVER_ONLY)
+	require("approve_quotations", approver_only())
 	return adjustments.get_pending_approvals()
 
 
@@ -52,9 +51,14 @@ def get_trail(name: str) -> dict:
 def decide(name: str, action: str, percent: float | str | None = None, remarks: str | None = None) -> dict:
 	"""approve (in full or a lower %), reject (remarks required), forward, or override (no-limit
 	level, reason required). Returns the request as `get_trail` does."""
-	require("approve_quotations", APPROVER_ONLY)
+	require("approve_quotations", approver_only())
 	adjustments.decide_adjustment(name, action, percent, remarks)
 	return get_trail(name)
+
+
+def approver_only() -> str:
+	"""Translated per request, in the session user's language."""
+	return _("Only BDM, Sales & Marketing Head, Director and CEO decide quotation approvals.")
 
 
 def allowed_actions(adjustment) -> dict:
