@@ -1303,12 +1303,12 @@ CRM fork's `crm_dashboard_providers` (charts resolvable by name) and `crm_dashbo
 | Card | Who sees it | Definition (§8) |
 | --- | --- | --- |
 | Quotations | CRM users | Submitted quotations of deals, by quotation date in the range; delta against the previous period of the same length |
-| Invoiced | CRM users, with amounts | Σ base grand total of submitted invoices (not returns) posted in the range; delta |
-| Collected | CRM users, with amounts | Σ customer receipts in the range minus refunds (company currency); delta |
-| Outstanding | CRM users, with amounts | Σ outstanding on submitted invoices, today |
-| Overdue | CRM users, with amounts | Σ outstanding on payment terms due before today |
+| Invoiced | CRM users, with amounts | Σ base grand total of submitted invoices of CRM deals (not returns) posted in the range; delta |
+| Collected | CRM users, with amounts | Σ customer receipts of CRM deals in the range minus refunds (company currency); delta |
+| Outstanding | CRM users, with amounts | Σ outstanding on submitted invoices of CRM deals, today, in company currency |
+| Overdue | CRM users, with amounts | Σ company-currency outstanding (`base_outstanding`) on payment terms due before today |
 | Lead → deal | CRM users | Deals from a lead created in the range ÷ leads created in the range |
-| Payable to partner | Accounts, finance, management; Phase 3 on | Σ open share on allocations |
+| Payable to partner | Accounts, finance, management; Phase 3 on | Σ open share on allocations, the Allocations page's "pending" (money due back is not netted in) |
 | Transfers waiting | Same; Phase 3 on | Transfers Sent or Difference |
 | Bank lines to verify | Same; Phase 4 on | Reconciled lines not Verified |
 | Open exceptions | Same; any of Phases 2-4 on | Exceptions Open or Pending Approval |
@@ -1319,7 +1319,9 @@ CRM fork's `crm_dashboard_providers` (charts resolvable by name) and `crm_dashbo
 - Amount cards follow "BDE can see invoice/payment amounts" (Q17), also when called
   directly through the CRM's `get_chart`. Every card is None while Phase 5 is off.
 - Amounts are in the invoicing company's currency (that company only), or the CRM default
-  company's when no invoicing company is set.
+  company's when no invoicing company is set. The finance counts (transfers, bank lines,
+  exceptions) are for that company too. Sales cards count only documents linked to a CRM
+  deal, also in the everyone view (blank user).
 - **Deviation:** the plan wanted client, employee and entity filters on every metric. The
   CRM dashboard only filters by date range and user, so the cards use those; the Receivables
   and BDE conversion pages carry the client and company filters. The Allocation, Transfer and

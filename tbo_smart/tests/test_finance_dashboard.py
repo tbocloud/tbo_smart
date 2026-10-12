@@ -7,6 +7,7 @@ from tbo_smart.test_utils import (
 	delete_crm_records,
 	enable_erpnext_crm,
 	enable_finance_workflow,
+	get_dashboard_cards,
 	make_crm_lead,
 	make_deal_invoice,
 	make_finance_deal,
@@ -39,9 +40,6 @@ class TestFinanceDashboard(FrappeTestCase):
 		self.addCleanup(frappe.set_user, "Administrator")
 		self.window = (get_first_day(nowdate()), get_last_day(nowdate()))
 
-	def cards(self, user=None) -> dict:
-		return {card["name"]: card["data"] for card in dashboard.get_cards(*self.window, user)}
-
 	def test_bde_sees_own_sales_figures_only(self):
 		own = make_finance_deal(BDE)
 		other = make_finance_deal(OTHER_BDE)
@@ -51,7 +49,7 @@ class TestFinanceDashboard(FrappeTestCase):
 		make_deal_invoice(own, rate=50, due_in=-3)
 		make_crm_lead(BDE)
 		frappe.set_user(BDE)
-		cards = self.cards(BDE)
+		cards = get_dashboard_cards(self.window, BDE)
 		self.assertEqual(cards["tbo_invoiced"]["value"], 750)
 		self.assertEqual(cards["tbo_collected"]["value"], 200)
 		self.assertEqual(cards["tbo_outstanding"]["value"], 550)
@@ -59,16 +57,26 @@ class TestFinanceDashboard(FrappeTestCase):
 		self.assertNotIn("tbo_payable", cards)
 		self.assertNotIn("tbo_lines_to_verify", cards)
 
+	def test_everyone_view_counts_deal_invoices_only(self):
+		deal = make_finance_deal(BDE)
+		make_deal_invoice(deal, rate=300)
+		before = get_dashboard_cards(self.window)["tbo_invoiced"]["value"]
+		plain = make_deal_invoice(deal, rate=1000, submit=False)
+		plain.crm_deal = None
+		plain.submit()
+		self.assertFalse(frappe.db.get_value("Sales Invoice", plain.name, "crm_deal"))
+		self.assertEqual(get_dashboard_cards(self.window)["tbo_invoiced"]["value"], before)
+
 	def test_accounts_see_finance_cards(self):
 		frappe.set_user(ACCOUNTS)
-		cards = self.cards()
+		cards = get_dashboard_cards(self.window)
 		for name in ("tbo_payable", "tbo_transfers_waiting", "tbo_lines_to_verify", "tbo_open_exceptions"):
 			self.assertIn(name, cards)
 
 	def test_switches_and_hidden_amounts(self):
 		enable_finance_workflow(finance_bde_can_see_amounts=0)
 		frappe.set_user(BDE)
-		cards = self.cards(BDE)
+		cards = get_dashboard_cards(self.window, BDE)
 		self.assertIn("tbo_quotations", cards)
 		self.assertNotIn("tbo_invoiced", cards)
 		self.assertIsNone(dashboard.get_tbo_invoiced(*self.window, BDE))

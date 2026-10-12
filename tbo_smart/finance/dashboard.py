@@ -79,8 +79,12 @@ def company() -> str | None:
 	)
 
 
+def company_currency() -> str | None:
+	return frappe.get_cached_value("Company", company(), "default_currency") if company() else None
+
+
 def currency_symbol() -> str:
-	currency = frappe.get_cached_value("Company", company(), "default_currency") if company() else None
+	currency = company_currency()
 	return (frappe.db.get_value("Currency", currency, "symbol") or currency or "") if currency else ""
 
 
@@ -135,13 +139,20 @@ def get_tbo_quotations(from_date, to_date, user=None) -> dict:
 
 
 def invoice_query(user):
+	"""Submitted invoices of CRM deals (the user's own deals when one is given)."""
 	Invoice = frappe.qb.DocType("Sales Invoice")
-	query = frappe.qb.from_(Invoice).where(
-		(Invoice.docstatus == 1) & (Invoice.is_return == 0) & (Invoice.company == company())
+	Deal = frappe.qb.DocType("CRM Deal")
+	query = (
+		frappe.qb.from_(Invoice)
+		.join(Deal)
+		.on(Invoice.crm_deal == Deal.name)
+		.where(
+			(Invoice.docstatus == 1)
+			& (Invoice.is_return == 0)
+			& (Invoice.company == company())
+			& owned(Deal, user)
+		)
 	)
-	if user:
-		Deal = frappe.qb.DocType("CRM Deal")
-		query = query.join(Deal).on(Invoice.crm_deal == Deal.name).where(Deal.deal_owner == user)
 	return Invoice, query
 
 
@@ -169,11 +180,14 @@ def get_tbo_invoiced(from_date, to_date, user=None) -> dict:
 
 def collected(from_date, to_date, user) -> float:
 	Entry = frappe.qb.DocType("Payment Entry")
+	Deal = frappe.qb.DocType("CRM Deal")
 	signed = (
 		Case().when(Entry.payment_type == "Pay", -Entry.base_paid_amount).else_(Entry.base_received_amount)
 	)
 	query = (
 		frappe.qb.from_(Entry)
+		.join(Deal)
+		.on(Entry.crm_deal == Deal.name)
 		.select(Sum(signed))
 		.where(
 			(Entry.docstatus == 1)
@@ -181,11 +195,9 @@ def collected(from_date, to_date, user) -> float:
 			& Entry.payment_type.isin(["Receive", "Pay"])
 			& (Entry.company == company())
 			& (Entry.posting_date[getdate(from_date) : getdate(to_date)])
+			& owned(Deal, user)
 		)
 	)
-	if user:
-		Deal = frappe.qb.DocType("CRM Deal")
-		query = query.join(Deal).on(Entry.crm_deal == Deal.name).where(Deal.deal_owner == user)
 	return flt(query.run()[0][0])
 
 
@@ -205,7 +217,13 @@ def get_tbo_collected(from_date, to_date, user=None) -> dict:
 @card
 def get_tbo_outstanding(from_date=None, to_date=None, user=None) -> dict:
 	Invoice, query = invoice_query(user)
-	value = flt(query.select(Sum(Invoice.outstanding_amount)).run()[0][0])
+	# outstanding_amount is in the party account's currency: the company's, or the invoice's
+	base = (
+		Case()
+		.when(Invoice.party_account_currency == company_currency(), Invoice.outstanding_amount)
+		.else_(Invoice.outstanding_amount * Invoice.conversion_rate)
+	)
+	value = flt(query.select(Sum(base)).run()[0][0])
 	return {
 		"title": _("Outstanding"),
 		"tooltip": _("Still to collect on submitted invoices, today"),
@@ -221,7 +239,7 @@ def get_tbo_overdue(from_date=None, to_date=None, user=None) -> dict:
 	value = flt(
 		query.join(Term)
 		.on((Term.parent == Invoice.name) & (Term.parenttype == "Sales Invoice"))
-		.select(Sum(Term.outstanding))
+		.select(Sum(Term.base_outstanding))
 		.where((Term.due_date < today()) & (Invoice.outstanding_amount > 0))
 		.run()[0][0]
 	)
@@ -276,8 +294,10 @@ def get_tbo_conversion(from_date, to_date, user=None) -> dict:
 def get_tbo_payable(from_date=None, to_date=None, user=None) -> dict | None:
 	if not (allocation_enabled() and can_see_allocations()):
 		return None
-	# the same figure as the Allocations page's "pending"; money due back is not netted in
-	value = sum(row["pending"] for row in allocation_totals(company()))
+	# the Allocations page's "pending" in the company currency, the one allocations are kept in
+	value = sum(
+		row["pending"] for row in allocation_totals(company()) if row["currency"] == company_currency()
+	)
 	return {
 		"title": _("Payable to partner"),
 		"tooltip": _("India's share not yet transferred"),
@@ -294,7 +314,8 @@ def get_tbo_transfers_waiting(from_date=None, to_date=None, user=None) -> dict |
 		"title": _("Transfers waiting"),
 		"tooltip": _("Transfers sent to India and not yet confirmed"),
 		"value": frappe.db.count(
-			"TBO Fund Transfer", {"docstatus": 1, "status": ("in", ["Sent", "Difference"])}
+			"TBO Fund Transfer",
+			{"docstatus": 1, "status": ("in", ["Sent", "Difference"]), "from_company": company()},
 		),
 	}
 
@@ -308,7 +329,12 @@ def get_tbo_lines_to_verify(from_date=None, to_date=None, user=None) -> dict | N
 		"tooltip": _("Matched bank lines a second person has not verified yet"),
 		"value": frappe.db.count(
 			"Bank Transaction",
-			{"docstatus": 1, "status": "Reconciled", "tbo_verification": ("!=", "Verified")},
+			{
+				"docstatus": 1,
+				"status": "Reconciled",
+				"tbo_verification": ("!=", "Verified"),
+				"company": company(),
+			},
 		),
 	}
 
@@ -320,7 +346,10 @@ def get_tbo_open_exceptions(from_date=None, to_date=None, user=None) -> dict | N
 	return {
 		"title": _("Open exceptions"),
 		"tooltip": _("Finance exceptions open or waiting for approval"),
-		"value": frappe.db.count("TBO Finance Exception", {"status": ("in", ["Open", "Pending Approval"])}),
+		"value": frappe.db.count(
+			"TBO Finance Exception",
+			{"status": ("in", ["Open", "Pending Approval"]), "company": company()},
+		),
 	}
 
 

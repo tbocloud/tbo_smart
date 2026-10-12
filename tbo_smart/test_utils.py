@@ -1082,3 +1082,11 @@ def match_bank_line(line: str, payment_entry: str, amount: float) -> None:
 		line,
 		json.dumps([{"payment_doctype": "Payment Entry", "payment_name": payment_entry, "amount": amount}]),
 	)
+
+
+def get_dashboard_cards(window: tuple, user: str | None = None) -> dict:
+	"""The Phase 5 finance cards the session user gets on the CRM dashboard, as {name: data}.
+	`window` is the dashboard's (from_date, to_date); `user` is its user filter (blank: everyone)."""
+	from tbo_smart.finance import dashboard
+
+	return {card["name"]: card["data"] for card in dashboard.get_cards(*window, user)}
