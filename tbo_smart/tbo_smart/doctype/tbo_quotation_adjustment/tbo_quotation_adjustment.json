@@ -1,0 +1,263 @@
+{
+ "actions": [],
+ "autoname": "format:QADJ-{YYYY}-{#####}",
+ "creation": "2026-10-12 10:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "quotation",
+  "customer",
+  "deal",
+  "kind",
+  "column_break_status",
+  "status",
+  "within_limit",
+  "voided",
+  "current_level",
+  "current_rank",
+  "percent_section",
+  "previous_percent",
+  "requested_percent",
+  "approved_percent",
+  "column_break_people",
+  "quotation_value",
+  "requested_by",
+  "approved_by",
+  "reason_section",
+  "reason",
+  "remarks",
+  "audit_section",
+  "steps"
+ ],
+ "fields": [
+  {
+   "fieldname": "quotation",
+   "fieldtype": "Link",
+   "label": "Quotation",
+   "options": "Quotation",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "search_index": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Data",
+   "label": "Customer",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "deal",
+   "fieldtype": "Link",
+   "label": "CRM Deal",
+   "options": "CRM Deal",
+   "in_standard_filter": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "kind",
+   "fieldtype": "Select",
+   "label": "Kind",
+   "options": "Discount\nCommission",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_status",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Pending\nApproved\nRejected\nEscalated\nOverridden",
+   "default": "Pending",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "within_limit",
+   "fieldtype": "Check",
+   "label": "Within own limit",
+   "default": "0",
+   "description": "Applied by the person who set it, inside their own limit; no approver was needed.",
+   "read_only": 1,
+   "depends_on": "eval:doc.within_limit"
+  },
+  {
+   "fieldname": "voided",
+   "fieldtype": "Check",
+   "label": "Voided",
+   "default": "0",
+   "description": "The quotation changed after the decision, so it no longer counts.",
+   "read_only": 1,
+   "depends_on": "eval:doc.voided"
+  },
+  {
+   "fieldname": "current_level",
+   "fieldtype": "Data",
+   "label": "Waiting at level",
+   "in_standard_filter": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "current_rank",
+   "fieldtype": "Int",
+   "label": "Waiting at rank",
+   "hidden": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "percent_section",
+   "fieldtype": "Section Break",
+   "label": "Percentages"
+  },
+  {
+   "fieldname": "previous_percent",
+   "fieldtype": "Percent",
+   "label": "Previous %",
+   "read_only": 1
+  },
+  {
+   "fieldname": "requested_percent",
+   "fieldtype": "Percent",
+   "label": "Requested %",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "approved_percent",
+   "fieldtype": "Percent",
+   "label": "Approved %",
+   "read_only": 1,
+   "depends_on": "eval:doc.approved_percent"
+  },
+  {
+   "fieldname": "column_break_people",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "quotation_value",
+   "fieldtype": "Currency",
+   "label": "Quotation list value",
+   "description": "Value before any discount when the request was made or decided. A change voids the decision.",
+   "read_only": 1
+  },
+  {
+   "fieldname": "requested_by",
+   "fieldtype": "Link",
+   "label": "Requested by",
+   "options": "User",
+   "in_standard_filter": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "approved_by",
+   "fieldtype": "Link",
+   "label": "Decided by",
+   "options": "User",
+   "read_only": 1,
+   "depends_on": "eval:doc.approved_by"
+  },
+  {
+   "fieldname": "reason_section",
+   "fieldtype": "Section Break",
+   "label": "Reason"
+  },
+  {
+   "fieldname": "reason",
+   "fieldtype": "Small Text",
+   "label": "Reason",
+   "read_only": 1
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Approver remarks",
+   "read_only": 1,
+   "depends_on": "eval:doc.remarks"
+  },
+  {
+   "fieldname": "audit_section",
+   "fieldtype": "Section Break",
+   "label": "Audit trail"
+  },
+  {
+   "fieldname": "steps",
+   "fieldtype": "Table",
+   "label": "Steps",
+   "options": "TBO Quotation Adjustment Step",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-10-12 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tbo Smart",
+ "name": "TBO Quotation Adjustment",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1
+  },
+  {
+   "role": "Sales Manager",
+   "read": 1,
+   "report": 1,
+   "print": 1
+  },
+  {
+   "role": "Business Development Executive",
+   "read": 1,
+   "report": 1,
+   "print": 1,
+   "if_owner": 1
+  },
+  {
+   "role": "Business Development Manager",
+   "read": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1
+  },
+  {
+   "role": "Sales & Marketing Head",
+   "read": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1
+  },
+  {
+   "role": "Director",
+   "read": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1
+  },
+  {
+   "role": "CEO",
+   "read": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1
+  }
+ ],
+ "show_title_field_in_link": 0,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "quotation",
+ "track_changes": 1
+}

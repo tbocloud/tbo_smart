@@ -44,6 +44,7 @@ required_apps = ["erpnext", "hrms", "crm"]
 
 # include js in doctype views
 # doctype_js = {"doctype" : "public/js/doctype.js"}
+doctype_js = {"Quotation": "public/js/quotation_adjustment.js"}
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
@@ -83,7 +84,7 @@ required_apps = ["erpnext", "hrms", "crm"]
 # ------------
 
 # before_install = "tbo_smart.install.before_install"
-# after_install = "tbo_smart.install.after_install"
+after_install = "tbo_smart.install.after_install"
 
 # Uninstallation
 # ------------
@@ -147,6 +148,11 @@ doc_events = {
 	"Notification Log": {"after_insert": "tbo_smart.push.on_notification_log"},
 	"PWA Notification": {"after_insert": "tbo_smart.push.on_pwa_notification"},
 	"User": {"on_update": "tbo_smart.api.mobile.auth.revoke_tokens_of_disabled_user"},
+	"Quotation": {
+		"validate": "tbo_smart.quotation_control.validate",
+		"on_update": "tbo_smart.quotation_control.on_update",
+		"on_submit": "tbo_smart.quotation_control.on_submit",
+	},
 }
 
 # doc_events = {
@@ -205,6 +211,8 @@ before_tests = "tbo_smart.test_utils.before_tests"
 # -----------------------------------------------------------
 
 # ignore_links_on_delete = ["Communication", "ToDo"]
+# A draft quotation can still be deleted; its adjustment audit trail stays.
+ignore_links_on_delete = ["TBO Quotation Adjustment"]
 
 # Request Events
 # ----------------

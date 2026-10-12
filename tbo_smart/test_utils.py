@@ -24,6 +24,7 @@ from werkzeug.wrappers import Request as WerkzeugRequest
 from tbo_smart.api.mobile import auth
 from tbo_smart.api.mobile.capabilities import get_capabilities
 from tbo_smart.api.mobile.utils import INSIGHTS_CACHE_PREFIX
+from tbo_smart.install import setup_quotation_approval
 
 TEST_HOLIDAY_LIST = "TBO Smart Test Holidays"
 MS_TEST_TENANT = "11111111-2222-3333-4444-555555555555"
@@ -244,6 +245,88 @@ def make_customer(customer_name: str) -> str:
 	)
 	customer.insert(ignore_permissions=True)
 	return customer.name
+
+
+# ---------- Quotation discount and commission control ----------
+
+QUOTATION_TEST_CUSTOMER = "TBO Smart Quotation Customer"
+QUOTATION_TEST_ITEM = "TBO Smart Quotation Service"
+
+
+def configure_quotation_approval(
+	enabled: int = 1, applies_to: str = "Both", limits: dict | None = None
+) -> None:
+	"""Turn quotation adjustment control on (or off) and set every level's limits.
+
+	`limits` maps a level name to (max discount %, max commission %); levels left out get 0,
+	which means not set. Saves the settings so the cached copy is refreshed."""
+	setup_quotation_approval()
+	settings = frappe.get_single("TBO Quotation Approval Settings")
+	settings.enabled = enabled
+	settings.applies_to = applies_to
+	for row in settings.levels:
+		row.max_discount, row.max_commission = (limits or {}).get(row.level, (0, 0))
+	settings.save(ignore_permissions=True)
+
+
+def make_quotation_item(item_code: str = QUOTATION_TEST_ITEM) -> str:
+	"""A non-stock sales Item in the first leaf item group, if the site does not have it yet."""
+	if not frappe.db.exists("Item", item_code):
+		frappe.get_doc(
+			{
+				"doctype": "Item",
+				"item_code": item_code,
+				"item_name": item_code,
+				"item_group": frappe.db.get_value("Item Group", {"is_group": 0}, "name"),
+				"stock_uom": "Nos",
+				"is_stock_item": 0,
+				"is_sales_item": 1,
+			}
+		).insert(ignore_permissions=True)
+	return item_code
+
+
+def make_quotation(rate: float = 1000, qty: float = 1, discount: float = 0, commission: float = 0):
+	"""A draft Quotation for the test customer and item, inserted as the session user so the
+	adjustment control judges that user. `discount` is the additional discount %, `commission`
+	the Commission %. Returns the Document."""
+	customer = frappe.db.get_value("Customer", {"customer_name": QUOTATION_TEST_CUSTOMER}, "name")
+	quotation = frappe.get_doc(
+		{
+			"doctype": "Quotation",
+			"quotation_to": "Customer",
+			"party_name": customer or make_customer(QUOTATION_TEST_CUSTOMER),
+			"company": erpnext.get_default_company(),
+			"transaction_date": nowdate(),
+			"valid_till": add_days(nowdate(), 30),
+			"additional_discount_percentage": discount,
+			"tbo_commission_rate": commission,
+			"items": [{"item_code": make_quotation_item(), "qty": qty, "rate": rate}],
+		}
+	)
+	quotation.insert(ignore_permissions=True)
+	return quotation
+
+
+def save_quotation(quotation, **values):
+	"""Reload, set `values` and save the Quotation as the session user. Returns the Document."""
+	quotation.reload()
+	quotation.update(values)
+	quotation.save(ignore_permissions=True)
+	return quotation
+
+
+def get_adjustments(quotation: str, kind: str | None = None) -> list[frappe._dict]:
+	"""A quotation's TBO Quotation Adjustments, oldest first, with their steps' actions."""
+	filters = {"quotation": quotation, **({"kind": kind} if kind else {})}
+	rows = frappe.get_all(
+		"TBO Quotation Adjustment", filters=filters, fields=["*"], order_by="creation asc, name asc"
+	)
+	for row in rows:
+		row.actions = frappe.get_all(
+			"TBO Quotation Adjustment Step", filters={"parent": row.name}, pluck="action", order_by="idx"
+		)
+	return rows
 
 
 def make_crm_lead_source(name: str) -> str:
