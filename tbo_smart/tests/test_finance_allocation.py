@@ -6,6 +6,7 @@ from frappe.utils import add_days, flt, nowdate
 from tbo_smart.api.finance import allocations as allocations_api
 from tbo_smart.api.finance import deal as deal_api
 from tbo_smart.finance.allocation import money
+from tbo_smart.finance.exceptions import raise_exception
 from tbo_smart.finance.transfers import flag_pending_transfers
 from tbo_smart.test_utils import (
 	delete_crm_records,
@@ -146,6 +147,24 @@ class TestReversals(AllocationTestCase):
 		summary = allocations_api.get_allocation_summary()
 		self.assertEqual(summary["totals"][0]["due_from_partner"] - due_before, 100)
 
+	def test_cancel_after_partial_transfer_reverses_only_what_was_sent(self):
+		deal = make_finance_deal(BDE)
+		invoice = make_invoice_with_advances(make_vat_order(deal, 1000).name)
+		receipt = make_receipt("Sales Invoice", invoice.name, 230)
+		allocation = get_allocation(receipt.name)
+		sent = make_internal_payment(self.company, 40)
+		allocations_api.create_transfer(
+			sent.name, nowdate(), [{"fund_allocation": allocation.name, "allocated_amount": 40}]
+		)
+		due_before = allocations_api.get_allocation_summary()["totals"][0]["due_from_partner"]
+		receipt.reload()
+		receipt.cancel()
+		reversal = get_allocation(receipt.name, "Reversal")
+		self.assertEqual(reversal.share_amount, -40)
+		self.assertEqual(round(sum(flt(line.share_amount) for line in reversal.lines), 2), -40)
+		summary = allocations_api.get_allocation_summary()
+		self.assertEqual(summary["totals"][0]["due_from_partner"] - due_before, 40)
+
 	def test_refund_reverses_its_share(self):
 		deal = make_finance_deal(BDE)
 		order = make_vat_order(deal, 10000)
@@ -271,6 +290,17 @@ class TestTransfers(AllocationTestCase):
 				again.name, nowdate(), [{"fund_allocation": first.name, "allocated_amount": 100}]
 			)
 
+	def test_sending_payment_is_used_once(self):
+		_deal, first, second = self.make_allocations()
+		sent = make_internal_payment(self.company, 15000)
+		allocations_api.create_transfer(
+			sent.name, nowdate(), [{"fund_allocation": first.name, "allocated_amount": 15000}]
+		)
+		with self.assertRaises(frappe.ValidationError):
+			allocations_api.create_transfer(
+				sent.name, nowdate(), [{"fund_allocation": second.name, "allocated_amount": 15000}]
+			)
+
 	def test_pending_transfer_is_flagged(self):
 		_deal, first, _second = self.make_allocations()
 		sent = make_internal_payment(self.company, 15000)
@@ -313,12 +343,28 @@ class TestAllocationAccess(AllocationTestCase):
 		deal = make_finance_deal(BDE)
 		invoice = make_invoice_with_advances(make_vat_order(deal, 1000).name)
 		frappe.db.set_single_value("TBO Smart Settings", "allocation_start_date", add_days(nowdate(), 1))
-		entry = make_receipt("Sales Invoice", invoice.name, 575)
+		entries = {make_receipt("Sales Invoice", invoice.name, 575).name for _ in range(2)}
 		count = frappe.db.count("TBO Fund Allocation")
 		preview = allocations_api.preview_allocations(add_days(nowdate(), -1), add_days(nowdate(), 5))
-		row = next(row for row in preview["rows"] if row["payment_entry"] == entry.name)
-		self.assertEqual(row["share"], 250)
+		# the invoice is paid in full today; each past receipt still gets its own half, not all
+		shares = [row["share"] for row in preview["rows"] if row["payment_entry"] in entries]
+		self.assertEqual(shares, [250, 250])
 		self.assertEqual(frappe.db.count("TBO Fund Allocation"), count)
+
+	def test_allocation_exceptions_are_hidden_from_salespeople(self):
+		deal = make_finance_deal(BDE)
+		name = raise_exception(
+			category="Transfer",
+			exception_type="Short transfer",
+			crm_deal=deal,
+			company=self.company,
+			reason="India received less than was sent.",
+		)
+		doc = frappe.get_doc("TBO Finance Exception", name)
+		self.assertFalse(frappe.has_permission("TBO Finance Exception", "read", doc=doc, user=BDE))
+		self.assertTrue(frappe.has_permission("TBO Finance Exception", "read", doc=doc, user=ACCOUNTS))
+		frappe.set_user(BDE)
+		self.assertNotIn(name, frappe.get_list("TBO Finance Exception", pluck="name"))
 
 	def test_settings_validation(self):
 		settings = frappe.get_single("TBO Smart Settings")

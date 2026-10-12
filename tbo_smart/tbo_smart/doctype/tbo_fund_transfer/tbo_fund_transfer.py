@@ -84,6 +84,12 @@ class TBOFundTransfer(Document):
 					self.from_company
 				)
 			)
+		other = frappe.db.get_value(
+			"TBO Fund Transfer",
+			{"ksa_payment_entry": self.ksa_payment_entry, "docstatus": 1, "name": ("!=", self.name)},
+		)
+		if other:
+			frappe.throw(_("That payment already sends transfer {0}.").format(other))
 		self.validate_receiving_leg()
 
 	def validate_receiving_leg(self):

@@ -1170,7 +1170,7 @@ cancel, and Journal Entry submit.
 | Unallocated money | Net ratio of the deal's latest submitted Sales Order, else its latest submitted Quotation, else 1 / (1 + default VAT). |
 | Refund (Pay to Customer) | A negative Reversal allocation for its net (Q4). |
 | Receipt cancelled, nothing transferred yet | Its allocation is cancelled. |
-| Receipt cancelled after a transfer | A negative Reversal for the whole share, the original marked Reversed, and a "Receipt cancelled after transfer" exception (category Allocation). The receipt's allocations never block its cancellation. |
+| Receipt cancelled after a transfer | A negative Reversal for the part of the share already transferred (India owes back exactly that; the unsettled rest stops being payable), the original marked Reversed, and a "Receipt cancelled after transfer" exception (category Allocation). The receipt's allocations never block its cancellation. |
 | Customer receipt booked as a Journal Entry (customer credit + bank/cash debit) | No allocation; a "Receipt via Journal Entry" exception. |
 
 **Transfers** - TBO Fund Transfer controller, `tbo_smart/finance/transfers.py`,
@@ -1179,7 +1179,8 @@ cancel, and Journal Entry submit.
 - The sending leg is an ordinary Payment Entry (Pay) of the invoicing company: amount sent and
   sender charges are read from it (KSA bears the charges, Q7). India confirms by linking its
   receipt (Receive, partner company): amount received, receiver charges and the achieved rate
-  (received ÷ sent, Q3) are read from it.
+  (received ÷ sent, Q3) are read from it. One payment sends one transfer, and one receipt
+  confirms one.
 - Rows settle allocations: at most what is open on each, re-read with a row lock on submit so
   two transfers cannot over-settle one allocation. Negative rows net a reversal (due from
   India, Q4). `withholding_tax` counts as settled (Q8).
@@ -1200,11 +1201,13 @@ cancel, and Journal Entry submit.
 | `get_transfer_form()` | GET | Open allocations oldest first (FIFO) and the invoicing company's submitted payments not yet used by a transfer. |
 | `create_transfer(ksa_payment_entry, transfer_date, rows, reference_no, withholding_tax)` | POST | Creates and submits a transfer; TBO Fund Transfer permissions apply. |
 | `confirm_receipt(transfer, india_payment_entry)` | POST | Links India's receipt. |
-| `preview_allocations(from_date, to_date)` | GET | Q16 "backfill for reporting": what receipts before the start date would have allocated. Records and posts nothing. |
+| `preview_allocations(from_date, to_date)` | GET | Q16 "backfill for reporting": what receipts before the start date would have allocated. Records and posts nothing. Uses the plain ratio for every receipt (no closing remainder), since an invoice paid in full today does not say which past receipt settled it. |
 
 All of them, and the Finance tab's new Allocation section (`get_deal_allocation`: the deal's
 share, settled and pending), are for Accounts, Finance and Management only (risk R7); a
-salesperson gets a 403 and never sees the section. The daily digest adds the payable and
+salesperson gets a 403 and never sees the section. The same goes for exceptions of
+category Allocation and Transfer: their permission hooks hide them from everyone else, even
+on the salesperson's own deals. The daily digest adds the payable and
 the transfers waiting for India.
 
 **Not built (follow-ups):** accounting options A (monthly inter-company invoice) and B (journal
@@ -1214,11 +1217,11 @@ table case is handled); company-based record rules beyond ERPNext's own User Per
 
 **Tests** - `tbo_smart/tests/test_finance_allocation.py`: examples A and B to the cent,
 half-up rounding, receipts outside the allocation (start date, switch, other company),
-unallocated money with the deal ratio, cancel before and after a transfer (reversal,
-exception, due from partner), refunds, Journal Entry receipts, FIFO transfer with India's
-confirmation and achieved rate, short transfer and over-settlement, the pending-transfer job,
-engine-only allocations, access (BDE refused, Accounts allowed, Finance tab section), the
-reporting preview and settings validation.
+unallocated money with the deal ratio, cancel before, after and after part of a transfer
+(reversal, exception, due from partner), refunds, Journal Entry receipts, FIFO transfer with India's
+confirmation and achieved rate, short transfer and over-settlement, a sending payment used once, the pending-transfer job,
+engine-only allocations, access (BDE refused, Accounts allowed, Finance tab section,
+allocation exceptions hidden), the reporting preview and settings validation.
 
 ### 14.6 What the owner switches on after deploying Phase 3
 

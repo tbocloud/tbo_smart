@@ -10,7 +10,7 @@ from frappe.query_builder.functions import Sum
 from frappe.utils import flt, getdate
 
 from tbo_smart.finance import allocation_enabled, get_setting
-from tbo_smart.finance.access import ALLOCATION_ROLES, is_finance_user
+from tbo_smart.finance.access import can_see_allocations
 from tbo_smart.finance.allocation import AllocationBuilder, AllocationSettings
 from tbo_smart.finance.transfers import get_open_allocations
 
@@ -33,10 +33,6 @@ TRANSFER_FIELDS = [
 	"india_payment_entry",
 	"docstatus",
 ]
-
-
-def can_see_allocations() -> bool:
-	return bool(set(frappe.get_roles()) & ALLOCATION_ROLES) or is_finance_user()
 
 
 def require_allocations() -> AllocationSettings:
@@ -216,7 +212,7 @@ def preview_allocations(from_date: str, to_date: str) -> dict:
 	rows = []
 	for name in entries:
 		entry = frappe.get_doc("Payment Entry", name)
-		lines = AllocationBuilder(entry, settings).lines()
+		lines = AllocationBuilder(entry, settings, preview=True).lines()
 		rows.append(
 			{
 				"payment_entry": name,

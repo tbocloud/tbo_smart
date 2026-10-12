@@ -62,12 +62,15 @@ class AllocationSettings:
 
 
 class AllocationBuilder:
-	"""Lines and totals for one Payment Entry. `sign` is -1 for refunds."""
+	"""Lines and totals for one Payment Entry. `sign` is -1 for refunds. A `preview` of a past
+	receipt uses the plain ratio: an invoice paid in full today says nothing about whether that
+	receipt was the one that settled it."""
 
-	def __init__(self, entry, settings: AllocationSettings, sign: int = 1):
+	def __init__(self, entry, settings: AllocationSettings, sign: int = 1, preview: bool = False):
 		self.entry = entry
 		self.settings = settings
 		self.sign = sign
+		self.preview = preview
 		self.rate = (
 			flt(entry.source_exchange_rate if entry.payment_type == "Receive" else entry.target_exchange_rate)
 			or 1
@@ -112,6 +115,7 @@ class AllocationBuilder:
 		closing = (
 			doctype == "Sales Invoice"
 			and self.sign > 0
+			and not self.preview
 			and abs(flt(doc.outstanding_amount)) <= CLOSING_TOLERANCE
 		)
 		if closing:
@@ -290,33 +294,19 @@ class PaymentAllocation:
 			self.undo(frappe.get_doc(DOCTYPE, allocation))
 
 	def undo(self, allocation):
-		"""Unsettled: cancel it. Already (partly) settled by a transfer: a Reversal for the full
-		share plus an exception for the Finance Manager (§3.3)."""
+		"""Unsettled: cancel it. Already (partly) settled by a transfer: a Reversal for the part
+		India received, so India owes back exactly that, plus an exception for the Finance
+		Manager (§3.3). The original is marked Reversed: its unsettled rest is no longer payable."""
 		if not flt(allocation.settled_amount):
 			allocation.flags.from_engine = True
 			allocation.cancel()
 			return
-		lines = [
-			{
-				**{
-					key: line.get(key)
-					for key in (
-						"reference_doctype",
-						"reference_name",
-						"crm_deal",
-						"net_ratio",
-						"is_closing_receipt",
-					)
-				},
-				**{
-					key: -flt(line.get(key))
-					for key in ("gross_amount", "tax_amount", "net_amount", "share_amount")
-				},
-			}
-			for line in allocation.lines
-		]
 		reversal = make_allocation(
-			self.entry, lines, self.settings, kind="Reversal", reversal_of=allocation.name
+			self.entry,
+			self.reversal_lines(allocation),
+			self.settings,
+			kind="Reversal",
+			reversal_of=allocation.name,
 		)
 		allocation.db_set("status", "Reversed")
 		raise_exception(
@@ -335,6 +325,33 @@ class PaymentAllocation:
 			),
 			dedupe_key=f"cancelled-after-transfer:{allocation.name}",
 		)
+
+	@staticmethod
+	def reversal_lines(allocation) -> list[dict]:
+		"""The allocation's lines negated and scaled to the settled part of its share; the last
+		line takes the rounding so the shares add up to exactly minus the settled amount."""
+		settled, share = flt(allocation.settled_amount), flt(allocation.share_amount)
+		factor = min(settled / share, 1) if share else 1
+		lines = []
+		for line in allocation.lines:
+			row = {
+				key: line.get(key)
+				for key in (
+					"reference_doctype",
+					"reference_name",
+					"crm_deal",
+					"net_ratio",
+					"is_closing_receipt",
+				)
+			}
+			for key in ("gross_amount", "tax_amount", "net_amount", "share_amount"):
+				row[key] = -money(flt(line.get(key)) * factor)
+			lines.append(row)
+		if lines:
+			lines[-1]["share_amount"] = money(
+				lines[-1]["share_amount"] - sum(row["share_amount"] for row in lines) - settled
+			)
+		return lines
 
 
 class JournalReceiptCheck:
