@@ -912,7 +912,7 @@ def make_vat_order(deal: str, rate: float, vat: float = 15, submit: bool = True)
 			"company": erpnext.get_default_company(),
 			"transaction_date": nowdate(),
 			"delivery_date": add_days(nowdate(), 30),
-			"items": [{"item_code": make_quotation_item(), "qty": 1, "rate": rate}],
+			"items": [{"item_code": make_finance_item(), "qty": 1, "rate": rate}],
 			"taxes": [
 				{
 					"charge_type": "On Net Total",
