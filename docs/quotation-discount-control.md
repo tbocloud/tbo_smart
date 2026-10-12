@@ -213,7 +213,7 @@ are emailed per the user's notification settings, and reach the TBO Smart phone 
   …) and a **Waiting for me** button, which is the approvals inbox for BDM, Head, Director
   and CEO.
 
-**In the CRM (tbocloud/crm, `docs/tbo-quotation-approvals.md` there):** daily users never
+**In the CRM (tbocloud/crm#2, `docs/tbo-quotation-approvals.md` there):** daily users never
 open `/app` for this.
 
 1. **Deal → Quotations tab** (`QuotationsList.vue`): each quotation shows a chip per limited
