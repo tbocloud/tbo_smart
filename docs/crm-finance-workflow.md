@@ -1248,7 +1248,7 @@ Transaction hooks and the nightly check do nothing and the bank-line APIs refuse
 | Event | What happens |
 | --- | --- |
 | Line imported (`before_insert`) | Dedupe key = sha1(bank account, date, direction, amount, normalised reference or description). A non-cancelled line with the same key sets `tbo_possible_duplicate_of`; the line is **not blocked** and a "Possible duplicate" exception (action Mark duplicate) is raised. |
-| Line matched or unmatched in the Bank Reconciliation Tool (`before_update_after_submit`) | Records who matched it (`tbo_matched_by`) and sets it back to Unverified. A **Verified** line refuses any change to its matches unless an **approved "Correct entry"** exception covers it (that also blocks the tool's Unreconcile on it). |
+| Line matched or unmatched in the Bank Reconciliation Tool (`before_update_after_submit`) | Records who matched it (`tbo_matched_by`) and sets it back to Unverified. A **Verified** line refuses any change to its matches unless an **approved "Correct entry"** exception covers it (that also blocks the tool's Unreconcile on it). Each approval allows one change: the change stamps the exception's `used_on`, and an exception already used no longer counts. |
 | After matching (`on_update_after_submit`) | Matched Payment Entries totalling more than the tolerance away from the bank amount raise an "Amount mismatch" exception (T13: 34,450 against 34,500). Matching a transfer leg fills the TBO Fund Transfer's bank line. |
 | Nightly | A line still Pending or Unreconciled after `unmatched_alert_days` raises one "Unmatched bank line" exception. |
 
@@ -1262,6 +1262,8 @@ yet both verified).
 **Second approver (Q5)** - with `second_approval_amount` set, an exception whose largest of
 difference / expected / actual is above it needs two approvals by two different approvers
 (neither the requester): the first sets `first_approved_by` and keeps it Pending Approval.
+Reopening a rejected exception clears the first approval, since the request can be edited
+again; the earlier approval stays in the timeline and Version history.
 
 **Stage and closure (§2 stage 15)** - with Phase 4 on, the computed stage continues past
 Collected: **Settling** while India's share on the deal is still open (Phase 3), then
@@ -1274,7 +1276,8 @@ still needs only Collected.
 **CRM** - the Finance exceptions page lists every category (category filter), is open once
 any of Phases 2-4 is on, shows "first approval" progress, and gains a **Bank lines** tab:
 matched lines waiting for verification (with Verify for a second person) and unmatched lines
-with their age and duplicate flag (`get_bank_queue`). Finance tab: the stage strip shows
+with their age and duplicate flag (`get_bank_queue`, which reads through Bank Transaction
+permissions, so User Permissions on company apply). Finance tab: the stage strip shows
 Settling and Reconciled, and Close follows the closable stage.
 
 **Tests** - `tbo_smart/tests/test_finance_reconciliation.py`: duplicates flagged not

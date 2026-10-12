@@ -41,16 +41,17 @@ def require_reconciliation() -> None:
 
 @frappe.whitelist()
 def get_bank_queue() -> dict:
-	"""Matched lines waiting for verification, and lines still unmatched with their age."""
+	"""Matched lines waiting for verification, and lines still unmatched with their age. Bank
+	Transaction permissions (and User Permissions on company) apply."""
 	require_reconciliation()
-	waiting = frappe.get_all(
+	waiting = frappe.get_list(
 		"Bank Transaction",
 		filters={"docstatus": 1, "status": "Reconciled", "tbo_verification": ("!=", "Verified")},
 		fields=LINE_FIELDS,
 		order_by="date asc",
 		limit_page_length=QUEUE_LIMIT,
 	)
-	unmatched = frappe.get_all(
+	unmatched = frappe.get_list(
 		"Bank Transaction",
 		filters={"docstatus": 1, "status": ("in", ["Pending", "Unreconciled"])},
 		fields=LINE_FIELDS,

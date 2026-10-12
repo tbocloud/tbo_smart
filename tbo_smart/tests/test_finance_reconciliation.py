@@ -6,6 +6,7 @@ from frappe.utils import nowdate
 from tbo_smart.api.finance import deal as deal_api
 from tbo_smart.api.finance import exceptions as exceptions_api
 from tbo_smart.api.finance import reconciliation as reconciliation_api
+from tbo_smart.finance.exceptions import raise_exception
 from tbo_smart.finance.reconciliation import flag_unmatched_lines
 from tbo_smart.finance.stage import update_stage
 from tbo_smart.test_utils import (
@@ -110,6 +111,29 @@ class TestBankLines(ReconciliationTestCase):
 		with self.assertRaises(frappe.ValidationError):
 			line.remove_payment_entries()
 
+		# an approved Correct entry allows one change of matches, then it is used up
+		correction = raise_exception(
+			category="Bank Reconciliation",
+			exception_type="Amount mismatch",
+			requested_action="Correct entry",
+			reference_doctype="Bank Transaction",
+			reference_name=line.name,
+			company=line.company,
+			reason="Matched to the wrong receipt.",
+		)
+		frappe.db.set_value("TBO Finance Exception", correction, "status", "Approved")
+		line.reload()
+		line.remove_payment_entries()
+		self.assertTrue(frappe.db.get_value("TBO Finance Exception", correction, "used_on"))
+		frappe.set_user(MAKER)
+		match_bank_line(line.name, entry.name, 500)
+		frappe.set_user(CHECKER)
+		reconciliation_api.verify_bank_line(line.name)
+		frappe.set_user("Administrator")
+		line.reload()
+		with self.assertRaises(frappe.ValidationError):
+			line.remove_payment_entries()
+
 	def test_amount_mismatch(self):
 		deal = make_finance_deal(BDE)
 		invoice = make_deal_invoice(deal, rate=34500)
@@ -153,6 +177,26 @@ class TestSecondApproval(ReconciliationTestCase):
 			exceptions_api.decide_exception(exception["name"], "approve")
 		frappe.set_user(CHECKER)
 		self.assertEqual(exceptions_api.decide_exception(exception["name"], "approve")["status"], "Approved")
+
+	def test_reopening_clears_the_first_approval(self):
+		enable_reconciliation(enable_finance_receivables=1, second_approval_amount=100)
+		deal = make_finance_deal(BDE)
+		invoice = make_deal_invoice(deal, rate=500, due_in=-5)
+		frappe.set_user(BDE)
+		exception = exceptions_api.request_exception(
+			invoice.name, "Pause request", "Holiday", pause_until=nowdate()
+		)
+		frappe.set_user(MAKER)
+		exceptions_api.decide_exception(exception["name"], "approve")
+		frappe.set_user(CHECKER)
+		exceptions_api.decide_exception(exception["name"], "reject", "Not this month")
+		frappe.set_user(BDE)
+		reopened = exceptions_api.decide_exception(exception["name"], "reopen")
+		self.assertIsNone(reopened["first_approved_by"])
+		exceptions_api.decide_exception(exception["name"], "request_approval")
+		frappe.set_user(CHECKER)
+		again = exceptions_api.decide_exception(exception["name"], "approve")
+		self.assertEqual((again["status"], again["first_approved_by"]), ("Pending Approval", CHECKER))
 
 
 class TestReconciledStage(ReconciliationTestCase):

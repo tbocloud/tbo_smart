@@ -90,16 +90,25 @@ class BankLine:
 		before = self.doc.get_doc_before_save()
 		if not before or self.vouchers(before) == self.vouchers(self.doc):
 			return
-		if before.tbo_verification == "Verified" and not has_approved_correction(self.doc.name):
+		if before.tbo_verification == "Verified":
+			self.use_approved_correction()
+		self.doc.tbo_matched_by = frappe.session.user
+		self.doc.tbo_verification = "Unverified"
+		self.doc.tbo_verified_by = None
+		self.doc.tbo_verified_on = None
+
+	def use_approved_correction(self):
+		"""A verified line changes only against an approved Correct entry, and each approval
+		allows one change: it is marked used here."""
+		correction = get_unused_correction(self.doc.name)
+		if not correction:
 			frappe.throw(
 				_(
 					"Bank line {0} is verified. Raise a Correct entry exception and get it approved before changing its matches."
 				).format(self.doc.name)
 			)
-		self.doc.tbo_matched_by = frappe.session.user
-		self.doc.tbo_verification = "Unverified"
-		self.doc.tbo_verified_by = None
-		self.doc.tbo_verified_on = None
+		# the exception's fields are frozen once decided; used_on is the one written after that
+		frappe.db.set_value("TBO Finance Exception", correction, "used_on", now_datetime())
 
 	def on_update_after_submit(self):
 		if not reconciliation_enabled():
@@ -165,17 +174,17 @@ class BankLine:
 					refresh_transfer(transfer)
 
 
-def has_approved_correction(line: str) -> bool:
-	return bool(
-		frappe.db.exists(
-			"TBO Finance Exception",
-			{
-				"reference_doctype": "Bank Transaction",
-				"reference_name": line,
-				"requested_action": "Correct entry",
-				"status": "Approved",
-			},
-		)
+def get_unused_correction(line: str) -> str | None:
+	return frappe.db.get_value(
+		"TBO Finance Exception",
+		{
+			"reference_doctype": "Bank Transaction",
+			"reference_name": line,
+			"requested_action": "Correct entry",
+			"status": "Approved",
+			"used_on": ("is", "not set"),
+		},
+		order_by="approved_on asc",
 	)
 
 

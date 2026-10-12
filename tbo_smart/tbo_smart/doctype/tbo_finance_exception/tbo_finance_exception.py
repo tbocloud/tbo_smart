@@ -119,6 +119,7 @@ class TBOFinanceException(Document):
 		resolution_reference_name: DF.DynamicLink | None
 		source: DF.Literal["User", "System"]
 		status: DF.Literal["Open", "Pending Approval", "Approved", "Rejected"]
+		used_on: DF.Datetime | None
 	# end: auto-generated types
 
 	def validate(self):
@@ -203,6 +204,9 @@ class TBOFinanceException(Document):
 			self.decision_remarks = remarks
 		else:
 			self.check_requester()
+		if action == "reopen":
+			# a reopened request can be edited, so an earlier first approval no longer covers it
+			self.first_approved_by = self.first_approved_on = None
 		if action == "request_approval":
 			self.requested_by = frappe.session.user
 		self.status = target

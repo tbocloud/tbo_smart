@@ -40,6 +40,7 @@
   "approved_on",
   "column_break_5",
   "decision_remarks",
+  "used_on",
   "dedupe_key"
  ],
  "fields": [
@@ -267,6 +268,15 @@
    "read_only": 1
   },
   {
+   "fieldname": "used_on",
+   "fieldtype": "Datetime",
+   "label": "Used on",
+   "read_only": 1,
+   "no_copy": 1,
+   "depends_on": "eval:doc.used_on",
+   "description": "When an approved Correct entry was spent changing a verified bank line's matches. Each approval allows one change."
+  },
+  {
    "fieldname": "dedupe_key",
    "fieldtype": "Data",
    "label": "Dedupe key",
@@ -278,7 +288,7 @@
  ],
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-10-12 20:00:00.000000",
+ "modified": "2026-10-12 22:30:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Finance Exception",
