@@ -189,8 +189,9 @@ class TBOFinanceException(Document):
 			self.approved_by = frappe.session.user
 			self.approved_on = now_datetime()
 			self.decision_remarks = remarks
-		elif action == "request_approval":
+		else:
 			self.check_requester()
+		if action == "request_approval":
 			self.requested_by = frappe.session.user
 		self.status = target
 		self.flags.from_action = True
@@ -201,7 +202,9 @@ class TBOFinanceException(Document):
 
 	def check_requester(self):
 		if not frappe.has_permission(self.doctype, "write", doc=self) and self.owner != frappe.session.user:
-			frappe.throw(_("You cannot send this exception for approval."), frappe.PermissionError)
+			frappe.throw(
+				_("Only the requester or finance can send or reopen this exception."), frappe.PermissionError
+			)
 
 	def check_decider(self):
 		if not is_approver():
