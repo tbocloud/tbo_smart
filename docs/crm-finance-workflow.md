@@ -1081,13 +1081,18 @@ Receivable category) and `tbo_smart/api/finance/exceptions.py`.
   exception leaves Open, everything the approver decides on (type, action, document, term,
   amounts, dates, reason, resolution document) and the audit fields (requested by, decided by,
   decision remarks) are frozen for any save; to change the request, reject and reopen.
+  Sending for approval and reopening are for the person who raised it or a finance role that
+  can edit exceptions; read access alone (e.g. TBO Management) cannot reopen.
 - **Deviation:** no Frappe Workflow fixture. The rules live in the controller and the API,
   which keeps them testable and avoids a desk workflow nobody uses; Version
   (`track_changes`), `requested_by`, `approved_by`/`approved_on`, decision remarks and a
   timeline comment per step are the audit trail.
 - Who sees them (`permission_query_conditions` / `has_permission`): accounts, finance,
   management, Sales Manager and System Manager see all; a salesperson sees the ones they
-  raised and those on their own (or team's) deals, and can only edit their own.
+  raised and those on their own (or team's) deals, and can only edit their own. While no
+  phase that raises exceptions is on, a salesperson sees none, even through the desk.
+- Amounts: with "BDE can see invoice/payment amounts" off, the exception amounts (expected,
+  actual, difference) and a follow-up's promised amount come back empty, like invoice amounts.
 
 **Receivables page and follow-ups** - `tbo_smart/api/finance/receivables.py`.
 
