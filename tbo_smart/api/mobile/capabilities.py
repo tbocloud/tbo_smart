@@ -11,6 +11,10 @@ from frappe import _
 from frappe.model.workflow import get_workflow_name
 from frappe.utils import cint
 
+from tbo_smart.tbo_smart.doctype.tbo_quotation_approval_settings.tbo_quotation_approval_settings import (
+	get_settings,
+)
+
 HR_APPROVER_ROLES = {"HR Manager", "HR User"}
 CRM_ROLES = {"Sales User", "Sales Manager", "System Manager"}
 CRM_MANAGER_ROLES = {"Sales Manager", "System Manager"}
@@ -64,6 +68,7 @@ def get_capabilities() -> frappe._dict:
 			"crm_scope": crm_scope,
 			"crm_scopes": allowed_crm_scopes(user, crm_scope),
 			"sales_insights": crm_manager,
+			"approve_quotations": can_approve_quotations(user),
 		}
 	)
 
@@ -91,6 +96,15 @@ def can_approve(kind: str, user: str, roles: set) -> bool:
 		fields=["action", "next_state"],
 	)
 	return any(is_decision(row.action, row.next_state, DECISION_WORDS) for row in transitions)
+
+
+def can_approve_quotations(user: str) -> bool:
+	"""A quotation approval level that requests can wait at: some level ranks below mine (BDM,
+	Sales & Marketing Head, Director, CEO), as get_adjustment_limits' `is_approver` decides."""
+	settings = get_settings()
+	level = settings.get_user_level(user)
+	levels = settings.sorted_levels()
+	return bool(level and levels and cint(levels[0].rank) < cint(level.rank))
 
 
 def is_decision(action: str | None, next_state: str | None, words: tuple) -> bool:

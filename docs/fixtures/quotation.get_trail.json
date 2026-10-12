@@ -1,0 +1,54 @@
+{
+  "message": {
+    "name": "QADJ-2026-00012",
+    "quotation": "SAL-QTN-2026-00041",
+    "customer": "Al Noor Trading LLC",
+    "deal": "CRM-DEAL-2026-00018",
+    "kind": "Discount",
+    "status": "Escalated",
+    "voided": false,
+    "within_limit": false,
+    "previous_percent": 0.0,
+    "requested_percent": 12.0,
+    "approved_percent": 0.0,
+    "quotation_value": 480000.0,
+    "requested_by": "rahul@tboindia.com",
+    "approved_by": null,
+    "current_level": "Sales & Marketing Head",
+    "current_rank": 30,
+    "reason": "Three-year AMC; the customer has a competing quote at 11%.",
+    "remarks": null,
+    "creation": "2026-10-12 09:14:05.123456",
+    "modified": "2026-10-12 10:02:41.551200",
+    "requested_by_name": "Rahul Nair",
+    "steps": [
+      {
+        "action": "Requested",
+        "by_user": "rahul@tboindia.com",
+        "by_name": "Rahul Nair",
+        "level": "BDE",
+        "percent": 12.0,
+        "at": "2026-10-12 09:14:05.120001",
+        "remarks": "Three-year AMC; the customer has a competing quote at 11%."
+      },
+      {
+        "action": "Forwarded",
+        "by_user": "meera@tboindia.com",
+        "by_name": "Meera Pillai",
+        "level": "BDM",
+        "percent": 12.0,
+        "at": "2026-10-12 10:02:41.548000",
+        "remarks": "Above my 10%."
+      }
+    ],
+    "currency": "INR",
+    "actions": {
+      "approve": true,
+      "approve_max": 12.0,
+      "reject": true,
+      "forward": true,
+      "forward_to": "Director",
+      "override": false
+    }
+  }
+}

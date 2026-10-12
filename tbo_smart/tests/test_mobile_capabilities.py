@@ -52,6 +52,7 @@ class TestMobileCapabilities(FrappeTestCase):
 			"crm",
 			"crm_manager",
 			"sales_insights",
+			"approve_quotations",
 		):
 			self.assertFalse(caps[flag], flag)
 		self.assertIsNone(caps.crm_scope)
