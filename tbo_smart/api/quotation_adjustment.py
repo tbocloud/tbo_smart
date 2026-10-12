@@ -23,6 +23,8 @@ from tbo_smart.tbo_smart.doctype.tbo_quotation_approval_settings.tbo_quotation_a
 )
 
 PENDING_LIMIT = 200
+STATUS_BATCH_LIMIT = 100
+REQUEST_SCOPES = ("mine", "all")
 LIST_FIELDS = [
 	"name",
 	"quotation",
@@ -54,6 +56,7 @@ def get_adjustment_limits() -> dict:
 	settings = get_settings()
 	level = settings.get_user_level()
 	kinds = settings.controlled_kinds()
+	levels = settings.sorted_levels()
 	return {
 		"enabled": bool(kinds),
 		"applies_to": settings.applies_to,
@@ -61,6 +64,19 @@ def get_adjustment_limits() -> dict:
 		"level": serialize_level(level),
 		"limits": {kind: settings.get_limit(level, kind) for kind in kinds},
 		"limit_labels": {kind: format_limit(settings.get_limit(level, kind)) for kind in kinds},
+		# a request can wait at my level only when some level ranks below it
+		"is_approver": bool(level and levels and cint(levels[0].rank) < cint(level.rank)),
+		"can_view_all": can_view_all(level),
+		"can_override": bool(level and cint(level.unlimited)),
+		"can_forward": bool(level and settings.get_next_level(level.rank)),
+		"open_requests": frappe.db.count(
+			"TBO Quotation Adjustment",
+			{
+				"requested_by": frappe.session.user,
+				"status": ("in", OPEN_STATUSES),
+				"voided": 0,
+			},
+		),
 	}
 
 
@@ -71,7 +87,31 @@ def get_quotation_adjustment_status(quotation: str) -> dict:
 	doc = frappe.get_doc("Quotation", quotation)
 	doc.check_permission("read")
 	settings = get_settings()
+	return build_quotation_status(doc, settings, settings.get_user_level())
+
+
+@frappe.whitelist()
+def get_quotations_adjustment_status(quotations: list[str] | str) -> dict:
+	"""get_quotation_adjustment_status for several quotations at once (a CRM deal's Quotations
+	tab), keyed by quotation. Quotations I cannot read are left out."""
+	names = frappe.parse_json(quotations) if isinstance(quotations, str) else quotations
+	if not isinstance(names, list) or not all(isinstance(name, str) for name in names):
+		frappe.throw(_("quotations must be a list of Quotation names."))
+	if len(names) > STATUS_BATCH_LIMIT:
+		frappe.throw(_("Ask for at most {0} quotations at a time.").format(STATUS_BATCH_LIMIT))
+	settings = get_settings()
 	level = settings.get_user_level()
+	statuses = {}
+	for name in dict.fromkeys(names):
+		if not frappe.db.exists("Quotation", name):
+			continue
+		doc = frappe.get_doc("Quotation", name)
+		if doc.has_permission("read"):
+			statuses[name] = build_quotation_status(doc, settings, level)
+	return statuses
+
+
+def build_quotation_status(doc, settings, level) -> dict:
 	value = get_list_value(doc)
 	kinds = []
 	for kind in settings.controlled_kinds():
@@ -223,6 +263,57 @@ def get_pending_approvals() -> list[dict]:
 		)
 		pending.append(item)
 	return pending
+
+
+@frappe.whitelist()
+def get_adjustment_requests(scope: str = "mine") -> list[dict]:
+	"""Approval requests, newest first: `mine` are the ones I made, `all` is every request and
+	needs a level that approves directly (Director, CEO). Within-limit Applied rows are left
+	out, since nobody had to approve them."""
+	if scope not in REQUEST_SCOPES:
+		frappe.throw(_("Scope must be one of {0}.").format(", ".join(REQUEST_SCOPES)))
+	Adjustment = frappe.qb.DocType("TBO Quotation Adjustment")
+	condition = Adjustment.within_limit == 0
+	if scope == "mine":
+		condition &= Adjustment.requested_by == frappe.session.user
+	elif not can_view_all(get_settings().get_user_level()):
+		frappe.throw(_("Only a level that approves directly can see every request."), frappe.PermissionError)
+	rows = (
+		frappe.qb.from_(Adjustment)
+		.select(*[Adjustment[field] for field in LIST_FIELDS])
+		.where(condition)
+		.orderby(Adjustment.creation, order=frappe.qb.desc)
+		.limit(PENDING_LIMIT)
+		.run(as_dict=True)
+	)
+	names = get_full_names({row.requested_by for row in rows})
+	return [serialize_adjustment(row, names) for row in rows]
+
+
+@frappe.whitelist()
+def get_adjustment_trail(name: str) -> dict:
+	"""One adjustment with its append-only steps, oldest first, for anyone who can read it."""
+	adjustment = frappe.get_doc("TBO Quotation Adjustment", name)
+	adjustment.check_permission("read")
+	names = get_full_names({adjustment.requested_by, *(step.by_user for step in adjustment.steps)})
+	data = serialize_adjustment(adjustment, names)
+	data["steps"] = [
+		{
+			"action": step.action,
+			"by_user": step.by_user,
+			"by_name": names.get(step.by_user, step.by_user),
+			"level": step.level,
+			"percent": flt(step.percent, 2),
+			"at": step.at,
+			"remarks": step.remarks,
+		}
+		for step in adjustment.steps
+	]
+	return data
+
+
+def can_view_all(level) -> bool:
+	return bool(level and (cint(level.approves_directly) or cint(level.unlimited)))
 
 
 def serialize_level(level) -> dict | None:
