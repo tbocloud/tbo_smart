@@ -378,3 +378,106 @@ class TestQuotationAdjustment(FrappeTestCase):
 
 		frappe.set_user(CEO)
 		self.assertIsNone(api.get_adjustment_limits()["limits"]["Discount"])
+
+	def test_access_flags_for_the_crm_screens(self):
+		expected = {
+			BDE: (False, False, False, True),
+			BDM: (True, False, False, True),
+			DIRECTOR: (True, True, False, True),
+			CEO: (True, True, True, False),
+			NO_LEVEL: (False, False, False, False),
+		}
+		for user, flags in expected.items():
+			frappe.set_user(user)
+			limits = api.get_adjustment_limits()
+			self.assertEqual(
+				(
+					limits["is_approver"],
+					limits["can_view_all"],
+					limits["can_override"],
+					limits["can_forward"],
+				),
+				flags,
+				user,
+			)
+
+		frappe.set_user(BDE)
+		self.assertEqual(api.get_adjustment_limits()["open_requests"], 0)
+		quotation = make_quotation(discount=8)
+		api.request_adjustment(quotation.name, "Discount", 8, "Volume")
+		self.assertEqual(api.get_adjustment_limits()["open_requests"], 1)
+
+	def test_status_for_several_quotations(self):
+		frappe.set_user(BDE)
+		pending = make_quotation(discount=8)
+		within = make_quotation(discount=4)
+		api.request_adjustment(pending.name, "Discount", 8, "Volume")
+
+		statuses = api.get_quotations_adjustment_status(
+			frappe.as_json([pending.name, within.name, "QTN-DOES-NOT-EXIST"])
+		)
+		self.assertEqual(set(statuses), {pending.name, within.name})
+		discount = {name: status["kinds"][0] for name, status in statuses.items()}
+		self.assertEqual(discount[pending.name]["latest"]["status"], "Pending")
+		self.assertFalse(discount[pending.name]["approved"])
+		self.assertTrue(discount[within.name]["within_limit"])
+		self.assertEqual(statuses[pending.name], api.get_quotation_adjustment_status(pending.name))
+		with self.assertRaises(frappe.ValidationError):
+			api.get_quotations_adjustment_status("not a list")
+
+		# another BDE may read the quotation, but not the request behind it
+		frappe.set_user(OTHER_BDE)
+		latest = api.get_quotations_adjustment_status([pending.name])[pending.name]["kinds"][0]["latest"]
+		self.assertEqual(
+			(latest["status"], latest["current_level"], latest["name"]), ("Pending", "BDM", None)
+		)
+		self.assertNotIn("reason", latest)
+		self.assertNotIn("requested_by", latest)
+		frappe.set_user(BDM)
+		self.assertEqual(
+			api.get_quotations_adjustment_status([pending.name])[pending.name]["kinds"][0]["latest"][
+				"reason"
+			],
+			"Volume",
+		)
+
+	def test_my_requests_all_requests_and_the_trail(self):
+		frappe.set_user(BDE)
+		mine = make_quotation(discount=12)
+		name = api.request_adjustment(mine.name, "Discount", 12, "Renewal")["name"]
+		make_quotation(discount=4)  # an Applied row, which is no request
+		frappe.set_user(OTHER_BDE)
+		other = api.request_adjustment(make_quotation(discount=9).name, "Discount", 9, "Pilot")["name"]
+
+		frappe.set_user(BDE)
+		requests = api.get_adjustment_requests("mine")
+		self.assertIn(name, [row["name"] for row in requests])
+		self.assertNotIn(other, [row["name"] for row in requests])
+		self.assertTrue(all(not row["within_limit"] for row in requests))
+		with self.assertRaises(frappe.PermissionError):
+			api.get_adjustment_requests("all")
+		with self.assertRaises(frappe.ValidationError):
+			api.get_adjustment_requests("everything")
+
+		frappe.set_user(BDM)
+		with self.assertRaises(frappe.PermissionError):
+			api.get_adjustment_requests("all")
+		api.decide_adjustment(name, "forward", remarks="Over my limit")
+
+		frappe.set_user(DIRECTOR)
+		every = {row["name"]: row for row in api.get_adjustment_requests("all")}
+		self.assertTrue({name, other} <= set(every))
+		self.assertEqual(every[name]["currency"], mine.currency)
+		self.assertEqual(
+			{row["name"]: row["currency"] for row in api.get_pending_approvals()}.get(other), mine.currency
+		)
+		trail = api.get_adjustment_trail(name)
+		self.assertEqual([step["action"] for step in trail["steps"]], ["Requested", "Forwarded"])
+		self.assertEqual(trail["steps"][1]["by_user"], BDM)
+		self.assertEqual(trail["requested_by_name"], frappe.db.get_value("User", BDE, "full_name"))
+
+		frappe.set_user(BDE)
+		self.assertEqual(len(api.get_adjustment_trail(name)["steps"]), 2)
+		frappe.set_user(OTHER_BDE)
+		with self.assertRaises(frappe.PermissionError):
+			api.get_adjustment_trail(name)

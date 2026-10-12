@@ -11,7 +11,7 @@ before the quotation can be submitted. Every adjustment, approval and override i
   (roles, a field and default levels), and `tbo_smart/public/js/quotation_adjustment.js`
   (the Quotation form).
 - **Tests:** `tbo_smart/tests/test_quotation_adjustment.py`.
-- **Status:** v1, 2026-10-12. Enforcement is **off** until management switches it on (§8).
+- **Status:** v1.1, 2026-10-12. Enforcement is **off** until management switches it on (§9).
 
 ## 1. The flow
 
@@ -174,8 +174,11 @@ All of them act as the session user, and permissions are checked on the server.
 
 | Method | HTTP | Returns / does |
 | --- | --- | --- |
-| `get_adjustment_limits()` | GET | `{enabled, applies_to, kinds, level, limits, limit_labels}`. In `limits`, `null` means no limit and `0` means not set. |
-| `get_quotation_adjustment_status(quotation)` | GET | For each limited kind: `percent`, `limit`, `limit_label`, `within_limit`, `approved` and the `latest` adjustment. Needs read on the quotation. |
+| `get_adjustment_limits()` | GET | `{enabled, applies_to, kinds, level, limits, limit_labels, is_approver, can_view_all, can_override, can_forward, open_requests}`. In `limits`, `null` means no limit and `0` means not set. `is_approver`: some level ranks below mine, so requests can wait for me. `can_view_all`: my level approves directly (Director, CEO). `can_override`: my level has no limit. `can_forward`: a higher level exists. `open_requests`: how many of my requests are still open. The CRM uses these only to hide what a user cannot do. |
+| `get_quotation_adjustment_status(quotation)` | GET | For each limited kind: `percent`, `limit`, `limit_label`, `within_limit`, `approved` and the `latest` adjustment. Needs read on the quotation. When the user cannot read that adjustment (a BDE looking at another BDE's request), `latest` carries only its state (status, level, percentages, voided) with `name` set to null, never the requester, reason or remarks. |
+| `get_quotations_adjustment_status(quotations)` | GET | The same for up to 100 quotations at once (a JSON list of names), keyed by quotation. Quotations the user cannot read, or that do not exist, are left out. It runs a fixed number of queries however many quotations there are. Used by the CRM deal's Quotations tab. |
+| `get_adjustment_requests(scope)` | GET | Requests (not within-limit Applied rows), newest first, up to 200, with `requested_by_name` and the quotation `currency` (which `get_pending_approvals` now returns too). `scope="mine"`: the ones I made. `scope="all"`: every request, only for a level that approves directly (Director, CEO), otherwise 403. |
+| `get_adjustment_trail(name)` | GET | One adjustment with its `steps` (action, by_user, by_name, level, percent, at, remarks), oldest first. Needs read on the adjustment, so a BDE sees only the trails of their own requests. |
 | `request_adjustment(quotation, kind, percent, reason)` | POST | Creates a Pending request at the next level up and notifies that level. It is refused when: the requester cannot write the quotation; the quotation is not a draft; the percentage is within the requester's own limit; the reason is empty; the requester has no level; or a request is already open. |
 | `decide_adjustment(name, action, percent=None, remarks=None)` | POST | `action` is `approve`, `reject`, `forward` or `override`; `percent` (approve or override) defaults to the requested %; remarks are required for reject and override. It notifies the requester, or on forward the next level. |
 | `get_pending_approvals()` | GET | Open requests waiting for me (my level, or lower levels when I approve directly), oldest first, excluding my own. Each has `can_approve_in_full`. |
@@ -191,9 +194,9 @@ are emailed per the user's notification settings, and reach the TBO Smart phone 
   except the requester.
 - On a decision, the requester.
 
-## 8. UI (this PR) and the CRM follow-up
+## 8. UI: ERPNext desk and the CRM
 
-**In this PR, ERPNext desk:**
+**ERPNext desk:**
 
 - **Quotation form:**
   - The discount and commission fields show "Your limit: …".
@@ -210,25 +213,26 @@ are emailed per the user's notification settings, and reach the TBO Smart phone 
   …) and a **Waiting for me** button, which is the approvals inbox for BDM, Head, Director
   and CEO.
 
-**Why the CRM screens are a follow-up:** the CRM fork (`tbocloud/crm`) only lists a deal's
-quotations (`QuotationsList.vue`, read-only rows that open `/app/quotation/<name>`), and
-quotations are created and edited in the ERPNext form (`get_quotation_url`). So adjusting
-already happens on the Quotation form, which this PR covers. A CRM version is a separate PR
-on the fork, and the theme branch is in flight there. The follow-up:
+**In the CRM (tbocloud/crm#2, `docs/tbo-quotation-approvals.md` there):** daily users never
+open `/app` for this.
 
-1. `frontend/src/components/Activities/QuotationsList.vue`: next to each row's status
-   badge, add a chip from `get_quotation_adjustment_status` (Pending at BDM, Approved,
-   Rejected, or Needs approval). Add a "Request approval" button that opens a frappe-ui
-   `Dialog` with the %, a required reason and the "Your limit: 5%" line from
-   `get_adjustment_limits`, and posts `request_adjustment`. Refresh on the existing
-   `crm_quotation_update` socket event.
-2. A new page, `frontend/src/pages/QuotationApprovals.vue` at route `/approvals`, with a
-   sidebar entry shown only when `get_adjustment_limits().level` ranks above BDE. It lists
-   `get_pending_approvals()` and has Approve (with an optional lower %), Reject (with
-   remarks), Forward, and Override (CEO, with a reason) buttons that post
-   `decide_adjustment`. It uses the TBO theme tokens (`bg-brand` only for the primary
-   action; status colours paired with labels).
-3. No CRM backend changes are needed: everything goes through the tbo_smart APIs above.
+1. **Deal → Quotations tab** (`QuotationsList.vue`): each quotation shows a chip per limited
+   kind (Within limit, Needs approval, Pending with BDM, Approved 8%, Rejected, Overridden
+   30%) and "Your limit: 5%" beside it, from `get_quotations_adjustment_status`. *Request
+   approval* (draft quotations only) opens a dialog with the kind, the % and a required
+   reason, and posts `request_adjustment`. *Trail* opens a side panel with the request's
+   steps from `get_adjustment_trail`. Opening a quotation still goes to the ERPNext form,
+   since creating and editing quotations in the CRM belongs to the finance plan's Phase 1.
+2. **Approvals page** at `/crm/approvals`, in the sidebar only for approvers
+   (`is_approver`) or users with open requests (`open_requests`). Tabs: *Waiting for me*
+   (`get_pending_approvals`), *I requested* (`get_adjustment_requests("mine")`) and *All*
+   (`get_adjustment_requests("all")`, Director and CEO only). Row actions post
+   `decide_adjustment`: Approve (in full or a lower %), Reject and Forward with remarks,
+   and Override (CEO, reason required).
+3. **Refresh:** both screens reload on Frappe's `list_update` event for TBO Quotation
+   Adjustment and when the window regains focus; the tab also reloads on the CRM's
+   `crm_quotation_update` event. No CRM backend change was needed, and when tbo_smart is
+   not installed the CRM hides all of it.
 
 ## 9. What management must do after deploy
 
@@ -241,8 +245,9 @@ on the fork, and the theme branch is in flight there. The follow-up:
    - choose **Limits apply to** (Discount / Commission / Both);
    - enter each level's max discount % and max commission %;
    - tick **Enforce adjustment limits**.
-4. Tell the team: above your limit, use *Adjustment → Request approval* on the quotation;
-   approvers use the **Waiting for me** list.
+4. Tell the team: above your limit, use *Request approval* on the deal's Quotations tab in
+   the CRM (or *Adjustment → Request approval* on the quotation); approvers use the CRM's
+   **Approvals** page (or the **Waiting for me** list in the desk).
 
 ## 10. Open questions for management
 
@@ -260,5 +265,8 @@ on the fork, and the theme branch is in flight there. The follow-up:
 
 ## Changelog
 
+- v1.1 (2026-10-12): APIs for the CRM screens (`get_quotations_adjustment_status`,
+  `get_adjustment_requests`, `get_adjustment_trail`, access flags on
+  `get_adjustment_limits`); §8 now describes the CRM screens.
 - v1 (2026-10-12): levels and settings, Quotation enforcement, the approval record with its
   audit trail, the APIs, the desk UI and notifications.
