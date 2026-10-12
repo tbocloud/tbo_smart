@@ -29,6 +29,7 @@ APPROVER = "rcv.approver@tbosmart.test"
 APPROVER_2 = "rcv.approver2@tbosmart.test"
 HEAD = "rcv.head@tbosmart.test"
 FINANCE_MANAGER = "rcv.fm@tbosmart.test"
+MANAGEMENT = "rcv.mgmt@tbosmart.test"
 NOTIFY = "tbo_smart.finance.reminders.enqueue_create_notification"
 
 
@@ -45,6 +46,7 @@ class ReceivablesTestCase(FrappeTestCase):
 		make_user(APPROVER_2, ["Accounts Manager", "TBO Finance Approver"])
 		make_user(HEAD, ["Sales User"])
 		make_user(FINANCE_MANAGER, ["Accounts Manager"])
+		make_user(MANAGEMENT, ["TBO Management"])
 
 	def setUp(self):
 		frappe.set_user("Administrator")
@@ -392,3 +394,32 @@ class TestReviewRules(ReceivablesTestCase):
 		exceptions_api.decide_exception(pause["name"], "approve")
 		frappe.set_user("Administrator")
 		self.assertNotIn(old.name, [row["invoice"] for row in build_digest()["final_notice"]])
+
+	def test_hidden_amounts_reopen_and_phase_switch(self):
+		deal = make_finance_deal(BDE)
+		invoice = make_deal_invoice(deal, rate=250, due_in=-3)
+		frappe.set_user(BDE)
+		exception = exceptions_api.request_exception(
+			invoice.name, "Pause request", "Holiday", pause_until=add_days(nowdate(), 3)
+		)
+		frappe.set_user("Administrator")
+		frappe.db.set_single_value("TBO Smart Settings", "finance_bde_can_see_amounts", 0)
+		frappe.set_user(BDE)
+		[row] = [row for row in exceptions_api.get_exceptions()["rows"] if row.name == exception["name"]]
+		self.assertIsNone(row.expected_amount)
+		frappe.set_user(APPROVER)
+		rows = {row.name: row for row in exceptions_api.get_exceptions()["rows"]}
+		self.assertEqual(rows[exception["name"]].expected_amount, 250)
+
+		exceptions_api.decide_exception(exception["name"], "reject", "Not now")
+		frappe.set_user(MANAGEMENT)
+		with self.assertRaises(frappe.PermissionError):
+			exceptions_api.decide_exception(exception["name"], "reopen")
+		frappe.set_user(BDE)
+		self.assertEqual(exceptions_api.decide_exception(exception["name"], "reopen")["status"], "Open")
+
+		frappe.set_user("Administrator")
+		frappe.db.set_single_value("TBO Smart Settings", "enable_finance_receivables", 0)
+		doc = frappe.get_doc("TBO Finance Exception", exception["name"])
+		self.assertFalse(frappe.has_permission("TBO Finance Exception", "read", doc=doc, user=BDE))
+		self.assertTrue(frappe.has_permission("TBO Finance Exception", "read", doc=doc, user=APPROVER))

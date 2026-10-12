@@ -29,6 +29,7 @@ AMOUNT_FIELDS = {
 	"invoices": ("grand_total", "rounded_total", "outstanding_amount", "overdue"),
 	"terms": ("payment_amount", "paid_amount", "outstanding"),
 	"payments": ("amount",),
+	"follow_ups": ("tbo_promised_amount",),
 }
 TASK_LIMIT = 20
 

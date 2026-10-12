@@ -15,7 +15,7 @@ from frappe.permissions import add_permission
 from frappe.utils import cint
 
 from tbo_smart.api.mobile.capabilities import get_sales_team
-from tbo_smart.finance import finance_enabled, get_crm_roles, get_setting
+from tbo_smart.finance import exceptions_enabled, finance_enabled, get_crm_roles, get_setting
 
 # Roles that always see amounts: managers, approvers and accounts.
 AMOUNT_ROLES = {
@@ -176,6 +176,8 @@ def exception_query_conditions(user: str | None = None) -> str:
 	owners = get_deal_owners_in_scope(user)
 	if owners is None:
 		return ""
+	if not exceptions_enabled():
+		return "1=0"
 	escaped = ", ".join(frappe.db.escape(owner) for owner in owners)
 	return (
 		f"(`tabTBO Finance Exception`.owner = {frappe.db.escape(user)} or `tabTBO Finance Exception`.crm_deal in "
@@ -185,11 +187,14 @@ def exception_query_conditions(user: str | None = None) -> str:
 
 def has_exception_permission(doc, ptype: str | None = None, user: str | None = None) -> bool:
 	"""has_permission for TBO Finance Exception: everyone in scope reads; only the finance
-	roles edit (status changes go through the API either way)."""
+	roles edit (status changes go through the API either way). Salespeople see nothing
+	while every exception-raising phase is off."""
 	user = user or frappe.session.user
 	owners = get_deal_owners_in_scope(user)
 	if owners is None:
 		return True
+	if not exceptions_enabled():
+		return False
 	if doc.owner == user or (
 		doc.crm_deal and frappe.db.get_value("CRM Deal", doc.crm_deal, "deal_owner") in owners
 	):

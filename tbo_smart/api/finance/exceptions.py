@@ -11,6 +11,7 @@ from frappe.utils import flt
 
 from tbo_smart.api.finance.receivables import get_invoice_in_scope
 from tbo_smart.finance import receivables_enabled
+from tbo_smart.finance.access import can_see_amounts
 from tbo_smart.tbo_smart.doctype.tbo_finance_exception.tbo_finance_exception import TRANSITIONS, is_approver
 
 DOCTYPE = "TBO Finance Exception"
@@ -49,6 +50,8 @@ LIST_FIELDS = [
 	"decision_remarks",
 	"creation",
 ]
+# hidden like invoice amounts when "BDE can see invoice/payment amounts" is off
+AMOUNT_FIELDS = ("expected_amount", "actual_amount", "difference")
 
 
 @frappe.whitelist(methods=["POST"])
@@ -115,7 +118,10 @@ def get_exceptions(
 		DOCTYPE, filters=filters, fields=LIST_FIELDS, order_by="creation desc", limit_page_length=500
 	)
 	approver = is_approver()
+	show_amounts = can_see_amounts()
 	for row in rows:
+		if not show_amounts:
+			hide_amounts(row)
 		row["can_decide"] = (
 			approver
 			and row.status == "Pending Approval"
@@ -138,4 +144,12 @@ def decide_exception(name: str, action: str, remarks: str | None = None) -> dict
 
 
 def serialize(doc) -> dict:
-	return {field: doc.get(field) for field in LIST_FIELDS}
+	data = {field: doc.get(field) for field in LIST_FIELDS}
+	if not can_see_amounts():
+		hide_amounts(data)
+	return data
+
+
+def hide_amounts(row: dict) -> None:
+	for field in AMOUNT_FIELDS:
+		row[field] = None
