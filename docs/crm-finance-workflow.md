@@ -1,6 +1,6 @@
-# CRM finance workflow: lead to reconciled cash (living spec, v0.5)
+# CRM finance workflow: lead to reconciled cash (living spec, v0.6)
 
-**Status:** Phases 1 to 4 built (owner approved start 2026-10-12; management sign-off and
+**Status:** Phases 1 to 5 built (owner approved start 2026-10-12; management sign-off and
 open questions pending). Every phase ships behind its own switch in TBO Smart Settings, off by
 default, so a deploy changes nothing until the owner turns it on. This file is the living
 spec: every change updates it in the same pull request, and it describes what is built, not
@@ -1293,6 +1293,53 @@ closing, On Exception, and the bank queue refused to salespeople.
 3. Accounts keep importing statements and matching in ERPNext; a second Accounts Manager or
    TBO Finance Approver verifies on the CRM's Finance exceptions → Bank lines tab.
 
+### 14.9 Phase 5: finance cards on the CRM dashboard (built)
+
+Switch: **TBO Smart Settings → Finance dashboard (Phase 5)** (`enable_finance_dashboard`),
+off by default; needs Phase 1. Module `tbo_smart/finance/dashboard.py`, registered with the
+CRM fork's `crm_dashboard_providers` (charts resolvable by name) and `crm_dashboard_layout`
+(`get_cards`: the cards for the current user, placed below the CRM's own) hooks.
+
+| Card | Who sees it | Definition (§8) |
+| --- | --- | --- |
+| Quotations | CRM users | Submitted quotations of deals, by quotation date in the range; delta against the previous period of the same length |
+| Invoiced | CRM users, with amounts | Σ base grand total of submitted invoices of CRM deals (not returns) posted in the range; delta |
+| Collected | CRM users, with amounts | Σ customer receipts of CRM deals in the range minus refunds (company currency); delta |
+| Outstanding | CRM users, with amounts | Σ outstanding on submitted invoices of CRM deals, today, in company currency |
+| Overdue | CRM users, with amounts | Σ company-currency outstanding (`base_outstanding`) on payment terms due before today |
+| Lead → deal | CRM users | Deals from a lead created in the range ÷ leads created in the range |
+| Payable to partner | Accounts, finance, management; Phase 3 on | Σ open share on allocations, the Allocations page's "pending" (money due back is not netted in) |
+| Transfers waiting | Same; Phase 3 on | Transfers Sent or Difference |
+| Bank lines to verify | Same; Phase 4 on | Reconciled lines not Verified |
+| Open exceptions | Same; any of Phases 2-4 on | Exceptions Open or Pending Approval |
+
+- **A BDE sees only their own deals' sales figures:** the CRM dashboard passes a plain Sales
+  User's own user, and every sales card then counts only deals they own. A manager can pick a
+  user in the dashboard's filter; leaving it blank shows everyone.
+- Amount cards follow "BDE can see invoice/payment amounts" (Q17), also when called
+  directly through the CRM's `get_chart`. Every card is None while Phase 5 is off.
+- Amounts are in the invoicing company's currency (that company only), or the CRM default
+  company's when no invoicing company is set. The finance counts (transfers, bank lines,
+  exceptions) are for that company too. Sales cards count only documents linked to a CRM
+  deal, also in the everyone view (blank user).
+- **Deviation:** the plan wanted client, employee and entity filters on every metric. The
+  CRM dashboard only filters by date range and user, so the cards use those; the Receivables
+  and BDE conversion pages carry the client and company filters. The Allocation, Transfer and
+  Reconciliation reports of §8 are the Allocations page and the Bank lines tab; the separate
+  Script Reports and the Audit Log report are not built (follow-ups).
+- The fork also lets users the `crm_app_permission` hook admits (the finance roles) open the
+  dashboard.
+
+**Tests** - `tbo_smart/tests/test_finance_dashboard.py`: a BDE's cards count only their
+deals (invoiced, collected, outstanding, overdue) and carry no finance cards; Accounts get
+the finance cards; hidden amounts and the switch. The fork tests the hooks in
+`crm/tests/test_dashboard_providers.py`.
+
+### 14.10 What the owner switches on after deploying Phase 5
+
+1. Tick **Finance dashboard (Phase 5)**. The cards appear on `/crm/dashboard` for each user by
+   role; nothing needs to be added to the saved layout.
+
 ---
 
 ## Changelog
@@ -1304,3 +1351,4 @@ closing, On Exception, and the bank queue refused to salespeople.
 | 0.3 | 2026-10-12 | Phase 2 built: receivables, reminders, escalation, exceptions (Receivable) and digest (§14.3); §3.2 and §12 updated with the defaults chosen. |
 | 0.4 | 2026-10-12 | Phase 3 built: fund allocation per receipt and transfers, memo only (§14.5); §3.2 and §12 updated. |
 | 0.5 | 2026-10-13 | Phase 4 built: bank-line duplicate, mismatch and ageing checks, maker-checker verification and lock, second approver, Settling / Reconciled / On Exception stages and closure (§14.7). |
+| 0.6 | 2026-10-13 | Phase 5 built: finance cards on the CRM dashboard by role (§14.9). |

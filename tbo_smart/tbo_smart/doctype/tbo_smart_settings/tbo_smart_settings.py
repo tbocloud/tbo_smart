@@ -30,6 +30,7 @@ class TBOSmartSettings(Document):
 		default_vat_rate: DF.Percent
 		enable_fund_allocation: DF.Check
 		enable_reconciliation: DF.Check
+		enable_finance_dashboard: DF.Check
 		enable_finance_receivables: DF.Check
 		enable_finance_workflow: DF.Check
 		escalation_finance_manager: DF.Link | None

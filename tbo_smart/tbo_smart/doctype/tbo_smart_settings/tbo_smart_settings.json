@@ -44,7 +44,9 @@
   "enable_reconciliation",
   "unmatched_alert_days",
   "column_break_reconciliation",
-  "second_approval_amount"
+  "second_approval_amount",
+  "dashboard_section",
+  "enable_finance_dashboard"
  ],
  "fields": [
   {
@@ -330,12 +332,25 @@
    "fieldtype": "Currency",
    "label": "Second approval above",
    "description": "Open question Q5. Exceptions above this amount need a second, different approver. Blank: one approver is enough."
+  },
+  {
+   "fieldname": "dashboard_section",
+   "fieldtype": "Section Break",
+   "label": "Finance dashboard (Phase 5)",
+   "depends_on": "eval:doc.enable_finance_workflow"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_finance_dashboard",
+   "fieldtype": "Check",
+   "label": "Finance dashboard (Phase 5)",
+   "description": "Adds finance cards to the CRM dashboard by role: quotations, invoiced, collected, outstanding, overdue and lead-to-deal for CRM users (their own deals for a salesperson); payable to India, transfers waiting, bank lines to verify and open exceptions for accounts, finance and management. Needs Phase 1 on."
   }
  ],
  "index_web_pages_for_search": 0,
  "issingle": 1,
  "links": [],
- "modified": "2026-10-13 00:30:00.000000",
+ "modified": "2026-10-13 01:30:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Smart Settings",

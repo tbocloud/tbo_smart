@@ -515,18 +515,27 @@ class TestWithoutCrm(FrappeTestCase):
 	def test_finance_off_without_crm(self):
 		from tbo_smart.finance import (
 			allocation_enabled,
+			dashboard_enabled,
 			exceptions_enabled,
 			finance_enabled,
 			reconciliation_enabled,
 		)
+		from tbo_smart.finance.dashboard import get_cards
 
 		frappe.db.set_single_value(
 			"TBO Smart Settings",
-			{"enable_finance_workflow": 1, "enable_fund_allocation": 1, "enable_reconciliation": 1},
+			{
+				"enable_finance_workflow": 1,
+				"enable_fund_allocation": 1,
+				"enable_reconciliation": 1,
+				"enable_finance_dashboard": 1,
+			},
 		)
 		with patch("frappe.get_installed_apps", return_value=["frappe", "erpnext", "tbo_smart"]):
 			self.assertFalse(finance_enabled())
 			self.assertFalse(allocation_enabled())
 			self.assertFalse(reconciliation_enabled())
+			self.assertFalse(dashboard_enabled())
+			self.assertEqual(get_cards(nowdate(), nowdate()), [])
 			self.assertFalse(exceptions_enabled())
 		frappe.db.rollback()
