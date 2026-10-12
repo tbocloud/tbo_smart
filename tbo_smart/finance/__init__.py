@@ -24,6 +24,12 @@ def receivables_enabled() -> bool:
 	)
 
 
+def exceptions_enabled() -> bool:
+	"""Whether any phase that raises TBO Finance Exceptions is on; the doctype's permission
+	hooks give salespeople nothing while none is."""
+	return receivables_enabled()
+
+
 def get_setting(fieldname: str):
 	return frappe.db.get_single_value(SETTINGS, fieldname)
 
