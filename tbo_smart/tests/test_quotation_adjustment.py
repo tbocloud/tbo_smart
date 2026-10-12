@@ -425,6 +425,22 @@ class TestQuotationAdjustment(FrappeTestCase):
 		with self.assertRaises(frappe.ValidationError):
 			api.get_quotations_adjustment_status("not a list")
 
+		# another BDE may read the quotation, but not the request behind it
+		frappe.set_user(OTHER_BDE)
+		latest = api.get_quotations_adjustment_status([pending.name])[pending.name]["kinds"][0]["latest"]
+		self.assertEqual(
+			(latest["status"], latest["current_level"], latest["name"]), ("Pending", "BDM", None)
+		)
+		self.assertNotIn("reason", latest)
+		self.assertNotIn("requested_by", latest)
+		frappe.set_user(BDM)
+		self.assertEqual(
+			api.get_quotations_adjustment_status([pending.name])[pending.name]["kinds"][0]["latest"][
+				"reason"
+			],
+			"Volume",
+		)
+
 	def test_my_requests_all_requests_and_the_trail(self):
 		frappe.set_user(BDE)
 		mine = make_quotation(discount=12)

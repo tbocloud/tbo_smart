@@ -11,12 +11,17 @@ from frappe.utils import cint, flt
 
 from tbo_smart.api.mobile.utils import get_full_names
 from tbo_smart.quotation_control import (
+	COMMISSION_FIELD,
+	covers,
 	get_covering,
 	get_list_value,
 	get_percent,
 	new_adjustment,
 )
-from tbo_smart.tbo_smart.doctype.tbo_quotation_adjustment.tbo_quotation_adjustment import OPEN_STATUSES
+from tbo_smart.tbo_smart.doctype.tbo_quotation_adjustment.tbo_quotation_adjustment import (
+	GRANTED_STATUSES,
+	OPEN_STATUSES,
+)
 from tbo_smart.tbo_smart.doctype.tbo_quotation_approval_settings.tbo_quotation_approval_settings import (
 	format_limit,
 	get_settings,
@@ -25,6 +30,15 @@ from tbo_smart.tbo_smart.doctype.tbo_quotation_approval_settings.tbo_quotation_a
 PENDING_LIMIT = 200
 STATUS_BATCH_LIMIT = 100
 REQUEST_SCOPES = ("mine", "all")
+REDACTED_LATEST_FIELDS = (
+	"kind",
+	"status",
+	"voided",
+	"within_limit",
+	"requested_percent",
+	"approved_percent",
+	"current_level",
+)
 LIST_FIELDS = [
 	"name",
 	"quotation",
@@ -84,63 +98,125 @@ def get_adjustment_limits() -> dict:
 def get_quotation_adjustment_status(quotation: str) -> dict:
 	"""For each limited kind on a quotation: its percentage, my limit, whether it is covered and
 	the newest adjustment (request or decision)."""
-	doc = frappe.get_doc("Quotation", quotation)
-	doc.check_permission("read")
-	settings = get_settings()
-	return build_quotation_status(doc, settings, settings.get_user_level())
+	frappe.get_doc("Quotation", quotation).check_permission("read")
+	return collect_statuses([quotation])[quotation]
 
 
 @frappe.whitelist()
 def get_quotations_adjustment_status(quotations: list[str] | str) -> dict:
 	"""get_quotation_adjustment_status for several quotations at once (a CRM deal's Quotations
-	tab), keyed by quotation. Quotations I cannot read are left out."""
-	names = frappe.parse_json(quotations) if isinstance(quotations, str) else quotations
+	tab), keyed by quotation. Quotations I cannot read, or that do not exist, are left out."""
+	names = quotations
+	if isinstance(quotations, str):
+		try:
+			names = frappe.parse_json(quotations)
+		except ValueError:
+			names = None
 	if not isinstance(names, list) or not all(isinstance(name, str) for name in names):
 		frappe.throw(_("quotations must be a list of Quotation names."))
 	if len(names) > STATUS_BATCH_LIMIT:
 		frappe.throw(_("Ask for at most {0} quotations at a time.").format(STATUS_BATCH_LIMIT))
+	if not names:
+		return {}
+	# get_list applies Quotation permissions, so unreadable names drop out here
+	readable = frappe.get_list("Quotation", filters={"name": ("in", list(set(names)))}, pluck="name")
+	return collect_statuses(readable)
+
+
+def collect_statuses(names: list[str]) -> dict:
+	"""Adjustment status for quotations the caller may read, in a fixed number of queries: the
+	quotations, their items, and their adjustments."""
 	settings = get_settings()
 	level = settings.get_user_level()
+	kinds = settings.controlled_kinds()
+	docs = load_quotations(names)
+	adjustments = (
+		frappe.get_all(
+			"TBO Quotation Adjustment",
+			filters={"quotation": ("in", list(docs)), "kind": ("in", kinds)},
+			fields=LIST_FIELDS,
+			order_by="creation desc",
+		)
+		if kinds and docs
+		else []
+	)
+	latest = {}
+	granted = {}
+	for row in adjustments:
+		key = (row.quotation, row.kind)
+		latest.setdefault(key, row)
+		if row.status in GRANTED_STATUSES and not cint(row.voided):
+			granted.setdefault(key, []).append(row)
+	readable = set(
+		frappe.get_list(
+			"TBO Quotation Adjustment",
+			filters={"name": ("in", [row.name for row in latest.values()])},
+			pluck="name",
+		)
+		if latest
+		else []
+	)
+
 	statuses = {}
-	for name in dict.fromkeys(names):
-		if not frappe.db.exists("Quotation", name):
-			continue
-		doc = frappe.get_doc("Quotation", name)
-		if doc.has_permission("read"):
-			statuses[name] = build_quotation_status(doc, settings, level)
+	for name, doc in docs.items():
+		value = get_list_value(doc)
+		rows = []
+		for kind in kinds:
+			percent = get_percent(doc, kind)
+			limit = settings.get_limit(level, kind)
+			newest = latest.get((name, kind))
+			rows.append(
+				{
+					"kind": kind,
+					"percent": percent,
+					"limit": limit,
+					"limit_label": format_limit(limit),
+					"within_limit": settings.is_within(limit, percent),
+					"approved": percent <= 0
+					or any(covers(row, percent, value) for row in granted.get((name, kind), [])),
+					"latest": serialize_latest(newest, newest.name in readable) if newest else None,
+				}
+			)
+		statuses[name] = {
+			"quotation": name,
+			"docstatus": cint(doc.docstatus),
+			"level": serialize_level(level),
+			"kinds": rows,
+		}
 	return statuses
 
 
-def build_quotation_status(doc, settings, level) -> dict:
-	value = get_list_value(doc)
-	kinds = []
-	for kind in settings.controlled_kinds():
-		percent = get_percent(doc, kind)
-		limit = settings.get_limit(level, kind)
-		latest = frappe.get_all(
-			"TBO Quotation Adjustment",
-			filters={"quotation": doc.name, "kind": kind},
-			fields=LIST_FIELDS,
-			order_by="creation desc",
-			limit_page_length=1,
+def load_quotations(names: list[str]) -> dict:
+	"""Quotations with just what the discount and commission maths need, items included."""
+	if not names:
+		return {}
+	docs = {
+		row.name: row
+		for row in frappe.get_all(
+			"Quotation",
+			filters={"name": ("in", names)},
+			fields=["name", "docstatus", "net_total", COMMISSION_FIELD],
 		)
-		kinds.append(
-			{
-				"kind": kind,
-				"percent": percent,
-				"limit": limit,
-				"limit_label": format_limit(limit),
-				"within_limit": settings.is_within(limit, percent),
-				"approved": percent <= 0 or bool(get_covering(doc.name, kind, percent, value)),
-				"latest": serialize_adjustment(latest[0]) if latest else None,
-			}
-		)
-	return {
-		"quotation": doc.name,
-		"docstatus": doc.docstatus,
-		"level": serialize_level(level),
-		"kinds": kinds,
 	}
+	for doc in docs.values():
+		doc["items"] = []
+	for item in frappe.get_all(
+		"Quotation Item",
+		filters={"parent": ("in", list(docs)), "parenttype": "Quotation"},
+		fields=["parent", "qty", "price_list_rate", "rate_with_margin", "rate", "is_alternative"],
+		order_by="idx",
+	):
+		docs[item.parent]["items"].append(item)
+	return docs
+
+
+def serialize_latest(row, readable: bool) -> dict:
+	"""The newest adjustment for a quotation and kind. Without read access to it (a BDE looking
+	at another BDE's request) only its state is shared, not who asked, why, or its name."""
+	data = serialize_adjustment(row)
+	if readable:
+		return data
+	return {field: data[field] for field in REDACTED_LATEST_FIELDS} | {"name": None}
 
 
 @frappe.whitelist(methods=["POST"])
