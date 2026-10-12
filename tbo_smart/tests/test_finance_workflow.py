@@ -2,6 +2,7 @@ from unittest.mock import patch
 
 import erpnext
 import frappe
+from frappe.permissions import add_permission
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, nowdate
 
@@ -435,6 +436,21 @@ class TestFinanceTabAccess(FinanceTestCase):
 		settings.finance_crm_access = 0
 		settings.save(ignore_permissions=True)
 		self.assertFalse(frappe.db.exists("Custom DocPerm", row))
+		# an existing row without read is widened, then put back
+		add_permission("CRM Organization", "Accounts User", 0, "write")
+		row_name = frappe.db.get_value(
+			"Custom DocPerm", {"parent": "CRM Organization", "role": "Accounts User"}
+		)
+		frappe.db.set_value("Custom DocPerm", row_name, {"read": 0, "if_owner": 1})
+		settings.reload()
+		settings.finance_crm_access = 1
+		settings.save(ignore_permissions=True)
+		self.assertEqual(frappe.db.get_value("Custom DocPerm", row_name, ["read", "if_owner"]), (1, 0))
+		settings.reload()
+		settings.finance_crm_access = 0
+		settings.save(ignore_permissions=True)
+		self.assertEqual(frappe.db.get_value("Custom DocPerm", row_name, ["read", "if_owner"]), (0, 1))
+		frappe.db.delete("Custom DocPerm", {"name": row_name})
 		settings.finance_crm_roles = "No Such Role"
 		with self.assertRaises(frappe.ValidationError):
 			settings.save(ignore_permissions=True)

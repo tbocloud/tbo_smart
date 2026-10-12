@@ -975,9 +975,10 @@ sales hierarchy for a user, doctype and permission type). tbo_smart registers
 `finance_crm_roles` while the workflow and `finance_crm_access` are on, and the second only
 for CRM Deal reads. Saving TBO Smart Settings with access on adds a read Custom DocPerm on CRM
 Deal and CRM Organization for each of those roles (which also opens the FCRM module to them)
-and remembers which rows it added (hidden field `finance_crm_granted`). Turning access off,
-or taking a role off the list, deletes exactly those rows; rows that existed before are
-never touched. Deploy the CRM
+and remembers what it did (hidden field `finance_crm_granted`): rows it added, and existing
+rows it widened (a row with no read, or read only if owner, gets full read; its original
+values are kept). Turning access off, or taking a role off the list, deletes the added rows
+and puts widened rows back. A pre-existing row that already gives full read is never touched. Deploy the CRM
 fork first: without its hooks, Accounts still read the Finance tab data through the API, but
 cannot open `/crm`.
 
