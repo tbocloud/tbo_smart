@@ -1,0 +1,73 @@
+{
+ "istable": 1,
+ "editable_grid": 1,
+ "permissions": [],
+ "fields": [
+  {
+   "fieldname": "fund_allocation",
+   "fieldtype": "Link",
+   "label": "Allocation",
+   "options": "TBO Fund Allocation",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "payment_entry",
+   "fieldtype": "Data",
+   "label": "Receipt",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "Customer",
+   "options": "Customer",
+   "read_only": 1
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency",
+   "hidden": 1
+  },
+  {
+   "fieldname": "allocation_outstanding",
+   "fieldtype": "Currency",
+   "label": "Outstanding before",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "allocated_amount",
+   "fieldtype": "Currency",
+   "label": "Settled by this transfer",
+   "options": "currency",
+   "in_list_view": 1,
+   "reqd": 1
+  }
+ ],
+ "actions": [],
+ "creation": "2026-10-12 22:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-10-12 22:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tbo Smart",
+ "name": "TBO Fund Transfer Allocation",
+ "owner": "Administrator",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "field_order": [
+  "fund_allocation",
+  "payment_entry",
+  "customer",
+  "currency",
+  "allocation_outstanding",
+  "allocated_amount"
+ ]
+}

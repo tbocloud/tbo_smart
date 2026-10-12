@@ -28,6 +28,16 @@ AMOUNT_ROLES = {
 	"Director",
 	"CEO",
 }
+# Phase 3: India's share is for accounts, finance and management only (risk R7).
+ALLOCATION_ROLES = {
+	"System Manager",
+	"Accounts User",
+	"Accounts Manager",
+	"TBO Finance Approver",
+	"TBO Management",
+	"Director",
+	"CEO",
+}
 # Phase 1 closes a deal's finance with these roles; Phase 4 adds TBO Finance Approver.
 CLOSE_ROLES = {"Accounts Manager", "System Manager"}
 # The finance roles only ever read deals through the fork's bypass.

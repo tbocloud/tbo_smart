@@ -24,10 +24,15 @@ def receivables_enabled() -> bool:
 	)
 
 
+def allocation_enabled() -> bool:
+	"""Phase 3 switch (Allocation and transfers); needs Phase 1 on too."""
+	return finance_enabled() and bool(cint(frappe.db.get_single_value(SETTINGS, "enable_fund_allocation")))
+
+
 def exceptions_enabled() -> bool:
 	"""Whether any phase that raises TBO Finance Exceptions is on; the doctype's permission
 	hooks give salespeople nothing while none is."""
-	return receivables_enabled()
+	return receivables_enabled() or allocation_enabled()
 
 
 def get_setting(fieldname: str):
