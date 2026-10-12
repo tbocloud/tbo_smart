@@ -119,7 +119,9 @@ def get_quotations_adjustment_status(quotations: list[str] | str) -> dict:
 	if not names:
 		return {}
 	# get_list applies Quotation permissions, so unreadable names drop out here
-	readable = frappe.get_list("Quotation", filters={"name": ("in", list(set(names)))}, pluck="name")
+	readable = frappe.get_list(
+		"Quotation", filters={"name": ("in", list(set(names)))}, pluck="name", limit_page_length=0
+	)
 	return collect_statuses(readable)
 
 
@@ -152,6 +154,7 @@ def collect_statuses(names: list[str]) -> dict:
 			"TBO Quotation Adjustment",
 			filters={"name": ("in", [row.name for row in latest.values()])},
 			pluck="name",
+			limit_page_length=0,
 		)
 		if latest
 		else []
