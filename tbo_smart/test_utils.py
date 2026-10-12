@@ -787,6 +787,7 @@ def reset_finance_settings() -> None:
 			"invoicing_company": None,
 			"enable_fund_allocation": 0,
 			"enable_reconciliation": 0,
+			"enable_finance_dashboard": 0,
 			"second_approval_amount": 0,
 			"partner_company": None,
 			"accounts_lead": None,

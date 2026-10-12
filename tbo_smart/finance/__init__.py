@@ -47,6 +47,11 @@ def exceptions_enabled() -> bool:
 	return receivables_enabled() or allocation_enabled() or reconciliation_enabled()
 
 
+def dashboard_enabled() -> bool:
+	"""Phase 5 switch (Finance dashboard); needs Phase 1 on too."""
+	return finance_enabled() and bool(cint(frappe.db.get_single_value(SETTINGS, "enable_finance_dashboard")))
+
+
 def get_setting(fieldname: str):
 	return frappe.db.get_single_value(SETTINGS, fieldname)
 
