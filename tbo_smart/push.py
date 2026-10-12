@@ -107,6 +107,7 @@ def route_for(user: str, doctype: str | None, name: str | None) -> str:
 		"CRM Lead": f"/crm/lead/{name}",
 		"CRM Deal": f"/crm/deal/{name}",
 		"CRM Organization": f"/crm/org/{name}",
+		"TBO Quotation Adjustment": f"/quotations/{name}",
 	}
 	return routes.get(doctype, "/alerts") if name else "/alerts"
 

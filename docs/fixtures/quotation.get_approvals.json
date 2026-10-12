@@ -1,0 +1,29 @@
+{
+  "message": [
+    {
+      "name": "QADJ-2026-00012",
+      "quotation": "SAL-QTN-2026-00041",
+      "customer": "Al Noor Trading LLC",
+      "deal": "CRM-DEAL-2026-00018",
+      "kind": "Discount",
+      "status": "Pending",
+      "voided": false,
+      "within_limit": false,
+      "previous_percent": 0.0,
+      "requested_percent": 12.0,
+      "approved_percent": 0.0,
+      "quotation_value": 480000.0,
+      "requested_by": "rahul@tboindia.com",
+      "approved_by": null,
+      "current_level": "BDM",
+      "current_rank": 20,
+      "reason": "Three-year AMC; the customer has a competing quote at 11%.",
+      "remarks": null,
+      "creation": "2026-10-12 09:14:05.123456",
+      "modified": "2026-10-12 09:14:05.123456",
+      "requested_by_name": "Rahul Nair",
+      "currency": "INR",
+      "can_approve_in_full": false
+    }
+  ]
+}

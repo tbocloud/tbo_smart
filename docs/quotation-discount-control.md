@@ -234,6 +234,12 @@ open `/app` for this.
    `crm_quotation_update` event. No CRM backend change was needed, and when tbo_smart is
    not installed the CRM hides all of it.
 
+**In the TBO Smart app:** the same decisions on the phone for BDM, Sales & Marketing Head,
+Director and CEO (capability `approve_quotations`), through the thin wrappers in
+`tbo_smart/api/mobile/quotation.py` (contract `docs/tbo-smart-api-ess-crm.md` §5.2): *Waiting
+for me* and *I requested*, approve in full or a lower %, reject, forward, CEO override with a
+reason, and the trail. A notification about a request opens it in the app.
+
 ## 9. What management must do after deploy
 
 1. `bench --site tboindia.tbocloud.in migrate`, which runs

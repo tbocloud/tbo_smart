@@ -15,6 +15,7 @@
       "mine",
       "all"
     ],
-    "sales_insights": true
+    "sales_insights": true,
+    "approve_quotations": true
   }
 }

@@ -1,13 +1,13 @@
-# TBO Smart API: ESS, CRM and manager (tboindia side), v1.3
+# TBO Smart API: ESS, CRM and manager (tboindia side), v1.4
 
 This is the contract for the TBO Smart mobile app's **tboindia.tbocloud.in** half: HR
 self-service (HRMS), CRM (Frappe CRM) and the manager views. The hub (TBO Support) has its
 own contract in `tbocloud/helpdesk`.
 
-- **Code:** `tbo_smart/api/mobile/{auth,capabilities,ess,crm,manager,device}.py` and `tbo_smart/push.py`.
+- **Code:** `tbo_smart/api/mobile/{auth,capabilities,ess,crm,manager,quotation,device}.py` and `tbo_smart/push.py`.
 - **Fixtures:** `docs/fixtures/<module>.<method>.json`. Each one is the full HTTP body that
   Frappe returns (`{"message": ...}`).
-- **Status:** v1.3, 2026-10-11. Any change gets a version note in the changelog at the end of
+- **Status:** v1.4, 2026-10-12. Any change gets a version note in the changelog at the end of
   this file.
 
 ## 1. Conventions
@@ -351,6 +351,7 @@ ERP takes effect on the next request.
 | `crm_scope` | The widest CRM visibility, the rule in `crm.permissions.org_hierarchy`: `all` for System Manager; with **FCRM Settings → Sales hierarchy** on and the user in it, `team` if anyone is below them, else `own` (this limits even a Sales Manager); a Sales Manager outside the hierarchy `all`; everyone else `own`. `null` without `crm`. | `crm.get_leads`, `get_deals`, `get_my_follow_ups`, `get_sales_insights` |
 | `crm_scopes` | The `scope` values the user may pass, narrowest first: `own` → `["mine"]`; `team` → `["mine", "team"]`; `all` → `["mine", "team", "all"]`, without `team` when they have no sales team. Show a switcher only when there is more than one. | same |
 | `sales_insights` | `crm_manager`. | `crm.get_sales_insights`, `manager.get_sales_snapshot` |
+| `approve_quotations` | A quotation approval level that requests can wait at: the user's highest level role ranks above the lowest level (BDM, Sales & Marketing Head, Director, CEO with the default levels; never a BDE or someone with no level). The same rule as `is_approver` in `get_adjustment_limits` ([quotation-discount-control.md](quotation-discount-control.md) §2). | `quotation.get_approvals(tab="waiting")`, `quotation.decide` |
 
 ### 4.1 CRM scope
 
@@ -446,6 +447,38 @@ Read-only aggregates for **management by insight, not surveillance**. Fixture:
   per-day record of a person.
 - Computed with a fixed set of grouped queries (no per-person queries), and cached for **5 minutes** per
   (user, day, period, team scope); `generated_at` says when.
+
+### 5.2 Quotation approvals: `tbo_smart.api.mobile.quotation`
+
+Thin wrappers over `tbo_smart.api.quotation_adjustment` (the functions the CRM's Approvals
+page calls), so the app and the CRM never disagree. The rules, levels and statuses are in
+[quotation-discount-control.md](quotation-discount-control.md).
+
+| Method | Verb | Params | Returns | Who may call |
+| --- | --- | --- | --- | --- |
+| `get_limits` | GET | – | `get_adjustment_limits()` unchanged: `{enabled, applies_to, kinds, level, limits, limit_labels, is_approver, can_view_all, can_override, can_forward, open_requests}` | anyone |
+| `get_approvals` | GET | `tab` (`waiting` default, `mine`) | bare array (at most 200) of requests: `waiting` = `get_pending_approvals()` (open requests waiting for me, oldest first, with `can_approve_in_full`); `mine` = `get_adjustment_requests("mine")` (mine, newest first) | `waiting`: `approve_quotations`; `mine`: anyone (only their own) |
+| `get_trail` | GET | `name` | the request (`get_adjustment_trail`) with `steps`, `currency` and `actions` | anyone who may read the request (a BDE only their own) |
+| `decide` | POST | `name`, `action` (`approve`, `reject`, `forward`, `override`), `percent?` (approve or override; default the requested %), `remarks?` (required to reject and override) | as `get_trail`, after the decision | `approve_quotations`, then `decide_adjustment`'s own checks (the level it waits for, the limit, never the requester) |
+
+- A request: `name`, `quotation`, `customer`, `deal` (CRM Deal or null), `kind` (Discount,
+  Commission), `status` (Pending, Escalated, Approved, Rejected, Overridden), `voided`,
+  `within_limit`, `previous_percent`, `requested_percent`, `approved_percent`,
+  `quotation_value` (list value), `currency`, `requested_by`, `requested_by_name`,
+  `approved_by`, `current_level`, `current_rank`, `reason`, `remarks`, `creation`, `modified`.
+- A step: `{action (Requested, Applied, Approved, Rejected, Forwarded, Overridden, Voided),
+  by_user, by_name, level, percent, at, remarks}`.
+- **`actions`** say what the caller may do now, worked out with the same checks
+  `decide_adjustment` makes (`check_can_decide`, the limit, the next level), so the app shows
+  only buttons the server accepts: `{approve, approve_max (the highest % I may approve: the
+  requested % or my limit, whichever is lower; null when I can't approve), reject, forward,
+  forward_to (the next level's name), override}`.
+- Fixtures: `quotation.get_approvals.json`, `quotation.get_trail.json`.
+- Push: every request, forward and decision is a Notification Log on `TBO Quotation
+  Adjustment`, so it reaches the phone with the route `/quotations/<name>` (§7).
+- Tests: `tbo_smart/tests/test_mobile_quotation.py` (the flag per level, `waiting` refused
+  to a BDE, `mine` lists my own, the actions per level and limit, decide returns the trail,
+  CEO override needs a reason, the push route).
 
 ## 6. CRM: `tbo_smart.api.mobile.crm`
 
@@ -652,6 +685,7 @@ Read-only aggregates for the scope. Fixture: `crm.get_sales_insights.json`.
 | CRM Lead | `/crm/lead/<name>` |
 | CRM Deal | `/crm/deal/<name>` |
 | CRM Organization | `/crm/org/<name>` |
+| TBO Quotation Adjustment (requests, forwards and decisions) | `/quotations/<name>` |
 | Anything else | `/alerts` |
 
 ## 8. Roles and permissions to check on tboindia before launch
@@ -739,7 +773,7 @@ Read-only aggregates for the scope. Fixture: `crm.get_sales_insights.json`.
 
 ## 10. Tests
 
-The tests are in `tbo_smart/tests/test_mobile_{ess,crm,lead_capture,manager,push,sso}.py`, with helpers in
+The tests are in `tbo_smart/tests/test_mobile_{ess,crm,lead_capture,manager,quotation,push,sso}.py`, with helpers in
 `tbo_smart/test_utils.py`. They cover:
 
 - **ESS:** own-only data and server-time check-in.
@@ -792,3 +826,7 @@ those apps on Frappe version-15.
   `crm.get_assignable_users`. `crm.create_lead` adds `follow_up_on`, `follow_up_note`,
   `assign_to`, `source_channel`, `card_image` and `force`, and refuses likely duplicates with
   HTTP 409 `DuplicateLead` unless forced. `get_options` already had `lead_sources`.
+- **v1.4 (2026-10-12):** quotation approvals in the app (§5.2). New
+  `tbo_smart.api.mobile.quotation` (`get_limits`, `get_approvals`, `get_trail`, `decide`)
+  over `tbo_smart.api.quotation_adjustment`, with `actions` on the trail. New capability
+  `approve_quotations` (§4). Push routes `TBO Quotation Adjustment` to `/quotations/<name>`.

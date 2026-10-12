@@ -30,7 +30,8 @@
       "crm_scopes": [
         "mine"
       ],
-      "sales_insights": false
+      "sales_insights": false,
+      "approve_quotations": false
     }
   }
 }
