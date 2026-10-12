@@ -10,7 +10,14 @@
   "microsoft_tenant_id",
   "column_break_sso",
   "microsoft_mobile_client_id",
-  "oauth_client"
+  "oauth_client",
+  "finance_section",
+  "enable_finance_workflow",
+  "finance_bde_can_see_amounts",
+  "column_break_finance",
+  "finance_crm_access",
+  "finance_crm_roles",
+  "finance_crm_granted"
  ],
  "fields": [
   {
@@ -57,12 +64,62 @@
    "label": "OAuth Client",
    "options": "OAuth Client",
    "mandatory_depends_on": "eval:doc.enable_microsoft_sso"
+  },
+  {
+   "fieldname": "finance_section",
+   "fieldtype": "Section Break",
+   "label": "Finance workflow",
+   "description": "CRM finance workflow, docs/crm-finance-workflow.md. Each phase has its own switch and is off until management turns it on."
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_finance_workflow",
+   "fieldtype": "Check",
+   "label": "Finance workflow (Phase 1)",
+   "description": "Deal links on sales orders, invoices and payments, the deal's post-sale stage, the CRM Finance tab, the New quotation dialog, the pending-approval guard and the BDE conversion report. Custom fields exist either way."
+  },
+  {
+   "default": "1",
+   "depends_on": "eval:doc.enable_finance_workflow",
+   "fieldname": "finance_bde_can_see_amounts",
+   "fieldtype": "Check",
+   "label": "BDE can see invoice/payment amounts",
+   "description": "Open question Q17. When off, salespeople without a manager or accounts role see invoices and payments on their own deals without amounts."
+  },
+  {
+   "fieldname": "column_break_finance",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "depends_on": "eval:doc.enable_finance_workflow",
+   "fieldname": "finance_crm_access",
+   "fieldtype": "Check",
+   "label": "Let finance roles open the CRM",
+   "description": "Users with one of the roles below can open the CRM and read every deal (read only), so Accounts can use the Finance tab."
+  },
+  {
+   "default": "Accounts User\nAccounts Manager",
+   "depends_on": "eval:doc.enable_finance_workflow && doc.finance_crm_access",
+   "fieldname": "finance_crm_roles",
+   "fieldtype": "Small Text",
+   "label": "Finance roles in the CRM",
+   "description": "One role per line."
+  },
+  {
+   "fieldname": "finance_crm_granted",
+   "fieldtype": "Small Text",
+   "label": "CRM read rows added",
+   "hidden": 1,
+   "read_only": 1,
+   "no_copy": 1,
+   "description": "Custom DocPerm rows this setting added, so turning it off removes exactly those."
   }
  ],
  "index_web_pages_for_search": 0,
  "issingle": 1,
  "links": [],
- "modified": "2026-10-11 10:00:00.000000",
+ "modified": "2026-10-12 18:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Smart Settings",

@@ -1,8 +1,11 @@
-# CRM finance workflow: lead to reconciled cash (plan, v0.1)
+# CRM finance workflow: lead to reconciled cash (living spec, v0.2)
 
-**Status:** Plan for management approval. Nothing here is built yet. Implementation starts
-only after approval. Once work starts, this file becomes the living spec: every change updates
-it in the same pull request, and it describes what is built, not what was first planned.
+**Status:** Phase 1 built (owner approved start 2026-10-12; management sign-off and open
+questions pending). Every phase ships behind its own switch in TBO Smart Settings, off by
+default, so a deploy changes nothing until the owner turns it on. This file is the living
+spec: every change updates it in the same pull request, and it describes what is built, not
+what was first planned. §14 lists what each phase actually built, with its decisions and
+deviations from the plan.
 
 - **Owner:** Head of IT (TBO). **Approvers:** Management, Finance Manager.
 - **Date:** 2026-10-12.
@@ -161,10 +164,11 @@ every site gets the same fields. Every new doctype has `track_changes = 1`.
 | CRM Deal | `tbo_company` | Link Company | Invoicing entity. Defaults to `ERPNext CRM Settings.erpnext_company`. Used for quotations (G2). |
 | CRM Deal | `tbo_stage` | Select (§2) | Post-sale stage, read-only, computed. |
 | CRM Deal | `tbo_accounts_owner` | Link User | Accounts person who owns collection; used for Accounts-wise performance. |
-| CRM Deal | `tbo_onboarding_complete` | Check | Set by BDE/Accounts when the checklist is done; logged. |
-| CRM Deal | `tbo_project` | Link Project | Optional; filled from SO `project` when one exists. |
+| CRM Deal | `tbo_onboarding_complete` | Check, read-only | Set by BDE/Accounts through the Finance tab (API); logged. |
+| CRM Deal | `tbo_closed` | Check, read-only | **Built in Phase 1 (not in the v0.1 plan).** "Closed" is a person's decision, so it needs its own flag; the stage is Closed while it is set. |
+| CRM Deal | `tbo_project` | Link Project | Optional; filled from SO `project` when one exists. **Not built yet** (V13 unverified). |
 | Sales Order | `crm_deal` | Link CRM Deal, read-only | Set in `validate` from the item's quotation (G1). |
-| Sales Invoice | `crm_deal` | Link CRM Deal | Set in `validate` from SO or quotation. Required for `tbo_company` invoices from `allocation_start_date`, unless `tbo_no_deal_reason` is filled. |
+| Sales Invoice | `crm_deal` | Link CRM Deal | Set in `validate` from SO or quotation. Required for `tbo_company` invoices from `allocation_start_date`, unless `tbo_no_deal_reason` is filled (**Phase 3**; Phase 1 only fills it). |
 | Sales Invoice | `tbo_no_deal_reason` | Small Text | Why an invoice has no deal (for example, a legacy contract). |
 | Sales Order, Sales Invoice | `validate` guard (no field) | – | Refuses to save when a source Quotation still has a pending discount/commission approval, read from the separate feature's state. If that feature already enforces this, the plan reuses its check instead of adding a second one. |
 | Payment Entry | `crm_deal` | Link CRM Deal, read-only | Set from references. If the references belong to different deals it is left blank and the allocation lines carry the deal per row. |
@@ -182,15 +186,28 @@ every site gets the same fields. Every new doctype has `track_changes = 1`.
 `Quotation.crm_deal` and `Customer.crm_deal` already exist (Data, created by CRM) and are
 reused as they are.
 
+**Phase 1 created** the CRM Deal fields `tbo_company`, `tbo_stage`, `tbo_onboarding_complete`
+and `tbo_closed`, and `crm_deal` on Sales Order, Sales Invoice and Payment Entry
+(`tbo_smart/finance/setup.py`, run on install and by `after_migrate`). The other rows arrive
+with the phase that uses them.
+
 Property setter: **CRM Task → Track Changes = 1**, so follow-up edits get Version history (G14).
 
 ### 3.2 Settings: extend `TBO Smart Settings` (no new settings doctype)
 
-New "Finance" section:
+New "Finance workflow" section. **Built in Phase 1:**
 
 | Field | Type | Default |
 | --- | --- | --- |
-| `enable_finance_workflow` | Check | 0. Master switch for hooks, jobs and CRM screens. |
+| `enable_finance_workflow` ("Finance workflow (Phase 1)") | Check | 0. Switches on the deal-link hooks, the stage, the pending-approval guard, the Finance tab, the quotation dialog, the BDE report and hides the desk "Create Quotation" action. |
+| `finance_bde_can_see_amounts` ("BDE can see invoice/payment amounts") | Check | 1 (Q17). |
+| `finance_crm_access` ("Let finance roles open the CRM") | Check | 0 (G5). |
+| `finance_crm_roles` ("Finance roles in the CRM") | Small Text, one role per line | `Accounts User`, `Accounts Manager`. Validated: every line must be a Role. |
+
+Planned for later phases (each phase adds its own switch, off by default):
+
+| Field | Type | Default |
+| --- | --- | --- |
 | `invoicing_company` | Link Company | KSA **[verify on site]** |
 | `partner_company` | Link Company | India **[verify on site]** |
 | `allocation_percent` | Percent | 50 |
@@ -575,6 +592,9 @@ work (§5.1, Q10).
 | **Exceptions & Reconciliation** | `/crm/finance-exceptions` | Accounts, Finance Manager | Queue by category with age; unverified matched bank lines | Propose resolution · Approve / Reject (Finance) · Verify bank line (second person) |
 | **Dashboard** cards | `/crm/dashboard` | By role (§8) | Sales, Collections, Receivables, Allocation, Transfers, Reconciliation, Performance | Filters: date, client, employee, entity |
 
+**Phase 1 built** the Finance tab, the New quotation dialog and the BDE conversion page (§14.1).
+The fork's notes are in `docs/tbo-finance.md` in tbocloud/crm.
+
 **Fork extension points**, kept small and offered upstream where general:
 
 1. A tab-registration slot on the Deal page, so the Finance tab is a component registered from
@@ -746,8 +766,8 @@ frontend in parallel shortens it by about 30%.
 | UAT, training, go-live | Test plan §10 on staging with Finance; training; production cut-over | 5 | Phase 5 | 29 Jan – 4 Feb |
 | **Total** | | **≈ 59 dev days** | | **≈ 14 weeks** (late December is a buffer) |
 
-Each phase ships on its own behind `enable_finance_workflow` (and the reminder flag), so Phase
-1 can go live before Phase 3 exists.
+Each phase ships on its own behind its own switch in TBO Smart Settings (Phase 1:
+`enable_finance_workflow`), off by default, so Phase 1 can go live before Phase 3 exists.
 
 ### 11.1 Deployment plan
 
@@ -769,7 +789,7 @@ Each phase ships on its own behind `enable_finance_workflow` (and the reminder f
 | # | Question | Default used in this plan |
 | --- | --- | --- |
 | Q1 | Which accounting option for India's share: monthly inter-company invoice (A), JE per receipt (B), or memo only (C)? Confirm with the tax advisor (KSA WHT, Indian GST on export of services, transfer pricing). | A |
-| Q2 | Are TBO KSA and TBO India both Companies on tboindia ERPNext? If KSA's books are elsewhere, how do we get its receipts? | Both on tboindia |
+| Q2 | Are TBO KSA and TBO India both Companies on tboindia ERPNext? If KSA's books are elsewhere, how do we get its receipts? | Both on tboindia. Phase 1: a deal's `tbo_company` defaults to ERPNext CRM Settings' company, so today's behaviour holds (default chosen, pending confirmation). |
 | Q3 | Exchange-rate source for SAR→INR differences: the bank's achieved rate, or a reference rate (SAMA/RBI) on a date? | Bank's achieved rate |
 | Q4 | Does a refund to a client reverse India's share? If India was already paid, is the excess netted against the next transfer or paid back? | Yes; netted |
 | Q5 | Who approves exceptions (waivers, accepted differences, extensions)? Is there an amount limit above which Management must also approve? | Finance Manager; no limit |
@@ -779,13 +799,13 @@ Each phase ships on its own behind `enable_finance_workflow` (and the reminder f
 | Q9 | Does KSA issue a tax invoice for advances (VAT due on advance receipt), or receive advances against a Sales Order only? Are Sales Orders used at all? | SO + advance PE; advance tax invoice if the advisor requires it |
 | Q10 | Accounts staff post invoices and payments and reconcile banks in ERPNext screens (`/app`); CRM shows and approves. Is that acceptable, or must Accounts also post from CRM? | Acceptable (ERPNext stays the accounting screen) |
 | Q11 | Is a Microsoft Teams digest required now? | Email + in-app/push now; Teams later |
-| Q12 | Which deal status creates the ERPNext Customer, and what does onboarding require (CR no., VAT no., contract, PO)? | "Won"; VAT no. + billing address + contract |
+| Q12 | Which deal status creates the ERPNext Customer, and what does onboarding require (CR no., VAT no., contract, PO)? | Phase 1 leaves it to ERPNext CRM Settings' status as configured; "Onboarding complete" is a single tick, no checklist yet (default chosen, pending confirmation). |
 | Q13 | Quotation adjustment: does the % apply to the quotation value (discount), the commission, or both? (Owned by the discount-control feature; must be configurable.) | Configurable; no default chosen |
 | Q13b | Exact maximum % per designation: BDE, BDM, Head – Sales & Marketing, Director (CEO is unlimited). | None set; settings left empty until decided |
 | Q14 | Reminder wording, languages (English/Arabic) and sender mailbox; should clients get reminders at D−3? | English; KSA accounts mailbox; yes |
 | Q15 | Does India ever invoice clients directly (INR deals)? Are those outside the 50% rule? | Yes, outside the rule; per-deal company field |
 | Q16 | Allocation start date, and whether past receipts should be back-calculated for reporting only. | Go-live date; report-only back-calculation |
-| Q17 | Can BDEs see invoice and payment amounts for their own deals? | Yes; not allocation |
+| Q17 | Can BDEs see invoice and payment amounts for their own deals? | Yes; not allocation. Setting `finance_bde_can_see_amounts`, default on (default chosen, pending confirmation). |
 | Q18 | Who is the "accounts owner" for each client (KSA Accounts staff list)? | Assigned per deal |
 
 ### 12.2 Verify on site (tboindia.tbocloud.in)
@@ -828,8 +848,171 @@ generated from §8 so the dashboard tooltips and the guide use the same wording.
 
 ---
 
+## 14. Implementation status
+
+### 14.1 Phase 1: deal links, stage, Finance tab, quotation dialog, guard, BDE report (built)
+
+Switch: **TBO Smart Settings → Finance workflow (Phase 1)** (`enable_finance_workflow`), off by
+default. While it is off every hook, job and API below does nothing (the APIs refuse with a
+ValidationError and the CRM shows the stock Quotations tab). Only the custom fields and the
+one-off backfill run regardless.
+
+**Deal links (G1)** - `tbo_smart/finance/deal_links.py`, `tbo_smart/finance/documents.py`.
+
+- ERPNext's own mappers already copy `crm_deal` from a Quotation to the Sales Order and from
+  the Sales Order to the Sales Invoice (same fieldname, not `no_copy`). The `validate` hooks
+  fill it when it is still blank: Sales Order from its items' quotations
+  (`prevdoc_docname` → `Quotation.crm_deal`, or the party when *Quotation To* is CRM Deal);
+  Sales Invoice from its items' sales orders, else those orders' quotations.
+- Payment Entry: `crm_deal` always follows the references. Every Sales Invoice / Sales Order
+  reference must carry the same deal; otherwise it is blank. A receipt with no invoice or
+  order reference (an advance booked on account) keeps a deal typed on it.
+- **Decision:** no guessing from the customer. A Sales Invoice made straight from a
+  Quotation gets the deal from the mapper; one typed by hand with no source stays blank
+  unless someone fills the (editable) field. Customer-based guessing would attach a repeat
+  client's new invoice to an old deal.
+- **Backfill** - `tbo_smart/finance/backfill.py`, patch
+  `tbo_smart.patches.v1.backfill_finance_deal_links`. Runs once on migrate, whatever the
+  switch. Set-based queries per doctype; fills only blank values, so it is idempotent.
+  Documents it cannot resolve are skipped, counted on the console and listed by name in the
+  `tbo_smart.finance` site log for Accounts to link by hand.
+
+**Company per deal (G2).** `CRM Deal.tbo_company` (Link Company). A new deal gets ERPNext CRM
+Settings' `erpnext_company` in `before_insert` (when that names a Company). Existing deals
+fall back to it at read time. The quotation dialog lets the user pick another company, so a
+deal can be quoted by KSA or India; Q2 is still open.
+
+**Post-sale stage** - `tbo_smart/finance/stage.py`, data from
+`tbo_smart/finance/deal_finance.py` (shared with the Finance tab, so the tab and the stage
+always agree).
+
+| Stage | When (first match wins) |
+| --- | --- |
+| Closed | `tbo_closed` is set (a person closed it) |
+| Collected | Submitted, non-return invoices exist and the deal's total outstanding is 0 |
+| Collecting | Invoices exist and something was received (any receipt against the deal's orders or invoices, or an unallocated receipt carrying the deal), or a term is overdue |
+| Invoiced | Invoices exist, nothing received, nothing overdue |
+| Quotation | Onboarding is complete, or the deal has a quotation (draft or submitted) or a sales order |
+| Onboarding | The deal has an ERPNext customer |
+| (blank) | Nothing post-sale yet |
+
+- Recomputed by `doc_events` on Quotation save/submit/cancel/delete and on submit/cancel of
+  Sales Order, Sales Invoice and Payment Entry (a payment recomputes every deal its references
+  touch), plus a daily job (`recompute_all`) over every deal with a stage, a customer, an
+  onboarding tick or a linked document. A failing deal is logged and skipped.
+- **Decision:** the stage is written with `frappe.db.set_value` plus a **Version** row, not a
+  full deal save, so an invoice submit never re-runs Frappe CRM's deal `on_update` (customer
+  creation, automations). CRM Deal already has `track_changes` on, so the history is in the
+  usual Version list. A `tbo_deal_finance_update` realtime event tells open deal pages.
+- "Onboarding complete" (`set_onboarding_complete`) is for anyone who may edit the deal, or
+  a finance user. "Close finance" (`set_finance_closed`) is for Accounts Manager or System
+  Manager and only when the stage is Collected; Phase 4 adds the other closure conditions
+  (allocations settled, transfers verified, no open exceptions) and the TBO Finance Approver
+  role. Both write a Version and a timeline comment.
+- Settling, Reconciled and On Exception are in the field's options but not computed yet.
+
+**Quotation from the CRM (G3)** - `tbo_smart/api/finance/quotation.py`.
+
+| Method | HTTP | Does |
+| --- | --- | --- |
+| `get_quotation_form(deal, quotation=None)` | GET | Dialog values: companies, the company's tax templates, and either a new quotation prefilled from the deal (items from `prefill_quotation_items`, party = the deal's Customer or the deal itself, company default tax template, valid till +1 month) or an existing quotation of this deal. |
+| `get_item_price(item_code, company=None)` | GET | Name, UOM and the Selling Settings price list rate of a sales item. |
+| `save_quotation(deal, values, quotation=None)` | POST | Creates a draft Quotation (crm_deal, party, company, primary contact, organization address) or updates a draft of this deal: items (qty, list rate, discount %), additional discount %, commission % (`tbo_commission_rate`), valid till, taxes template and terms. Saved as the session user, so ERPNext's Quotation permissions and the discount/commission control apply as on the desk form. Returns the quotation and `needs_approval` (kinds above the user's limit). |
+| `submit_quotation(deal, quotation)` | POST | Submits a draft of the deal; the discount/commission control refuses it while an approval is missing. |
+| `can_create_desk_quotations()` | GET | Overrides Frappe CRM's `can_create_quotations` (`override_whitelisted_methods`): False while the workflow is on, so the deal's desk "Create Quotation" action disappears; otherwise CRM's own answer. |
+
+A quotation belongs to the deal when its `crm_deal` is the deal or it is made out to the deal
+(*Quotation To* = CRM Deal), the same rule the Finance tab lists by. Editing in the CRM is
+limited to drafts and to the fields above; "Open in ERPNext" stays for
+anything else. **Deviation:** the plan only asked for drafts; Submit was added so a BDE never
+needs `/app` for a quotation within their limit.
+
+**Pending-approval guard** - `FinanceDocument.block_pending_approval`, using
+`tbo_smart.quotation_control.get_unapproved` (added to the discount-control module, not
+duplicated). A Sales Order or Sales Invoice (not a return) is refused on `validate` when any
+source quotation, for a limited kind with a non-zero percentage, has an open (not voided)
+request, or has no granted, not-voided adjustment covering it **and** is either still a
+draft or had an approval voided. A quotation submitted while enforcement was off, with no
+adjustment rows, passes, so switching enforcement on later does not block old orders.
+Source quotations: Sales Order items' `prevdoc_docname`; Sales Invoice through its orders. A
+Sales Invoice made straight from a Quotation has no item link back; ERPNext only allows that
+from a submitted quotation, and submitting already needs the approval.
+
+**Finance tab data** - `tbo_smart/api/finance/deal.py`.
+
+| Method | HTTP | Returns / does |
+| --- | --- | --- |
+| `get_finance_access()` | GET | `{enabled, is_finance_user, can_close, can_see_amounts}`; the CRM uses it to choose the tab and the sidebar entry. |
+| `get_deal_finance(deal)` | GET | Stage and stage list, company, customer, onboarding/closed flags, what the user may do, quotations (status, docstatus, dates, total), sales orders (status, dates, total, advance), invoices (status, dates, grand/rounded total, outstanding, overdue, payment-term rows), payments (one row per Payment Entry: date, mode, reference, signed amount, currency), totals per currency (invoiced, received, outstanding, overdue) and open follow-up tasks. |
+| `set_onboarding_complete(deal, complete)` | POST | See the stage above. |
+| `set_finance_closed(deal, closed)` | POST | See the stage above. |
+
+Permissions (`tbo_smart/finance/access.py`): the deal must be readable under Frappe CRM's own
+rules (owner, assignee, hierarchy, Sales Manager), or the user holds a role from
+`finance_crm_roles` while `finance_crm_access` is on. ERPNext document permissions are not
+needed on purpose (plan §9, "R own (Finance tab)"): the documents are read after the deal
+check. With `finance_bde_can_see_amounts` off, users without a manager, approver or accounts
+role get the documents with every invoice, order, term and payment amount set to null and no
+totals; quotation totals stay visible because the deal owner already sees quotations.
+
+**BDE conversion report** - `tbo_smart/api/finance/report.py`, `get_bde_conversion(from_date,
+to_date, organization, company)`. Per salesperson: leads created (by `lead_owner`), deals
+created from a lead (by `deal_owner`), conversion rate, submitted quotations (by quotation
+date, owner of the deal), won deals (Won-type status, `closed_date` in range) and won value
+(`deal_value × exchange_rate`, CRM's base currency, as CRM's dashboard counts it), plus a
+total row. Default range: this month; at most two years. Client = CRM Organization; company
+= the deal's `tbo_company` (CRM default when blank) or the quotation's company; leads have no
+company, so that filter leaves them alone. Scope follows the mobile API's CRM scope rule:
+own row, team (sales hierarchy) or everyone (Sales Manager outside the hierarchy, System
+Manager, finance roles). **Decision:** a TBO page (`/crm/bde-conversion`), not a CRM
+dashboard card: CRM's dashboard methods take only a date range and a user, with no client or
+entity filter, so the provider hook waits for Phase 5.
+
+**App access (G5).** The fork gains two hooks (tbocloud/crm `docs/tbo-finance.md`):
+`crm_app_permission` (admit more users to `/crm`) and `crm_unrestricted_access` (skip the
+sales hierarchy for a user, doctype and permission type). tbo_smart registers
+`has_crm_app_access` and `has_unrestricted_crm_access`: both are True only for the
+`finance_crm_roles` while the workflow and `finance_crm_access` are on, and the second only
+for CRM Deal reads. Saving TBO Smart Settings with access on adds a read Custom DocPerm on CRM
+Deal and CRM Organization for each of those roles (which also opens the FCRM module to them)
+and remembers what it did (hidden field `finance_crm_granted`): rows it added, and existing
+rows it widened (a row with no read, or read only if owner, gets full read; its original
+values are kept). Turning access off, or taking a role off the list, deletes the added rows
+and puts widened rows back. A pre-existing row that already gives full read is never touched. Deploy the CRM
+fork first: without its hooks, Accounts still read the Finance tab data through the API, but
+cannot open `/crm`.
+
+**Tests** - `tbo_smart/tests/test_finance_workflow.py` (helpers in `tbo_smart/test_utils.py`):
+deal links through quotation → order → invoice → payment and a mixed-deal payment; hooks
+inactive while off; the backfill (linked, unresolved listed, idempotent); stage progression
+with its Version history, overdue → Collecting, onboarding and closing permissions and logs,
+the nightly job, the default company; the quotation API (prefill, save, edit, submit,
+refusals); the guard (pending request, draft above limit, quotation from before enforcement,
+switched off); Finance tab permissions (own vs other BDE, Accounts with and without CRM
+access, hidden amounts, switched off, Custom DocPerm and role validation); and the report
+numbers, filters and scope. The fork has tests for both hooks.
+
+**Not in Phase 1 (plan §11 lists them under Phase 1):** "next follow-up" in the lead and deal
+lists (the Finance tab shows the deal's next follow-up), the onboarding checklist (a single
+tick for now, Q12), `tbo_project` and `tbo_accounts_owner` (Phase 2).
+
+### 14.2 What the owner switches on after deploying Phase 1
+
+1. Deploy tbocloud/crm first, then tbo_smart; `bench migrate` creates the fields and runs the
+   backfill (check the migrate output and the `tbo_smart.finance` log for unresolved
+   documents).
+2. TBO Smart Settings → Finance workflow: tick **Finance workflow (Phase 1)**.
+3. Optional: untick **BDE can see invoice/payment amounts** if management answers Q17 "no".
+4. Optional: tick **Let finance roles open the CRM** and check **Finance roles in the CRM**
+   (Accounts User and Accounts Manager by default), so Accounts can use the Finance tab.
+5. For the guard to bite, the discount-control feature's **Enforce adjustment limits** must
+   also be on (TBO Quotation Approval Settings).
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 | --- | --- | --- |
 | 0.1 | 2026-10-12 | First plan for management approval. Quotation approval delegated to the separate "Quotation discount/commission approval" feature; its designation roles used in §9. |
+| 0.2 | 2026-10-12 | Phase 1 built (owner approved the start). §14.1 records what was built, decisions and deviations; §3.1, §3.2, §7 and §12 updated. |

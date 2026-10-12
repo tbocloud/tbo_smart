@@ -602,3 +602,175 @@ def bearer_token_is_valid(access_token: str) -> bool:
 		["all"],
 	)
 	return valid
+
+
+# ---------- Finance workflow (docs/crm-finance-workflow.md) ----------
+
+
+def enable_finance_workflow(**settings) -> None:
+	"""Turn the finance workflow Phase 1 on; `settings` sets other TBO Smart Settings fields
+	(e.g. finance_crm_access=1, finance_bde_can_see_amounts=0)."""
+	frappe.db.set_single_value("TBO Smart Settings", {"enable_finance_workflow": 1, **settings})
+
+
+def disable_finance_workflow() -> None:
+	frappe.db.set_single_value("TBO Smart Settings", "enable_finance_workflow", 0)
+
+
+def enable_erpnext_crm() -> None:
+	"""ERPNext CRM Settings on, same site, with the default company: creates Frappe CRM's
+	Quotation.crm_deal and Customer.crm_deal fields, as on tboindia."""
+	settings = frappe.get_single("ERPNext CRM Settings")
+	settings.update(
+		{
+			"enabled": 1,
+			"is_erpnext_in_different_site": 0,
+			"erpnext_company": erpnext.get_default_company(),
+			"create_customer_on_status_change": 0,
+			"sync_products": 0,
+		}
+	)
+	settings.save(ignore_permissions=True)
+
+
+def make_finance_deal(owner: str, **fields) -> str:
+	"""A CRM Deal owned by `owner` with its own ERPNext Customer (erpnext_customer and
+	Customer.crm_deal set both ways, as Frappe CRM links them). Returns the deal name."""
+	deal = make_crm_deal(owner, **fields)
+	customer = make_customer(f"TBO Finance {frappe.generate_hash(length=8)}")
+	frappe.db.set_value("Customer", customer, "crm_deal", deal)
+	frappe.db.set_value("CRM Deal", deal, "erpnext_customer", customer)
+	return deal
+
+
+def make_deal_quotation(deal: str, rate: float = 1000, qty: float = 1, submit: bool = True, **fields):
+	"""A Quotation to the deal's customer with `crm_deal` set, inserted as the session user and
+	submitted unless `submit` is False. Returns the Document."""
+	quotation = frappe.get_doc(
+		{
+			"doctype": "Quotation",
+			"quotation_to": "Customer",
+			"party_name": frappe.db.get_value("CRM Deal", deal, "erpnext_customer"),
+			"crm_deal": deal,
+			"company": erpnext.get_default_company(),
+			"transaction_date": nowdate(),
+			"valid_till": add_days(nowdate(), 30),
+			"items": [{"item_code": make_quotation_item(), "qty": qty, "rate": rate}],
+			**fields,
+		}
+	)
+	quotation.insert(ignore_permissions=True)
+	if submit:
+		quotation.submit()
+	return quotation
+
+
+def make_order_from_quotation(quotation: str, submit: bool = True, keep_deal: bool = True):
+	"""A Sales Order mapped from a submitted Quotation by ERPNext's own mapper, delivery in a
+	week. `keep_deal=False` clears the crm_deal the mapper copies, to exercise the hook."""
+	from erpnext.selling.doctype.quotation.quotation import make_sales_order
+
+	order = make_sales_order(quotation)
+	order.delivery_date = add_days(nowdate(), 7)
+	if not keep_deal:
+		order.crm_deal = None
+	order.insert(ignore_permissions=True)
+	if submit:
+		order.submit()
+	return order
+
+
+def make_manual_order(quotation: str, rate: float = 1000):
+	"""An unsaved Sales Order typed by hand that references `quotation` on its item (no
+	mapper), for the pending-approval guard and the deal-link hook."""
+	source = frappe.get_doc("Quotation", quotation)
+	return frappe.get_doc(
+		{
+			"doctype": "Sales Order",
+			"customer": source.party_name
+			if source.quotation_to == "Customer"
+			else make_customer(f"TBO Manual {frappe.generate_hash(length=8)}"),
+			"company": source.company,
+			"transaction_date": nowdate(),
+			"delivery_date": add_days(nowdate(), 7),
+			"items": [
+				{
+					"item_code": source.items[0].item_code,
+					"qty": source.items[0].qty,
+					"rate": rate,
+					"prevdoc_docname": quotation,
+				}
+			],
+		}
+	)
+
+
+def make_invoice_from_order(order: str, submit: bool = True, keep_deal: bool = True):
+	"""A Sales Invoice mapped from a submitted Sales Order. `keep_deal=False` clears the
+	crm_deal the mapper copies."""
+	from erpnext.selling.doctype.sales_order.sales_order import make_sales_invoice
+
+	invoice = make_sales_invoice(order)
+	if not keep_deal:
+		invoice.crm_deal = None
+	invoice.insert(ignore_permissions=True)
+	if submit:
+		invoice.submit()
+	return invoice
+
+
+def make_receipt(doctype: str, name: str, amount: float | None = None, submit: bool = True):
+	"""A customer receipt (Payment Entry) against a Sales Order or Sales Invoice, for `amount`
+	or the full outstanding, into the company's default cash account."""
+	from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+
+	entry = get_payment_entry(doctype, name, party_amount=amount)
+	entry.reference_no = frappe.generate_hash(length=8)
+	entry.reference_date = nowdate()
+	entry.insert(ignore_permissions=True)
+	if submit:
+		entry.submit()
+	return entry
+
+
+def make_crm_product(item_code: str, rate: float = 1000) -> str:
+	"""A CRM Product linked to the ERPNext Item `item_code` (erpnext_item_code), as product
+	sync makes it. Returns the product code."""
+	code = f"TBO-{item_code}"
+	if not frappe.db.exists("CRM Product", code):
+		frappe.get_doc(
+			{
+				"doctype": "CRM Product",
+				"product_code": code,
+				"product_name": item_code,
+				"standard_rate": rate,
+				"erpnext_item_code": item_code,
+			}
+		).insert(ignore_permissions=True)
+	frappe.db.set_value("CRM Product", code, "erpnext_item_code", item_code)
+	return code
+
+
+def get_versions(doctype: str, name: str) -> list[dict]:
+	"""The changed fields of every Version of a document, oldest first: [{field: (old, new)}]."""
+	rows = frappe.get_all(
+		"Version", filters={"ref_doctype": doctype, "docname": name}, pluck="data", order_by="creation asc"
+	)
+	changes = []
+	for data in rows:
+		changed = json.loads(data).get("changed") or []
+		changes.append({field: (old, new) for field, old, new in changed})
+	return changes
+
+
+def reset_finance_settings() -> None:
+	"""Finance workflow off and its other settings back to their defaults."""
+	frappe.db.set_single_value(
+		"TBO Smart Settings",
+		{
+			"enable_finance_workflow": 0,
+			"finance_bde_can_see_amounts": 1,
+			"finance_crm_access": 0,
+			"finance_crm_roles": "Accounts User\nAccounts Manager",
+		},
+	)
