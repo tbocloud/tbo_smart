@@ -31,6 +31,8 @@ LOCKED_FIELDS = (
 	# the audit trail: who asked and who decided, set only by apply_action
 	"source",
 	"requested_by",
+	"first_approved_by",
+	"first_approved_on",
 	"approved_by",
 	"approved_on",
 	"decision_remarks",
