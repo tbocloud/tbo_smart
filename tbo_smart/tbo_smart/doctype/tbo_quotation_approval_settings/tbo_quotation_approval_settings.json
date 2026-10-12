@@ -1,0 +1,92 @@
+{
+ "actions": [],
+ "creation": "2026-10-12 10:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "enabled",
+  "applies_to",
+  "levels_section",
+  "levels_help",
+  "levels"
+ ],
+ "fields": [
+  {
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "label": "Enforce adjustment limits",
+   "default": "0",
+   "description": "When on, a quotation whose discount or commission is above the submitting user's limit cannot be submitted without an approval."
+  },
+  {
+   "fieldname": "applies_to",
+   "fieldtype": "Select",
+   "label": "Limits apply to",
+   "options": "Discount\nCommission\nBoth",
+   "default": "Both",
+   "reqd": 1,
+   "description": "Discount: the share of the list value taken off (item discounts plus the additional discount). Commission: the quotation's Commission %."
+  },
+  {
+   "fieldname": "levels_section",
+   "fieldtype": "Section Break",
+   "label": "Levels"
+  },
+  {
+   "fieldname": "levels_help",
+   "fieldtype": "HTML",
+   "options": "<p class=\"text-muted small\">One row per designation. HR gives each person the row's role. A person's level is the highest-ranked row whose role they hold. A level whose limit is blank or 0 has no limit set yet, so every non-zero adjustment by that level needs approval.</p>"
+  },
+  {
+   "fieldname": "levels",
+   "fieldtype": "Table",
+   "label": "Levels",
+   "options": "TBO Quotation Approval Level"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-10-12 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tbo Smart",
+ "name": "TBO Quotation Approval Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "share": 1,
+   "write": 1
+  },
+  {
+   "role": "CEO",
+   "read": 1,
+   "write": 1
+  },
+  {
+   "role": "Business Development Executive",
+   "read": 1
+  },
+  {
+   "role": "Business Development Manager",
+   "read": 1
+  },
+  {
+   "role": "Sales & Marketing Head",
+   "read": 1
+  },
+  {
+   "role": "Director",
+   "read": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
