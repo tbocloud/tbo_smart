@@ -607,6 +607,15 @@ def bearer_token_is_valid(access_token: str) -> bool:
 # ---------- Finance workflow (docs/crm-finance-workflow.md) ----------
 
 
+FINANCE_TEST_ITEM = "TBO Smart Finance Service"
+
+
+def make_finance_item() -> str:
+	"""The finance tests' own sales item. ERPNext adds an Item Price the first time an item is
+	sold at a rate, so sharing the quotation tests' item would change their list price."""
+	return make_quotation_item(FINANCE_TEST_ITEM)
+
+
 def enable_finance_workflow(**settings) -> None:
 	"""Turn the finance workflow Phase 1 on; `settings` sets other TBO Smart Settings fields
 	(e.g. finance_crm_access=1, finance_bde_can_see_amounts=0)."""
@@ -655,7 +664,7 @@ def make_deal_quotation(deal: str, rate: float = 1000, qty: float = 1, submit: b
 			"company": erpnext.get_default_company(),
 			"transaction_date": nowdate(),
 			"valid_till": add_days(nowdate(), 30),
-			"items": [{"item_code": make_quotation_item(), "qty": qty, "rate": rate}],
+			"items": [{"item_code": make_finance_item(), "qty": qty, "rate": rate}],
 			**fields,
 		}
 	)
@@ -805,7 +814,7 @@ def make_deal_invoice(
 			"set_posting_time": 1,
 			"posting_date": posting,
 			"due_date": add_days(nowdate(), due_in),
-			"items": [{"item_code": make_quotation_item(), "qty": 1, "rate": rate}],
+			"items": [{"item_code": make_finance_item(), "qty": 1, "rate": rate}],
 		}
 	)
 	invoice.insert(ignore_permissions=True)
