@@ -249,7 +249,7 @@
    "fieldname": "allocation_start_date",
    "fieldtype": "Date",
    "label": "Allocation start date",
-   "description": "Receipts before this date get no allocation (Q8). Set to the deploy date on the first migrate; preview earlier receipts on the Allocations page, which records nothing."
+   "description": "Receipts before this date get no allocation (Q16). Set to the deploy date on the first migrate; preview earlier receipts on the Allocations page, which records nothing."
   },
   {
    "default": "Memo only",

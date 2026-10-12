@@ -39,6 +39,7 @@ class TBOFundTransfer(Document):
 		self.set_status(save=True)
 
 	def before_update_after_submit(self):
+		self.keep_confirmed_receipt()
 		self.fetch_receiving_leg()
 		self.validate_receiving_leg()
 		self.set_status()
@@ -63,6 +64,16 @@ class TBOFundTransfer(Document):
 		if not self.reference_no:
 			self.reference_no = entry.reference_no
 
+	def keep_confirmed_receipt(self):
+		"""Once India's receipt is linked it stays: changing it goes through cancel and amend."""
+		previous = self.get_doc_before_save()
+		if (
+			previous
+			and previous.india_payment_entry
+			and previous.india_payment_entry != self.india_payment_entry
+		):
+			frappe.throw(_("India's receipt is already linked; cancel and amend the transfer instead."))
+
 	def fetch_receiving_leg(self):
 		if not self.india_payment_entry:
 			self.amount_received = self.receiver_charges = self.effective_rate = 0
@@ -75,8 +86,13 @@ class TBOFundTransfer(Document):
 		self.effective_rate = flt(self.amount_received / self.amount_sent, 6) if flt(self.amount_sent) else 0
 
 	def validate_legs(self):
+		# the row lock makes a second transfer on the same payment wait for this one's commit
 		entry = frappe.db.get_value(
-			"Payment Entry", self.ksa_payment_entry, ["docstatus", "payment_type", "company"], as_dict=True
+			"Payment Entry",
+			self.ksa_payment_entry,
+			["docstatus", "payment_type", "company"],
+			as_dict=True,
+			for_update=True,
 		)
 		if entry.docstatus != 1 or entry.payment_type != "Pay" or entry.company != self.from_company:
 			frappe.throw(

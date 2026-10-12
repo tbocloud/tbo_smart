@@ -5,13 +5,11 @@ Accounts, finance and management only (risk R7): salespeople never see India's s
 
 import frappe
 from frappe import _
-from frappe.query_builder import Case
-from frappe.query_builder.functions import Sum
 from frappe.utils import flt, getdate
 
 from tbo_smart.finance import allocation_enabled, get_setting
 from tbo_smart.finance.access import can_see_allocations
-from tbo_smart.finance.allocation import AllocationBuilder, AllocationSettings
+from tbo_smart.finance.allocation import AllocationBuilder, AllocationSettings, allocation_totals
 from tbo_smart.finance.transfers import get_open_allocations
 
 LIST_LIMIT = 500
@@ -69,24 +67,6 @@ def get_allocation_summary() -> dict:
 		order_by="posting_date desc, creation desc",
 		limit_page_length=LIST_LIMIT,
 	)
-	Allocation = frappe.qb.DocType("TBO Fund Allocation")
-	outstanding = Allocation.outstanding_amount
-	totals = (
-		frappe.qb.from_(Allocation)
-		.select(
-			Allocation.currency,
-			Sum(Allocation.share_amount),
-			Sum(Allocation.settled_amount),
-			Sum(Case().when(outstanding > 0, outstanding).else_(0)),
-			Sum(Case().when(outstanding < 0, -outstanding).else_(0)),
-		)
-		.where(
-			(Allocation.docstatus == 1)
-			& (Allocation.company == settings.company)
-			& (Allocation.status != "Reversed")
-		)
-		.groupby(Allocation.currency)
-	).run()
 	transfers = frappe.get_all(
 		"TBO Fund Transfer",
 		filters={"from_company": settings.company, "docstatus": ("<", 2)},
@@ -100,16 +80,7 @@ def get_allocation_summary() -> dict:
 		"percent": settings.percent,
 		"start_date": settings.start,
 		"accounting_option": get_setting("allocation_accounting_option") or "Memo only",
-		"totals": [
-			{
-				"currency": currency,
-				"share": flt(share, 2),
-				"settled": flt(settled, 2),
-				"pending": flt(pending, 2),
-				"due_from_partner": flt(due_back, 2),
-			}
-			for currency, share, settled, pending, due_back in totals
-		],
+		"totals": allocation_totals(settings.company),
 		"allocations": allocations,
 		"transfers": transfers,
 		"can_transfer": bool(frappe.has_permission("TBO Fund Transfer", "submit")),
@@ -188,7 +159,7 @@ def confirm_receipt(transfer: str, india_payment_entry: str) -> dict:
 
 @frappe.whitelist()
 def preview_allocations(from_date: str, to_date: str) -> dict:
-	"""Backfill for reporting (Q8): what the allocations of receipts before the start date
+	"""Backfill for reporting (Q16): what the allocations of receipts before the start date
 	would have been. Records nothing and posts nothing."""
 	settings = require_allocations()
 	from_date, to_date = getdate(from_date), getdate(to_date)
@@ -250,7 +221,12 @@ def get_deal_allocation(deal: str) -> dict | None:
 			Allocation.outstanding_amount,
 			Line.share_amount.as_("line_share"),
 		)
-		.where((Allocation.docstatus == 1) & (Line.crm_deal == deal) & (Allocation.status != "Reversed"))
+		.where(
+			(Allocation.docstatus == 1)
+			& (Allocation.company == get_setting("invoicing_company"))
+			& (Line.crm_deal == deal)
+			& (Allocation.status != "Reversed")
+		)
 	).run(as_dict=True)
 	share = sum(flt(row.line_share) for row in rows)
 	# each allocation's outstanding is shared out over its lines in proportion to their share

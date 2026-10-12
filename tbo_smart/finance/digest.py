@@ -14,6 +14,7 @@ from frappe.desk.doctype.notification_log.notification_log import enqueue_create
 from frappe.utils import add_days, date_diff, flt, fmt_money, formatdate, getdate, today
 
 from tbo_smart.finance import allocation_enabled, get_setting, receivables_enabled
+from tbo_smart.finance.allocation import allocation_totals
 from tbo_smart.finance.reminders import ReminderRun, load_exceptions
 
 FINAL_NOTICE_DAYS = 30
@@ -74,17 +75,17 @@ def allocation_digest() -> dict | None:
 	if not allocation_enabled():
 		return None
 	company = get_setting("invoicing_company")
-	payable = frappe.get_all(
-		"TBO Fund Allocation",
-		filters={"docstatus": 1, "company": company, "status": ("!=", "Reversed")},
-		fields=["currency", "sum(outstanding_amount) as pending"],
-		group_by="currency",
-	)
+	totals = allocation_totals(company)
 	pending_transfers = frappe.db.count(
 		"TBO Fund Transfer", {"docstatus": 1, "status": "Sent", "from_company": company}
 	)
 	return {
-		"pending": [{"currency": row.currency, "amount": flt(row.pending, 2)} for row in payable],
+		"pending": [{"currency": row["currency"], "amount": row["pending"]} for row in totals],
+		"due_from_partner": [
+			{"currency": row["currency"], "amount": row["due_from_partner"]}
+			for row in totals
+			if row["due_from_partner"]
+		],
 		"pending_transfers": pending_transfers,
 	}
 
@@ -98,6 +99,11 @@ def render_allocation(allocation: dict | None) -> str:
 	text = _("Payable to the partner: {0}. Transfers waiting for India: {1}.").format(
 		payable, allocation["pending_transfers"]
 	)
+	if allocation["due_from_partner"]:
+		due = ", ".join(
+			fmt_money(row["amount"], currency=row["currency"]) for row in allocation["due_from_partner"]
+		)
+		text += " " + _("Due from the partner: {0}.").format(due)
 	return f"<p>{text}</p>"
 
 

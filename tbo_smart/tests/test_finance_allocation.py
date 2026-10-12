@@ -6,6 +6,7 @@ from frappe.utils import add_days, flt, nowdate
 from tbo_smart.api.finance import allocations as allocations_api
 from tbo_smart.api.finance import deal as deal_api
 from tbo_smart.finance.allocation import money
+from tbo_smart.finance.digest import allocation_digest
 from tbo_smart.finance.exceptions import raise_exception
 from tbo_smart.finance.transfers import flag_pending_transfers
 from tbo_smart.test_utils import (
@@ -164,6 +165,9 @@ class TestReversals(AllocationTestCase):
 		self.assertEqual(round(sum(flt(line.share_amount) for line in reversal.lines), 2), -40)
 		summary = allocations_api.get_allocation_summary()
 		self.assertEqual(summary["totals"][0]["due_from_partner"] - due_before, 40)
+		digest = allocation_digest()
+		self.assertEqual(digest["pending"][0]["amount"], summary["totals"][0]["pending"])
+		self.assertEqual(digest["due_from_partner"][0]["amount"], summary["totals"][0]["due_from_partner"])
 
 	def test_refund_reverses_its_share(self):
 		deal = make_finance_deal(BDE)
@@ -263,6 +267,10 @@ class TestTransfers(AllocationTestCase):
 		confirmed = allocations_api.confirm_receipt(result["name"], received.name)
 		self.assertEqual(confirmed["status"], "Received")
 		self.assertEqual(confirmed["effective_rate"], 23.4)
+		transfer = frappe.get_doc("TBO Fund Transfer", result["name"])
+		transfer.india_payment_entry = None
+		with self.assertRaises(frappe.ValidationError):
+			transfer.save(ignore_permissions=True)
 		frappe.set_user(ACCOUNTS)
 		self.assertEqual(deal_api.get_deal_finance(deal)["allocation"]["pending"], 0)
 
@@ -338,6 +346,9 @@ class TestAllocationAccess(AllocationTestCase):
 		self.assertEqual(summary["accounting_option"], "Memo only")
 		self.assertGreaterEqual(summary["totals"][0]["pending"], 250)
 		self.assertEqual(deal_api.get_deal_finance(deal)["allocation"]["share"], 250)
+		# like the Allocations page, only the invoicing company's allocations count
+		frappe.db.set_single_value("TBO Smart Settings", "invoicing_company", make_partner_company())
+		self.assertEqual(deal_api.get_deal_finance(deal)["allocation"]["share"], 0)
 
 	def test_preview_records_nothing(self):
 		deal = make_finance_deal(BDE)

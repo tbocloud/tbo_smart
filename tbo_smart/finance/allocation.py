@@ -22,6 +22,8 @@ from decimal import ROUND_HALF_UP, Decimal
 
 import frappe
 from frappe import _
+from frappe.query_builder import Case
+from frappe.query_builder.functions import Sum
 from frappe.utils import cint, flt, getdate
 
 from tbo_smart.finance import allocation_enabled, get_setting
@@ -47,7 +49,7 @@ class AllocationSettings:
 
 	def covers(self, doc) -> bool:
 		"""Whether a payment belongs to the allocation: the invoicing company (Q7), on or
-		after the start date (Q8). A missing company only logs a warning (Q2)."""
+		after the start date (Q16). A missing company only logs a warning (Q2)."""
 		if not self.company:
 			return False
 		if not frappe.db.exists("Company", self.company):
@@ -170,6 +172,37 @@ class AllocationBuilder:
 				if row and flt(row[0].base_grand_total):
 					return flt(row[0].base_net_total) / flt(row[0].base_grand_total)
 		return 1 / (1 + self.settings.vat / 100)
+
+
+def allocation_totals(company: str) -> list[dict]:
+	"""Per currency: share, settled, pending (positive outstanding) and due from the partner
+	(negative outstanding, after a reversal), for the Allocations page and the digest."""
+	Allocation = frappe.qb.DocType(DOCTYPE)
+	outstanding = Allocation.outstanding_amount
+	rows = (
+		frappe.qb.from_(Allocation)
+		.select(
+			Allocation.currency,
+			Sum(Allocation.share_amount),
+			Sum(Allocation.settled_amount),
+			Sum(Case().when(outstanding > 0, outstanding).else_(0)),
+			Sum(Case().when(outstanding < 0, -outstanding).else_(0)),
+		)
+		.where(
+			(Allocation.docstatus == 1) & (Allocation.company == company) & (Allocation.status != "Reversed")
+		)
+		.groupby(Allocation.currency)
+	).run()
+	return [
+		{
+			"currency": currency,
+			"share": flt(share, 2),
+			"settled": flt(settled, 2),
+			"pending": flt(pending, 2),
+			"due_from_partner": flt(due_back, 2),
+		}
+		for currency, share, settled, pending, due_back in rows
+	]
 
 
 def earlier_on_invoice(invoice: str, exclude_entry: str) -> tuple[float, float]:
