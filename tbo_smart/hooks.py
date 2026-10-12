@@ -150,10 +150,41 @@ doc_events = {
 	"User": {"on_update": "tbo_smart.api.mobile.auth.revoke_tokens_of_disabled_user"},
 	"Quotation": {
 		"validate": "tbo_smart.quotation_control.validate",
-		"on_update": "tbo_smart.quotation_control.on_update",
-		"on_submit": "tbo_smart.quotation_control.on_submit",
+		"on_update": ["tbo_smart.quotation_control.on_update", "tbo_smart.finance.stage.stage_changed"],
+		"on_submit": ["tbo_smart.quotation_control.on_submit", "tbo_smart.finance.stage.stage_changed"],
+		"on_cancel": "tbo_smart.finance.stage.stage_changed",
+		"on_trash": "tbo_smart.finance.stage.stage_changed",
+	},
+	# Finance workflow Phase 1 (docs/crm-finance-workflow.md); every hook no-ops while it is off
+	"CRM Deal": {"before_insert": "tbo_smart.finance.stage.default_company"},
+	"Sales Order": {
+		"validate": "tbo_smart.finance.documents.validate",
+		"on_submit": "tbo_smart.finance.stage.stage_changed",
+		"on_cancel": "tbo_smart.finance.stage.stage_changed",
+	},
+	"Sales Invoice": {
+		"validate": "tbo_smart.finance.documents.validate",
+		"on_submit": "tbo_smart.finance.stage.stage_changed",
+		"on_cancel": "tbo_smart.finance.stage.stage_changed",
+	},
+	"Payment Entry": {
+		"validate": "tbo_smart.finance.documents.validate",
+		"on_submit": "tbo_smart.finance.stage.stage_changed",
+		"on_cancel": "tbo_smart.finance.stage.stage_changed",
 	},
 }
+
+after_migrate = ["tbo_smart.finance.setup.after_migrate"]
+
+scheduler_events = {"daily": ["tbo_smart.finance.stage.recompute_all"]}
+
+override_whitelisted_methods = {
+	"crm.fcrm.doctype.erpnext_crm_settings.erpnext_crm_settings.can_create_quotations": "tbo_smart.api.finance.quotation.can_create_desk_quotations"
+}
+
+# Frappe CRM fork extension points (tbocloud/crm docs/tbo-finance.md)
+crm_app_permission = ["tbo_smart.finance.access.has_crm_app_access"]
+crm_unrestricted_access = ["tbo_smart.finance.access.has_unrestricted_crm_access"]
 
 # doc_events = {
 # 	"*": {

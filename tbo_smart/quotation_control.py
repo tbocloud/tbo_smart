@@ -95,6 +95,45 @@ def get_covering(quotation: str, kind: str, percent: float, value: float):
 	return next((row for row in get_granted(quotation, kind) if covers(row, percent, value)), None)
 
 
+def has_open_request(quotation: str, kind: str) -> bool:
+	return bool(
+		frappe.db.exists(
+			"TBO Quotation Adjustment",
+			{"quotation": quotation, "kind": kind, "status": ("in", OPEN_STATUSES), "voided": 0},
+		)
+	)
+
+
+def has_voided(quotation: str, kind: str) -> bool:
+	return bool(
+		frappe.db.exists("TBO Quotation Adjustment", {"quotation": quotation, "kind": kind, "voided": 1})
+	)
+
+
+def get_unapproved(quotation: str) -> list[str]:
+	"""Why a quotation may not yet become a Sales Order or Sales Invoice, read from its
+	adjustment records: a request still open, or a percentage no granted adjustment covers on a
+	draft or after an approval was voided. Empty when enforcement is off or nothing is
+	missing. A quotation submitted while enforcement was off, with no adjustments, passes."""
+	kinds = get_settings().controlled_kinds()
+	if not kinds or not frappe.db.exists("Quotation", quotation):
+		return []
+	doc = frappe.get_doc("Quotation", quotation)
+	value = get_list_value(doc)
+	reasons = []
+	for kind in kinds:
+		percent = get_percent(doc, kind)
+		if percent <= 0:
+			continue
+		if has_open_request(quotation, kind):
+			reasons.append(_("{0} {1}% on {2} is waiting for approval.").format(_(kind), percent, quotation))
+		elif not get_covering(quotation, kind, percent, value) and (
+			doc.docstatus == 0 or has_voided(quotation, kind)
+		):
+			reasons.append(_("{0} {1}% on {2} has no valid approval.").format(_(kind), percent, quotation))
+	return reasons
+
+
 class QuotationControl:
 	def __init__(self, doc):
 		self.doc = doc
