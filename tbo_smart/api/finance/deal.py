@@ -9,16 +9,18 @@ import frappe
 from frappe import _
 from frappe.utils import cint, get_url_to_form
 
-from tbo_smart.finance import finance_enabled, get_default_company
+from tbo_smart.finance import finance_enabled, get_default_company, receivables_enabled
 from tbo_smart.finance.access import (
 	can_close,
 	can_see_amounts,
 	can_write_deal,
 	is_finance_user,
 	require_deal,
+	sees_all_receivables,
 )
 from tbo_smart.finance.deal_finance import DealFinance
 from tbo_smart.finance.stage import compute_stage, update_stage, write_deal
+from tbo_smart.tbo_smart.doctype.tbo_finance_exception.tbo_finance_exception import is_approver
 
 # Stages the tab shows in Phase 1, in order. Settling and Reconciled join with Phases 3 and 4.
 PHASE_STAGES = ["Onboarding", "Quotation", "Invoiced", "Collecting", "Collected", "Closed"]
@@ -33,13 +35,18 @@ TASK_LIMIT = 20
 
 @frappe.whitelist()
 def get_finance_access() -> dict:
-	"""What the CRM should show: the Finance tab and report only when the workflow is on."""
+	"""What the CRM should show: the Finance tab and report only when the workflow is on, the
+	Receivables and Exceptions pages only when Phase 2 is on too."""
 	enabled = finance_enabled()
+	receivables = enabled and receivables_enabled()
 	return {
 		"enabled": enabled,
+		"receivables": receivables,
 		"is_finance_user": enabled and is_finance_user(),
 		"can_close": enabled and can_close(),
 		"can_see_amounts": enabled and can_see_amounts(),
+		"sees_all_receivables": receivables and (sees_all_receivables() or is_finance_user()),
+		"is_approver": receivables and is_approver(),
 	}
 
 
@@ -78,6 +85,10 @@ def get_deal_finance(deal: str) -> dict:
 		"payments": [{**row, "url": url("Payment Entry", row.name)} for row in finance.payments],
 		"totals": finance.totals() if show_amounts else [],
 		"follow_ups": get_follow_ups(deal),
+		"receivables": receivables_enabled(),
+		"accounts_owner": doc.get("tbo_accounts_owner"),
+		"can_set_accounts_owner": receivables_enabled() and (sees_all_receivables() or is_finance_user()),
+		"exceptions": get_deal_exceptions(deal) if receivables_enabled() else [],
 	}
 	if not show_amounts:
 		hide_amounts(data)
@@ -105,7 +116,19 @@ def get_follow_ups(deal: str) -> list[dict]:
 	Task = frappe.qb.DocType("CRM Task")
 	return (
 		frappe.qb.from_(Task)
-		.select(Task.name, Task.title, Task.status, Task.priority, Task.due_date, Task.assigned_to)
+		.select(
+			Task.name,
+			Task.title,
+			Task.status,
+			Task.priority,
+			Task.due_date,
+			Task.assigned_to,
+			Task.tbo_task_type,
+			Task.tbo_sales_invoice,
+			Task.tbo_promised_date,
+			Task.tbo_promised_amount,
+			Task.tbo_escalation_level,
+		)
 		.where(
 			(Task.reference_doctype == "CRM Deal")
 			& (Task.reference_docname == deal)
@@ -115,6 +138,24 @@ def get_follow_ups(deal: str) -> list[dict]:
 		.orderby(Task.due_date)
 		.limit(TASK_LIMIT)
 	).run(as_dict=True)
+
+
+def get_deal_exceptions(deal: str) -> list[dict]:
+	"""Open, waiting and approved exceptions on the deal (Phase 2)."""
+	return frappe.get_all(
+		"TBO Finance Exception",
+		filters={"crm_deal": deal, "status": ("in", ["Open", "Pending Approval", "Approved"])},
+		fields=[
+			"name",
+			"exception_type",
+			"requested_action",
+			"status",
+			"reference_name",
+			"new_due_date",
+			"pause_until",
+		],
+		order_by="creation desc",
+	)
 
 
 @frappe.whitelist(methods=["POST"])

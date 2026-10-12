@@ -176,7 +176,22 @@ doc_events = {
 
 after_migrate = ["tbo_smart.finance.setup.after_migrate"]
 
-scheduler_events = {"daily": ["tbo_smart.finance.stage.recompute_all"]}
+scheduler_events = {
+	"daily": ["tbo_smart.finance.stage.recompute_all"],
+	"cron": {
+		# Phase 2 (receivables): digest at 08:00, reminders at 09:00, site time
+		"0 8 * * *": ["tbo_smart.finance.digest.send_digest"],
+		"0 9 * * *": ["tbo_smart.finance.reminders.run_reminders"],
+	},
+}
+
+permission_query_conditions = {
+	"TBO Finance Exception": "tbo_smart.finance.access.exception_query_conditions",
+}
+
+has_permission = {
+	"TBO Finance Exception": "tbo_smart.finance.access.has_exception_permission",
+}
 
 override_whitelisted_methods = {
 	"crm.fcrm.doctype.erpnext_crm_settings.erpnext_crm_settings.can_create_quotations": "tbo_smart.api.finance.quotation.can_create_desk_quotations"

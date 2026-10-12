@@ -1,0 +1,340 @@
+{
+ "actions": [],
+ "autoname": "TBO-EXC-.YYYY.-.#####",
+ "creation": "2026-10-12 20:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "category",
+  "exception_type",
+  "source",
+  "column_break_1",
+  "status",
+  "requested_action",
+  "reference_section",
+  "reference_doctype",
+  "reference_name",
+  "payment_schedule",
+  "column_break_2",
+  "company",
+  "customer",
+  "crm_deal",
+  "amounts_section",
+  "currency",
+  "expected_amount",
+  "column_break_3",
+  "actual_amount",
+  "difference",
+  "request_section",
+  "reason",
+  "new_due_date",
+  "pause_until",
+  "column_break_4",
+  "resolution_reference_doctype",
+  "resolution_reference_name",
+  "decision_section",
+  "requested_by",
+  "approved_by",
+  "approved_on",
+  "column_break_5",
+  "decision_remarks",
+  "dedupe_key"
+ ],
+ "fields": [
+  {
+   "fieldname": "category",
+   "fieldtype": "Select",
+   "label": "Category",
+   "options": "Receivable\nAllocation\nTransfer\nBank Reconciliation",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "exception_type",
+   "fieldtype": "Select",
+   "label": "Exception type",
+   "options": "Overpayment\nPayment to wrong entity\nClient dispute\nExtension request\nPause request\nWrite-off request\nReceipt via Journal Entry\nReceipt cancelled after transfer\nVAT ratio changed\nShort transfer\nExcess transfer\nTransfer pending\nPossible duplicate\nUnmatched bank line\nAmount mismatch",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "source",
+   "fieldtype": "Select",
+   "label": "Source",
+   "options": "User\nSystem",
+   "default": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Open\nPending Approval\nApproved\nRejected",
+   "default": "Open",
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "allow_on_submit": 0
+  },
+  {
+   "fieldname": "requested_action",
+   "fieldtype": "Select",
+   "label": "Requested action",
+   "options": "\nExtend due date\nPause reminders\nWaive balance\nAccept difference\nCorrect entry\nMark duplicate\nNot an issue"
+  },
+  {
+   "fieldname": "reference_section",
+   "fieldtype": "Section Break",
+   "label": "Reference"
+  },
+  {
+   "fieldname": "reference_doctype",
+   "fieldtype": "Link",
+   "label": "Reference type",
+   "options": "DocType"
+  },
+  {
+   "fieldname": "reference_name",
+   "fieldtype": "Dynamic Link",
+   "label": "Reference",
+   "options": "reference_doctype",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "payment_schedule",
+   "fieldtype": "Data",
+   "label": "Payment term row",
+   "description": "Payment Schedule row of the invoice, when the exception is about one term."
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "Customer",
+   "options": "Customer",
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "crm_deal",
+   "fieldtype": "Link",
+   "label": "CRM Deal",
+   "options": "CRM Deal"
+  },
+  {
+   "fieldname": "amounts_section",
+   "fieldtype": "Section Break",
+   "label": "Amounts"
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency"
+  },
+  {
+   "fieldname": "expected_amount",
+   "fieldtype": "Currency",
+   "label": "Expected",
+   "options": "currency"
+  },
+  {
+   "fieldname": "column_break_3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "actual_amount",
+   "fieldtype": "Currency",
+   "label": "Actual",
+   "options": "currency"
+  },
+  {
+   "fieldname": "difference",
+   "fieldtype": "Currency",
+   "label": "Difference",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "request_section",
+   "fieldtype": "Section Break",
+   "label": "Request"
+  },
+  {
+   "fieldname": "reason",
+   "fieldtype": "Small Text",
+   "label": "Reason",
+   "reqd": 1
+  },
+  {
+   "fieldname": "new_due_date",
+   "fieldtype": "Date",
+   "label": "New due date",
+   "depends_on": "eval:doc.requested_action=='Extend due date'",
+   "mandatory_depends_on": "eval:doc.requested_action=='Extend due date'"
+  },
+  {
+   "fieldname": "pause_until",
+   "fieldtype": "Date",
+   "label": "Pause until",
+   "depends_on": "eval:doc.requested_action=='Pause reminders'",
+   "mandatory_depends_on": "eval:doc.requested_action=='Pause reminders'"
+  },
+  {
+   "fieldname": "column_break_4",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "resolution_reference_doctype",
+   "fieldtype": "Link",
+   "label": "Resolution document type",
+   "options": "DocType"
+  },
+  {
+   "fieldname": "resolution_reference_name",
+   "fieldtype": "Dynamic Link",
+   "label": "Resolution document",
+   "options": "resolution_reference_doctype",
+   "description": "The correcting document: credit note, journal entry, cancelled duplicate. Required to approve a waiver."
+  },
+  {
+   "fieldname": "decision_section",
+   "fieldtype": "Section Break",
+   "label": "Decision"
+  },
+  {
+   "fieldname": "requested_by",
+   "fieldtype": "Link",
+   "label": "Sent for approval by",
+   "options": "User",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "approved_by",
+   "fieldtype": "Link",
+   "label": "Decided by",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "approved_on",
+   "fieldtype": "Datetime",
+   "label": "Decided on",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_5",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "decision_remarks",
+   "fieldtype": "Small Text",
+   "label": "Decision remarks",
+   "read_only": 1
+  },
+  {
+   "fieldname": "dedupe_key",
+   "fieldtype": "Data",
+   "label": "Dedupe key",
+   "read_only": 1,
+   "hidden": 1,
+   "search_index": 1,
+   "no_copy": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-10-12 20:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tbo Smart",
+ "name": "TBO Finance Exception",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "create": 1,
+   "write": 1,
+   "delete": 1,
+   "share": 1,
+   "email": 1
+  },
+  {
+   "role": "Accounts Manager",
+   "read": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "create": 1,
+   "write": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Accounts User",
+   "read": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "create": 1,
+   "write": 1,
+   "email": 1
+  },
+  {
+   "role": "TBO Finance Approver",
+   "read": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "write": 1,
+   "email": 1
+  },
+  {
+   "role": "TBO Management",
+   "read": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1
+  },
+  {
+   "role": "Sales Manager",
+   "read": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "create": 1
+  },
+  {
+   "role": "Sales User",
+   "read": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "create": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "exception_type",
+ "track_changes": 1
+}

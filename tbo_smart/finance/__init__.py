@@ -17,6 +17,13 @@ def finance_enabled() -> bool:
 	return bool(cint(frappe.db.get_single_value(SETTINGS, "enable_finance_workflow")))
 
 
+def receivables_enabled() -> bool:
+	"""Phase 2 switch (Receivables and reminders); needs Phase 1 on too."""
+	return finance_enabled() and bool(
+		cint(frappe.db.get_single_value(SETTINGS, "enable_finance_receivables"))
+	)
+
+
 def get_setting(fieldname: str):
 	return frappe.db.get_single_value(SETTINGS, fieldname)
 

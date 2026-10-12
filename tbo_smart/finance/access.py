@@ -14,6 +14,7 @@ from frappe import _
 from frappe.permissions import add_permission
 from frappe.utils import cint
 
+from tbo_smart.api.mobile.capabilities import get_sales_team
 from tbo_smart.finance import finance_enabled, get_crm_roles, get_setting
 
 # Roles that always see amounts: managers, approvers and accounts.
@@ -137,3 +138,60 @@ def grant_read(doctype: str, role: str) -> list[dict]:
 	return [
 		{"name": frappe.db.get_value("Custom DocPerm", {"parent": doctype, "role": role, "permlevel": 0})}
 	]
+
+
+# ---------- Phase 2: receivables and exceptions ----------
+
+# Roles that see every receivable and exception (plan §9: accounts, finance, management).
+FINANCE_VIEW_ROLES = {
+	"System Manager",
+	"Accounts User",
+	"Accounts Manager",
+	"TBO Finance Approver",
+	"TBO Management",
+	"Sales Manager",
+	"Sales & Marketing Head",
+	"Director",
+	"CEO",
+}
+
+
+def sees_all_receivables(user: str | None = None) -> bool:
+	user = user or frappe.session.user
+	return user == "Administrator" or bool(set(frappe.get_roles(user)) & FINANCE_VIEW_ROLES)
+
+
+def get_deal_owners_in_scope(user: str | None = None) -> list[str] | None:
+	"""Deal owners whose receivables `user` sees; None means everyone. A salesperson sees
+	their own deals, a manager in the sales hierarchy their team."""
+	user = user or frappe.session.user
+	if sees_all_receivables(user):
+		return None
+	return get_sales_team(user)
+
+
+def exception_query_conditions(user: str | None = None) -> str:
+	"""permission_query_conditions for TBO Finance Exception."""
+	user = user or frappe.session.user
+	owners = get_deal_owners_in_scope(user)
+	if owners is None:
+		return ""
+	escaped = ", ".join(frappe.db.escape(owner) for owner in owners)
+	return (
+		f"(`tabTBO Finance Exception`.owner = {frappe.db.escape(user)} or `tabTBO Finance Exception`.crm_deal in "
+		f"(select name from `tabCRM Deal` where deal_owner in ({escaped})))"
+	)
+
+
+def has_exception_permission(doc, ptype: str | None = None, user: str | None = None) -> bool:
+	"""has_permission for TBO Finance Exception: everyone in scope reads; only the finance
+	roles edit (status changes go through the API either way)."""
+	user = user or frappe.session.user
+	owners = get_deal_owners_in_scope(user)
+	if owners is None:
+		return True
+	if doc.owner == user or (
+		doc.crm_deal and frappe.db.get_value("CRM Deal", doc.crm_deal, "deal_owner") in owners
+	):
+		return ptype in (None, "read", "select", "print", "email", "create") or doc.owner == user
+	return False

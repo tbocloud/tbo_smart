@@ -27,10 +27,10 @@ from tbo_smart.test_utils import (
 	make_crm_product,
 	make_deal_quotation,
 	make_finance_deal,
+	make_finance_item,
 	make_invoice_from_order,
 	make_manual_order,
 	make_order_from_quotation,
-	make_quotation_item,
 	make_receipt,
 	make_user,
 	reset_finance_settings,
@@ -234,7 +234,7 @@ class TestStage(FinanceTestCase):
 
 class TestQuotationApi(FinanceTestCase):
 	def test_dialog_prefills_from_the_deal(self):
-		product = make_crm_product(make_quotation_item())
+		product = make_crm_product(make_finance_item())
 		deal = make_finance_deal(
 			BDE,
 			products=[
@@ -254,7 +254,7 @@ class TestQuotationApi(FinanceTestCase):
 		[item] = form["items"]
 		self.assertEqual(
 			(item["item_code"], item["qty"], item["price_list_rate"], item["discount_percentage"]),
-			(make_quotation_item(), 3, 250, 4),
+			(make_finance_item(), 3, 250, 4),
 		)
 
 	def test_save_edit_and_submit_a_draft(self):
@@ -267,7 +267,7 @@ class TestQuotationApi(FinanceTestCase):
 			"terms": "Net 30",
 			"items": [
 				{
-					"item_code": make_quotation_item(),
+					"item_code": make_finance_item(),
 					"qty": 2,
 					"price_list_rate": 500,
 					"discount_percentage": 10,
@@ -288,7 +288,7 @@ class TestQuotationApi(FinanceTestCase):
 		deal = make_finance_deal(BDE)
 		frappe.set_user(BDE)
 		saved = quotation_api.save_quotation(
-			deal, {"items": [{"item_code": make_quotation_item(), "qty": 1, "price_list_rate": 10}]}
+			deal, {"items": [{"item_code": make_finance_item(), "qty": 1, "price_list_rate": 10}]}
 		)
 		frappe.set_user("Administrator")
 		frappe.db.set_value(
@@ -303,7 +303,7 @@ class TestQuotationApi(FinanceTestCase):
 		frappe.set_user("Administrator")
 		other_quotation = make_deal_quotation(other, submit=False)
 		frappe.set_user(BDE)
-		values = {"items": [{"item_code": make_quotation_item(), "qty": 1, "price_list_rate": 10}]}
+		values = {"items": [{"item_code": make_finance_item(), "qty": 1, "price_list_rate": 10}]}
 		with self.assertRaises(frappe.PermissionError):
 			quotation_api.save_quotation(other, values)
 		with self.assertRaises(frappe.PermissionError):
@@ -311,7 +311,7 @@ class TestQuotationApi(FinanceTestCase):
 		with self.assertRaises(frappe.ValidationError):
 			quotation_api.save_quotation(deal, {"items": []})
 		with self.assertRaises(frappe.ValidationError):
-			quotation_api.save_quotation(deal, {"items": [{"item_code": make_quotation_item(), "qty": 0}]})
+			quotation_api.save_quotation(deal, {"items": [{"item_code": make_finance_item(), "qty": 0}]})
 
 	def test_desk_action_hidden_while_switched_on(self):
 		frappe.set_user(BDE)
