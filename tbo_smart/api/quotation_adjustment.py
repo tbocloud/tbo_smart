@@ -254,10 +254,12 @@ def get_pending_approvals() -> list[dict]:
 		.run(as_dict=True)
 	)
 	names = get_full_names({row.requested_by for row in rows})
+	currencies = get_currencies({row.quotation for row in rows})
 	settings = get_settings()
 	pending = []
 	for row in rows:
 		item = serialize_adjustment(row, names)
+		item["currency"] = currencies.get(row.quotation)
 		item["can_approve_in_full"] = settings.is_within(
 			settings.get_limit(level, row.kind), row.requested_percent
 		)
@@ -287,7 +289,8 @@ def get_adjustment_requests(scope: str = "mine") -> list[dict]:
 		.run(as_dict=True)
 	)
 	names = get_full_names({row.requested_by for row in rows})
-	return [serialize_adjustment(row, names) for row in rows]
+	currencies = get_currencies({row.quotation for row in rows})
+	return [{**serialize_adjustment(row, names), "currency": currencies.get(row.quotation)} for row in rows]
 
 
 @frappe.whitelist()
@@ -310,6 +313,20 @@ def get_adjustment_trail(name: str) -> dict:
 		for step in adjustment.steps
 	]
 	return data
+
+
+def get_currencies(quotations: set[str]) -> dict[str, str]:
+	"""Each quotation's currency, so a list can show its value with the right symbol."""
+	if not quotations:
+		return {}
+	Quotation = frappe.qb.DocType("Quotation")
+	rows = (
+		frappe.qb.from_(Quotation)
+		.select(Quotation.name, Quotation.currency)
+		.where(Quotation.name.isin(list(quotations)))
+		.run()
+	)
+	return dict(rows)
 
 
 def can_view_all(level) -> bool:

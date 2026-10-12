@@ -449,7 +449,12 @@ class TestQuotationAdjustment(FrappeTestCase):
 		api.decide_adjustment(name, "forward", remarks="Over my limit")
 
 		frappe.set_user(DIRECTOR)
-		self.assertTrue({name, other} <= {row["name"] for row in api.get_adjustment_requests("all")})
+		every = {row["name"]: row for row in api.get_adjustment_requests("all")}
+		self.assertTrue({name, other} <= set(every))
+		self.assertEqual(every[name]["currency"], mine.currency)
+		self.assertEqual(
+			{row["name"]: row["currency"] for row in api.get_pending_approvals()}.get(other), mine.currency
+		)
 		trail = api.get_adjustment_trail(name)
 		self.assertEqual([step["action"] for step in trail["steps"]], ["Requested", "Forwarded"])
 		self.assertEqual(trail["steps"][1]["by_user"], BDM)
