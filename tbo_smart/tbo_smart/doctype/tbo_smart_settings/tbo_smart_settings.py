@@ -29,6 +29,7 @@ class TBOSmartSettings(Document):
 		amount_tolerance: DF.Currency
 		default_vat_rate: DF.Percent
 		enable_fund_allocation: DF.Check
+		enable_reconciliation: DF.Check
 		enable_finance_receivables: DF.Check
 		enable_finance_workflow: DF.Check
 		escalation_finance_manager: DF.Link | None
@@ -46,8 +47,10 @@ class TBOSmartSettings(Document):
 		oauth_client: DF.Link | None
 		partner_company: DF.Link | None
 		reminder_sender: DF.Link | None
+		second_approval_amount: DF.Currency
 		send_client_reminders: DF.Check
 		transfer_pending_days: DF.Int
+		unmatched_alert_days: DF.Int
 		weekly_client_reminders: DF.Check
 	# end: auto-generated types
 

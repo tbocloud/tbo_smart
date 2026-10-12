@@ -15,7 +15,13 @@ import frappe
 from frappe import _
 from frappe.utils import cint
 
-from tbo_smart.finance import finance_enabled, get_default_company, publish_deal_update
+from tbo_smart.finance import (
+	allocation_enabled,
+	finance_enabled,
+	get_default_company,
+	publish_deal_update,
+	reconciliation_enabled,
+)
 from tbo_smart.finance.deal_finance import AMOUNT_TOLERANCE, DealFinance
 from tbo_smart.finance.deal_links import deals_of, deals_of_quotations
 
@@ -25,9 +31,11 @@ def compute_stage(deal, finance: DealFinance) -> str:
 	deal has nothing post-sale yet (no customer, onboarding, quotation or invoice)."""
 	if cint(deal.get("tbo_closed")):
 		return "Closed"
+	if reconciliation_enabled() and finance.open_exceptions():
+		return "On Exception"
 	if finance.sales_invoices():
 		if finance.outstanding() <= AMOUNT_TOLERANCE:
-			return "Collected"
+			return after_collection(finance)
 		if finance.received() > AMOUNT_TOLERANCE or finance.overdue_by_invoice():
 			return "Collecting"
 		return "Invoiced"
@@ -36,6 +44,22 @@ def compute_stage(deal, finance: DealFinance) -> str:
 	if deal.get("erpnext_customer"):
 		return "Onboarding"
 	return ""
+
+
+def after_collection(finance: DealFinance) -> str:
+	"""Everything invoiced is paid. With Phase 3 on, India's share must be transferred
+	(Settling until then); with Phase 4 on, every receipt's bank line must be verified
+	(Reconciled). Without those phases the deal stays Collected."""
+	if allocation_enabled() and finance.allocation_pending():
+		return "Settling"
+	if reconciliation_enabled() and finance.receipts_verified():
+		return "Reconciled"
+	return "Collected"
+
+
+def closable_stage() -> str:
+	"""The stage a deal must reach before Accounts can close its finance (§2, stage 15)."""
+	return "Reconciled" if reconciliation_enabled() else "Collected"
 
 
 def write_deal(deal, values: dict, comment: str | None = None) -> None:

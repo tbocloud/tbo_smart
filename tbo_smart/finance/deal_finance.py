@@ -229,3 +229,55 @@ class DealFinance:
 
 	def received(self) -> float:
 		return sum(flt(row.amount) for row in self.payments)
+
+	# ---------- Phases 3 and 4 ----------
+
+	def open_exceptions(self) -> bool:
+		return bool(
+			frappe.db.exists(
+				"TBO Finance Exception",
+				{"crm_deal": self.deal, "status": ("in", ["Open", "Pending Approval"])},
+			)
+		)
+
+	def allocation_pending(self) -> bool:
+		"""Some allocation line of this deal still has India's share open."""
+		Line = frappe.qb.DocType("TBO Fund Allocation Line")
+		Allocation = frappe.qb.DocType("TBO Fund Allocation")
+		return bool(
+			(
+				frappe.qb.from_(Line)
+				.join(Allocation)
+				.on(Line.parent == Allocation.name)
+				.select(Allocation.name)
+				.where(
+					(Allocation.docstatus == 1)
+					& (Line.crm_deal == self.deal)
+					& (Allocation.status != "Reversed")
+					& (Allocation.outstanding_amount != 0)
+				)
+				.limit(1)
+			).run()
+		)
+
+	def receipts_verified(self) -> bool:
+		"""Every receipt of the deal is on a bank line that a second person verified."""
+		receipts = [row.name for row in self.payments if row.payment_type == "Receive"]
+		if not receipts:
+			return False
+		Row = frappe.qb.DocType("Bank Transaction Payments")
+		Line = frappe.qb.DocType("Bank Transaction")
+		verified = (
+			frappe.qb.from_(Row)
+			.join(Line)
+			.on(Row.parent == Line.name)
+			.select(Row.payment_entry)
+			.distinct()
+			.where(
+				(Row.payment_document == "Payment Entry")
+				& Row.payment_entry.isin(receipts)
+				& (Line.docstatus == 1)
+				& (Line.tbo_verification == "Verified")
+			)
+		).run(pluck=True)
+		return set(receipts) <= set(verified)

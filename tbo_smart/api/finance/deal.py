@@ -10,7 +10,13 @@ from frappe import _
 from frappe.utils import cint, get_url_to_form
 
 from tbo_smart.api.finance.allocations import can_see_allocations, get_deal_allocation
-from tbo_smart.finance import allocation_enabled, finance_enabled, get_default_company, receivables_enabled
+from tbo_smart.finance import (
+	allocation_enabled,
+	finance_enabled,
+	get_default_company,
+	receivables_enabled,
+	reconciliation_enabled,
+)
 from tbo_smart.finance.access import (
 	can_close,
 	can_see_amounts,
@@ -20,11 +26,21 @@ from tbo_smart.finance.access import (
 	sees_all_receivables,
 )
 from tbo_smart.finance.deal_finance import DealFinance
-from tbo_smart.finance.stage import compute_stage, update_stage, write_deal
+from tbo_smart.finance.stage import closable_stage, compute_stage, update_stage, write_deal
 from tbo_smart.tbo_smart.doctype.tbo_finance_exception.tbo_finance_exception import is_approver
 
 # Stages the tab shows in Phase 1, in order. Settling and Reconciled join with Phases 3 and 4.
 PHASE_STAGES = ["Onboarding", "Quotation", "Invoiced", "Collecting", "Collected", "Closed"]
+SETTLING_STAGES = [
+	"Onboarding",
+	"Quotation",
+	"Invoiced",
+	"Collecting",
+	"Collected",
+	"Settling",
+	"Reconciled",
+	"Closed",
+]
 AMOUNT_FIELDS = {
 	"orders": ("grand_total", "advance_paid"),
 	"invoices": ("grand_total", "rounded_total", "outstanding_amount", "overdue"),
@@ -50,6 +66,7 @@ def get_finance_access() -> dict:
 		"sees_all_receivables": receivables and (sees_all_receivables() or is_finance_user()),
 		"is_approver": receivables and is_approver(),
 		"allocations": enabled and allocation_enabled() and can_see_allocations(),
+		"reconciliation": enabled and reconciliation_enabled() and can_see_allocations(),
 	}
 
 
@@ -74,7 +91,8 @@ def get_deal_finance(deal: str) -> dict:
 	data = {
 		"deal": deal,
 		"stage": doc.tbo_stage or compute_stage(doc, finance),
-		"stages": PHASE_STAGES,
+		"stages": SETTLING_STAGES if reconciliation_enabled() else PHASE_STAGES,
+		"closable_stage": closable_stage(),
 		"company": doc.get("tbo_company") or get_default_company(),
 		"customer": doc.get("erpnext_customer"),
 		"onboarding_complete": cint(doc.get("tbo_onboarding_complete")),
@@ -191,8 +209,14 @@ def set_finance_closed(deal: str, closed: int | bool = 1) -> dict:
 	value = 1 if cint(closed) else 0
 	if cint(doc.tbo_closed) == value:
 		return {"closed": value, "stage": doc.tbo_stage}
-	if value and compute_stage(doc, DealFinance(deal)) != "Collected":
-		frappe.throw(_("A deal can be closed only when every invoice is collected."))
+	if value and compute_stage(doc, DealFinance(deal)) != closable_stage():
+		frappe.throw(
+			_("A deal can be closed only when every invoice is collected.")
+			if closable_stage() == "Collected"
+			else _(
+				"A deal can be closed only when it is Reconciled: collected, India's share transferred, every receipt verified, no open exceptions."
+			)
+		)
 	write_deal(
 		doc,
 		{"tbo_closed": value},

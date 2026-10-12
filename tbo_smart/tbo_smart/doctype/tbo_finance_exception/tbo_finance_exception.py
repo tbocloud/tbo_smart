@@ -15,7 +15,8 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt, getdate, now_datetime, today
 
-from tbo_smart.finance import publish_deal_update
+from tbo_smart.finance import get_setting, publish_deal_update, reconciliation_enabled
+from tbo_smart.finance.stage import update_stage
 
 APPROVER_ROLES = ("TBO Finance Approver",)
 TRANSITIONS = {
@@ -93,6 +94,8 @@ class TBOFinanceException(Document):
 			"Amount mismatch",
 		]
 		expected_amount: DF.Currency
+		first_approved_by: DF.Link | None
+		first_approved_on: DF.Datetime | None
 		new_due_date: DF.Date | None
 		pause_until: DF.Date | None
 		payment_schedule: DF.Data | None
@@ -186,6 +189,13 @@ class TBOFinanceException(Document):
 				frappe.throw(_("Give a reason for the rejection."))
 			if action == "approve":
 				self.check_ready_to_approve()
+				if self.needs_second_approval() and not self.first_approved_by:
+					self.record_first_approval(remarks)
+					return
+				if self.first_approved_by == frappe.session.user:
+					frappe.throw(
+						_("A second, different approver must approve this one."), frappe.PermissionError
+					)
 			self.approved_by = frappe.session.user
 			self.approved_on = now_datetime()
 			self.decision_remarks = remarks
@@ -199,6 +209,23 @@ class TBOFinanceException(Document):
 		self.add_comment("Info", self.describe_action(action, remarks))
 		if action == "approve":
 			self.apply_approval()
+
+	def needs_second_approval(self) -> bool:
+		"""Q5: above TBO Smart Settings → Second approval above, two different approvers."""
+		if not reconciliation_enabled():
+			return False
+		threshold = flt(get_setting("second_approval_amount"))
+		amount = max(abs(flt(self.difference)), abs(flt(self.expected_amount)), abs(flt(self.actual_amount)))
+		return bool(threshold) and amount > threshold
+
+	def record_first_approval(self, remarks: str | None):
+		self.first_approved_by = frappe.session.user
+		self.first_approved_on = now_datetime()
+		self.flags.from_action = True
+		self.save(ignore_permissions=True)
+		self.add_comment(
+			"Info", _("First approval; a second approver is needed. {0}").format(remarks or "").strip()
+		)
 
 	def check_requester(self):
 		if not frappe.has_permission(self.doctype, "write", doc=self) and self.owner != frappe.session.user:
@@ -278,6 +305,9 @@ class TBOFinanceException(Document):
 	def notify_deal(self):
 		if self.crm_deal:
 			publish_deal_update([self.crm_deal])
+			if reconciliation_enabled():
+				# Phase 4: an open exception puts the deal On Exception
+				update_stage(self.crm_deal)
 
 
 def is_approver(user: str | None = None) -> bool:
