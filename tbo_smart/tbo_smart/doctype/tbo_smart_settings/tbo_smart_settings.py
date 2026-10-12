@@ -20,6 +20,15 @@ class TBOSmartSettings(Document):
 		from frappe.types import DF
 
 		accounts_lead: DF.Link | None
+		allocation_accounting_option: DF.Literal[
+			"Memo only", "Monthly inter-company invoice", "Journal Entry per receipt"
+		]
+		allocation_base_after_bank_charges: DF.Check
+		allocation_percent: DF.Percent
+		allocation_start_date: DF.Date | None
+		amount_tolerance: DF.Currency
+		default_vat_rate: DF.Percent
+		enable_fund_allocation: DF.Check
 		enable_finance_receivables: DF.Check
 		enable_finance_workflow: DF.Check
 		escalation_finance_manager: DF.Link | None
@@ -35,14 +44,17 @@ class TBOSmartSettings(Document):
 		microsoft_mobile_client_id: DF.Data | None
 		microsoft_tenant_id: DF.SmallText | None
 		oauth_client: DF.Link | None
+		partner_company: DF.Link | None
 		reminder_sender: DF.Link | None
 		send_client_reminders: DF.Check
+		transfer_pending_days: DF.Int
 		weekly_client_reminders: DF.Check
 	# end: auto-generated types
 
 	def validate(self):
 		self.validate_microsoft_tenant_ids()
 		self.validate_finance_roles()
+		self.validate_allocation()
 
 	def on_update(self):
 		self.grant_finance_crm_read()
@@ -78,3 +90,23 @@ class TBOSmartSettings(Document):
 	def create_collections_view(self):
 		if self.enable_finance_workflow and self.enable_finance_receivables:
 			create_collections_view()
+
+	def validate_allocation(self):
+		if not self.enable_fund_allocation:
+			return
+		if not (self.invoicing_company and self.partner_company):
+			frappe.throw(
+				_("Set the invoicing company and the partner company before switching allocation on.")
+			)
+		if self.invoicing_company == self.partner_company:
+			frappe.throw(_("The invoicing and partner companies must differ."))
+		if not 0 < (self.allocation_percent or 0) <= 100:
+			frappe.throw(_("Partner share % must be between 0 and 100."))
+		if self.allocation_accounting_option and self.allocation_accounting_option != "Memo only":
+			frappe.msgprint(
+				_(
+					"Only Memo only is built so far: allocations and transfers still post nothing to the accounts."
+				),
+				indicator="orange",
+				alert=True,
+			)

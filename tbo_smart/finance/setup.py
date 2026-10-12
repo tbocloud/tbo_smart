@@ -186,6 +186,13 @@ def setup_finance() -> None:
 	create_finance_roles()
 	track_task_changes()
 	create_email_templates()
+	set_allocation_start_date()
+
+
+def set_allocation_start_date() -> None:
+	"""Q16: allocation starts on the deploy date, the first migrate with Phase 3, unless set."""
+	if not frappe.db.get_single_value("TBO Smart Settings", "allocation_start_date"):
+		frappe.db.set_single_value("TBO Smart Settings", "allocation_start_date", frappe.utils.today())
 
 
 def create_finance_roles() -> None:

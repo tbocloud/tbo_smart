@@ -13,7 +13,8 @@ from frappe import _
 from frappe.desk.doctype.notification_log.notification_log import enqueue_create_notification
 from frappe.utils import add_days, date_diff, flt, fmt_money, formatdate, getdate, today
 
-from tbo_smart.finance import get_setting, receivables_enabled
+from tbo_smart.finance import allocation_enabled, get_setting, receivables_enabled
+from tbo_smart.finance.allocation import allocation_totals
 from tbo_smart.finance.reminders import ReminderRun, load_exceptions
 
 FINAL_NOTICE_DAYS = 30
@@ -59,6 +60,7 @@ def build_digest(on_date=None) -> dict:
 		group_by="status",
 	)
 	return {
+		"allocation": allocation_digest(),
 		"date": day,
 		"since": add_days(day, -1),
 		"totals": list(totals.values()),
@@ -66,6 +68,43 @@ def build_digest(on_date=None) -> dict:
 		"final_notice": sorted(final_notice, key=lambda item: -item["days_overdue"]),
 		"exceptions": {row.status: row["count"] for row in exceptions},
 	}
+
+
+def allocation_digest() -> dict | None:
+	"""Phase 3: payable to the partner and transfers still waiting for India."""
+	if not allocation_enabled():
+		return None
+	company = get_setting("invoicing_company")
+	totals = allocation_totals(company)
+	pending_transfers = frappe.db.count(
+		"TBO Fund Transfer", {"docstatus": 1, "status": "Sent", "from_company": company}
+	)
+	return {
+		"pending": [{"currency": row["currency"], "amount": row["pending"]} for row in totals],
+		"due_from_partner": [
+			{"currency": row["currency"], "amount": row["due_from_partner"]}
+			for row in totals
+			if row["due_from_partner"]
+		],
+		"pending_transfers": pending_transfers,
+	}
+
+
+def render_allocation(allocation: dict | None) -> str:
+	if not allocation:
+		return ""
+	payable = (
+		", ".join(fmt_money(row["amount"], currency=row["currency"]) for row in allocation["pending"]) or "0"
+	)
+	text = _("Payable to the partner: {0}. Transfers waiting for India: {1}.").format(
+		payable, allocation["pending_transfers"]
+	)
+	if allocation["due_from_partner"]:
+		due = ", ".join(
+			fmt_money(row["amount"], currency=row["currency"]) for row in allocation["due_from_partner"]
+		)
+		text += " " + _("Due from the partner: {0}.").format(due)
+	return f"<p>{text}</p>"
 
 
 def render_row(item: dict) -> str:
@@ -102,6 +141,7 @@ def render_digest(digest: dict) -> str:
 	)
 	return "".join(
 		[
+			render_allocation(digest.get("allocation")),
 			f"<p>{_('Receivables on {0}').format(formatdate(digest['date']))}</p><ul>{totals}</ul>",
 			f"<h4>{_('Fell overdue since yesterday')}</h4>{render_table(digest['newly_overdue'])}",
 			f"<h4>{_('30 or more days overdue')}</h4>{render_table(digest['final_notice'])}",

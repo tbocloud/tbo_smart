@@ -28,7 +28,18 @@
   "accounts_lead",
   "escalation_sales_head",
   "escalation_finance_manager",
-  "management_digest_recipients"
+  "management_digest_recipients",
+  "allocation_section",
+  "enable_fund_allocation",
+  "partner_company",
+  "allocation_percent",
+  "allocation_start_date",
+  "allocation_accounting_option",
+  "column_break_allocation",
+  "allocation_base_after_bank_charges",
+  "default_vat_rate",
+  "amount_tolerance",
+  "transfer_pending_days"
  ],
  "fields": [
   {
@@ -204,12 +215,91 @@
    "fieldtype": "Small Text",
    "label": "Daily digest recipients",
    "description": "Email addresses, one per line or separated by commas."
+  },
+  {
+   "fieldname": "allocation_section",
+   "fieldtype": "Section Break",
+   "label": "Allocation and transfers (Phase 3)",
+   "depends_on": "eval:doc.enable_finance_workflow"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_fund_allocation",
+   "fieldtype": "Check",
+   "label": "Allocation and transfers (Phase 3)",
+   "description": "India's share of each KSA receipt (TBO Fund Allocation) and the transfers that settle it (TBO Fund Transfer). A sub-ledger only: nothing is posted to the accounts. Needs Phase 1 on and the invoicing company set."
+  },
+  {
+   "depends_on": "eval:doc.enable_fund_allocation",
+   "fieldname": "partner_company",
+   "fieldtype": "Link",
+   "label": "Partner company",
+   "options": "Company",
+   "description": "Team Back Office India: receives the share."
+  },
+  {
+   "default": "50",
+   "depends_on": "eval:doc.enable_fund_allocation",
+   "fieldname": "allocation_percent",
+   "fieldtype": "Percent",
+   "label": "Partner share %"
+  },
+  {
+   "depends_on": "eval:doc.enable_fund_allocation",
+   "fieldname": "allocation_start_date",
+   "fieldtype": "Date",
+   "label": "Allocation start date",
+   "description": "Receipts before this date get no allocation (Q16). Set to the deploy date on the first migrate; preview earlier receipts on the Allocations page, which records nothing."
+  },
+  {
+   "default": "Memo only",
+   "depends_on": "eval:doc.enable_fund_allocation",
+   "fieldname": "allocation_accounting_option",
+   "fieldtype": "Select",
+   "label": "Accounting option (Q1)",
+   "options": "Memo only\nMonthly inter-company invoice\nJournal Entry per receipt",
+   "description": "Only Memo only is built: allocations and transfers post nothing to the GL whichever option is chosen, until Finance confirms Q1."
+  },
+  {
+   "fieldname": "column_break_allocation",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "depends_on": "eval:doc.enable_fund_allocation",
+   "fieldname": "allocation_base_after_bank_charges",
+   "fieldtype": "Check",
+   "label": "Base after the client's bank charges",
+   "description": "Off (Q5/Q6 default): the base is the amount credited to the client."
+  },
+  {
+   "default": "15",
+   "depends_on": "eval:doc.enable_fund_allocation",
+   "fieldname": "default_vat_rate",
+   "fieldtype": "Percent",
+   "label": "Default VAT %",
+   "description": "Only for money with no invoice, order or quotation to read a VAT ratio from."
+  },
+  {
+   "default": "1",
+   "depends_on": "eval:doc.enable_fund_allocation",
+   "fieldname": "amount_tolerance",
+   "fieldtype": "Currency",
+   "label": "Difference tolerance",
+   "description": "Transfer differences at or below this are not exceptions."
+  },
+  {
+   "default": "5",
+   "depends_on": "eval:doc.enable_fund_allocation",
+   "fieldname": "transfer_pending_days",
+   "fieldtype": "Int",
+   "label": "Days before a transfer counts as pending"
   }
  ],
  "index_web_pages_for_search": 0,
  "issingle": 1,
  "links": [],
- "modified": "2026-10-12 21:00:00.000000",
+ "modified": "2026-10-12 23:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Smart Settings",

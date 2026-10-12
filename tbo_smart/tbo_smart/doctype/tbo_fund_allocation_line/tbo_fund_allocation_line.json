@@ -1,0 +1,98 @@
+{
+ "istable": 1,
+ "editable_grid": 1,
+ "permissions": [],
+ "fields": [
+  {
+   "fieldname": "reference_doctype",
+   "fieldtype": "Select",
+   "label": "Against",
+   "options": "Sales Invoice\nSales Order\nUnallocated",
+   "in_list_view": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "reference_name",
+   "fieldtype": "Data",
+   "label": "Reference",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "crm_deal",
+   "fieldtype": "Link",
+   "label": "CRM Deal",
+   "options": "CRM Deal"
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency",
+   "hidden": 1
+  },
+  {
+   "fieldname": "gross_amount",
+   "fieldtype": "Currency",
+   "label": "Gross",
+   "options": "currency",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "net_ratio",
+   "fieldtype": "Float",
+   "label": "Net ratio",
+   "precision": "9"
+  },
+  {
+   "fieldname": "tax_amount",
+   "fieldtype": "Currency",
+   "label": "Tax",
+   "options": "currency"
+  },
+  {
+   "fieldname": "net_amount",
+   "fieldtype": "Currency",
+   "label": "Net",
+   "options": "currency",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "share_amount",
+   "fieldtype": "Currency",
+   "label": "Share",
+   "options": "currency",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "is_closing_receipt",
+   "fieldtype": "Check",
+   "label": "Closing receipt"
+  }
+ ],
+ "actions": [],
+ "creation": "2026-10-12 22:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-10-12 22:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tbo Smart",
+ "name": "TBO Fund Allocation Line",
+ "owner": "Administrator",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "field_order": [
+  "reference_doctype",
+  "reference_name",
+  "crm_deal",
+  "currency",
+  "gross_amount",
+  "net_ratio",
+  "tax_amount",
+  "net_amount",
+  "share_amount",
+  "is_closing_receipt"
+ ]
+}

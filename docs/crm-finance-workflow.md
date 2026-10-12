@@ -1,6 +1,6 @@
-# CRM finance workflow: lead to reconciled cash (living spec, v0.3)
+# CRM finance workflow: lead to reconciled cash (living spec, v0.4)
 
-**Status:** Phases 1 and 2 built (owner approved start 2026-10-12; management sign-off and
+**Status:** Phases 1 to 3 built (owner approved start 2026-10-12; management sign-off and
 open questions pending). Every phase ships behind its own switch in TBO Smart Settings, off by
 default, so a deploy changes nothing until the owner turns it on. This file is the living
 spec: every change updates it in the same pull request, and it describes what is built, not
@@ -217,16 +217,25 @@ New "Finance workflow" section. **Built in Phase 1:**
 | `escalation_sales_head`, `escalation_finance_manager` | Link User | Notified at D+15 and D+30; the Finance Manager also gets the digest in the app. |
 | `management_digest_recipients` | Small Text (emails) | Blank: no digest email. |
 
+**Built in Phase 3** (section "Allocation and transfers (Phase 3)"):
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `enable_fund_allocation` ("Allocation and transfers (Phase 3)") | Check | 0. Needs Phase 1 on, and refuses to switch on without both companies. |
+| `invoicing_company` | Link Company | From Phase 2: TBO KSA (Q2). |
+| `partner_company` | Link Company | TBO India. Must differ from the invoicing company. |
+| `allocation_percent` | Percent | 50 |
+| `allocation_start_date` | Date | Set to the date of the first migrate with Phase 3 (the deploy date, Q16) when blank. |
+| `allocation_accounting_option` | Select: Memo only, Monthly inter-company invoice, Journal Entry per receipt | Memo only (Q1). Only Memo only is built; choosing another shows a warning and still posts nothing. |
+| `allocation_base_after_bank_charges` | Check | 0 (Q6: base = amount credited to the client). |
+| `default_vat_rate` | Percent | 15. Used only when money has no document to read a VAT ratio from. |
+| `amount_tolerance` | Currency | 1.00. Transfer differences at or below this are not exceptions. |
+| `transfer_pending_days` | Int | 5. A transfer not confirmed by India after this many days raises an exception. |
+
 Planned for later phases (each phase adds its own switch, off by default):
 
 | Field | Type | Default |
 | --- | --- | --- |
-| `partner_company` | Link Company | India **[verify on site]** |
-| `allocation_percent` | Percent | 50 |
-| `allocation_start_date` | Date | Agreed go-live date. Receipts before it get no allocation. |
-| `allocation_base_after_bank_charges` | Check | 0. If 1, PE deductions (bank charges) reduce the base (open question Q6). |
-| `default_vat_rate` | Percent | 15. Used only when a receipt has no document to read a VAT ratio from. |
-| `amount_tolerance` | Currency | 1.00 (in the transfer currency). Differences at or below this are not exceptions. |
 | `unmatched_alert_days` | Int | 3 |
 
 ### 3.3 New doctype: TBO Fund Allocation (submittable)
@@ -796,14 +805,14 @@ Each phase ships on its own behind its own switch in TBO Smart Settings (Phase 1
 
 | # | Question | Default used in this plan |
 | --- | --- | --- |
-| Q1 | Which accounting option for India's share: monthly inter-company invoice (A), JE per receipt (B), or memo only (C)? Confirm with the tax advisor (KSA WHT, Indian GST on export of services, transfer pricing). | A |
-| Q2 | Are TBO KSA and TBO India both Companies on tboindia ERPNext? If KSA's books are elsewhere, how do we get its receipts? | Both on tboindia. Phase 1: a deal's `tbo_company` defaults to ERPNext CRM Settings' company, so today's behaviour holds (default chosen, pending confirmation). |
-| Q3 | Exchange-rate source for SAR→INR differences: the bank's achieved rate, or a reference rate (SAMA/RBI) on a date? | Bank's achieved rate |
-| Q4 | Does a refund to a client reverse India's share? If India was already paid, is the excess netted against the next transfer or paid back? | Yes; netted |
+| Q1 | Which accounting option for India's share: monthly inter-company invoice (A), JE per receipt (B), or memo only (C)? Confirm with the tax advisor (KSA WHT, Indian GST on export of services, transfer pricing). | **C, memo only** (default chosen, pending confirmation): allocations and transfers are a sub-ledger and post nothing to the GL. A and B are follow-ups. |
+| Q2 | Are TBO KSA and TBO India both Companies on tboindia ERPNext? If KSA's books are elsewhere, how do we get its receipts? | Both on tboindia; Phase 3 reads the companies from settings, and if the invoicing company does not exist allocation is skipped with an Error Log warning. Phase 1: a deal's `tbo_company` defaults to ERPNext CRM Settings' company, so today's behaviour holds (default chosen, pending confirmation). |
+| Q3 | Exchange-rate source for SAR→INR differences: the bank's achieved rate, or a reference rate (SAMA/RBI) on a date? | Bank's achieved rate: the transfer's `effective_rate` = received ÷ sent (default chosen, pending confirmation). |
+| Q4 | Does a refund to a client reverse India's share? If India was already paid, is the excess netted against the next transfer or paid back? | Yes, a Reversal allocation; netted in the next transfer (default chosen, pending confirmation). |
 | Q5 | Who approves exceptions (waivers, accepted differences, extensions)? Is there an amount limit above which Management must also approve? | Finance Manager; no limit |
-| Q6 | Is the 50% base the amount credited to the client, or the cash after the client's bank charges? | Credited to client |
-| Q7 | Who bears transfer bank charges: KSA, India, or shared? | KSA bears sending fees; India bears receiving fees |
-| Q8 | Is withholding tax deducted on KSA→India transfers? If so, does it count as paid to India? | No WHT; if any, it counts as settled |
+| Q6 | Is the 50% base the amount credited to the client, or the cash after the client's bank charges? | Credited to the client (`allocation_base_after_bank_charges` = 0; default chosen, pending confirmation). |
+| Q7 | Who bears transfer bank charges: KSA, India, or shared? | KSA bears the transfer charges: they never reduce what a transfer settles (default chosen, pending confirmation). Only invoices of the KSA company are allocated. |
+| Q8 | Is withholding tax deducted on KSA→India transfers? If so, does it count as paid to India? | Not deducted automatically; a transfer can record `withholding_tax`, which counts as settled, and a difference is a known exception type (default chosen, pending confirmation). |
 | Q9 | Does KSA issue a tax invoice for advances (VAT due on advance receipt), or receive advances against a Sales Order only? Are Sales Orders used at all? | SO + advance PE; advance tax invoice if the advisor requires it |
 | Q10 | Accounts staff post invoices and payments and reconcile banks in ERPNext screens (`/app`); CRM shows and approves. Is that acceptable, or must Accounts also post from CRM? | Acceptable (ERPNext stays the accounting screen) |
 | Q11 | Is a Microsoft Teams digest required now? | Email + in-app/push now; Teams later (default chosen, pending confirmation; `build_digest` returns structured data for a later Teams post). |
@@ -812,7 +821,7 @@ Each phase ships on its own behind its own switch in TBO Smart Settings (Phase 1
 | Q13b | Exact maximum % per designation: BDE, BDM, Head – Sales & Marketing, Director (CEO is unlimited). | None set; settings left empty until decided |
 | Q14 | Reminder wording, languages (English/Arabic) and sender mailbox; should clients get reminders at D−3? | English Email Templates, default outgoing account; client emails **off** (`send_client_reminders` = 0) until confirmed (default chosen, pending confirmation). |
 | Q15 | Does India ever invoice clients directly (INR deals)? Are those outside the 50% rule? | Yes, outside the rule; per-deal company field |
-| Q16 | Allocation start date, and whether past receipts should be back-calculated for reporting only. | Go-live date; report-only back-calculation |
+| Q16 | Allocation start date, and whether past receipts should be back-calculated for reporting only. | Deploy date (set on migrate); "Before start date" preview on the Allocations page records and posts nothing (default chosen, pending confirmation). |
 | Q17 | Can BDEs see invoice and payment amounts for their own deals? | Yes; not allocation. Setting `finance_bde_can_see_amounts`, default on (default chosen, pending confirmation). |
 | Q18 | Who is the "accounts owner" for each client (KSA Accounts staff list)? | Per deal (`tbo_accounts_owner`); fallback the KSA Accounts lead in settings, then the deal owner (default chosen, pending confirmation). |
 
@@ -1138,6 +1147,90 @@ digest and the setup records.
 4. When management agrees the wording (Q14): edit the three Email Templates, set
    **Reminder sender**, then tick **Send reminder emails to clients**.
 
+### 14.5 Phase 3: allocation and transfers (built)
+
+Switch: **TBO Smart Settings → Allocation and transfers (Phase 3)** (`enable_fund_allocation`),
+off by default, and needs Phase 1 on. While it is off no allocation is made, the transfer
+APIs refuse, the pending-transfer job does nothing and the CRM hides the page. **Memo only
+(Q1 option C):** nothing in Phase 3 posts to the GL.
+
+**Doctypes** (all `track_changes`): **TBO Fund Allocation** (submittable, `TBO-ALC-.YYYY.-`)
+with **TBO Fund Allocation Line**, and **TBO Fund Transfer** (submittable, `TBO-TRF-.YYYY.-`)
+with **TBO Fund Transfer Allocation**, as in §3.3 and §3.4. Read for Accounts User / Manager,
+TBO Finance Approver and TBO Management; Accounts create and submit transfers; only System
+Manager has full rights. Allocations are made only by the engine: a typed or copied one is
+refused, and so is cancelling one by hand.
+
+**Allocation engine** - `tbo_smart/finance/allocation.py`, on Payment Entry submit and
+cancel, and Journal Entry submit.
+
+| Event | What happens |
+| --- | --- |
+| Receipt (Receive, Customer) of the invoicing company, on or after the start date | One Receipt allocation, submitted: a line per Sales Invoice / Sales Order reference and one for the unallocated amount, by the §4.1 formula, half-up rounding. The receipt that brings an invoice to zero takes the remainder of its net and share, counting earlier receipts on the invoice **and** the advances (against its orders) pulled into it through its advances table, so example A gives 15,000 + 17,500 + 17,500 and example B gives 4,347.83 + 12,318.84. |
+| Unallocated money | Net ratio of the deal's latest submitted Sales Order, else its latest submitted Quotation, else 1 / (1 + default VAT). |
+| Refund (Pay to Customer) | A negative Reversal allocation for its net (Q4). |
+| Receipt cancelled, nothing transferred yet | Its allocation is cancelled. |
+| Receipt cancelled after a transfer | A negative Reversal for the part of the share already transferred (India owes back exactly that; the unsettled rest stops being payable), the original marked Reversed, and a "Receipt cancelled after transfer" exception (category Allocation). The receipt's allocations never block its cancellation. |
+| Customer receipt booked as a Journal Entry (customer credit + bank/cash debit) | No allocation; a "Receipt via Journal Entry" exception. |
+
+**Transfers** - TBO Fund Transfer controller, `tbo_smart/finance/transfers.py`,
+`tbo_smart/api/finance/allocations.py`.
+
+- The sending leg is an ordinary Payment Entry (Pay) of the invoicing company: amount sent and
+  sender charges are read from it (KSA bears the charges, Q7). India confirms by linking its
+  receipt (Receive, partner company): amount received, receiver charges and the achieved rate
+  (received ÷ sent, Q3) are read from it. One payment sends one transfer, and one receipt
+  confirms one.
+- Rows settle allocations: at most what is open on each, re-read with a row lock on submit so
+  two transfers cannot over-settle one allocation. Negative rows net a reversal (due from
+  India, Q4). `withholding_tax` counts as settled (Q8).
+- **Deviation:** the plan capped the rows at the amount sent. A transfer may settle more or
+  less than it sends; a difference above `amount_tolerance` raises a "Short transfer" or
+  "Excess transfer" exception and the transfer shows **Difference** until the exception is
+  decided. That is how the plan's own T11 variant (send 32,400 against 32,500) works.
+- Status: Draft → Sent (submitted) → Received (India's receipt linked); Difference while an
+  exception on it is open. Matched and Closed need verified bank lines (Phase 4).
+- Daily: a transfer still Sent after `transfer_pending_days` raises a "Transfer pending"
+  exception (once).
+- System exceptions are deduplicated by `dedupe_key` (`tbo_smart/finance/exceptions.py`):
+  one stays open per document and cause.
+
+| Method | HTTP | Returns / does |
+| --- | --- | --- |
+| `get_allocation_summary()` | GET | Payable to the partner (share), settled, pending transfer, due from the partner (negative outstanding), recent allocations and transfers, and whether the user may transfer. |
+| `get_transfer_form()` | GET | Open allocations oldest first (FIFO) and the invoicing company's submitted payments not yet used by a transfer. |
+| `create_transfer(ksa_payment_entry, transfer_date, rows, reference_no, withholding_tax)` | POST | Creates and submits a transfer; TBO Fund Transfer permissions apply. |
+| `confirm_receipt(transfer, india_payment_entry)` | POST | Links India's receipt. |
+| `preview_allocations(from_date, to_date)` | GET | Q16 "backfill for reporting": what receipts before the start date would have allocated. Records and posts nothing. Uses the plain ratio for every receipt (no closing remainder), since an invoice paid in full today does not say which past receipt settled it. |
+
+All of them, and the Finance tab's new Allocation section (`get_deal_allocation`: the deal's
+share, settled and pending), are for Accounts, Finance and Management only (risk R7); a
+salesperson gets a 403 and never sees the section. The same goes for exceptions of
+category Allocation and Transfer: their permission hooks hide them from everyone else, even
+on the salesperson's own deals. The daily digest adds the payable and
+the transfers waiting for India.
+
+**Not built (follow-ups):** accounting options A (monthly inter-company invoice) and B (journal
+entry per receipt); the nightly "VAT ratio changed" check; re-pointing an allocation when
+ERPNext's Payment Reconciliation moves an advance from an order to an invoice (the advances
+table case is handled); company-based record rules beyond ERPNext's own User Permissions.
+
+**Tests** - `tbo_smart/tests/test_finance_allocation.py`: examples A and B to the cent,
+half-up rounding, receipts outside the allocation (start date, switch, other company),
+unallocated money with the deal ratio, cancel before, after and after part of a transfer
+(reversal, exception, due from partner), refunds, Journal Entry receipts, FIFO transfer with India's
+confirmation and achieved rate, short transfer and over-settlement, a sending payment used once, the pending-transfer job,
+engine-only allocations, access (BDE refused, Accounts allowed, Finance tab section,
+allocation exceptions hidden), the reporting preview and settings validation.
+
+### 14.6 What the owner switches on after deploying Phase 3
+
+1. Check **Invoicing company** (TBO KSA) and set **Partner company** (TBO India).
+2. Check **Allocation start date** (set to the deploy date) and **Partner share %** (50).
+3. Tick **Allocation and transfers (Phase 3)**.
+4. Accounts book each transfer as a Payment Entry (Pay) in ERPNext, then record it on the CRM's
+   **Allocations** page; India confirms there with its receipt.
+
 ---
 
 ## Changelog
@@ -1147,3 +1240,4 @@ digest and the setup records.
 | 0.1 | 2026-10-12 | First plan for management approval. Quotation approval delegated to the separate "Quotation discount/commission approval" feature; its designation roles used in §9. |
 | 0.2 | 2026-10-12 | Phase 1 built (owner approved the start). §14.1 records what was built, decisions and deviations; §3.1, §3.2, §7 and §12 updated. |
 | 0.3 | 2026-10-12 | Phase 2 built: receivables, reminders, escalation, exceptions (Receivable) and digest (§14.3); §3.2 and §12 updated with the defaults chosen. |
+| 0.4 | 2026-10-12 | Phase 3 built: fund allocation per receipt and transfers, memo only (§14.5); §3.2 and §12 updated. |

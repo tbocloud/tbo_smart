@@ -9,7 +9,8 @@ import frappe
 from frappe import _
 from frappe.utils import cint, get_url_to_form
 
-from tbo_smart.finance import finance_enabled, get_default_company, receivables_enabled
+from tbo_smart.api.finance.allocations import can_see_allocations, get_deal_allocation
+from tbo_smart.finance import allocation_enabled, finance_enabled, get_default_company, receivables_enabled
 from tbo_smart.finance.access import (
 	can_close,
 	can_see_amounts,
@@ -48,6 +49,7 @@ def get_finance_access() -> dict:
 		"can_see_amounts": enabled and can_see_amounts(),
 		"sees_all_receivables": receivables and (sees_all_receivables() or is_finance_user()),
 		"is_approver": receivables and is_approver(),
+		"allocations": enabled and allocation_enabled() and can_see_allocations(),
 	}
 
 
@@ -90,6 +92,7 @@ def get_deal_finance(deal: str) -> dict:
 		"accounts_owner": doc.get("tbo_accounts_owner"),
 		"can_set_accounts_owner": receivables_enabled() and (sees_all_receivables() or is_finance_user()),
 		"exceptions": get_deal_exceptions(deal) if receivables_enabled() else [],
+		"allocation": get_deal_allocation(deal),
 	}
 	if not show_amounts:
 		hide_amounts(data)

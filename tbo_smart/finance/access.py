@@ -28,6 +28,19 @@ AMOUNT_ROLES = {
 	"Director",
 	"CEO",
 }
+# Phase 3: India's share is for accounts, finance and management only (risk R7).
+ALLOCATION_ROLES = {
+	"System Manager",
+	"Accounts User",
+	"Accounts Manager",
+	"TBO Finance Approver",
+	"TBO Management",
+	"Director",
+	"CEO",
+}
+# exceptions that state India's share; only ALLOCATION_ROLES see them
+ALLOCATION_CATEGORIES = ("Allocation", "Transfer")
+ALLOCATION_EXCEPTIONS_HIDDEN = "`tabTBO Finance Exception`.category not in ('Allocation', 'Transfer')"
 # Phase 1 closes a deal's finance with these roles; Phase 4 adds TBO Finance Approver.
 CLOSE_ROLES = {"Accounts Manager", "System Manager"}
 # The finance roles only ever read deals through the fork's bypass.
@@ -63,6 +76,12 @@ def require_deal(deal: str) -> None:
 
 def can_write_deal(deal: str) -> bool:
 	return bool(frappe.has_permission("CRM Deal", "write", doc=deal))
+
+
+def can_see_allocations(user: str | None = None) -> bool:
+	"""India's share (Phase 3) is for accounts, finance and management only (risk R7)."""
+	user = user or frappe.session.user
+	return bool(set(frappe.get_roles(user)) & ALLOCATION_ROLES) or is_finance_user(user)
 
 
 def can_see_amounts() -> bool:
@@ -174,15 +193,17 @@ def exception_query_conditions(user: str | None = None) -> str:
 	"""permission_query_conditions for TBO Finance Exception."""
 	user = user or frappe.session.user
 	owners = get_deal_owners_in_scope(user)
+	hide_allocations = "" if can_see_allocations(user) else ALLOCATION_EXCEPTIONS_HIDDEN
 	if owners is None:
-		return ""
+		return hide_allocations
 	if not exceptions_enabled():
 		return "1=0"
 	escaped = ", ".join(frappe.db.escape(owner) for owner in owners)
-	return (
+	scope = (
 		f"(`tabTBO Finance Exception`.owner = {frappe.db.escape(user)} or `tabTBO Finance Exception`.crm_deal in "
 		f"(select name from `tabCRM Deal` where deal_owner in ({escaped})))"
 	)
+	return f"{scope} and {hide_allocations}" if hide_allocations else scope
 
 
 def has_exception_permission(doc, ptype: str | None = None, user: str | None = None) -> bool:
@@ -190,6 +211,8 @@ def has_exception_permission(doc, ptype: str | None = None, user: str | None = N
 	roles edit (status changes go through the API either way). Salespeople see nothing
 	while every exception-raising phase is off."""
 	user = user or frappe.session.user
+	if doc.category in ALLOCATION_CATEGORIES and not can_see_allocations(user):
+		return False
 	owners = get_deal_owners_in_scope(user)
 	if owners is None:
 		return True

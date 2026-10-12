@@ -1,0 +1,274 @@
+{
+ "autoname": "TBO-TRF-.YYYY.-.#####",
+ "naming_rule": "Expression (old style)",
+ "is_submittable": 1,
+ "track_changes": 1,
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "create": 1,
+   "write": 1,
+   "submit": 1,
+   "cancel": 1,
+   "delete": 1,
+   "share": 1
+  },
+  {
+   "role": "Accounts Manager",
+   "read": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "create": 1,
+   "write": 1,
+   "submit": 1,
+   "cancel": 1
+  },
+  {
+   "role": "Accounts User",
+   "read": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "create": 1,
+   "write": 1,
+   "submit": 1
+  },
+  {
+   "role": "TBO Finance Approver",
+   "read": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1
+  },
+  {
+   "role": "TBO Management",
+   "read": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1
+  }
+ ],
+ "fields": [
+  {
+   "fieldname": "from_company",
+   "fieldtype": "Link",
+   "label": "From company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "to_company",
+   "fieldtype": "Link",
+   "label": "To company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "transfer_date",
+   "fieldtype": "Date",
+   "label": "Transfer date",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "reference_no",
+   "fieldtype": "Data",
+   "label": "Reference (SWIFT / UTR)",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Draft\nSent\nReceived\nMatched\nDifference\nClosed\nCancelled",
+   "default": "Draft",
+   "read_only": 1,
+   "allow_on_submit": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "ksa_section",
+   "fieldtype": "Section Break",
+   "label": "Sending leg"
+  },
+  {
+   "fieldname": "ksa_payment_entry",
+   "fieldtype": "Link",
+   "label": "Sending Payment Entry",
+   "options": "Payment Entry",
+   "reqd": 1
+  },
+  {
+   "fieldname": "amount_sent",
+   "fieldtype": "Currency",
+   "label": "Amount sent",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sender_charges",
+   "fieldtype": "Currency",
+   "label": "Sender charges",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "withholding_tax",
+   "fieldtype": "Currency",
+   "label": "Withholding tax",
+   "options": "currency"
+  },
+  {
+   "fieldname": "ksa_bank_transaction",
+   "fieldtype": "Link",
+   "label": "Sending bank line",
+   "options": "Bank Transaction",
+   "read_only": 1,
+   "allow_on_submit": 1
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "india_payment_entry",
+   "fieldtype": "Link",
+   "label": "Receiving Payment Entry",
+   "options": "Payment Entry",
+   "allow_on_submit": 1
+  },
+  {
+   "fieldname": "received_currency",
+   "fieldtype": "Link",
+   "label": "Received currency",
+   "options": "Currency",
+   "read_only": 1,
+   "allow_on_submit": 1
+  },
+  {
+   "fieldname": "amount_received",
+   "fieldtype": "Currency",
+   "label": "Amount received",
+   "options": "received_currency",
+   "read_only": 1,
+   "allow_on_submit": 1
+  },
+  {
+   "fieldname": "receiver_charges",
+   "fieldtype": "Currency",
+   "label": "Receiver charges",
+   "options": "received_currency",
+   "read_only": 1,
+   "allow_on_submit": 1
+  },
+  {
+   "fieldname": "effective_rate",
+   "fieldtype": "Float",
+   "label": "Achieved rate",
+   "precision": "6",
+   "read_only": 1,
+   "allow_on_submit": 1
+  },
+  {
+   "fieldname": "india_bank_transaction",
+   "fieldtype": "Link",
+   "label": "Receiving bank line",
+   "options": "Bank Transaction",
+   "read_only": 1,
+   "allow_on_submit": 1
+  },
+  {
+   "fieldname": "allocations_section",
+   "fieldtype": "Section Break",
+   "label": "Allocations settled"
+  },
+  {
+   "fieldname": "allocations",
+   "fieldtype": "Table",
+   "label": "Allocations",
+   "options": "TBO Fund Transfer Allocation"
+  },
+  {
+   "fieldname": "allocated_total",
+   "fieldtype": "Currency",
+   "label": "Allocated total",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "difference",
+   "fieldtype": "Currency",
+   "label": "Difference",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "options": "TBO Fund Transfer",
+   "read_only": 1,
+   "no_copy": 1,
+   "print_hide": 1
+  }
+ ],
+ "actions": [],
+ "creation": "2026-10-12 22:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-10-12 22:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tbo Smart",
+ "name": "TBO Fund Transfer",
+ "owner": "Administrator",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "field_order": [
+  "from_company",
+  "to_company",
+  "transfer_date",
+  "reference_no",
+  "column_break_1",
+  "status",
+  "currency",
+  "ksa_section",
+  "ksa_payment_entry",
+  "amount_sent",
+  "sender_charges",
+  "withholding_tax",
+  "ksa_bank_transaction",
+  "column_break_2",
+  "india_payment_entry",
+  "received_currency",
+  "amount_received",
+  "receiver_charges",
+  "effective_rate",
+  "india_bank_transaction",
+  "allocations_section",
+  "allocations",
+  "allocated_total",
+  "difference",
+  "amended_from"
+ ]
+}

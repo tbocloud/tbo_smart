@@ -785,6 +785,8 @@ def reset_finance_settings() -> None:
 			"send_client_reminders": 0,
 			"weekly_client_reminders": 0,
 			"invoicing_company": None,
+			"enable_fund_allocation": 0,
+			"partner_company": None,
 			"accounts_lead": None,
 			"escalation_sales_head": None,
 			"escalation_finance_manager": None,
@@ -837,3 +839,160 @@ def get_collection_task(invoice: str) -> frappe._dict | None:
 	"""The invoice's collection CRM Task, if any."""
 	name = frappe.db.get_value("CRM Task", {"tbo_sales_invoice": invoice, "tbo_task_type": "Collection"})
 	return frappe.get_doc("CRM Task", name) if name else None
+
+
+# ---------- Finance workflow Phase 3: allocation and transfers ----------
+
+PARTNER_TEST_COMPANY = "TBO Partner Test Company"
+
+
+def make_partner_company() -> str:
+	"""A second Company (INR, India, standard chart) standing in for TBO India."""
+	if not frappe.db.exists("Company", PARTNER_TEST_COMPANY):
+		frappe.get_doc(
+			{
+				"doctype": "Company",
+				"company_name": PARTNER_TEST_COMPANY,
+				"abbr": "TPTC",
+				"default_currency": "INR",
+				"country": "India",
+				"create_chart_of_accounts_based_on": "Standard Template",
+				"chart_of_accounts": "Standard",
+			}
+		).insert(ignore_permissions=True)
+	return PARTNER_TEST_COMPANY
+
+
+def enable_fund_allocation(**settings) -> None:
+	"""Phases 1 and 3 on: the default company invoices, the partner test company gets 50%,
+	allocation from today. `settings` overrides any TBO Smart Settings field."""
+	values = {
+		"enable_fund_allocation": 1,
+		"invoicing_company": erpnext.get_default_company(),
+		"partner_company": make_partner_company(),
+		"allocation_percent": 50,
+		"allocation_start_date": nowdate(),
+		"default_vat_rate": 15,
+		"amount_tolerance": 1,
+		"allocation_base_after_bank_charges": 0,
+		"finance_crm_access": 1,
+	}
+	enable_finance_workflow(**{**values, **settings})
+
+
+def get_vat_account(company: str | None = None) -> str:
+	"""A 'TBO VAT' tax account of the company, under its Duties and Taxes group."""
+	company = company or erpnext.get_default_company()
+	abbr = frappe.get_cached_value("Company", company, "abbr")
+	name = f"TBO VAT - {abbr}"
+	if not frappe.db.exists("Account", name):
+		parent = frappe.db.get_value(
+			"Account", {"company": company, "is_group": 1, "account_name": ("like", "%Duties and Taxes%")}
+		) or frappe.db.get_value("Account", {"company": company, "is_group": 1, "root_type": "Liability"})
+		frappe.get_doc(
+			{
+				"doctype": "Account",
+				"account_name": "TBO VAT",
+				"parent_account": parent,
+				"company": company,
+				"account_type": "Tax",
+				"tax_rate": 15,
+			}
+		).insert(ignore_permissions=True)
+	return name
+
+
+def make_vat_order(deal: str, rate: float, vat: float = 15, submit: bool = True):
+	"""A Sales Order for the deal's customer: one line at `rate` plus `vat`% VAT on net total."""
+	order = frappe.get_doc(
+		{
+			"doctype": "Sales Order",
+			"customer": frappe.db.get_value("CRM Deal", deal, "erpnext_customer"),
+			"crm_deal": deal,
+			"company": erpnext.get_default_company(),
+			"transaction_date": nowdate(),
+			"delivery_date": add_days(nowdate(), 30),
+			"items": [{"item_code": make_finance_item(), "qty": 1, "rate": rate}],
+			"taxes": [
+				{
+					"charge_type": "On Net Total",
+					"account_head": get_vat_account(),
+					"description": "VAT",
+					"rate": vat,
+				}
+			],
+		}
+	)
+	order.insert(ignore_permissions=True)
+	if submit:
+		order.submit()
+	return order
+
+
+def make_invoice_with_advances(order: str):
+	"""A submitted Sales Invoice from the order with its advance receipts pulled in."""
+	from erpnext.selling.doctype.sales_order.sales_order import make_sales_invoice
+
+	invoice = make_sales_invoice(order)
+	invoice.set_advances()
+	invoice.insert(ignore_permissions=True)
+	invoice.submit()
+	return invoice
+
+
+def make_internal_payment(company: str, amount: float, payment_type: str = "Pay", party: str | None = None):
+	"""A submitted cash Payment Entry of `company`: Pay to a supplier (the sending leg of a
+	transfer) or Receive from a customer (India's receipt)."""
+	from erpnext.accounts.party import get_party_account
+
+	cash = frappe.get_cached_value("Company", company, "default_cash_account")
+	if payment_type == "Pay":
+		party_type = "Supplier"
+		party = party or make_test_supplier("TBO Partner Supplier")
+		paid_from, paid_to = cash, get_party_account(party_type, party, company)
+	else:
+		party_type = "Customer"
+		party = party or make_customer(f"TBO Partner Customer {frappe.generate_hash(length=6)}")
+		paid_from, paid_to = get_party_account(party_type, party, company), cash
+	entry = frappe.get_doc(
+		{
+			"doctype": "Payment Entry",
+			"payment_type": payment_type,
+			"company": company,
+			"posting_date": nowdate(),
+			"party_type": party_type,
+			"party": party,
+			"paid_from": paid_from,
+			"paid_to": paid_to,
+			"paid_amount": amount,
+			"received_amount": amount,
+			"source_exchange_rate": 1,
+			"target_exchange_rate": 1,
+			"reference_no": frappe.generate_hash(length=8),
+			"reference_date": nowdate(),
+		}
+	)
+	entry.insert(ignore_permissions=True)
+	entry.submit()
+	return entry
+
+
+def make_test_supplier(name: str) -> str:
+	"""A Supplier in the first leaf supplier group."""
+	if not frappe.db.exists("Supplier", name):
+		frappe.get_doc(
+			{
+				"doctype": "Supplier",
+				"supplier_name": name,
+				"supplier_group": frappe.db.get_value("Supplier Group", {"is_group": 0}, "name"),
+			}
+		).insert(ignore_permissions=True)
+	return name
+
+
+def get_allocation(payment_entry: str, kind: str = "Receipt") -> frappe._dict | None:
+	"""The submitted allocation of a receipt (or its reversal) with its lines."""
+	name = frappe.db.get_value(
+		"TBO Fund Allocation", {"payment_entry": payment_entry, "allocation_type": kind, "docstatus": 1}
+	)
+	return frappe.get_doc("TBO Fund Allocation", name) if name else None

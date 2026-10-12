@@ -169,15 +169,22 @@ doc_events = {
 	},
 	"Payment Entry": {
 		"validate": "tbo_smart.finance.documents.validate",
-		"on_submit": "tbo_smart.finance.stage.stage_changed",
-		"on_cancel": "tbo_smart.finance.stage.stage_changed",
+		"on_submit": [
+			"tbo_smart.finance.stage.stage_changed",
+			"tbo_smart.finance.allocation.payment_submitted",
+		],
+		"on_cancel": [
+			"tbo_smart.finance.stage.stage_changed",
+			"tbo_smart.finance.allocation.payment_cancelled",
+		],
 	},
+	"Journal Entry": {"on_submit": "tbo_smart.finance.allocation.journal_submitted"},
 }
 
 after_migrate = ["tbo_smart.finance.setup.after_migrate"]
 
 scheduler_events = {
-	"daily": ["tbo_smart.finance.stage.recompute_all"],
+	"daily": ["tbo_smart.finance.stage.recompute_all", "tbo_smart.finance.transfers.flag_pending_transfers"],
 	"cron": {
 		# Phase 2 (receivables): digest at 08:00, reminders at 09:00, site time
 		"0 8 * * *": ["tbo_smart.finance.digest.send_digest"],
