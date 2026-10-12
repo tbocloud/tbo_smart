@@ -202,6 +202,21 @@ class TestQuotationAdjustment(FrappeTestCase):
 		with self.assertRaises(AdjustmentApprovalRequired):
 			quotation.submit()
 
+	def test_raising_above_an_open_request_voids_it(self):
+		frappe.set_user(BDE)
+		quotation = make_quotation(discount=8)
+		name = api.request_adjustment(quotation.name, "Discount", 8, "Volume")["name"]
+		quotation = save_quotation(quotation, additional_discount_percentage=9)
+		self.assertTrue(frappe.db.get_value("TBO Quotation Adjustment", name, "voided"))
+
+		frappe.set_user(CEO)
+		self.assertNotIn(name, [row["name"] for row in api.get_pending_approvals()])
+		with self.assertRaises(frappe.ValidationError):
+			api.decide_adjustment(name, "override", remarks="Too late")
+
+		frappe.set_user(BDE)
+		self.assertEqual(api.request_adjustment(quotation.name, "Discount", 9, "Volume")["status"], "Pending")
+
 	def test_changing_the_quotation_value_voids_the_approval(self):
 		frappe.set_user(BDE)
 		quotation = make_quotation(discount=8)

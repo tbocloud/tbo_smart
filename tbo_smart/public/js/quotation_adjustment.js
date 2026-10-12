@@ -59,7 +59,7 @@ function qa_status_line(row) {
 	if (row.percent <= 0) {
 		state = __("None");
 		color = "gray";
-	} else if (latest && ["Pending", "Escalated"].includes(latest.status)) {
+	} else if (latest && !latest.voided && ["Pending", "Escalated"].includes(latest.status)) {
 		state = __("Waiting for {0}", [latest.current_level]);
 		color = "orange";
 	} else if (row.approved || row.within_limit) {
@@ -82,7 +82,7 @@ function qa_status_line(row) {
 function qa_add_buttons(frm, row) {
 	const latest = row.latest;
 	const group = __("Adjustment");
-	if (latest && ["Pending", "Escalated"].includes(latest.status)) {
+	if (latest && !latest.voided && ["Pending", "Escalated"].includes(latest.status)) {
 		frm.add_custom_button(
 			__("View {0} request", [__(row.kind).toLowerCase()]),
 			() => frappe.set_route("Form", "TBO Quotation Adjustment", latest.name),

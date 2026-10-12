@@ -10,7 +10,10 @@ import frappe
 from frappe import _
 from frappe.utils import cint, flt
 
-from tbo_smart.tbo_smart.doctype.tbo_quotation_adjustment.tbo_quotation_adjustment import GRANTED_STATUSES
+from tbo_smart.tbo_smart.doctype.tbo_quotation_adjustment.tbo_quotation_adjustment import (
+	GRANTED_STATUSES,
+	OPEN_STATUSES,
+)
 from tbo_smart.tbo_smart.doctype.tbo_quotation_approval_settings.tbo_quotation_approval_settings import (
 	format_limit,
 	get_settings,
@@ -64,6 +67,21 @@ def get_granted(quotation: str, kind: str) -> list:
 		fields=["name", "approved_percent", "quotation_value"],
 		order_by="creation desc",
 		limit_page_length=0,
+	)
+
+
+def get_outgrown_requests(quotation: str, kind: str, percent: float) -> list[str]:
+	"""Open, not voided requests that ask for less than the quotation now gives."""
+	return frappe.get_all(
+		"TBO Quotation Adjustment",
+		filters={
+			"quotation": quotation,
+			"kind": kind,
+			"status": ("in", OPEN_STATUSES),
+			"voided": 0,
+			"requested_percent": ("<", flt(percent, 2)),
+		},
+		pluck="name",
 	)
 
 
@@ -140,20 +158,33 @@ class QuotationControl:
 
 	def void_stale_decisions(self):
 		"""A granted adjustment stops counting once the quotation goes above it or its list
-		value changes; lowering the percentage keeps it."""
+		value changes; lowering the percentage keeps it. An open request is voided once the
+		quotation goes above what it asks for, so a new request can be made."""
 		value = get_list_value(self.doc)
 		for kind in self.kinds:
 			percent = get_percent(self.doc, kind)
 			for row in get_granted(self.doc.name, kind):
 				if covers(row, percent, value) or flt(row.approved_percent) <= 0:
 					continue
-				adjustment = frappe.get_doc("TBO Quotation Adjustment", row.name)
-				adjustment.void(
-					_("Quotation changed to {0}% on a list value of {1} after the decision.").format(
-						percent, value
-					)
+				self.void(
+					row.name,
+					_("Quotation changed to {0}% on a list value of {1} after the decision."),
+					percent,
+					value,
 				)
-				adjustment.save(ignore_permissions=True)
+			for name in get_outgrown_requests(self.doc.name, kind, percent):
+				self.void(
+					name,
+					_("Quotation changed to {0}% on a list value of {1}, above this request."),
+					percent,
+					value,
+				)
+
+	@staticmethod
+	def void(name: str, message: str, percent: float, value: float):
+		adjustment = frappe.get_doc("TBO Quotation Adjustment", name)
+		adjustment.void(message.format(percent, value))
+		adjustment.save(ignore_permissions=True)
 
 	def record_applied(self):
 		"""Log an adjustment the saving user made inside their own limit, unless an earlier

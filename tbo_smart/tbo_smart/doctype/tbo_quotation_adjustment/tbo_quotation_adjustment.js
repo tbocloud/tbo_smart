@@ -22,7 +22,7 @@ function qadj_add_decisions(frm, limits) {
 	const level = limits.level;
 	const doc = frm.doc;
 	if (!level || doc.requested_by === frappe.session.user) return;
-	const open = ["Pending", "Escalated"].includes(doc.status);
+	const open = !doc.voided && ["Pending", "Escalated"].includes(doc.status);
 	const waiting =
 		level.level === doc.current_level ||
 		((level.approves_directly || level.unlimited) && level.rank > doc.current_rank);
@@ -48,7 +48,7 @@ function qadj_add_decisions(frm, limits) {
 		}
 		frm.add_custom_button(__("Forward"), () => qadj_decide(frm, "forward"), __("Decide"));
 	}
-	if (level.unlimited) {
+	if (level.unlimited && !doc.voided) {
 		frm.add_custom_button(__("Override"), () => qadj_decide(frm, "override"), __("Decide"));
 	}
 }

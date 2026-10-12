@@ -126,14 +126,15 @@ class TBOQuotationAdjustment(Document):
 	# ---------- state ----------
 
 	def is_open(self) -> bool:
-		return self.status in OPEN_STATUSES
+		return self.status in OPEN_STATUSES and not cint(self.voided)
 
 	def is_granted(self) -> bool:
 		return self.status in GRANTED_STATUSES and not cint(self.voided)
 
 	def void(self, remarks: str):
 		self.voided = 1
-		self.add_step("Voided", None, self.approved_percent, remarks)
+		percent = self.approved_percent if self.status in GRANTED_STATUSES else self.requested_percent
+		self.add_step("Voided", None, percent, remarks)
 
 	# ---------- decisions (the caller saves) ----------
 
@@ -147,6 +148,8 @@ class TBOQuotationAdjustment(Document):
 			frappe.throw(_("You have no quotation approval level."), frappe.PermissionError)
 		if cint(frappe.db.get_value("Quotation", self.quotation, "docstatus")) != 0:
 			frappe.throw(_("Quotation {0} is no longer a draft.").format(self.quotation))
+		if cint(self.voided):
+			frappe.throw(_("{0} is voided; the quotation needs a new request.").format(self.name))
 		if action == "override":
 			if not cint(level.unlimited):
 				frappe.throw(_("Only a level with no limit can override."), frappe.PermissionError)
@@ -212,7 +215,6 @@ class TBOQuotationAdjustment(Document):
 		percent = flt(percent if percent is not None else self.requested_percent, 2)
 		if not 0 <= percent <= 100:
 			frappe.throw(_("Percent must be between 0 and 100."))
-		self.voided = 0
 		self.grant("Overridden", level, percent, remarks, quotation_value)
 
 	def grant(self, status: str, level, percent: float, remarks: str | None, quotation_value: float):

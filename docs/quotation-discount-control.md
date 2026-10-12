@@ -114,6 +114,12 @@ and lowering the percentage afterwards does not bring it back: a new request is 
 Lowering the percentage under a live approval keeps it valid. An approval belongs to one
 quotation name, so an amended quotation (`Q-0001-1`) needs a fresh approval.
 
+**Open requests** are voided too, once the quotation goes above the percentage they ask
+for, because they could never cover it. The requester can then ask again. Nobody can
+decide or override a voided row, not even the CEO: the quotation needs a new request. A
+change in list value does not void an open request, because the approver's decision
+records the list value at the moment they decide.
+
 ## 6. Approval record: TBO Quotation Adjustment
 
 One row per adjustment (`QADJ-YYYY-#####`).

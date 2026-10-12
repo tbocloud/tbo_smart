@@ -134,7 +134,7 @@ def request_adjustment(quotation: str, kind: str, percent: float | str, reason: 
 		)
 	open_request = frappe.db.get_value(
 		"TBO Quotation Adjustment",
-		{"quotation": doc.name, "kind": kind, "status": ("in", OPEN_STATUSES)},
+		{"quotation": doc.name, "kind": kind, "status": ("in", OPEN_STATUSES), "voided": 0},
 		"name",
 	)
 	if open_request:
@@ -204,7 +204,10 @@ def get_pending_approvals() -> list[dict]:
 		frappe.qb.from_(Adjustment)
 		.select(*[Adjustment[field] for field in LIST_FIELDS])
 		.where(
-			Adjustment.status.isin(OPEN_STATUSES) & (Adjustment.requested_by != frappe.session.user) & waiting
+			Adjustment.status.isin(OPEN_STATUSES)
+			& (Adjustment.voided == 0)
+			& (Adjustment.requested_by != frappe.session.user)
+			& waiting
 		)
 		.orderby(Adjustment.creation)
 		.limit(PENDING_LIMIT)
