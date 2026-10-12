@@ -17,7 +17,18 @@
   "column_break_finance",
   "finance_crm_access",
   "finance_crm_roles",
-  "finance_crm_granted"
+  "finance_crm_granted",
+  "receivables_section",
+  "enable_finance_receivables",
+  "send_client_reminders",
+  "weekly_client_reminders",
+  "reminder_sender",
+  "invoicing_company",
+  "column_break_receivables",
+  "accounts_lead",
+  "escalation_sales_head",
+  "escalation_finance_manager",
+  "management_digest_recipients"
  ],
  "fields": [
   {
@@ -114,12 +125,91 @@
    "read_only": 1,
    "no_copy": 1,
    "description": "Custom DocPerm rows this setting added, so turning it off removes exactly those."
+  },
+  {
+   "fieldname": "receivables_section",
+   "fieldtype": "Section Break",
+   "label": "Receivables and reminders (Phase 2)",
+   "depends_on": "eval:doc.enable_finance_workflow"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_finance_receivables",
+   "fieldtype": "Check",
+   "label": "Receivables and reminders (Phase 2)",
+   "description": "Receivables page, collection follow-ups, the daily reminder and escalation job (D-3, D0, D+7, D+15 draft dunning, D+30, then weekly), receivable exceptions and the daily digest. Needs Phase 1 on."
+  },
+  {
+   "default": "0",
+   "depends_on": "eval:doc.enable_finance_receivables",
+   "fieldname": "send_client_reminders",
+   "fieldtype": "Check",
+   "label": "Send reminder emails to clients",
+   "description": "Off until the wording, language and mailbox are agreed (open question Q14). Internal tasks and notifications run either way."
+  },
+  {
+   "default": "0",
+   "depends_on": "eval:doc.enable_finance_receivables && doc.send_client_reminders",
+   "fieldname": "weekly_client_reminders",
+   "fieldtype": "Check",
+   "label": "Weekly client reminder after D+30"
+  },
+  {
+   "depends_on": "eval:doc.enable_finance_receivables",
+   "fieldname": "reminder_sender",
+   "fieldtype": "Link",
+   "label": "Reminder sender",
+   "options": "Email Account",
+   "description": "Blank: the default outgoing account."
+  },
+  {
+   "depends_on": "eval:doc.enable_finance_receivables",
+   "fieldname": "invoicing_company",
+   "fieldtype": "Link",
+   "label": "Invoicing company",
+   "options": "Company",
+   "description": "Team Back Office KSA. Reminders run for this company's invoices; blank means every company."
+  },
+  {
+   "fieldname": "column_break_receivables",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:doc.enable_finance_receivables",
+   "fieldname": "accounts_lead",
+   "fieldtype": "Link",
+   "label": "KSA Accounts lead",
+   "options": "User",
+   "description": "Owns collection on a deal with no accounts owner (open question Q18); otherwise the deal owner does."
+  },
+  {
+   "depends_on": "eval:doc.enable_finance_receivables",
+   "fieldname": "escalation_sales_head",
+   "fieldtype": "Link",
+   "label": "Head - Sales & Marketing",
+   "options": "User",
+   "description": "Notified at D+15."
+  },
+  {
+   "depends_on": "eval:doc.enable_finance_receivables",
+   "fieldname": "escalation_finance_manager",
+   "fieldtype": "Link",
+   "label": "Finance Manager",
+   "options": "User",
+   "description": "Notified at D+30 and gets the daily digest in the app."
+  },
+  {
+   "depends_on": "eval:doc.enable_finance_receivables",
+   "fieldname": "management_digest_recipients",
+   "fieldtype": "Small Text",
+   "label": "Daily digest recipients",
+   "description": "Email addresses, one per line or separated by commas."
   }
  ],
  "index_web_pages_for_search": 0,
  "issingle": 1,
  "links": [],
- "modified": "2026-10-12 18:00:00.000000",
+ "modified": "2026-10-12 21:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Smart Settings",

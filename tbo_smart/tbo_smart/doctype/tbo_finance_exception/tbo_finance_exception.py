@@ -1,0 +1,212 @@
+# Copyright (c) 2026, sammish and contributors
+# For license information, please see license.txt
+
+"""One thing in the finance workflow that needs a decision (docs/crm-finance-workflow.md §3.5).
+
+Receivable requests (extend, pause, waive, dispute) and, from later phases, allocation,
+transfer and bank discrepancies share this one doctype. The status moves only through
+`apply_action` (called by tbo_smart.api.finance.exceptions): Open → Pending Approval →
+Approved / Rejected, and Rejected → Open. Maker-checker: the person who raised or sent a
+request for approval can never decide it.
+"""
+
+import frappe
+from frappe import _
+from frappe.model.document import Document
+from frappe.utils import flt, getdate, now_datetime, today
+
+from tbo_smart.finance import publish_deal_update
+
+APPROVER_ROLES = ("TBO Finance Approver",)
+TRANSITIONS = {
+	"request_approval": ("Open", "Pending Approval"),
+	"approve": ("Pending Approval", "Approved"),
+	"reject": ("Pending Approval", "Rejected"),
+	"reopen": ("Rejected", "Open"),
+}
+DECISIONS = ("approve", "reject")
+
+
+class TBOFinanceException(Document):
+	# begin: auto-generated types
+	# This code is auto-generated. Do not modify anything in this block.
+
+	from typing import TYPE_CHECKING
+
+	if TYPE_CHECKING:
+		from frappe.types import DF
+
+		actual_amount: DF.Currency
+		approved_by: DF.Link | None
+		approved_on: DF.Datetime | None
+		category: DF.Literal["Receivable", "Allocation", "Transfer", "Bank Reconciliation"]
+		company: DF.Link | None
+		crm_deal: DF.Link | None
+		currency: DF.Link | None
+		customer: DF.Link | None
+		decision_remarks: DF.SmallText | None
+		dedupe_key: DF.Data | None
+		difference: DF.Currency
+		exception_type: DF.Literal[
+			"Overpayment",
+			"Payment to wrong entity",
+			"Client dispute",
+			"Extension request",
+			"Pause request",
+			"Write-off request",
+			"Receipt via Journal Entry",
+			"Receipt cancelled after transfer",
+			"VAT ratio changed",
+			"Short transfer",
+			"Excess transfer",
+			"Transfer pending",
+			"Possible duplicate",
+			"Unmatched bank line",
+			"Amount mismatch",
+		]
+		expected_amount: DF.Currency
+		new_due_date: DF.Date | None
+		pause_until: DF.Date | None
+		payment_schedule: DF.Data | None
+		reason: DF.SmallText
+		reference_doctype: DF.Link | None
+		reference_name: DF.DynamicLink | None
+		requested_by: DF.Link | None
+		requested_action: DF.Literal[
+			"",
+			"Extend due date",
+			"Pause reminders",
+			"Waive balance",
+			"Accept difference",
+			"Correct entry",
+			"Mark duplicate",
+			"Not an issue",
+		]
+		resolution_reference_doctype: DF.Link | None
+		resolution_reference_name: DF.DynamicLink | None
+		source: DF.Literal["User", "System"]
+		status: DF.Literal["Open", "Pending Approval", "Approved", "Rejected"]
+	# end: auto-generated types
+
+	def validate(self):
+		self.set_difference()
+		self.validate_dates()
+		self.validate_status_unchanged()
+
+	def on_update(self):
+		self.notify_deal()
+
+	# ---------- validation ----------
+
+	def set_difference(self):
+		if self.expected_amount or self.actual_amount:
+			self.difference = flt(self.actual_amount) - flt(self.expected_amount)
+
+	def validate_dates(self):
+		if self.requested_action == "Extend due date" and not self.new_due_date:
+			frappe.throw(_("Choose the new due date."))
+		if self.requested_action == "Pause reminders" and not self.pause_until:
+			frappe.throw(_("Choose until when reminders pause."))
+		for field in ("new_due_date", "pause_until"):
+			if (
+				self.has_value_changed(field)
+				and self.get(field)
+				and getdate(self.get(field)) < getdate(today())
+			):
+				frappe.throw(_("{0} cannot be in the past.").format(self.meta.get_label(field)))
+
+	def validate_status_unchanged(self):
+		"""Status changes only through apply_action, never by editing the form or the API."""
+		if self.flags.from_action or self.is_new():
+			if self.is_new() and not self.flags.from_action:
+				self.status = "Open"
+			return
+		if self.has_value_changed("status"):
+			frappe.throw(
+				_("Use the Request approval, Approve, Reject or Reopen actions to change the status.")
+			)
+		if self.status in ("Approved",) and self.has_value_changed("requested_action"):
+			frappe.throw(_("An approved exception cannot change its requested action."))
+
+	# ---------- actions ----------
+
+	def apply_action(self, action: str, remarks: str | None = None) -> None:
+		"""Move the exception along; checks who may do it. The caller saves nothing else."""
+		if action not in TRANSITIONS:
+			frappe.throw(_("Unknown action {0}.").format(action))
+		source, target = TRANSITIONS[action]
+		if self.status != source:
+			frappe.throw(_("This exception is {0}; it cannot be {1} now.").format(_(self.status), _(action)))
+		if action in DECISIONS:
+			self.check_decider()
+			if action == "reject" and not (remarks or "").strip():
+				frappe.throw(_("Give a reason for the rejection."))
+			if action == "approve":
+				self.check_ready_to_approve()
+			self.approved_by = frappe.session.user
+			self.approved_on = now_datetime()
+			self.decision_remarks = remarks
+		elif action == "request_approval":
+			self.check_requester()
+			self.requested_by = frappe.session.user
+		self.status = target
+		self.flags.from_action = True
+		self.save(ignore_permissions=True)
+		self.add_comment("Info", self.describe_action(action, remarks))
+		if action == "approve":
+			self.apply_approval()
+
+	def check_requester(self):
+		if not frappe.has_permission(self.doctype, "write", doc=self) and self.owner != frappe.session.user:
+			frappe.throw(_("You cannot send this exception for approval."), frappe.PermissionError)
+
+	def check_decider(self):
+		if not is_approver():
+			frappe.throw(_("Only a TBO Finance Approver can decide exceptions."), frappe.PermissionError)
+		if frappe.session.user in self.get_requesters():
+			frappe.throw(
+				_("You raised or sent this exception for approval, so someone else must decide it."),
+				frappe.PermissionError,
+			)
+
+	def get_requesters(self) -> set[str]:
+		"""The person who raised it and the person who sent it for approval."""
+		return {user for user in (self.owner, self.requested_by) if user}
+
+	def check_ready_to_approve(self):
+		if self.requested_action == "Waive balance" and not self.resolution_reference_name:
+			frappe.throw(_("Link the credit note or write-off journal entry before approving a waiver."))
+
+	def apply_approval(self):
+		"""An approved extension restarts the reminder steps from the new due date; the invoice
+		itself is not changed (its payment terms stay as booked)."""
+		if self.requested_action != "Extend due date" or self.reference_doctype != "Sales Invoice":
+			return
+		filters = {"parenttype": "Sales Invoice", "parent": self.reference_name}
+		if self.payment_schedule:
+			filters["name"] = self.payment_schedule
+		for term in frappe.get_all("Payment Schedule", filters=filters, pluck="name"):
+			frappe.db.set_value(
+				"Payment Schedule",
+				term,
+				{"tbo_last_reminder": None, "tbo_last_reminder_on": None},
+				update_modified=False,
+			)
+
+	def describe_action(self, action: str, remarks: str | None) -> str:
+		text = {
+			"request_approval": _("Sent for approval."),
+			"approve": _("Approved."),
+			"reject": _("Rejected."),
+			"reopen": _("Reopened."),
+		}[action]
+		return f"{text} {remarks}".strip() if remarks else text
+
+	def notify_deal(self):
+		if self.crm_deal:
+			publish_deal_update([self.crm_deal])
+
+
+def is_approver(user: str | None = None) -> bool:
+	roles = set(frappe.get_roles(user or frappe.session.user))
+	return bool(roles & set(APPROVER_ROLES)) or "System Manager" in roles

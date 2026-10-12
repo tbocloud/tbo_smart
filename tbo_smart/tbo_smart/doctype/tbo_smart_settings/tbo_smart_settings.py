@@ -7,6 +7,7 @@ from frappe.model.document import Document
 
 from tbo_smart.api.mobile.auth import GUID, parse_tenant_ids
 from tbo_smart.finance.access import sync_crm_read
+from tbo_smart.finance.setup import create_collections_view
 
 
 class TBOSmartSettings(Document):
@@ -18,16 +19,25 @@ class TBOSmartSettings(Document):
 	if TYPE_CHECKING:
 		from frappe.types import DF
 
+		accounts_lead: DF.Link | None
+		enable_finance_receivables: DF.Check
 		enable_finance_workflow: DF.Check
+		escalation_finance_manager: DF.Link | None
+		escalation_sales_head: DF.Link | None
 		enable_microsoft_sso: DF.Check
 		enable_mobile_push: DF.Check
 		finance_bde_can_see_amounts: DF.Check
 		finance_crm_access: DF.Check
 		finance_crm_granted: DF.SmallText | None
 		finance_crm_roles: DF.SmallText | None
+		invoicing_company: DF.Link | None
+		management_digest_recipients: DF.SmallText | None
 		microsoft_mobile_client_id: DF.Data | None
 		microsoft_tenant_id: DF.SmallText | None
 		oauth_client: DF.Link | None
+		reminder_sender: DF.Link | None
+		send_client_reminders: DF.Check
+		weekly_client_reminders: DF.Check
 	# end: auto-generated types
 
 	def validate(self):
@@ -36,6 +46,7 @@ class TBOSmartSettings(Document):
 
 	def on_update(self):
 		self.grant_finance_crm_read()
+		self.create_collections_view()
 
 	def validate_microsoft_tenant_ids(self):
 		"""Only real tenant GUIDs: "common" or "organizations" would let any Microsoft account in."""
@@ -63,3 +74,7 @@ class TBOSmartSettings(Document):
 		value = frappe.as_json(granted) if granted else None
 		if value != (self.finance_crm_granted or None):
 			self.db_set("finance_crm_granted", value)
+
+	def create_collections_view(self):
+		if self.enable_finance_workflow and self.enable_finance_receivables:
+			create_collections_view()

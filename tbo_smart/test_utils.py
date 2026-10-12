@@ -772,5 +772,59 @@ def reset_finance_settings() -> None:
 			"finance_bde_can_see_amounts": 1,
 			"finance_crm_access": 0,
 			"finance_crm_roles": "Accounts User\nAccounts Manager",
+			"enable_finance_receivables": 0,
+			"send_client_reminders": 0,
+			"weekly_client_reminders": 0,
+			"invoicing_company": None,
+			"accounts_lead": None,
+			"escalation_sales_head": None,
+			"escalation_finance_manager": None,
+			"management_digest_recipients": None,
 		},
 	)
+
+
+def enable_finance_receivables(**settings) -> None:
+	"""Turn Phase 1 and Phase 2 (receivables and reminders) on; `settings` sets other fields."""
+	enable_finance_workflow(enable_finance_receivables=1, **settings)
+
+
+def make_deal_invoice(
+	deal: str, rate: float = 1000, due_in: int = 0, posted_days_ago: int = 0, submit: bool = True
+):
+	"""A Sales Invoice to the deal's customer with `crm_deal` set, posted `posted_days_ago`
+	days ago and due `due_in` days from today (negative: already overdue). One payment-term
+	row, as ERPNext builds it from the due date. Returns the Document."""
+	posting = add_days(nowdate(), -max(posted_days_ago, -due_in if due_in < 0 else 0))
+	invoice = frappe.get_doc(
+		{
+			"doctype": "Sales Invoice",
+			"customer": frappe.db.get_value("CRM Deal", deal, "erpnext_customer"),
+			"crm_deal": deal,
+			"company": erpnext.get_default_company(),
+			"set_posting_time": 1,
+			"posting_date": posting,
+			"due_date": add_days(nowdate(), due_in),
+			"items": [{"item_code": make_quotation_item(), "qty": 1, "rate": rate}],
+		}
+	)
+	invoice.insert(ignore_permissions=True)
+	if submit:
+		invoice.submit()
+	return invoice
+
+
+def get_terms(invoice: str) -> list[frappe._dict]:
+	"""An invoice's Payment Schedule rows with their reminder markers."""
+	return frappe.get_all(
+		"Payment Schedule",
+		filters={"parent": invoice, "parenttype": "Sales Invoice"},
+		fields=["name", "due_date", "outstanding", "tbo_last_reminder", "tbo_last_reminder_on"],
+		order_by="idx",
+	)
+
+
+def get_collection_task(invoice: str) -> frappe._dict | None:
+	"""The invoice's collection CRM Task, if any."""
+	name = frappe.db.get_value("CRM Task", {"tbo_sales_invoice": invoice, "tbo_task_type": "Collection"})
+	return frappe.get_doc("CRM Task", name) if name else None

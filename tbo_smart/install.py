@@ -3,7 +3,7 @@
 import frappe
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
-from tbo_smart.finance.setup import create_finance_fields
+from tbo_smart.finance.setup import setup_finance
 from tbo_smart.quotation_control import COMMISSION_FIELD
 
 # Designation levels for quotation approvals, lowest first. Limits ship unset on purpose:
@@ -20,7 +20,7 @@ QUOTATION_LEVELS = (
 
 def after_install():
 	setup_quotation_approval()
-	create_finance_fields()
+	setup_finance()
 
 
 def setup_quotation_approval():
