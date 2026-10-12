@@ -91,9 +91,14 @@ class ReminderRun:
 			)
 			if not step:
 				continue
+			# one row at a time: a failure undoes that row's writes, so tomorrow's run repeats
+			# nothing that already happened
+			savepoint = f"tbo_reminder_{frappe.generate_hash(length=8)}"
+			frappe.db.savepoint(savepoint)
 			try:
 				self.apply(row, step, getdate(due), deals.get(row.crm_deal))
 			except Exception:
+				frappe.db.rollback(save_point=savepoint)
 				frappe.log_error(title=_("TBO reminders: {0} failed for {1}").format(step, row.invoice))
 		return self.done
 
@@ -137,17 +142,11 @@ class ReminderRun:
 	def apply(self, row, step: str, due, deal) -> None:
 		level = LEVELS[step]
 		owner = (deal and deal.tbo_accounts_owner) or self.accounts_lead or (deal and deal.deal_owner)
-		if self.should_email_client(step):
-			try:
-				self.email_client(row, step, due, deal)
-			except Exception:
-				# a mail problem (no outgoing account, bad address) must not stop the internal steps
-				frappe.log_error(title=_("TBO reminders: client email failed for {0}").format(row.invoice))
+		# database writes first (undone together if one fails), then the marker
 		if level >= 1 and owner:
 			self.upsert_task(row, owner, level, deal)
 		if step in DUNNING_STEPS:
 			self.make_dunning(row.invoice, row.company, DUNNING_STEPS[step])
-		self.notify_step(row, step, due, owner, deal)
 		frappe.db.set_value(
 			"Payment Schedule",
 			row.name,
@@ -155,6 +154,14 @@ class ReminderRun:
 			update_modified=False,
 		)
 		self.done.append({"invoice": row.invoice, "term": row.name, "step": step})
+		# messages last: they cannot be taken back, so they go out only once the step is recorded
+		self.notify_step(row, step, due, owner, deal)
+		if self.should_email_client(step):
+			try:
+				self.email_client(row, step, due, deal)
+			except Exception:
+				# a mail problem (no outgoing account, bad address) must not undo the step
+				frappe.log_error(title=_("TBO reminders: client email failed for {0}").format(row.invoice))
 
 	def should_email_client(self, step: str) -> bool:
 		if not self.send_client or step not in CLIENT_TEMPLATES:

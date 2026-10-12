@@ -318,3 +318,73 @@ class TestDigestAndSetup(ReceivablesTestCase):
 		self.assertTrue(
 			frappe.db.exists("CRM View Settings", {"dt": "CRM Task", "label": COLLECTIONS_VIEW, "public": 1})
 		)
+
+
+class TestReviewRules(ReceivablesTestCase):
+	def test_a_failed_step_leaves_nothing_behind(self):
+		deal = make_finance_deal(BDE)
+		late = make_deal_invoice(deal, due_in=-16)
+		with patch(
+			"tbo_smart.finance.reminders.ReminderRun.make_dunning", side_effect=frappe.ValidationError
+		):
+			self.assertEqual(self.run_for(late.name), [])
+		self.assertIsNone(get_collection_task(late.name))
+		self.assertFalse(get_terms(late.name)[0].tbo_last_reminder)
+		self.notify.assert_not_called()
+
+	def test_request_is_frozen_once_sent(self):
+		deal = make_finance_deal(BDE)
+		invoice = make_deal_invoice(deal, due_in=-2)
+		frappe.set_user(BDE)
+		exception = exceptions_api.request_exception(
+			invoice.name, "Pause request", "Holiday", pause_until=add_days(nowdate(), 3)
+		)
+		frappe.set_user("Administrator")
+		doc = frappe.get_doc("TBO Finance Exception", exception["name"])
+		doc.pause_until = add_days(nowdate(), 300)
+		with self.assertRaises(frappe.ValidationError):
+			doc.save(ignore_permissions=True)
+
+	def test_waiver_needs_a_real_credit_note(self):
+		from erpnext.controllers.sales_and_purchase_return import make_return_doc
+
+		deal = make_finance_deal(BDE)
+		invoice = make_deal_invoice(deal, rate=300, due_in=-2)
+		other = make_deal_invoice(deal, rate=300, due_in=-2)
+		frappe.set_user(BDE)
+		wrong = exceptions_api.request_exception(
+			invoice.name,
+			"Write-off request",
+			"Goodwill",
+			resolution_reference_doctype="Sales Invoice",
+			resolution_reference_name=other.name,
+		)
+		frappe.set_user(APPROVER)
+		with self.assertRaises(frappe.ValidationError):
+			exceptions_api.decide_exception(wrong["name"], "approve")
+		frappe.set_user("Administrator")
+		note = make_return_doc("Sales Invoice", invoice.name)
+		note.insert(ignore_permissions=True)
+		note.submit()
+		frappe.set_user(BDE)
+		right = exceptions_api.request_exception(
+			invoice.name,
+			"Write-off request",
+			"Goodwill",
+			resolution_reference_doctype="Sales Invoice",
+			resolution_reference_name=note.name,
+		)
+		frappe.set_user(APPROVER)
+		self.assertEqual(exceptions_api.decide_exception(right["name"], "approve")["status"], "Approved")
+
+	def test_digest_follows_approved_exceptions(self):
+		deal = make_finance_deal(BDE)
+		old = make_deal_invoice(deal, rate=300, due_in=-35)
+		frappe.set_user(BDE)
+		pause = exceptions_api.request_exception(
+			old.name, "Pause request", "Holiday", pause_until=add_days(nowdate(), 3)
+		)
+		frappe.set_user(APPROVER)
+		exceptions_api.decide_exception(pause["name"], "approve")
+		frappe.set_user("Administrator")
+		self.assertNotIn(old.name, [row["invoice"] for row in build_digest()["final_notice"]])

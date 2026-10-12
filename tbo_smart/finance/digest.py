@@ -14,7 +14,7 @@ from frappe.desk.doctype.notification_log.notification_log import enqueue_create
 from frappe.utils import add_days, date_diff, flt, fmt_money, formatdate, getdate, today
 
 from tbo_smart.finance import get_setting, receivables_enabled
-from tbo_smart.finance.reminders import ReminderRun
+from tbo_smart.finance.reminders import ReminderRun, load_exceptions
 
 FINAL_NOTICE_DAYS = 30
 
@@ -24,10 +24,16 @@ def build_digest(on_date=None) -> dict:
 	day before, terms 30+ days overdue, and receivable exceptions waiting or open."""
 	day = getdate(on_date or today())
 	rows = ReminderRun(day).load_rows()
+	approved = load_exceptions({row.invoice for row in rows}, day)
 	totals = {}
 	newly_overdue, final_notice = [], []
 	for row in rows:
-		days = date_diff(day, row.due_date)
+		# the same approved exceptions the reminder job honours: waived and paused terms are left
+		# out, an extension moves the due date
+		if row.invoice in approved.waived or row.name in approved.paused or row.invoice in approved.paused:
+			continue
+		due = approved.extended.get(row.name) or approved.extended.get(row.invoice) or row.due_date
+		days = date_diff(day, due)
 		bucket = totals.setdefault(
 			row.currency, {"currency": row.currency, "outstanding": 0.0, "overdue": 0.0}
 		)
@@ -37,7 +43,7 @@ def build_digest(on_date=None) -> dict:
 		item = {
 			"invoice": row.invoice,
 			"customer": row.customer_name,
-			"due_date": row.due_date,
+			"due_date": due,
 			"days_overdue": days,
 			"outstanding": flt(row.outstanding),
 			"currency": row.currency,
@@ -48,7 +54,7 @@ def build_digest(on_date=None) -> dict:
 			final_notice.append(item)
 	exceptions = frappe.get_all(
 		"TBO Finance Exception",
-		filters={"status": ("in", ["Open", "Pending Approval"])},
+		filters={"category": "Receivable", "status": ("in", ["Open", "Pending Approval"])},
 		fields=["status", "count(name) as count"],
 		group_by="status",
 	)

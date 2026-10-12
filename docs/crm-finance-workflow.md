@@ -1051,6 +1051,9 @@ the latest step that is due, once per row:
 
 - A missed day never sends a backlog: only the latest due step runs, and a row never goes
   back to a step it passed. The row's `tbo_last_reminder`/`_on` make re-runs harmless.
+- Each row runs inside a savepoint: task, dunning and marker are written first and undone
+  together if any fails, so the next run repeats nothing. Notifications and the client email
+  go out only after the step is recorded.
 - Accounts owner = the deal's `tbo_accounts_owner`, else the KSA Accounts lead, else the deal
   owner (Q18). Notifications are Notification Logs (bell, email per user settings, and mobile
   push through `tbo_smart.push`).
@@ -1067,13 +1070,15 @@ Receivable category) and `tbo_smart/api/finance/exceptions.py`.
 | --- | --- | --- |
 | Extension request | Extend due date (`new_due_date`, whole invoice or one term) | The job counts days from the new date and restarts the steps for that row. **The invoice is not changed**: ERPNext has no supported way to edit a submitted invoice's payment terms, so ageing in ERPNext's own reports keeps the booked date. |
 | Pause request / Client dispute | Pause reminders (`pause_until`) | The job skips the row (or invoice) until that date. |
-| Write-off request | Waive balance | Approval needs the credit note or write-off journal entry linked (`resolution_reference_*`); the job then stops for that invoice. |
+| Write-off request | Waive balance | Approval needs a **submitted credit note against the invoice** or a **submitted journal entry for the customer** linked (`resolution_reference_*`); the job then stops for that invoice. |
 
 - Status flow: Open → Pending Approval → Approved / Rejected, Rejected → Open, only through
   `decide_exception` (`request_approval`, `approve`, `reject`, `reopen`); editing the status
   directly is refused. A request from the CRM goes straight to Pending Approval.
 - Maker-checker: only TBO Finance Approver (or System Manager) decides, and never the person
-  who raised it or sent it for approval (`requested_by`). A rejection needs a reason.
+  who raised it or sent it for approval (`requested_by`). A rejection needs a reason. Once an
+  exception leaves Open, everything the approver decides on (type, action, document, term,
+  amounts, dates, reason, resolution document) is frozen; to change it, reject and reopen.
 - **Deviation:** no Frappe Workflow fixture. The rules live in the controller and the API,
   which keeps them testable and avoids a desk workflow nobody uses; Version
   (`track_changes`), `requested_by`, `approved_by`/`approved_on`, decision remarks and a
@@ -1099,8 +1104,9 @@ Receivable category) and `tbo_smart/api/finance/exceptions.py`.
   Receivable report class. Unallocated advances are therefore not in the page; ERPNext's
   AR report remains the accounting view.
 
-**Daily digest** - `tbo_smart/finance/digest.py`, 08:00 site time. `build_digest` returns
-the totals per currency, terms that fell overdue since yesterday, terms 30+ days overdue and
+**Daily digest** - `tbo_smart/finance/digest.py`, 08:00 site time. It honours approved
+exceptions exactly as the job does (waived and paused terms left out, extensions move the due
+date) and counts only Receivable exceptions. `build_digest` returns the totals per currency, terms that fell overdue since yesterday, terms 30+ days overdue and
 how many exceptions are open or waiting; `send_digest` emails it to the digest recipients and
 notifies the Finance Manager in the app. Payable and pending transfers join with Phase 3.
 

@@ -25,6 +25,26 @@ TRANSITIONS = {
 	"reopen": ("Rejected", "Open"),
 }
 DECISIONS = ("approve", "reject")
+# what the approver decides on; frozen once the exception leaves Open
+LOCKED_FIELDS = (
+	"category",
+	"exception_type",
+	"requested_action",
+	"reference_doctype",
+	"reference_name",
+	"payment_schedule",
+	"company",
+	"customer",
+	"crm_deal",
+	"currency",
+	"expected_amount",
+	"actual_amount",
+	"reason",
+	"new_due_date",
+	"pause_until",
+	"resolution_reference_doctype",
+	"resolution_reference_name",
+)
 
 
 class TBOFinanceException(Document):
@@ -125,8 +145,23 @@ class TBOFinanceException(Document):
 			frappe.throw(
 				_("Use the Request approval, Approve, Reject or Reopen actions to change the status.")
 			)
-		if self.status in ("Approved",) and self.has_value_changed("requested_action"):
-			frappe.throw(_("An approved exception cannot change its requested action."))
+		self.validate_request_locked()
+
+	def validate_request_locked(self):
+		"""Maker-checker: once sent for approval the request is frozen, so what the approver
+		reads is what gets approved. To change it, reject and reopen it."""
+		before = self.get_doc_before_save()
+		if not before or before.status == "Open":
+			return
+		changed = [
+			field for field in LOCKED_FIELDS if str(before.get(field) or "") != str(self.get(field) or "")
+		]
+		if changed:
+			frappe.throw(
+				_(
+					"{0} cannot change once the exception is sent for approval. Reject and reopen it to change the request."
+				).format(", ".join(_(self.meta.get_label(field)) for field in changed))
+			)
 
 	# ---------- actions ----------
 
@@ -174,8 +209,35 @@ class TBOFinanceException(Document):
 		return {user for user in (self.owner, self.requested_by) if user}
 
 	def check_ready_to_approve(self):
-		if self.requested_action == "Waive balance" and not self.resolution_reference_name:
+		if self.requested_action == "Waive balance":
+			self.check_write_off_document()
+
+	def check_write_off_document(self):
+		"""A waiver needs a submitted credit note against the invoice, or a submitted journal
+		entry for this customer, linked as the resolution."""
+		doctype, name = self.resolution_reference_doctype, self.resolution_reference_name
+		if not name or doctype not in ("Sales Invoice", "Journal Entry"):
 			frappe.throw(_("Link the credit note or write-off journal entry before approving a waiver."))
+		if doctype == "Sales Invoice":
+			note = frappe.db.get_value(
+				doctype, name, ["docstatus", "is_return", "return_against"], as_dict=True
+			)
+			if (
+				not note
+				or note.docstatus != 1
+				or not note.is_return
+				or note.return_against != self.reference_name
+			):
+				frappe.throw(
+					_("{0} is not a submitted credit note against {1}.").format(name, self.reference_name)
+				)
+			return
+		submitted = frappe.db.get_value(doctype, name, "docstatus") == 1
+		for_customer = frappe.db.exists(
+			"Journal Entry Account", {"parent": name, "party_type": "Customer", "party": self.customer}
+		)
+		if not (submitted and for_customer):
+			frappe.throw(_("{0} is not a submitted journal entry for {1}.").format(name, self.customer))
 
 	def apply_approval(self):
 		"""An approved extension restarts the reminder steps from the new due date; the invoice
