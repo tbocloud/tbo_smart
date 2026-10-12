@@ -344,6 +344,10 @@ class TestReviewRules(ReceivablesTestCase):
 		doc.pause_until = add_days(nowdate(), 300)
 		with self.assertRaises(frappe.ValidationError):
 			doc.save(ignore_permissions=True)
+		doc.reload()
+		doc.requested_by = APPROVER
+		with self.assertRaises(frappe.ValidationError):
+			doc.save(ignore_permissions=True)
 
 	def test_waiver_needs_a_real_credit_note(self):
 		from erpnext.controllers.sales_and_purchase_return import make_return_doc

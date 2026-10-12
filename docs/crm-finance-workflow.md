@@ -1052,8 +1052,9 @@ the latest step that is due, once per row:
 - A missed day never sends a backlog: only the latest due step runs, and a row never goes
   back to a step it passed. The row's `tbo_last_reminder`/`_on` make re-runs harmless.
 - Each row runs inside a savepoint: task, dunning and marker are written first and undone
-  together if any fails, so the next run repeats nothing. Notifications and the client email
-  go out only after the step is recorded.
+  together if any fails. The next run then retries the whole step cleanly, with no partial
+  task or Dunning left from the failed attempt. Notifications and the client email go out
+  only after the step is recorded, so a failed attempt never sends anything.
 - Accounts owner = the deal's `tbo_accounts_owner`, else the KSA Accounts lead, else the deal
   owner (Q18). Notifications are Notification Logs (bell, email per user settings, and mobile
   push through `tbo_smart.push`).
@@ -1078,7 +1079,8 @@ Receivable category) and `tbo_smart/api/finance/exceptions.py`.
 - Maker-checker: only TBO Finance Approver (or System Manager) decides, and never the person
   who raised it or sent it for approval (`requested_by`). A rejection needs a reason. Once an
   exception leaves Open, everything the approver decides on (type, action, document, term,
-  amounts, dates, reason, resolution document) is frozen; to change it, reject and reopen.
+  amounts, dates, reason, resolution document) and the audit fields (requested by, decided by,
+  decision remarks) are frozen for any save; to change the request, reject and reopen.
 - **Deviation:** no Frappe Workflow fixture. The rules live in the controller and the API,
   which keeps them testable and avoids a desk workflow nobody uses; Version
   (`track_changes`), `requested_by`, `approved_by`/`approved_on`, decision remarks and a

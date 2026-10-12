@@ -27,6 +27,14 @@ TRANSITIONS = {
 DECISIONS = ("approve", "reject")
 # what the approver decides on; frozen once the exception leaves Open
 LOCKED_FIELDS = (
+	# the audit trail: who asked and who decided, set only by apply_action
+	"source",
+	"requested_by",
+	"approved_by",
+	"approved_on",
+	"decision_remarks",
+	"dedupe_key",
+	# the request itself
 	"category",
 	"exception_type",
 	"requested_action",
