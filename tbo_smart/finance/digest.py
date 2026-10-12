@@ -62,34 +62,45 @@ def build_digest(on_date=None) -> dict:
 	}
 
 
-def render_digest(digest: dict) -> str:
-	def money(item):
-		return fmt_money(item["outstanding"], currency=item["currency"])
-
-	def rows(items):
-		if not items:
-			return f"<p>{_('None.')}</p>"
-		lines = "".join(
-			f"<tr><td>{item['invoice']}</td><td>{frappe.utils.escape_html(item['customer'] or '')}</td>"
-			f"<td>{formatdate(item['due_date'])}</td><td>{item['days_overdue']}</td><td>{money(item)}</td></tr>"
-			for item in items
-		)
-		return (
-			f"<table border='1' cellpadding='4' cellspacing='0'><tr><th>{_('Invoice')}</th><th>{_('Customer')}</th>"
-			f"<th>{_('Due')}</th><th>{_('Days overdue')}</th><th>{_('Outstanding')}</th></tr>{lines}</table>"
-		)
-
-	totals = "".join(
-		f"<li>{fmt_money(row['outstanding'], currency=row['currency'])} {_('outstanding')}, "
-		f"{fmt_money(row['overdue'], currency=row['currency'])} {_('overdue')}</li>"
-		for row in digest["totals"]
+def render_row(item: dict) -> str:
+	cells = (
+		item["invoice"],
+		frappe.utils.escape_html(item["customer"] or ""),
+		formatdate(item["due_date"]),
+		item["days_overdue"],
+		fmt_money(item["outstanding"], currency=item["currency"]),
 	)
+	return "<tr>" + "".join(f"<td>{cell}</td>" for cell in cells) + "</tr>"
+
+
+def render_table(items: list[dict]) -> str:
+	if not items:
+		return f"<p>{_('None.')}</p>"
+	headers = (_("Invoice"), _("Customer"), _("Due"), _("Days overdue"), _("Outstanding"))
+	head = "<tr>" + "".join(f"<th>{header}</th>" for header in headers) + "</tr>"
+	body = "".join(render_row(item) for item in items)
+	return f"<table border='1' cellpadding='4' cellspacing='0'>{head}{body}</table>"
+
+
+def render_total(row: dict) -> str:
+	outstanding = fmt_money(row["outstanding"], currency=row["currency"])
+	overdue = fmt_money(row["overdue"], currency=row["currency"])
+	return f"<li>{outstanding} {_('outstanding')}, {overdue} {_('overdue')}</li>"
+
+
+def render_digest(digest: dict) -> str:
+	totals = "".join(render_total(row) for row in digest["totals"]) or f"<li>{_('Nothing outstanding.')}</li>"
 	exceptions = digest["exceptions"]
-	return (
-		f"<p>{_('Receivables on {0}').format(formatdate(digest['date']))}</p><ul>{totals or '<li>' + _('Nothing outstanding.') + '</li>'}</ul>"
-		f"<h4>{_('Fell overdue since yesterday')}</h4>{rows(digest['newly_overdue'])}"
-		f"<h4>{_('30 or more days overdue')}</h4>{rows(digest['final_notice'])}"
-		f"<p>{_('Exceptions waiting for approval: {0}. Open: {1}.').format(exceptions.get('Pending Approval', 0), exceptions.get('Open', 0))}</p>"
+	waiting = _("Exceptions waiting for approval: {0}. Open: {1}.").format(
+		exceptions.get("Pending Approval", 0), exceptions.get("Open", 0)
+	)
+	return "".join(
+		[
+			f"<p>{_('Receivables on {0}').format(formatdate(digest['date']))}</p><ul>{totals}</ul>",
+			f"<h4>{_('Fell overdue since yesterday')}</h4>{render_table(digest['newly_overdue'])}",
+			f"<h4>{_('30 or more days overdue')}</h4>{render_table(digest['final_notice'])}",
+			f"<p>{waiting}</p>",
+		]
 	)
 
 

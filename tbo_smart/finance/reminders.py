@@ -174,13 +174,15 @@ class ReminderRun:
 			"days_overdue": max(date_diff(self.today, due), 0),
 			"company": row.company,
 		}
+		# Frappe's own Email Template rendering (Finance edits the wording there)
+		email = template.get_formatted_email(context)
 		cc = frappe.db.get_value("User", deal.deal_owner, "email") if deal and deal.deal_owner else None
 		sender = get_setting("reminder_sender")
 		sent = make(
 			doctype="Sales Invoice",
 			name=row.invoice,
-			subject=frappe.render_template(template.subject, context),
-			content=frappe.render_template(template.response_html or template.response, context),
+			subject=email["subject"],
+			content=email["message"],
 			recipients=recipient,
 			cc=cc,
 			sender=frappe.db.get_value("Email Account", sender, "email_id") if sender else None,

@@ -113,7 +113,7 @@ class TBOFinanceException(Document):
 				and self.get(field)
 				and getdate(self.get(field)) < getdate(today())
 			):
-				frappe.throw(_("{0} cannot be in the past.").format(self.meta.get_label(field)))
+				frappe.throw(_("{0} cannot be in the past.").format(_(self.meta.get_label(field))))
 
 	def validate_status_unchanged(self):
 		"""Status changes only through apply_action, never by editing the form or the API."""
