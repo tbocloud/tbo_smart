@@ -9,6 +9,8 @@ import frappe
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 from frappe.custom.doctype.property_setter.property_setter import make_property_setter
 
+from tbo_smart.finance import crm_installed
+
 STAGES = (
 	"Onboarding",
 	"Quotation",
@@ -170,11 +172,16 @@ def get_finance_fields() -> dict:
 
 
 def create_finance_fields() -> None:
+	if not crm_installed():
+		return
 	create_custom_fields(get_finance_fields(), ignore_validate=True)
 
 
 def setup_finance() -> None:
-	"""Everything the finance workflow needs on a site; safe to run again."""
+	"""Everything the finance workflow needs on a site; safe to run again. Nothing on a site
+	without the CRM app: the fields link to CRM Deal and CRM Task."""
+	if not crm_installed():
+		return
 	create_finance_fields()
 	create_finance_roles()
 	track_task_changes()
