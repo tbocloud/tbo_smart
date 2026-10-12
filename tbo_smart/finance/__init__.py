@@ -12,9 +12,16 @@ SETTINGS = "TBO Smart Settings"
 DEFAULT_CRM_ROLES = ("Accounts User", "Accounts Manager")
 
 
+def crm_installed() -> bool:
+	"""The finance workflow hangs off CRM Deal, so it exists only on sites with the CRM app.
+	tbo_smart is also installed on sites without it (e.g. tbo-smart.tbocloud.in)."""
+	return "crm" in frappe.get_installed_apps()
+
+
 def finance_enabled() -> bool:
-	"""Phase 1 master switch: TBO Smart Settings → Finance workflow (Phase 1)."""
-	return bool(cint(frappe.db.get_single_value(SETTINGS, "enable_finance_workflow")))
+	"""Phase 1 master switch: TBO Smart Settings → Finance workflow (Phase 1). Always off on
+	a site without the CRM app."""
+	return crm_installed() and bool(cint(frappe.db.get_single_value(SETTINGS, "enable_finance_workflow")))
 
 
 def receivables_enabled() -> bool:

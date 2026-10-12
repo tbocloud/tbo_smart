@@ -488,3 +488,31 @@ class TestBdeConversion(FinanceTestCase):
 		frappe.set_user(ACCOUNTS)
 		with self.assertRaises(frappe.PermissionError):
 			report_api.get_bde_conversion()
+
+
+class TestWithoutCrm(FrappeTestCase):
+	"""tbo_smart is also installed on sites without the CRM app (tbo-smart.tbocloud.in): there
+	migrate must not try to create fields that link to CRM Deal, and every phase stays off."""
+
+	def test_setup_and_backfill_skip_without_crm(self):
+		from tbo_smart.finance import setup as finance_setup
+		from tbo_smart.patches.v1 import backfill_finance_deal_links
+
+		with (
+			patch("frappe.get_installed_apps", return_value=["frappe", "erpnext", "hrms", "tbo_smart"]),
+			patch.object(finance_setup, "create_custom_fields") as create_fields,
+			patch.object(backfill_finance_deal_links, "run") as backfill,
+		):
+			finance_setup.setup_finance()
+			backfill_finance_deal_links.execute()
+
+		create_fields.assert_not_called()
+		backfill.assert_not_called()
+
+	def test_finance_off_without_crm(self):
+		from tbo_smart.finance import finance_enabled
+
+		frappe.db.set_single_value("TBO Smart Settings", "enable_finance_workflow", 1)
+		with patch("frappe.get_installed_apps", return_value=["frappe", "erpnext", "tbo_smart"]):
+			self.assertFalse(finance_enabled())
+		frappe.db.rollback()
