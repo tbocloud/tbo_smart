@@ -1,0 +1,50 @@
+{
+  "message": {
+    "data": [
+      {
+        "name": "HR-EAD-2026-00012",
+        "posting_date": "2026-10-13",
+        "purpose": "Site visit to Galom, Kakkanad: cab and stay",
+        "currency": "INR",
+        "advance_amount": 6000.0,
+        "paid_amount": 0.0,
+        "claimed_amount": 0.0,
+        "return_amount": 0.0,
+        "pending_amount": 6000.0,
+        "balance_amount": 0.0,
+        "status": "Draft",
+        "docstatus": 0
+      },
+      {
+        "name": "HR-EAD-2026-00009",
+        "posting_date": "2026-09-22",
+        "purpose": "Client workshop travel, Bengaluru",
+        "currency": "INR",
+        "advance_amount": 15000.0,
+        "paid_amount": 15000.0,
+        "claimed_amount": 11200.0,
+        "return_amount": 0.0,
+        "pending_amount": 3800.0,
+        "balance_amount": 3800.0,
+        "status": "Paid",
+        "docstatus": 1
+      },
+      {
+        "name": "HR-EAD-2026-00004",
+        "posting_date": "2026-08-05",
+        "purpose": "Conference fee, Kerala IT Summit",
+        "currency": "INR",
+        "advance_amount": 4500.0,
+        "paid_amount": 4500.0,
+        "claimed_amount": 4500.0,
+        "return_amount": 0.0,
+        "pending_amount": 0.0,
+        "balance_amount": 0.0,
+        "status": "Claimed",
+        "docstatus": 1
+      }
+    ],
+    "page": 1,
+    "has_more": false
+  }
+}

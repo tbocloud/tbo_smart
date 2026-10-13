@@ -11,9 +11,10 @@ from frappe.model.workflow import apply_workflow, get_transitions, get_workflow_
 from frappe.query_builder import Case
 from frappe.query_builder.functions import Count, IfNull, Min, Sum
 from frappe.utils import add_days, cint, date_diff, flt, getdate, now_datetime, strip_html
-from hrms.api import get_expense_claims, get_leave_applications
+from hrms.api import get_expense_claims, get_filters, get_leave_applications
 
 from tbo_smart.api.mobile.capabilities import (
+	ADVANCE_DOCTYPE,
 	DECISION_WORDS,
 	HR_APPROVER_ROLES,
 	get_capabilities,
@@ -32,6 +33,8 @@ from tbo_smart.api.mobile.utils import (
 APPROVAL_DOCTYPES = {
 	"leave": ("Leave Application", "leave_approver", "status"),
 	"expense": ("Expense Claim", "expense_approver", "approval_status"),
+	# HRMS has no approver field on Employee Advance; see routed_advances.
+	"advance": (ADVANCE_DOCTYPE, None, "status"),
 }
 APPROVALS_LIMIT = 100
 CLOSING_SOON_DAYS = 7
@@ -356,15 +359,17 @@ def age_in_days(day, today) -> int | None:
 
 @frappe.whitelist()
 def get_approvals() -> list[dict]:
-	"""Leave Applications and Expense Claims waiting for the session user, newest first.
+	"""Leave Applications, Expense Claims and Employee Advances waiting for the session user,
+	newest first.
 
 	Uses the HRMS PWA queries: without a workflow, documents where I am the approver (HR
 	Manager and HR User: every open one they can read); with a workflow, documents in
-	states my roles can move. Each kind only for approve_leave / approve_expense.
+	states my roles can move. Each kind only for approve_leave / approve_expense /
+	approve_advance.
 	"""
 	capabilities = get_capabilities()
-	if not (capabilities.approve_leave or capabilities.approve_expense):
-		frappe.throw(_("Only leave or expense approvers have approvals."), frappe.PermissionError)
+	if not (capabilities.approve_leave or capabilities.approve_expense or capabilities.approve_advance):
+		frappe.throw(_("Only leave, expense or advance approvers have approvals."), frappe.PermissionError)
 	user = frappe.session.user
 	employee = frappe.db.get_value("Employee", {"user_id": user, "status": "Active"}, "name") or ""
 	approver_id = None if is_hr_approver() else user
@@ -377,22 +382,28 @@ def get_approvals() -> list[dict]:
 		claims = get_expense_claims(
 			employee, approver_id=approver_id, for_approval=True, limit=APPROVALS_LIMIT
 		)
-	approvals = [serialize_leave_approval(row) for row in leaves] + [
-		serialize_claim_approval(row) for row in claims
-	]
+	advances = get_advance_approvals(employee) if capabilities.approve_advance else []
+	approvals = (
+		[serialize_leave_approval(row) for row in leaves]
+		+ [serialize_claim_approval(row) for row in claims]
+		+ [serialize_advance_approval(row) for row in advances]
+	)
 	return sorted(approvals, key=lambda row: str(row["submitted"]), reverse=True)
 
 
 @frappe.whitelist(methods=["POST"])
 def decide_approval(kind: str, name: str, approve: bool, reason: str | None = None) -> dict:
-	"""Approve or reject one leave application or expense claim through the HRMS path.
+	"""Approve or reject one leave application, expense claim or employee advance through the
+	HRMS path.
 
 	With a workflow on the doctype the matching workflow action is applied; otherwise the
 	named approver (or an HR Manager / HR User) sets the status and submits, exactly as in
-	HRMS. A rejection needs a reason; it is added to the document as a comment.
+	HRMS. An employee advance without a workflow can only be approved (submitted): HRMS has
+	no rejected state for it. A rejection needs a reason; it is added to the document as a
+	comment.
 	"""
 	if kind not in APPROVAL_DOCTYPES:
-		frappe.throw(_("Kind must be leave or expense."))
+		frappe.throw(_("Kind must be leave, expense or advance."))
 	require(f"approve_{kind}", _("You do not approve {0}.").format(_(APPROVAL_DOCTYPES[kind][0])))
 	approve = cint(approve)
 	if not approve and not (reason or "").strip():
@@ -403,9 +414,22 @@ def decide_approval(kind: str, name: str, approve: bool, reason: str | None = No
 	if doc.docstatus != 0:
 		frappe.throw(_("{0} {1} has already been decided.").format(_(doctype), name))
 
+	if kind == "advance":
+		check_not_own_advance(doc)
+
 	if get_workflow_name(doctype):
 		apply_workflow(doc.as_dict(), pick_workflow_action(doc, approve))
 		doc.reload()
+	elif kind == "advance":
+		if not is_hr_approver() and name not in routed_advances():
+			frappe.throw(_("You are not the approver of {0}.").format(name), frappe.PermissionError)
+		if not approve:
+			frappe.throw(
+				_(
+					"An employee advance can only be rejected through a workflow. Ask the employee to withdraw it."
+				)
+			)
+		doc.submit()
 	else:
 		if doc.get(approver_field) != frappe.session.user and not is_hr_approver():
 			frappe.throw(_("You are not the approver of {0}.").format(name), frappe.PermissionError)
@@ -449,6 +473,58 @@ def is_hr_approver() -> bool:
 	return bool(HR_APPROVER_ROLES & set(frappe.get_roles()))
 
 
+def get_advance_approvals(employee: str) -> list:
+	"""Draft Employee Advances waiting for me, through HRMS's own approval filters.
+
+	HRMS has no approver field on Employee Advance, so without a workflow an HR Manager / HR
+	User gets every draft they can read and anyone else the drafts routed to them
+	(ess.create_advance shares each one with the employee's expense approver). With a
+	workflow: drafts in states my roles can move.
+	"""
+	filters = get_filters(ADVANCE_DOCTYPE, employee, for_approval=True)
+	if not get_workflow_name(ADVANCE_DOCTYPE) and not is_hr_approver():
+		routed = routed_advances()
+		if not routed:
+			return []
+		filters.name = ("in", routed)
+	return frappe.get_list(
+		ADVANCE_DOCTYPE,
+		filters=filters,
+		fields=[
+			"name",
+			"employee",
+			"employee_name",
+			"purpose",
+			"posting_date",
+			"advance_amount",
+			"currency",
+			"creation",
+		],
+		order_by="posting_date desc",
+		limit=APPROVALS_LIMIT,
+	)
+
+
+def routed_advances() -> list[str]:
+	"""Employee Advances shared with the session user with Submit: routed to me as approver."""
+	DocShare = frappe.qb.DocType("DocShare")
+	return (
+		frappe.qb.from_(DocShare)
+		.select(DocShare.share_name)
+		.where(
+			(DocShare.share_doctype == ADVANCE_DOCTYPE)
+			& (DocShare.user == frappe.session.user)
+			& (DocShare.submit == 1)
+		)
+	).run(pluck=True)
+
+
+def check_not_own_advance(doc) -> None:
+	own = frappe.db.get_value("Employee", doc.employee, "user_id")
+	if own == frappe.session.user:
+		frappe.throw(_("You cannot decide your own advance."), frappe.PermissionError)
+
+
 def serialize_leave_approval(row) -> dict:
 	days = flt(row.total_leave_days)
 	return {
@@ -466,6 +542,7 @@ def serialize_leave_approval(row) -> dict:
 		"days": days,
 		"amount": None,
 		"submitted": row.creation,
+		"can_reject": True,
 	}
 
 
@@ -485,6 +562,29 @@ def serialize_claim_approval(row) -> dict:
 		"days": None,
 		"amount": flt(row.total_claimed_amount),
 		"submitted": row.creation,
+		"can_reject": True,
+	}
+
+
+def serialize_advance_approval(row) -> dict:
+	"""`can_reject` only with a workflow: HRMS has no rejected state for an advance."""
+	return {
+		"id": row.name,
+		"kind": "advance",
+		"ref": row.name,
+		"who": row.employee_name,
+		"employee": row.employee,
+		"title": _("Employee Advance"),
+		"detail": strip_html(row.purpose or "").strip(),
+		"from_date": row.posting_date,
+		"to_date": row.posting_date,
+		"half_day": False,
+		"half_day_date": None,
+		"days": None,
+		"amount": flt(row.advance_amount),
+		"currency": row.currency,
+		"submitted": row.creation,
+		"can_reject": bool(get_workflow_name(ADVANCE_DOCTYPE)),
 	}
 
 

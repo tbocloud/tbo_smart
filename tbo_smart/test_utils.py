@@ -257,6 +257,95 @@ def make_leave_application(
 	return application.name
 
 
+def ensure_employee_advance_account() -> str:
+	"""The default company's Default Employee Advance Account. When it is missing or not a
+	Receivable ledger (which HRMS requires), the company's first Receivable ledger becomes it."""
+	company = erpnext.get_default_company()
+	account = frappe.db.get_value("Company", company, "default_employee_advance_account")
+	if not account or frappe.db.get_value("Account", account, "account_type") != "Receivable":
+		account = frappe.db.get_value(
+			"Account", {"company": company, "account_type": "Receivable", "is_group": 0}, "name"
+		)
+		frappe.db.set_value("Company", company, "default_employee_advance_account", account)
+	return account
+
+
+def make_employee_advance(
+	employee: str, amount: float = 1000, purpose: str = "Client visit", submit: bool = False
+) -> str:
+	"""An Employee Advance in the company currency, inserted (and optionally submitted) as
+	Administrator."""
+	company = erpnext.get_default_company()
+	advance = frappe.get_doc(
+		{
+			"doctype": "Employee Advance",
+			"employee": employee,
+			"company": company,
+			"posting_date": nowdate(),
+			"purpose": purpose,
+			"advance_amount": amount,
+			"currency": frappe.get_cached_value("Company", company, "default_currency"),
+			"exchange_rate": 1,
+			"advance_account": ensure_employee_advance_account(),
+		}
+	)
+	advance.insert(ignore_permissions=True)
+	if submit:
+		advance.submit()
+	return advance.name
+
+
+ADVANCE_TEST_WORKFLOW = "TBO Smart Advance Approval"
+
+
+def make_advance_workflow(approver_role: str = "Expense Approver") -> str:
+	"""An active Workflow on Employee Advance: Pending (draft) to Approved (submitted) or
+	Rejected (draft), both actions allowed to `approver_role`. Pair with
+	delete_advance_workflow."""
+	for state in ("Pending", "Approved", "Rejected"):
+		if not frappe.db.exists("Workflow State", state):
+			frappe.get_doc({"doctype": "Workflow State", "workflow_state_name": state}).insert(
+				ignore_permissions=True
+			)
+	for action in ("Approve", "Reject"):
+		if not frappe.db.exists("Workflow Action Master", action):
+			frappe.get_doc({"doctype": "Workflow Action Master", "workflow_action_name": action}).insert(
+				ignore_permissions=True
+			)
+	delete_advance_workflow()
+	frappe.get_doc(
+		{
+			"doctype": "Workflow",
+			"workflow_name": ADVANCE_TEST_WORKFLOW,
+			"document_type": "Employee Advance",
+			"workflow_state_field": "workflow_state",
+			"is_active": 1,
+			"send_email_alert": 0,
+			"states": [
+				{"state": "Pending", "doc_status": "0", "allow_edit": "Employee"},
+				{"state": "Approved", "doc_status": "1", "allow_edit": approver_role},
+				{"state": "Rejected", "doc_status": "0", "allow_edit": approver_role},
+			],
+			"transitions": [
+				{"state": "Pending", "action": "Approve", "next_state": "Approved", "allowed": approver_role},
+				{"state": "Pending", "action": "Reject", "next_state": "Rejected", "allowed": approver_role},
+			],
+		}
+	).insert(ignore_permissions=True)
+	frappe.cache.hdel("workflow", "Employee Advance")
+	return ADVANCE_TEST_WORKFLOW
+
+
+def delete_advance_workflow() -> None:
+	"""Remove the test workflow and commit. The first workflow on a site adds the
+	`workflow_state` column (DDL, an implicit commit), so a rolled-back delete would leave
+	the workflow active for every later test."""
+	if frappe.db.exists("Workflow", ADVANCE_TEST_WORKFLOW):
+		frappe.delete_doc("Workflow", ADVANCE_TEST_WORKFLOW, ignore_permissions=True, force=True)
+		frappe.db.commit()  # nosemgrep
+	frappe.cache.hdel("workflow", "Employee Advance")
+
+
 def make_half_day_leave_application(employee: str, leave_type: str, approver: str | None = None):
 	"""An Open three-day Leave Application, 20-22 days ahead, whose middle day is a half day."""
 	application = frappe.get_doc(

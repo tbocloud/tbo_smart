@@ -14,7 +14,8 @@
       "half_day_date": "2026-10-17",
       "days": 2.5,
       "amount": null,
-      "submitted": "2026-10-10 07:50:11.204551"
+      "submitted": "2026-10-10 07:50:11.204551",
+      "can_reject": true
     },
     {
       "id": "HR-EXP-2026-00037",
@@ -30,7 +31,26 @@
       "half_day_date": null,
       "days": null,
       "amount": 3450.0,
-      "submitted": "2026-10-09 17:30:40.118230"
+      "submitted": "2026-10-09 17:30:40.118230",
+      "can_reject": true
+    },
+    {
+      "id": "HR-EAD-2026-00011",
+      "kind": "advance",
+      "ref": "HR-EAD-2026-00011",
+      "who": "Sanika",
+      "employee": "HR-EMP-00058",
+      "title": "Employee Advance",
+      "detail": "Client workshop travel, Bengaluru",
+      "from_date": "2026-10-08",
+      "to_date": "2026-10-08",
+      "half_day": false,
+      "half_day_date": null,
+      "days": null,
+      "amount": 12000.0,
+      "currency": "INR",
+      "submitted": "2026-10-08 11:02:45.551120",
+      "can_reject": false
     }
   ]
 }

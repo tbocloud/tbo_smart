@@ -1,0 +1,16 @@
+{
+  "message": {
+    "name": "HR-EAD-2026-00012",
+    "posting_date": "2026-10-13",
+    "purpose": "Site visit to Galom, Kakkanad: cab and stay",
+    "currency": "INR",
+    "advance_amount": 6000.0,
+    "paid_amount": 0.0,
+    "claimed_amount": 0.0,
+    "return_amount": 0.0,
+    "pending_amount": 6000.0,
+    "balance_amount": 0.0,
+    "status": "Draft",
+    "docstatus": 0
+  }
+}

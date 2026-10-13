@@ -21,6 +21,8 @@
       "geolocation_required": true,
       "approve_leave": false,
       "approve_expense": false,
+      "advances": true,
+      "approve_advance": false,
       "team_today": false,
       "team_insights": false,
       "team_scope": null,

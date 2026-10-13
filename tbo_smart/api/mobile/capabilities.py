@@ -22,6 +22,7 @@ CRM_MANAGER_ROLES = {"Sales Manager", "System Manager"}
 CRM_SCOPE_PARAMS = {"own": ["mine"], "team": ["mine", "team"], "all": ["mine", "team", "all"]}
 # A workflow transition counts as a decision when its action or next state reads like one.
 DECISION_WORDS = ("approv", "reject")
+ADVANCE_DOCTYPE = "Employee Advance"
 APPROVAL_FIELDS = {
 	"leave": ("Leave Application", "leave_approver", "leave_approvers"),
 	"expense": ("Expense Claim", "expense_approver", "expense_approvers"),
@@ -60,6 +61,8 @@ def get_capabilities() -> frappe._dict:
 			and bool(cint(frappe.db.get_single_value("HR Settings", "allow_geolocation_tracking"))),
 			"approve_leave": can_approve("leave", user, roles),
 			"approve_expense": can_approve("expense", user, roles),
+			"advances": bool(employee) and can_request_advance(user),
+			"approve_advance": can_approve_advance(user, roles),
 			"team_today": has_reports,
 			"team_insights": has_reports or is_hr_manager,
 			"team_scope": "company" if is_hr_manager else ("direct_reports" if has_reports else None),
@@ -86,6 +89,12 @@ def can_approve(kind: str, user: str, roles: set) -> bool:
 		"Department Approver", {"parenttype": "Department", "parentfield": department_field, "approver": user}
 	):
 		return True
+	return has_workflow_decision(doctype, roles)
+
+
+def has_workflow_decision(doctype: str, roles: set) -> bool:
+	"""A workflow on `doctype` has an approve or reject transition allowed to one of the
+	user's own roles (not All or Guest)."""
 	workflow = get_workflow_name(doctype)
 	own_roles = list(roles - {"All", "Guest"})
 	if not workflow or not own_roles:
@@ -96,6 +105,32 @@ def can_approve(kind: str, user: str, roles: set) -> bool:
 		fields=["action", "next_state"],
 	)
 	return any(is_decision(row.action, row.next_state, DECISION_WORDS) for row in transitions)
+
+
+def can_request_advance(user: str) -> bool:
+	"""The user's roles may create an Employee Advance (the Employee role can in HRMS)."""
+	return bool(frappe.has_permission(ADVANCE_DOCTYPE, "create", user=user))
+
+
+def can_approve_advance(user: str, roles: set) -> bool:
+	"""Employee Advance has no approver field or approval status in HRMS: approving it is
+	submitting it.
+
+	With a workflow on Employee Advance, a role that can take an approve or reject step.
+	Without one: HR Manager / HR User whose roles can submit Employee Advance (Expense
+	Approver by default), or the named Expense Approver of an active Employee or a
+	Department, to whom ess.create_advance routes the drafts.
+	"""
+	if get_workflow_name(ADVANCE_DOCTYPE):
+		return has_workflow_decision(ADVANCE_DOCTYPE, roles)
+	if roles & HR_APPROVER_ROLES and frappe.has_permission(ADVANCE_DOCTYPE, "submit", user=user):
+		return True
+	return bool(frappe.db.exists("Employee", {"expense_approver": user, "status": "Active"})) or bool(
+		frappe.db.exists(
+			"Department Approver",
+			{"parenttype": "Department", "parentfield": "expense_approvers", "approver": user},
+		)
+	)
 
 
 def can_approve_quotations(user: str) -> bool:
