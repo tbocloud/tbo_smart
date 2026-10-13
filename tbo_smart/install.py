@@ -3,6 +3,7 @@
 import frappe
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
+from tbo_smart.checkin.setup import setup_checkin_location
 from tbo_smart.finance.setup import setup_finance
 from tbo_smart.quotation_control import COMMISSION_FIELD
 
@@ -21,6 +22,7 @@ QUOTATION_LEVELS = (
 def after_install():
 	setup_quotation_approval()
 	setup_finance()
+	setup_checkin_location()
 
 
 def setup_quotation_approval():

@@ -1,0 +1,17 @@
+{
+  "message": {
+    "enforced": true,
+    "exempt": null,
+    "max_accuracy": 100,
+    "tolerance_cap": 50,
+    "locations": [
+      {
+        "name": "Kakkanad Office",
+        "location_name": "Kakkanad Office",
+        "latitude": 10.0159,
+        "longitude": 76.3419,
+        "radius": 100
+      }
+    ]
+  }
+}

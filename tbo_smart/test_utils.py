@@ -4,12 +4,14 @@ import base64
 import functools
 import io
 import json
+import math
 import time
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import erpnext
 import frappe
 import jwt
+import requests
 from cryptography.hazmat.primitives.asymmetric import rsa
 from erpnext.setup.doctype.employee.test_employee import make_employee
 from frappe.integrations.oauth2 import get_oauth_server, get_token
@@ -24,6 +26,7 @@ from werkzeug.wrappers import Request as WerkzeugRequest
 from tbo_smart.api.mobile import auth
 from tbo_smart.api.mobile.capabilities import get_capabilities
 from tbo_smart.api.mobile.utils import INSIGHTS_CACHE_PREFIX
+from tbo_smart.checkin import place
 from tbo_smart.install import setup_quotation_approval
 
 TEST_HOLIDAY_LIST = "TBO Smart Test Holidays"
@@ -102,12 +105,117 @@ def set_hr_settings(**values) -> None:
 		frappe.db.set_single_value("HR Settings", field, value)
 
 
-def make_leave_type(name: str = "TBO Smart Casual Leave") -> str:
-	"""A paid Leave Type that allows a negative balance, so tests can apply without an allocation."""
-	if not frappe.db.exists("Leave Type", name):
-		frappe.get_doc({"doctype": "Leave Type", "leave_type_name": name, "allow_negative": 1}).insert(
-			ignore_permissions=True
+# A point near Kottayam; the test locations sit around it.
+GEO_ORIGIN = (9.5091781, 76.5302819)
+GEO_SHIFT_TYPE = "TBO Smart Geo Shift"
+
+
+def offset_point(metres_north: float = 0, metres_east: float = 0, origin=GEO_ORIGIN) -> tuple[float, float]:
+	"""A (latitude, longitude) the given metres north and east of `origin` (flat-earth
+	approximation, accurate to well under a metre at these distances)."""
+	latitude, longitude = origin
+	return (
+		latitude + metres_north / 111_320,
+		longitude + metres_east / (111_320 * math.cos(math.radians(latitude))),
+	)
+
+
+def make_shift_location(name: str, radius: int = 100, metres_north: float = 0, metres_east: float = 0) -> str:
+	"""A Shift Location centred `metres_north`/`metres_east` of GEO_ORIGIN with a check-in radius."""
+	latitude, longitude = offset_point(metres_north, metres_east)
+	if frappe.db.exists("Shift Location", name):
+		frappe.db.set_value(
+			"Shift Location",
+			name,
+			{"latitude": latitude, "longitude": longitude, "checkin_radius": radius},
 		)
+		return name
+	return (
+		frappe.get_doc(
+			{
+				"doctype": "Shift Location",
+				"location_name": name,
+				"latitude": latitude,
+				"longitude": longitude,
+				"checkin_radius": radius,
+			}
+		)
+		.insert(ignore_permissions=True)
+		.name
+	)
+
+
+def make_shift_assignment(employee: str, shift_location: str | None = None) -> str:
+	"""A submitted, active Shift Assignment from today (open-ended) on a 09:00-18:00 shift."""
+	if not frappe.db.exists("Shift Type", GEO_SHIFT_TYPE):
+		frappe.get_doc(
+			{
+				"doctype": "Shift Type",
+				"__newname": GEO_SHIFT_TYPE,
+				"start_time": "09:00:00",
+				"end_time": "18:00:00",
+			}
+		).insert(ignore_permissions=True)
+	assignment = frappe.get_doc(
+		{
+			"doctype": "Shift Assignment",
+			"employee": employee,
+			"shift_type": GEO_SHIFT_TYPE,
+			"company": erpnext.get_default_company(),
+			"start_date": nowdate(),
+			"shift_location": shift_location,
+			"status": "Active",
+		}
+	)
+	assignment.insert(ignore_permissions=True)
+	assignment.submit()
+	return assignment.name
+
+
+def set_checkin_settings(locations: list[str] | tuple = (), **values) -> None:
+	"""Configure TBO Smart Settings → Check-in location in place: the fallback locations
+	and any other field (enforce_checkin_radius, checkin_max_accuracy, checkin_anywhere_roles,
+	reverse_geocode_url, reverse_geocode_email)."""
+	settings = frappe.get_single("TBO Smart Settings")
+	settings.update(values)
+	settings.set("checkin_locations", [{"shift_location": name} for name in locations])
+	settings.save(ignore_permissions=True)
+
+
+def reset_checkin_settings() -> None:
+	"""Check-in location settings back to their shipped defaults, with no fallback locations."""
+	set_checkin_settings(
+		enforce_checkin_radius=1,
+		checkin_max_accuracy=100,
+		checkin_anywhere_roles="HR Manager",
+		reverse_geocode_url="https://nominatim.openstreetmap.org/reverse",
+		reverse_geocode_email=None,
+	)
+
+
+def nominatim_response(address: dict | None = None, display_name: str = "", status: int = 200):
+	"""A mocked `requests.get` result shaped like Nominatim's jsonv2 /reverse answer."""
+	response = MagicMock()
+	response.status_code = status
+	response.json.return_value = {"address": address or {}, "display_name": display_name}
+	if status >= 400:
+		response.raise_for_status.side_effect = requests.HTTPError(f"{status}")
+	return response
+
+
+def clear_place_cache() -> None:
+	"""Drop cached place names and the Nominatim rate-limit slot."""
+	frappe.cache.delete_keys(place.CACHE_PREFIX)
+	frappe.cache.delete(frappe.cache.make_key(place.SLOT_KEY))
+
+
+def make_leave_type(name: str = "TBO Smart Casual Leave", **fields) -> str:
+	"""A paid Leave Type that allows a negative balance, so tests can apply without an allocation.
+	`fields` go onto a new type (e.g. include_holiday=1)."""
+	if not frappe.db.exists("Leave Type", name):
+		frappe.get_doc(
+			{"doctype": "Leave Type", "leave_type_name": name, "allow_negative": 1, **fields}
+		).insert(ignore_permissions=True)
 	return name
 
 
@@ -147,6 +255,26 @@ def make_leave_application(
 	)
 	application.insert(ignore_permissions=True)
 	return application.name
+
+
+def make_half_day_leave_application(employee: str, leave_type: str, approver: str | None = None):
+	"""An Open three-day Leave Application, 20-22 days ahead, whose middle day is a half day."""
+	application = frappe.get_doc(
+		{
+			"doctype": "Leave Application",
+			"employee": employee,
+			"leave_type": leave_type,
+			"from_date": add_days(nowdate(), 20),
+			"to_date": add_days(nowdate(), 22),
+			"half_day": 1,
+			"half_day_date": add_days(nowdate(), 21),
+			"leave_approver": approver,
+			"status": "Open",
+			"posting_date": nowdate(),
+		}
+	)
+	application.insert(ignore_permissions=True)
+	return application
 
 
 def make_expense_claim_type(name: str = "TBO Smart Travel") -> str:
