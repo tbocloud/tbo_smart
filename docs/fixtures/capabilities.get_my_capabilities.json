@@ -5,6 +5,8 @@
     "geolocation_required": true,
     "approve_leave": true,
     "approve_expense": true,
+    "advances": true,
+    "approve_advance": true,
     "team_today": true,
     "team_insights": true,
     "team_scope": "direct_reports",

@@ -9,6 +9,7 @@ from urllib.parse import quote
 
 import frappe
 from erpnext.setup.doctype.employee.employee import get_holiday_list_for_employee
+from erpnext.setup.utils import get_exchange_rate
 from frappe import _
 from frappe.rate_limiter import rate_limit
 from frappe.utils import (
@@ -24,6 +25,7 @@ from frappe.utils import (
 )
 from frappe.utils.print_format import download_pdf
 from hrms.api import (
+	get_advance_account,
 	get_attendance_calendar_events,
 	get_company_cost_center_and_expense_account,
 	get_expense_approval_details,
@@ -489,6 +491,151 @@ def claim_status(claim) -> str:
 	if claim.approval_status in ("Approved", "Rejected"):
 		return claim.approval_status
 	return "Pending"
+
+
+# ---------- Employee advances ----------
+
+
+@frappe.whitelist()
+def get_advances(page: int = 1, page_length: int = 20) -> dict:
+	"""The employee's own Employee Advances, newest first, with paid, claimed and returned amounts."""
+	employee = get_session_employee()
+	require("advances", _("You cannot request employee advances."))
+	start, length = page_window(page, page_length)
+	rows = frappe.get_list(
+		"Employee Advance",
+		filters={"employee": employee.name},
+		fields=ADVANCE_FIELDS,
+		order_by="posting_date desc, creation desc",
+		start=start,
+		page_length=length + 1,
+	)
+	return page_envelope([serialize_advance(row) for row in rows], page, page_length)
+
+
+@frappe.whitelist(methods=["POST"])
+def create_advance(
+	purpose: str,
+	advance_amount: float,
+	posting_date: str | None = None,
+	currency: str | None = None,
+	advance_account: str | None = None,
+) -> dict:
+	"""Create a draft Employee Advance for the session employee, defaulted as the HRMS PWA does.
+
+	Currency defaults to the company currency (an advance in another currency cannot be
+	settled through an Expense Claim); the advance account to the company's Default Employee
+	Advance Account (hrms.api.get_advance_account). Employee Advance has no approver field, so
+	the draft is routed to the employee's expense approver (Employee, else Department, as HRMS
+	picks for Expense Claims) by sharing it with Write and Submit, the way HRMS shares an
+	Expense Claim with its approver. Paying it stays with Accounts.
+	"""
+	employee = get_session_employee(["department"])
+	require("advances", _("You cannot request employee advances."))
+	purpose = (purpose or "").strip()
+	if not purpose:
+		frappe.throw(_("Say what the advance is for."))
+	if flt(advance_amount) <= 0:
+		frappe.throw(_("Advance amount must be more than zero."))
+
+	posting_date = posting_date or nowdate()
+	company_currency = frappe.get_cached_value("Company", employee.company, "default_currency")
+	currency = currency or company_currency
+	exchange_rate = flt(get_exchange_rate(currency, company_currency, posting_date))
+	if not exchange_rate:
+		frappe.throw(_("No exchange rate from {0} to {1} is set up.").format(currency, company_currency))
+	advance_account = advance_account or get_advance_account(employee.company)
+	if advance_account and frappe.db.get_value("Account", advance_account, "company") != employee.company:
+		frappe.throw(
+			_("Advance account {0} does not belong to {1}.").format(advance_account, employee.company)
+		)
+
+	advance = frappe.new_doc("Employee Advance")
+	advance.update(
+		{
+			"employee": employee.name,
+			"company": employee.company,
+			"department": employee.department,
+			"posting_date": posting_date,
+			"purpose": purpose,
+			"advance_amount": flt(advance_amount),
+			"currency": currency,
+			"exchange_rate": exchange_rate,
+			"advance_account": advance_account,
+		}
+	)
+	advance.insert()
+	approver = get_expense_approval_details(employee.name).get("expense_approver")
+	if approver and approver != frappe.session.user:
+		frappe.share.add_docshare(
+			"Employee Advance",
+			advance.name,
+			approver,
+			write=1,
+			submit=1,
+			flags={"ignore_share_permission": True},
+		)
+	return serialize_advance(advance)
+
+
+@frappe.whitelist(methods=["POST"])
+def cancel_advance(name: str) -> dict:
+	"""Withdraw your own draft advance, or cancel a submitted one nothing was paid against.
+
+	A draft is deleted: it is the employee's own unsubmitted request, and HRMS's Employee role
+	has no Delete on Employee Advance. Cancelling a submitted advance needs Cancel, which only
+	the Expense Approver role has by default.
+	"""
+	employee = get_session_employee()
+	advance = frappe.get_doc("Employee Advance", name)
+	if advance.employee != employee.name:
+		frappe.throw(_("You can only cancel your own advance."), frappe.PermissionError)
+	advance.check_permission("read")
+
+	if advance.docstatus == 0:
+		frappe.delete_doc("Employee Advance", name, ignore_permissions=True)
+		return {"name": name, "status": "Cancelled", "withdrawn": True}
+	if advance.docstatus == 1 and not flt(advance.paid_amount):
+		advance.cancel()
+		return {"name": name, "status": "Cancelled", "withdrawn": False}
+	frappe.throw(_("Only a draft or an unpaid advance can be cancelled."))
+
+
+ADVANCE_FIELDS = [
+	"name",
+	"posting_date",
+	"purpose",
+	"currency",
+	"advance_amount",
+	"paid_amount",
+	"claimed_amount",
+	"return_amount",
+	"status",
+	"docstatus",
+]
+
+
+def serialize_advance(row) -> dict:
+	"""HRMS's own status, plus `pending_amount` (still open against the advance: requested less
+	claimed and returned) and `balance_amount` (paid out and not yet settled, the HRMS PWA's
+	"balance")."""
+	advance, paid = flt(row.advance_amount), flt(row.paid_amount)
+	settled = flt(row.claimed_amount) + flt(row.return_amount)
+	is_open = row.docstatus != 2
+	return {
+		"name": row.name,
+		"posting_date": row.posting_date,
+		"purpose": row.purpose,
+		"currency": row.currency,
+		"advance_amount": advance,
+		"paid_amount": paid,
+		"claimed_amount": flt(row.claimed_amount),
+		"return_amount": flt(row.return_amount),
+		"pending_amount": max(flt(advance - settled, 6), 0.0) if is_open else 0.0,
+		"balance_amount": max(flt(paid - settled, 6), 0.0) if is_open else 0.0,
+		"status": "Cancelled" if row.docstatus == 2 else row.status,
+		"docstatus": row.docstatus,
+	}
 
 
 # ---------- Salary slips ----------

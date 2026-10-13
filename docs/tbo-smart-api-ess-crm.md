@@ -1,4 +1,4 @@
-# TBO Smart API: ESS, CRM and manager (tboindia side), v1.4
+# TBO Smart API: ESS, CRM and manager (tboindia side), v1.6
 
 This is the contract for the TBO Smart mobile app's **tboindia.tbocloud.in** half: HR
 self-service (HRMS), CRM (Frappe CRM) and the manager views. The hub (TBO Support) has its
@@ -7,7 +7,7 @@ own contract in `tbocloud/helpdesk`.
 - **Code:** `tbo_smart/api/mobile/{auth,capabilities,ess,crm,manager,quotation,device}.py` and `tbo_smart/push.py`.
 - **Fixtures:** `docs/fixtures/<module>.<method>.json`. Each one is the full HTTP body that
   Frappe returns (`{"message": ...}`).
-- **Status:** v1.4, 2026-10-12. Any change gets a version note in the changelog at the end of
+- **Status:** v1.6, 2026-10-13. Any change gets a version note in the changelog at the end of
   this file.
 
 ## 1. Conventions
@@ -259,6 +259,9 @@ still apply.
 | `get_expense_types` | GET | – | `["Travel", …]` | `hrms.api.get_expense_claim_types` |
 | `get_expense_claims` | GET | `page`, `page_length` | page of ExpenseClaim | `frappe.get_list` |
 | `create_expense_claim` | POST | `expense_type`, `amount`, `expense_date`, `description?`, `receipt_filename?`, `receipt_base64?` | the new ExpenseClaim | `hrms.api.get_expense_approval_details`, `get_company_cost_center_and_expense_account`, `upload_base64_file` |
+| `get_advances` | GET | `page`, `page_length` | page of EmployeeAdvance (`advances`) | `frappe.get_list` |
+| `create_advance` | POST | `purpose`, `advance_amount`, `posting_date?` (default today), `currency?` (default company currency), `advance_account?` (default the company's) | the new EmployeeAdvance, a draft (`advances`) | `hrms.api.get_advance_account`, `get_expense_approval_details`, `erpnext.setup.utils.get_exchange_rate`, Employee Advance controller |
+| `cancel_advance` | POST | `name` | `{name, status: "Cancelled", withdrawn}` | Employee Advance controller |
 | `get_salary_slips` | GET | `page`, `page_length` (default 12) | page of SalarySlip, each with `pdf_url` | `frappe.get_list` |
 | `download_salary_slip` | GET | `name` | the PDF file (`application/pdf`) | `frappe.utils.print_format.download_pdf` |
 
@@ -314,6 +317,34 @@ Fixtures: `ess.<method>.json`.
   - `Paid` when the status is Paid;
   - `Approved` or `Rejected` from the approval status;
   - otherwise `Pending`.
+- **Employee advances** (`get_advances`, `create_advance`, `cancel_advance`; flag `advances`).
+  - An EmployeeAdvance is `{name, posting_date, purpose, currency, advance_amount,
+    paid_amount, claimed_amount, return_amount, pending_amount, balance_amount, status,
+    docstatus}`. `status` is HRMS's own: `Draft`, `Unpaid` (submitted, not yet paid),
+    `Paid`, `Claimed`, `Returned`, `Partly Claimed and Returned`, or `Cancelled`.
+  - `pending_amount` = advance − claimed − returned: what is still open against the advance.
+    `balance_amount` = paid − claimed − returned: cash the employee holds and still has to
+    claim or return (the HRMS PWA's "balance"). Both are 0 once cancelled.
+  - `create_advance` creates a **draft**, defaulted as the HRMS PWA form does: the currency is
+    the company currency (HRMS warns that an advance in another currency cannot be settled
+    through an Expense Claim; another `currency` gets ERPNext's exchange rate, or is refused
+    when there is none); the advance account is **Company → Default Employee Advance Account**
+    (`hrms.api.get_advance_account`). An `advance_account` of another company is refused.
+    `purpose` is required and `advance_amount` must be more than zero, each with its own
+    message.
+  - **Routing.** HRMS's Employee Advance has no approver field. The draft is **shared with
+    the employee's expense approver** (Employee → Expense Approver, else the first
+    Department expense approver, `hrms.api.get_expense_approval_details`) with Write and
+    Submit, the way HRMS shares an Expense Claim with its approver. Without the share a line
+    manager could not read a subordinate's advance under the Employee User Permission.
+  - Approval is submitting it (§5). Paying, claiming and returning stay in ERPNext with
+    Accounts.
+  - `cancel_advance` works on your own advance only (others get `PermissionError`).
+    - **Draft:** withdrawn, which means deleted. The Employee role has no Delete on Employee
+      Advance, so the endpoint deletes after checking the advance is your own draft.
+    - **Submitted with nothing paid:** cancelled through `doc.cancel()`, which needs
+      **Cancel** (Expense Approver by default, not Employee).
+    - Anything paid is refused.
 - **Salary slips** are **own only**.
   - The list is filtered to the session employee and `docstatus = 1`.
   - `download_salary_slip` checks that the slip's employee is the session employee
@@ -343,6 +374,8 @@ ERP takes effect on the next request.
 | `geolocation_required` | `checkin_allowed` and **HR Settings → Allow Geolocation Tracking**. The app must send latitude and longitude; HRMS refuses a punch without them and enforces shift-location radii. | `ess.check_in` (HRMS) |
 | `approve_leave` | **HR Manager** or **HR User**; or the user is the **Leave Approver** of an active Employee or a Department (Department Approver, Leave Approvers); or a **Workflow** on Leave Application has an approve or reject transition (action or next state containing "approv" / "reject") allowed to one of their own roles (not All or Guest). The **Leave Approver** role alone, with nobody to approve, is not enough. | `manager.get_approvals` (leave part), `manager.decide_approval(kind="leave")` |
 | `approve_expense` | The same rule for Expense Claim: HR Manager / HR User, named **Expense Approver** of an Employee or Department, or a workflow role. | `manager.get_approvals` (expense part), `manager.decide_approval(kind="expense")` |
+| `advances` | `ess` and the user's roles can create an Employee Advance (the Employee role can). | `ess.get_advances`, `ess.create_advance` |
+| `approve_advance` | HRMS has no approver or approval status on Employee Advance: approving it is **submitting** it. **With a Workflow** on Employee Advance: one of their own roles has an approve or reject transition. **Without one:** **HR Manager / HR User** whose roles can submit Employee Advance (by default only **Expense Approver** can), or the named **Expense Approver** of an active Employee or a Department, to whom `create_advance` routes the drafts. | `manager.get_approvals` (advance part), `manager.decide_approval(kind="advance")` |
 | `team_today` | `ess` and at least one **active direct report** (`Employee.reports_to`). | `manager.get_team_today` |
 | `team_insights` | `team_today`, or the **HR Manager** role. | `manager.get_team_insights` |
 | `team_scope` | `company` for an HR Manager (every active employee of their company; every company if they have no Employee), `direct_reports` for other managers, else `null`. Never includes the caller. | `manager.get_team_insights` |
@@ -378,8 +411,8 @@ Fixtures: `capabilities.get_my_capabilities.json` (a sales head who manages a te
 | Method | Verb | Params | Returns | Who may call |
 | --- | --- | --- | --- | --- |
 | `get_team_today` | GET | – | `[{id, employee, employee_name, image, department, designation, attendance, checked_in_at, leave_type}]` | `team_today`. Others get `PermissionError`. |
-| `get_approvals` | GET | – | `[Approval]`, newest first | `approve_leave` or `approve_expense`; each kind only with its flag. Others get `PermissionError`. |
-| `decide_approval` | POST | `kind` (`leave`/`expense`), `name`, `approve` (bool), `reason?` (required to reject) | `{kind, name, status, docstatus}` | `approve_<kind>`, and then the document's named approver, an HR Manager / HR User, or a workflow role (below) |
+| `get_approvals` | GET | – | `[Approval]`, newest first | `approve_leave`, `approve_expense` or `approve_advance`; each kind only with its flag. Others get `PermissionError`. |
+| `decide_approval` | POST | `kind` (`leave`/`expense`/`advance`), `name`, `approve` (bool), `reason?` (required to reject) | `{kind, name, status, docstatus}` | `approve_<kind>`, and then the document's named approver, an HR Manager / HR User, or a workflow role (below) |
 | `get_team_insights` | GET | `period` (`week`/`month`/`quarter`/`year`, default `month`) | Team insights (§5.1) | `team_insights` |
 | `get_sales_snapshot` | GET | – | `{currency, by_stage[], pipeline, weighted, won_this_month{count, amount}, closing_this_week[]}` | `sales_insights`. Covers the caller's widest `crm_scope`. Prefer `crm.get_sales_insights`. |
 
@@ -395,6 +428,12 @@ Fixtures: `capabilities.get_my_capabilities.json` (a sales head who manages a te
     Open leave and Draft claims, never my own. An **HR Manager / HR User** gets every open
     one they can read, as in HRMS.
   - **With a Workflow on the doctype:** documents in the states my roles can move.
+  - **Advances** (`kind: "advance"`, through `hrms.api.get_filters`): draft Employee
+    Advances, never my own. An HR Manager / HR User gets every draft they can read; anyone
+    else the drafts shared with them by `ess.create_advance`. `title` is "Employee Advance",
+    `detail` the purpose, `amount` the advance amount, plus `currency`.
+  - Every row has `can_reject`. It is `false` only for an advance without a workflow: HRMS
+    has no rejected state for an advance, so hide Reject there.
 - **`decide_approval`** follows the HRMS path. It never writes the status directly.
   - **No workflow:**
     - Only the named approver, or an HR Manager / HR User (who can submit any of these in
@@ -405,6 +444,12 @@ Fixtures: `capabilities.get_my_capabilities.json` (a sales head who manages a te
       lines, then `submit()`.
       - An approved submit **posts GL entries**, so the claim needs a payable account.
       - Rejected claims post nothing.
+    - **Advance:** only an HR Manager / HR User, or the approver it was routed (shared) to,
+      may decide; approving calls `submit()` (status `Unpaid` until Accounts pays it, which
+      needs Company → Default Employee Advance Account, a **Receivable** ledger). Rejecting
+      without a workflow is refused with a `ValidationError`: ask the employee to withdraw
+      it, or add a workflow.
+    - Nobody decides their own advance (`PermissionError`).
   - **Workflow active:** it applies the transition open to me whose action or next state
     contains "approv" or "reject". If there is none, `PermissionError`.
   - A `reason` is added to the document as a comment: `Approved: …` or `Rejected: …`.
@@ -722,7 +767,16 @@ Read-only aggregates for the scope. Fixture: `crm.get_sales_insights.json`.
    Claim Payable Account** and a cost center, and each Expense Claim Type needs a default
    account. If approvers should approve without posting, add a **Workflow**;
    `decide_approval` follows it.
-7. **CRM.**
+7. **Employee advances.**
+   - **Company → Default Employee Advance Account** must be a **Receivable** ledger; HRMS
+     refuses any other type on save and needs one to submit.
+   - Set **Expense Approver** on each Employee (or Department): new advances from the app
+     are shared with that user. Advances created in the desk are not shared, so only HR
+     sees those in the app.
+   - Only **Expense Approver** has Submit and Cancel on Employee Advance by default. Give HR
+     users that role (or Submit on the doctype) if HR should approve advances.
+   - Add a **Workflow** on Employee Advance if approvers should be able to reject.
+8. **CRM.**
    - Sales staff need **Sales User**; heads need **Sales Manager** for sales insights.
    - Turn on **FCRM Settings → Sales hierarchy** if team leads should see their team's deals.
      Inside the hierarchy a Sales Manager is limited to their subtree (`crm_scope = team`);
@@ -731,8 +785,8 @@ Read-only aggregates for the scope. Fixture: `crm.get_sales_insights.json`.
      in CRM (with a reason) rather than leaving them open.
    - Set **FCRM Settings → Currency** for the snapshot.
    - Fill in **User → Mobile No** for anyone who logs calls.
-8. **OAuth Client** as in §2.1. Restrict **Allowed Roles** to `Employee`.
-9. **Push.** Tick **TBO Smart Settings → Mobile push** only when the app build with Expo
+9. **OAuth Client** as in §2.1. Restrict **Allowed Roles** to `Employee`.
+10. **Push.** Tick **TBO Smart Settings → Mobile push** only when the app build with Expo
    push ships. The workers (`short` queue) must be running.
 
 ## 9. Mismatches with the app (`tbo_smart_mobile/src/api`)
@@ -773,7 +827,7 @@ Read-only aggregates for the scope. Fixture: `crm.get_sales_insights.json`.
 
 ## 10. Tests
 
-The tests are in `tbo_smart/tests/test_mobile_{ess,crm,lead_capture,manager,quotation,push,sso}.py`, with helpers in
+The tests are in `tbo_smart/tests/test_mobile_{ess,advance,crm,lead_capture,manager,quotation,push,sso}.py`, with helpers in
 `tbo_smart/test_utils.py`. They cover:
 
 - **ESS:** own-only data and server-time check-in.
@@ -794,6 +848,14 @@ The tests are in `tbo_smart/tests/test_mobile_{ess,crm,lead_capture,manager,quot
 - **Insights** (`test_mobile_insights.py`): period windows, figures on fixtures, refusal
   without the capability or outside the scope, and no location or punch time in team
   insights.
+- **Employee advances** (`test_mobile_advance.py`): create with the company currency and
+  default advance account; amount above zero and purpose required; a foreign advance
+  account refused; own-only list with HRMS's paid, claimed, returned, pending and balance
+  figures; withdrawing an own draft, refusing someone else's and a paid one; the `advances`
+  and `approve_advance` flags (the Expense Approver role alone is not enough); approvals
+  refused to non-approvers; the routed approver sees and approves (submits) only their
+  drafts; rejection refused without a workflow; HR sees every draft; no deciding your own;
+  and with a workflow, approve and reject through it.
 - **Push:** off by default, payload, dead-token cleanup, never raises.
 - **Single sign-in** (`test_mobile_sso.py`): a locally generated RSA key signs the ID tokens
   and the JWKS download is mocked. A valid token issues an access token linked to the OAuth Client, with no refresh token;
@@ -830,3 +892,9 @@ those apps on Frappe version-15.
   `tbo_smart.api.mobile.quotation` (`get_limits`, `get_approvals`, `get_trail`, `decide`)
   over `tbo_smart.api.quotation_adjustment`, with `actions` on the trail. New capability
   `approve_quotations` (§4). Push routes `TBO Quotation Adjustment` to `/quotations/<name>`.
+- **v1.6 (2026-10-13):** employee advances. New `ess.get_advances`, `ess.create_advance` and
+  `ess.cancel_advance` (§3.1); new drafts are shared with the employee's expense approver.
+  New capabilities `advances` and `approve_advance` (§4). `manager.get_approvals` includes
+  advances (`kind: "advance"`, with `currency`) and every row gains `can_reject`;
+  `manager.decide_approval` accepts `kind="advance"` (approve submits; reject needs a
+  workflow).
