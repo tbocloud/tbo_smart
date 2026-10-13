@@ -1,6 +1,6 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import add_months, get_first_day, getdate, now_datetime
+from frappe.utils import add_days, add_months, get_first_day, getdate, now_datetime, nowdate
 
 from tbo_smart.api.mobile import ess
 from tbo_smart.api.mobile.utils import NoEmployeeError
@@ -112,6 +112,44 @@ class TestMobileESS(FrappeTestCase):
 		page = ess.get_leave_applications()
 		self.assertEqual({row["name"] for row in page["data"]}, {applied["name"]})
 		self.assertFalse(page["has_more"])
+
+	def test_half_day_inside_a_multi_day_leave(self):
+		# include_holiday keeps the count independent of the test holiday list.
+		leave_type = make_leave_type("TBO Smart Half Day Leave", include_holiday=1)
+		from_date, middle, to_date = (add_days(nowdate(), days) for days in (30, 31, 32))
+
+		preview = ess.get_leave_days(leave_type, from_date, to_date, half_day=True, half_day_date=middle)
+		self.assertEqual(preview, {"days": 2.5, "half_day_date": middle})
+		self.assertEqual(ess.get_leave_days(leave_type, from_date, to_date)["days"], 3)
+
+		applied = ess.apply_leave(leave_type, from_date, to_date, half_day=True, half_day_date=middle)
+		self.assertEqual(applied["days"], 2.5)
+		self.assertEqual(str(applied["half_day_date"]), middle)
+		self.assertTrue(applied["half_day"])
+
+	def test_half_day_defaults_to_the_first_day(self):
+		leave_type = make_leave_type("TBO Smart Half Day Leave", include_holiday=1)
+		from_date, to_date = add_days(nowdate(), 40), add_days(nowdate(), 41)
+		preview = ess.get_leave_days(leave_type, from_date, to_date, half_day=True)
+		self.assertEqual(preview, {"days": 1.5, "half_day_date": from_date})
+
+	def test_half_day_outside_the_range_is_refused(self):
+		leave_type = make_leave_type("TBO Smart Half Day Leave", include_holiday=1)
+		from_date, to_date = add_days(nowdate(), 50), add_days(nowdate(), 52)
+		outside = add_days(nowdate(), 53)
+		with self.assertRaises(frappe.ValidationError):
+			ess.get_leave_days(leave_type, from_date, to_date, half_day=True, half_day_date=outside)
+		with self.assertRaises(frappe.ValidationError):
+			ess.apply_leave(leave_type, from_date, to_date, half_day=True, half_day_date=outside)
+		self.assertFalse(
+			frappe.db.exists("Leave Application", {"employee": self.staff, "from_date": from_date})
+		)
+
+	def test_single_day_half_day_ignores_another_date(self):
+		leave_type = make_leave_type("TBO Smart Half Day Leave", include_holiday=1)
+		day = add_days(nowdate(), 60)
+		applied = ess.apply_leave(leave_type, day, day, half_day=True, half_day_date=add_days(day, 3))
+		self.assertEqual((applied["days"], str(applied["half_day_date"])), (0.5, day))
 
 	def test_cannot_cancel_someone_elses_leave(self):
 		frappe.set_user("Administrator")

@@ -35,11 +35,13 @@ from hrms.api import (
 	upload_base64_file,
 )
 from hrms.api import get_leave_types as hrms_get_leave_types
-from hrms.hr.doctype.leave_application.leave_application import get_leave_details
+from hrms.hr.doctype.leave_application.leave_application import get_leave_details, get_number_of_leave_days
 from hrms.hr.doctype.shift_assignment.shift_assignment import get_employee_shift
 
 from tbo_smart.api.mobile.capabilities import get_capabilities, require
 from tbo_smart.api.mobile.utils import get_full_names, get_session_employee, page_envelope, page_window
+from tbo_smart.checkin import geofence
+from tbo_smart.checkin.place import clean_device_place
 
 DUPLICATE_PUNCH_SECONDS = 60
 APP_DEVICE_ID = "TBO Smart"
@@ -101,8 +103,13 @@ def check_in(
 	latitude: float | None = None,
 	longitude: float | None = None,
 	accuracy: float | None = None,
+	place_name: str | None = None,
 ) -> dict:
-	"""Record an Employee Checkin at server time. HRMS validates the shift and the geofence."""
+	"""Record an Employee Checkin at server time.
+
+	HRMS validates the shift; the Employee Checkin validate event (tbo_smart.checkin) applies
+	the check-in radius. `place_name` is the phone's own reverse-geocoded address; without it the
+	server looks the place up in the background."""
 	if log_type not in ("IN", "OUT"):
 		frappe.throw(_("Log type must be IN or OUT."))
 	employee = get_session_employee()
@@ -122,6 +129,8 @@ def check_in(
 	checkin.latitude = flt(latitude) if latitude is not None else None
 	checkin.longitude = flt(longitude) if longitude is not None else None
 	checkin.device_id = describe_fix(accuracy)
+	checkin.tbo_location_accuracy = flt(accuracy) if accuracy is not None else None
+	checkin.tbo_location_name = clean_device_place(place_name)
 	checkin.insert()
 	return serialize_checkin(checkin)
 
@@ -134,7 +143,7 @@ def get_today() -> dict:
 	checkins = frappe.get_list(
 		"Employee Checkin",
 		filters={"employee": employee.name, "time": ("between", [today, today])},
-		fields=["name", "log_type", "time", "device_id", "latitude", "longitude"],
+		fields=CHECKIN_FIELDS,
 		order_by="time asc",
 	)
 	shift = get_employee_shift(employee.name, now_datetime(), consider_default_shift=True)
@@ -155,6 +164,42 @@ def get_today() -> dict:
 	}
 
 
+@frappe.whitelist()
+def get_checkin_locations() -> dict:
+	"""Where the session employee may check in today, so the app can show the distance
+	before the punch. The server stays authoritative: check_in applies the same rule."""
+	employee = get_session_employee()
+	policy = geofence.get_policy(employee.name, frappe.session.user, now_datetime())
+	return {
+		"enforced": policy.enforced,
+		"exempt": policy.exempt,
+		"max_accuracy": policy.max_accuracy,
+		"tolerance_cap": policy.tolerance_cap,
+		"locations": [
+			{
+				"name": row.name,
+				"location_name": row.location_name,
+				"latitude": row.latitude,
+				"longitude": row.longitude,
+				"radius": row.radius,
+			}
+			for row in policy.locations
+		],
+	}
+
+
+CHECKIN_FIELDS = [
+	"name",
+	"log_type",
+	"time",
+	"device_id",
+	"latitude",
+	"longitude",
+	"tbo_location_name",
+	"tbo_outside_radius",
+]
+
+
 def describe_fix(accuracy: float | None) -> str:
 	"""HRMS has no accuracy field; keep it readable in "Location / Device ID"."""
 	if accuracy is None:
@@ -168,6 +213,8 @@ def serialize_checkin(row) -> dict:
 		"log_type": row.log_type,
 		"time": row.time,
 		"location": row.device_id,
+		"place_name": row.tbo_location_name,
+		"outside_radius": bool(row.tbo_outside_radius),
 		"latitude": row.latitude,
 		"longitude": row.longitude,
 	}
@@ -284,8 +331,12 @@ def apply_leave(
 	reason: str | None = None,
 	half_day_date: str | None = None,
 ) -> dict:
-	"""Create an Open Leave Application for the session employee, routed to their leave approver."""
+	"""Create an Open Leave Application for the session employee, routed to their leave approver.
+
+	On a leave of several days, `half_day_date` picks the day that is a half day (default:
+	the first day); it must fall inside the range."""
 	employee = get_session_employee()
+	half_day_date = resolve_half_day_date(from_date, to_date, half_day, half_day_date)
 	approver = get_leave_approval_details(employee.name).get("leave_approver")
 	application = frappe.new_doc("Leave Application")
 	application.update(
@@ -296,7 +347,7 @@ def apply_leave(
 			"from_date": from_date,
 			"to_date": to_date,
 			"half_day": cint(half_day),
-			"half_day_date": (half_day_date or from_date) if cint(half_day) else None,
+			"half_day_date": half_day_date,
 			"description": reason,
 			"leave_approver": approver,
 			"posting_date": nowdate(),
@@ -305,6 +356,43 @@ def apply_leave(
 	)
 	application.insert()
 	return serialize_leave(application, get_full_names({approver}))
+
+
+@frappe.whitelist()
+def get_leave_days(
+	leave_type: str,
+	from_date: str,
+	to_date: str,
+	half_day: bool = False,
+	half_day_date: str | None = None,
+) -> dict:
+	"""Leave days the application would count, from HRMS's own calculation: a half day takes
+	0.5 off its date, and holidays and weekly offs are left out unless the leave type
+	includes them."""
+	employee = get_session_employee()
+	half_day_date = resolve_half_day_date(from_date, to_date, half_day, half_day_date)
+	days = get_number_of_leave_days(
+		employee.name, leave_type, from_date, to_date, cint(half_day), half_day_date
+	)
+	return {"days": flt(days), "half_day_date": half_day_date}
+
+
+def resolve_half_day_date(from_date: str, to_date: str, half_day, half_day_date: str | None):
+	"""The half day's date, or None without a half day. A one-day leave's half day is that day."""
+	if getdate(to_date) < getdate(from_date):
+		frappe.throw(_("To date cannot be before from date."))
+	if not cint(half_day):
+		return None
+	if getdate(from_date) == getdate(to_date):
+		return str(getdate(from_date))
+	day = getdate(half_day_date or from_date)
+	if not getdate(from_date) <= day <= getdate(to_date):
+		frappe.throw(
+			_("The half day must be between {0} and {1}.").format(
+				frappe.format(getdate(from_date), "Date"), frappe.format(getdate(to_date), "Date")
+			)
+		)
+	return str(day)
 
 
 @frappe.whitelist(methods=["POST"])

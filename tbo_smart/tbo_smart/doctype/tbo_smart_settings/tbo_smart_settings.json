@@ -46,7 +46,15 @@
   "column_break_reconciliation",
   "second_approval_amount",
   "dashboard_section",
-  "enable_finance_dashboard"
+  "enable_finance_dashboard",
+  "checkin_section",
+  "enforce_checkin_radius",
+  "checkin_locations",
+  "checkin_max_accuracy",
+  "column_break_checkin",
+  "checkin_anywhere_roles",
+  "reverse_geocode_url",
+  "reverse_geocode_email"
  ],
  "fields": [
   {
@@ -345,12 +353,64 @@
    "fieldtype": "Check",
    "label": "Finance dashboard (Phase 5)",
    "description": "Adds finance cards to the CRM dashboard by role: quotations, invoiced, collected, outstanding, overdue and lead-to-deal for CRM users (their own deals for a salesperson); payable to India, transfers waiting, bank lines to verify and open exceptions for accounts, finance and management. Needs Phase 1 on."
+  },
+  {
+   "fieldname": "checkin_section",
+   "fieldtype": "Section Break",
+   "label": "Check-in location"
+  },
+  {
+   "fieldname": "enforce_checkin_radius",
+   "fieldtype": "Check",
+   "label": "Enforce check-in radius",
+   "default": "1",
+   "description": "Refuse an employee's own check-in outside their allowed location: the Shift Location on their active Shift Assignment, else the list below. Does nothing until at least one location with a radius applies, so switching it on can't lock anyone out."
+  },
+  {
+   "fieldname": "checkin_locations",
+   "fieldtype": "Table MultiSelect",
+   "label": "Allowed check-in locations",
+   "options": "TBO Checkin Location",
+   "description": "For employees without a Shift Assignment location. Inside any of them is allowed. Each needs coordinates and a check-in radius."
+  },
+  {
+   "fieldname": "checkin_max_accuracy",
+   "fieldtype": "Int",
+   "label": "Worst GPS accuracy accepted (m)",
+   "default": "100",
+   "non_negative": 1,
+   "description": "A punch with a vaguer fix is refused. Up to 50 m of the reported accuracy is added to the radius."
+  },
+  {
+   "fieldname": "column_break_checkin",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "checkin_anywhere_roles",
+   "fieldtype": "Small Text",
+   "label": "Roles that may check in anywhere",
+   "default": "HR Manager",
+   "description": "One role per line (for example Field Staff). Their punches outside the radius are accepted and flagged Outside radius. For one person working from home, tick Allow remote check-in on their Employee."
+  },
+  {
+   "fieldname": "reverse_geocode_url",
+   "fieldtype": "Data",
+   "label": "Reverse geocoding URL",
+   "default": "https://nominatim.openstreetmap.org/reverse",
+   "description": "Nominatim /reverse endpoint that names the place when the phone didn't. Point it at a self-hosted Nominatim if you run one; leave empty to turn the lookup off."
+  },
+  {
+   "fieldname": "reverse_geocode_email",
+   "fieldtype": "Data",
+   "label": "Contact email for reverse geocoding",
+   "options": "Email",
+   "description": "Sent to Nominatim with each request, as its usage policy asks."
   }
  ],
  "index_web_pages_for_search": 0,
  "issingle": 1,
  "links": [],
- "modified": "2026-10-13 01:30:00.000000",
+ "modified": "2026-10-13 09:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Smart Settings",

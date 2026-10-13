@@ -148,6 +148,11 @@ doc_events = {
 	"Notification Log": {"after_insert": "tbo_smart.push.on_notification_log"},
 	"PWA Notification": {"after_insert": "tbo_smart.push.on_pwa_notification"},
 	"User": {"on_update": "tbo_smart.api.mobile.auth.revoke_tokens_of_disabled_user"},
+	# Check-in radius and place name (docs/checkin-location.md)
+	"Employee Checkin": {
+		"validate": "tbo_smart.checkin.employee_checkin.validate",
+		"after_insert": "tbo_smart.checkin.employee_checkin.after_insert",
+	},
 	"Quotation": {
 		"validate": "tbo_smart.quotation_control.validate",
 		"on_update": ["tbo_smart.quotation_control.on_update", "tbo_smart.finance.stage.stage_changed"],
@@ -187,7 +192,10 @@ doc_events = {
 	},
 }
 
-after_migrate = ["tbo_smart.finance.setup.after_migrate"]
+after_migrate = [
+	"tbo_smart.finance.setup.after_migrate",
+	"tbo_smart.checkin.setup.setup_checkin_location",
+]
 
 scheduler_events = {
 	"daily": [

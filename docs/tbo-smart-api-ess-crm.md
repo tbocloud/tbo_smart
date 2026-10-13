@@ -246,7 +246,8 @@ still apply.
 | Method | Verb | Params | Returns | Reuses |
 | --- | --- | --- | --- | --- |
 | `get_me` | GET | – | Employee, plus `capabilities` (§4) and the v1 aliases `is_manager` (= `team_today`), `is_approver` (= `approve_leave` or `approve_expense`), `is_sales_manager` (= `crm_manager`) | `capabilities.get_capabilities` |
-| `check_in` | POST | `log_type` (`IN`/`OUT`), `latitude?`, `longitude?`, `accuracy?` (m) | the punch (needs `checkin_allowed`) | HRMS `Employee Checkin` controller (shift, geofence) |
+| `check_in` | POST | `log_type` (`IN`/`OUT`), `latitude?`, `longitude?`, `accuracy?` (m), `place_name?` | the punch, with `place_name` and `outside_radius` (needs `checkin_allowed`) | HRMS `Employee Checkin` controller (shift) with TBO Smart's radius rule (§3.2) |
+| `get_checkin_locations` | GET | – | `{enforced, exempt, max_accuracy, tolerance_cap, locations[{name, location_name, latitude, longitude, radius}]}` | `tbo_smart.checkin.geofence.get_policy` (§3.2) |
 | `get_today` | GET | – | `{date, server_time, shift_name, shift_start, shift_end, status, attendance, checkins[]}` | `hrms…shift_assignment.get_employee_shift` |
 | `get_attendance` | GET | `year`, `month` (1–12) | `[{date, status}]` | `hrms.api.get_attendance_calendar_events` |
 | `get_holidays` | GET | `year?` (default: this year) | `[{date, description}]` (weekly offs excluded) | `hrms.api.get_holidays_for_employee` |
@@ -254,6 +255,7 @@ still apply.
 | `get_leave_types` | GET | – | `["Casual Leave", …]` (allocated types plus LWP) | `hrms.api.get_leave_types` |
 | `get_leave_approver` | GET | – | `{leave_approver, leave_approver_name, is_mandatory}` | `hrms.api.get_leave_approval_details` |
 | `get_leave_applications` | GET | `page`, `page_length` | page of LeaveApplication | `frappe.get_list` |
+| `get_leave_days` | GET | `leave_type`, `from_date`, `to_date`, `half_day?`, `half_day_date?` | `{days, half_day_date}` | `hrms…leave_application.get_number_of_leave_days` |
 | `apply_leave` | POST | `leave_type`, `from_date`, `to_date`, `half_day?`, `reason?`, `half_day_date?` | the new LeaveApplication, with `approver` | Leave Application controller |
 | `cancel_leave` | POST | `name` | `{name, status: "Cancelled", withdrawn}` | Leave Application controller |
 | `get_expense_types` | GET | – | `["Travel", …]` | `hrms.api.get_expense_claim_types` |
@@ -275,13 +277,19 @@ Fixtures: `ess.<method>.json`.
   - It is refused (`PermissionError`) unless **HR Settings → Allow Employee Checkin from Mobile App** is ticked.
   - It is refused (`DuplicateEntryError`) if the employee already punched in the last 60 s.
   - The rate limit is 60 calls a minute per IP. It is generous because an office shares one IP.
-  - When **HR Settings → Allow Geolocation Tracking** is on:
-    - HRMS requires latitude and longitude, and stores them plus a GeoJSON `geolocation`.
-    - If the employee's active Shift Assignment has a **Shift Location** with a radius, HRMS
-      refuses punches outside it (`CheckinRadiusExceededError`). That is the geofence; set it
-      per shift location, not in this app.
-  - HRMS has no accuracy field. The accuracy is kept readable in **Location / Device ID**
-    as `TBO Smart ±12 m`, and returned as `location`.
+  - When **HR Settings → Allow Geolocation Tracking** is on, HRMS requires latitude and
+    longitude, and stores them plus a GeoJSON `geolocation`.
+  - The radius rule is in §3.2. A refusal is `CheckinOutsideRadiusError` (a subclass of
+    HRMS's `CheckinRadiusExceededError`) or `CheckinAccuracyError`, both HTTP 417 with a
+    message to show as is.
+  - The accuracy stays readable in **Location / Device ID** as `TBO Smart ±12 m`, returned as
+    `location`, and is also stored in `tbo_location_accuracy`.
+  - `place_name` is the phone's reverse-geocoded address (at most 140 characters), stored in
+    `tbo_location_name` ("Place"). Without it the server names the place in the background
+    (§3.2), so a punch's `place_name` can be `null` at first and filled in by `get_today`
+    later.
+  - `outside_radius` is true for an exempt employee's punch outside every allowed location.
+- **`get_today.checkins[]`** have the same shape as the `check_in` result.
 - **`get_today.status`** is `not_checked_in`, `checked_in` or `checked_out`, from the last punch.
   `attendance` is today's submitted Attendance status, or `null`. Use `server_time` to show
   clock drift.
@@ -296,7 +304,13 @@ Fixtures: `ess.<method>.json`.
     Leave Approver, the same rule as HRMS.
   - HRMS validates balance, overlap, block days and the rest; its message comes back as a
     `ValidationError`.
-  - `half_day_date` defaults to `from_date`.
+  - `half_day_date` picks the half day of a leave of several days. It defaults to
+    `from_date`, must be between `from_date` and `to_date` (else `ValidationError` "The half
+    day must be between …"), and is ignored without `half_day`. A one-day leave's half day is
+    that day.
+- **`get_leave_days`** previews the total with HRMS's own calculation (the same as the saved
+  `total_leave_days`): a half day counts 0.5 on its date, and holidays and weekly offs are left
+  out unless the leave type includes holidays. It validates `half_day_date` like `apply_leave`.
 - **`cancel_leave`** works on your own application only.
   - **Open draft:** it is withdrawn, which means deleted. This needs the **Delete** permission
     on Leave Application, which the Employee role does **not** have by default. See §8.
@@ -352,6 +366,35 @@ Fixtures: `ess.<method>.json`.
   - It then uses Frappe's `download_pdf`, which checks read/print permission again.
   - We do **not** reuse `hrms.api.download_salary_slip`, because it has no ownership check.
 
+### 3.2 Check-in location: place name and radius (v1.5)
+
+Full spec and owner setup: `docs/checkin-location.md`.
+
+- **Which locations:** the Shift Location on the employee's active Shift Assignment for the
+  day, else **TBO Smart Settings → Allowed check-in locations**. Inside any of them is allowed.
+- **Rule:** distance (HRMS's haversine) ≤ `radius` + min(`accuracy`, `tolerance_cap` = 50 m).
+  A reported accuracy worse than `max_accuracy` (default 100 m) is refused first. Without
+  coordinates the punch is refused.
+- **Enforced** only when **Enforce check-in radius** is on and at least one usable location
+  applies (`enforced` in `get_checkin_locations`). With nothing configured nothing is blocked.
+- **Exempt** (`exempt` = `"role"` or `"remote"`): a role listed in **Roles that may check in
+  anywhere** (default HR Manager), or **Employee → Allow remote check-in**. Their punches are
+  accepted anywhere and flagged `outside_radius` when outside.
+- **Every channel:** the rule is an Employee Checkin `validate` document event, for the
+  employee's own punches from the app, the HRMS PWA, desk or `/api/resource`. Logs entered for
+  someone else (HR, biometric devices) are left to HRMS.
+- **HR Settings → Allow Geolocation Tracking** on adds HRMS's own strict check for Shift
+  Assignment locations (no tolerance, no exemptions); leave it off with this rule unless needed.
+- **App:** call `get_checkin_locations` before the punch, measure the same way, show the
+  distance and disable the button when `enforced`, not `exempt`, and outside or too vague. The
+  server stays authoritative.
+- **Place name fallback:** Nominatim (configurable URL, identifying User-Agent and contact
+  email, at most 1 request/s, cached by 4-decimal coordinates for 90 days) in a background
+  job after commit. Failures leave the name blank and are logged.
+
+Fixtures: `ess.check_in.json`, `ess.get_today.json`, `ess.get_checkin_locations.json`,
+`error.checkin_outside_radius.json`.
+
 ## 4. Capabilities: what the app may show
 
 Sign-in is per user. The app shows exactly what that user's **tboindia roles and settings**
@@ -371,7 +414,7 @@ ERP takes effect on the next request.
 | --- | --- | --- |
 | `ess` | The user has an **active Employee** (`Employee.user_id`). | every `ess.*` method (else `NoEmployeeError`) |
 | `checkin_allowed` | `ess` and **HR Settings → Allow Employee Checkin from Mobile App**. | `ess.check_in` |
-| `geolocation_required` | `checkin_allowed` and **HR Settings → Allow Geolocation Tracking**. The app must send latitude and longitude; HRMS refuses a punch without them and enforces shift-location radii. | `ess.check_in` (HRMS) |
+| `geolocation_required` | `checkin_allowed` and **HR Settings → Allow Geolocation Tracking**. The app must send latitude and longitude; HRMS refuses a punch without them. The radius rule is reported separately by `ess.get_checkin_locations` (§3.2). | `ess.check_in` (HRMS) |
 | `approve_leave` | **HR Manager** or **HR User**; or the user is the **Leave Approver** of an active Employee or a Department (Department Approver, Leave Approvers); or a **Workflow** on Leave Application has an approve or reject transition (action or next state containing "approv" / "reject") allowed to one of their own roles (not All or Guest). The **Leave Approver** role alone, with nobody to approve, is not enough. | `manager.get_approvals` (leave part), `manager.decide_approval(kind="leave")` |
 | `approve_expense` | The same rule for Expense Claim: HR Manager / HR User, named **Expense Approver** of an Employee or Department, or a workflow role. | `manager.get_approvals` (expense part), `manager.decide_approval(kind="expense")` |
 | `advances` | `ess` and the user's roles can create an Employee Advance (the Employee role can). | `ess.get_advances`, `ess.create_advance` |
@@ -746,7 +789,10 @@ Read-only aggregates for the scope. Fixture: `crm.get_sales_insights.json`.
      would not.
 3. **HR Settings:**
    - **Allow Employee Checkin from Mobile App:** on, or `check_in` refuses.
-   - **Allow Geolocation Tracking:** on to store coordinates and enforce shift-location radii.
+   - **Allow Geolocation Tracking:** on to require and store coordinates (GeoJSON).
+   - **Check-in radius:** Shift Locations with coordinates and a radius, on Shift Assignments
+     or in **TBO Smart Settings → Allowed check-in locations**; roles that may check in
+     anywhere; **Employee → Allow remote check-in** (§3.2, `docs/checkin-location.md` §3).
    - Check **Leave Approver Mandatory** and **Expense Approver Mandatory**.
    - Team insights count late check-ins from Attendance **Late Entry**, which HRMS sets when
      the shift type's late-entry grace period is configured and attendance is marked from
@@ -795,7 +841,7 @@ Read-only aggregates for the scope. Fixture: `crm.get_sales_insights.json`.
 | --- | --- | --- | --- |
 | 1 | Method names `tbo_smart.api.get_me`, `hrms.api.*`, `crm.api.*` | Everything is under `tbo_smart.api.mobile.{ess,crm,manager,device}`. Façades keep the shapes stable even when HRMS or CRM change. | **App** (comments and `client.ts`) |
 | 2 | Lists are bare arrays (`Lead[]`, `LeaveApplication[]`, …) | Paged lists return `{data, page, has_more}` | **App**: unwrap `data` in the client and add paging |
-| 3 | `checkIn` → `{log_type, time, location}` | Also `name`, `latitude`, `longitude`. `location` is `TBO Smart ±12 m` (no office name) | **App**: format the location; optionally reverse-geocode |
+| 3 | `checkIn` → `{log_type, time, location}` | Also `name`, `latitude`, `longitude`, `place_name`, `outside_radius`. `location` is `TBO Smart ±12 m` | **App** (done in 0.6.1: sends and shows `place_name`) |
 | 4 | `Today.shift_*` are strings | Can be `null` with no shift. Extra `date`, `server_time`, `attendance` | **App**: handle null |
 | 5 | `AttendanceStatus` lacks `Half Day`, `Work From Home` | HRMS returns them | **App**: widen the type |
 | 6 | `LeaveBalance` has `allocated, used, balance` | Also `pending` | **App** (optional field) |
@@ -827,10 +873,21 @@ Read-only aggregates for the scope. Fixture: `crm.get_sales_insights.json`.
 
 ## 10. Tests
 
-The tests are in `tbo_smart/tests/test_mobile_{ess,advance,crm,lead_capture,manager,quotation,push,sso}.py`, with helpers in
+The tests are in `tbo_smart/tests/test_mobile_{ess,advance,crm,lead_capture,manager,quotation,push,sso}.py` and `test_checkin_location.py`, with helpers in
 `tbo_smart/test_utils.py`. They cover:
 
-- **ESS:** own-only data and server-time check-in.
+- **ESS:** own-only data and server-time check-in; a half day inside a multi-day leave (2.5
+  days), the default first day, a half-day date outside the range refused, a one-day half day.
+- **Check-in location** (`test_checkin_location.py`): inside, outside (message names the
+  nearest location and distance), any of several locations, accuracy tolerance capped at
+  50 m, poor accuracy refused, shift location over the fallback list, exempt role, remote
+  employee, switch off and nothing configured block nothing, the
+  controller blocking a desk insert with and without coordinates, HR entries for others
+  unaffected, the settings refusing a location without a radius; place name from the device,
+  the background lookup queued after commit and off without a URL, the Nominatim answer
+  parsed and cached, a failure logged and not cached, one request per second. HTTP is
+  mocked; no test reaches Nominatim.
+- **Approvals:** a leave approval shows its `half_day_date`.
 - **Manager:** endpoints refuse non-managers and non-approvers; only the named approver can
   decide.
 - **CRM:** visibility follows CRM rules.
@@ -892,6 +949,15 @@ those apps on Frappe version-15.
   `tbo_smart.api.mobile.quotation` (`get_limits`, `get_approvals`, `get_trail`, `decide`)
   over `tbo_smart.api.quotation_adjustment`, with `actions` on the trail. New capability
   `approve_quotations` (§4). Push routes `TBO Quotation Adjustment` to `/quotations/<name>`.
+- **v1.5 (2026-10-13):** check-in location (§3.2, `docs/checkin-location.md`). `check_in`
+  takes `place_name`; punches return `place_name` and `outside_radius`. New
+  `ess.get_checkin_locations`. Self check-ins outside the allowed Shift Locations are refused
+  on every channel (`CheckinOutsideRadiusError`, `CheckinAccuracyError`). New TBO Smart
+  Settings section **Check-in location**, Employee **Allow remote check-in** and Employee
+  Checkin fields Place, Outside radius, GPS accuracy, Nearest allowed location and Distance.
+  Half day on a leave of several days: `apply_leave` validates `half_day_date` within the
+  range, new `ess.get_leave_days` previews HRMS's total, and leave approvals
+  (`manager.get_approvals`) return `half_day_date`.
 - **v1.6 (2026-10-13):** employee advances. New `ess.get_advances`, `ess.create_advance` and
   `ess.cancel_advance` (§3.1); new drafts are shared with the employee's expense approver.
   New capabilities `advances` and `approve_advance` (§4). `manager.get_approvals` includes
