@@ -45,6 +45,7 @@
       "from_date": "2026-10-08",
       "to_date": "2026-10-08",
       "half_day": false,
+      "half_day_date": null,
       "days": null,
       "amount": 12000.0,
       "currency": "INR",

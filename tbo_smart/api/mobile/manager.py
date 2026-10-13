@@ -579,6 +579,7 @@ def serialize_advance_approval(row) -> dict:
 		"from_date": row.posting_date,
 		"to_date": row.posting_date,
 		"half_day": False,
+		"half_day_date": None,
 		"days": None,
 		"amount": flt(row.advance_amount),
 		"currency": row.currency,
