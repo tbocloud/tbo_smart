@@ -24,6 +24,7 @@ The Nominatim usage policy is followed:
 - **At most one request a second** for the whole site: a Redis key set with `NX` and a 1 s expiry is the slot; workers wait up to 15 s for it.
 - **Cache** in `frappe.cache` by coordinates rounded to 4 decimals (about 11 m), for 90 days. Points with no address are cached as empty; failures are not cached.
 - **Configurable endpoint** (TBO Smart Settings → Reverse geocoding URL), so it can point at a self-hosted Nominatim. Empty turns the server lookup off.
+- **Busy slot:** if no slot frees within 15 s (a burst of punches), the job queues itself again, up to 3 times, before logging.
 - **Failure** (network, HTTP error, timeout) leaves the name blank and writes an Error Log titled "TBO Smart: reverse geocoding failed". The user never sees an error.
 
 The short name is locality (village/town/city/suburb), district (`state_district`, else `county`) and state, without "District"/"Taluk" suffixes and without repeats.
@@ -42,7 +43,7 @@ The short name is locality (village/town/city/suburb), district (`state_district
 1. The **Shift Location** of the employee's submitted, active **Shift Assignment(s)** covering the day. HRMS 15 keeps the location on Shift Assignment only (Shift Type has none). The date, not the punch's shift window, decides, so an early or late punch is checked too.
 2. If there is none: **TBO Smart Settings → Allowed check-in locations** (a list of Shift Locations), so check-in is limited before shifts are assigned.
 
-Inside **any** applicable location is allowed. A Shift Location without coordinates or with a radius of 0 is ignored (HRMS also treats 0 as "no limit"); the settings refuse to list one.
+Inside **any** applicable location is allowed. A Shift Location without coordinates or with a radius of 0 is ignored (HRMS also treats 0 as "no limit"); the settings refuse to list one, and an assignment whose locations are all unusable falls back to the list.
 
 ### Distance
 

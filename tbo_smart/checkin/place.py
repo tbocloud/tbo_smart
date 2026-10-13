@@ -25,29 +25,44 @@ TIMEOUT_SECONDS = 10
 MAX_LENGTH = 140
 LOCALITY_KEYS = ("village", "town", "city", "suburb", "hamlet", "municipality", "neighbourhood")
 DISTRICT_KEYS = ("state_district", "county")
+# A burst of punches can outwait the 1-per-second slot; the job then queues itself again.
+MAX_SLOT_RETRIES = 3
 
 
-def queue_place_name(checkin: str) -> None:
+class SlotTimeout(Exception):
+	"""No Nominatim slot came free in time: not a lookup failure, so the job retries."""
+
+
+def queue_place_name(checkin: str, attempt: int = 0) -> None:
 	if not frappe.db.get_single_value(SETTINGS, "reverse_geocode_url"):
 		return
 	frappe.enqueue(
 		"tbo_smart.checkin.place.fill_place_name",
 		queue="short",
 		enqueue_after_commit=True,
-		job_id=f"tbo_smart_place_{checkin}",
+		# A retry gets its own id: the running job still holds the first one.
+		job_id=f"tbo_smart_place_{checkin}_{attempt}",
 		deduplicate=True,
 		checkin=checkin,
+		attempt=attempt,
 	)
 
 
-def fill_place_name(checkin: str) -> None:
+def fill_place_name(checkin: str, attempt: int = 0) -> None:
 	"""Background job: store the place name on the check-in unless one is already there."""
 	row = frappe.db.get_value(
 		"Employee Checkin", checkin, ["latitude", "longitude", "tbo_location_name"], as_dict=True
 	)
 	if not row or row.tbo_location_name or not (row.latitude or row.longitude):
 		return
-	name = reverse_geocode(row.latitude, row.longitude)
+	try:
+		name = reverse_geocode(row.latitude, row.longitude)
+	except SlotTimeout:
+		if attempt < MAX_SLOT_RETRIES:
+			queue_place_name(checkin, attempt + 1)
+		else:
+			frappe.log_error(title="TBO Smart: reverse geocoding failed", message=f"{checkin}: no free slot")
+		return
 	if name:
 		frappe.db.set_value("Employee Checkin", checkin, "tbo_location_name", name, update_modified=False)
 
@@ -60,6 +75,8 @@ def reverse_geocode(latitude: float, longitude: float) -> str | None:
 		return cached or None
 	try:
 		name = short_place_name(request_address(latitude, longitude))
+	except SlotTimeout:
+		raise
 	except Exception:
 		frappe.log_error(title="TBO Smart: reverse geocoding failed")
 		return None
@@ -105,7 +122,7 @@ def wait_for_slot() -> None:
 	# make_key above prefixes the site, so this raw SET NX stays per site.
 	while not frappe.cache.set(key, 1, px=SLOT_MILLISECONDS, nx=True):  # site-prefixed key - nosemgrep
 		if time.monotonic() > deadline:
-			raise TimeoutError("No reverse-geocoding slot within 15 s")
+			raise SlotTimeout("No reverse-geocoding slot within 15 s")
 		time.sleep(0.25)
 
 

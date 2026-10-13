@@ -62,10 +62,16 @@ def get_policy(employee: str, user: str, on_date=None) -> frappe._dict:
 
 
 def get_allowed_locations(employee: str, on_date=None) -> list[frappe._dict]:
-	"""The Shift Locations of the employee's active Shift Assignments on that day, else the
-	fallback list in TBO Smart Settings. A location without coordinates or with a radius of
-	0 is not usable (HRMS also skips a 0 radius) and is left out."""
-	names = get_shift_locations(employee, getdate(on_date)) or get_fallback_locations()
+	"""The usable Shift Locations of the employee's active Shift Assignments on that day, else
+	the usable ones in TBO Smart Settings' fallback list. A location without coordinates or with
+	a radius of 0 is not usable (HRMS also skips a 0 radius), so an assignment pointing only at
+	such a location falls back to the list."""
+	return usable_locations(get_shift_locations(employee, getdate(on_date))) or usable_locations(
+		get_fallback_locations()
+	)
+
+
+def usable_locations(names: list[str]) -> list[frappe._dict]:
 	if not names:
 		return []
 	Location = frappe.qb.DocType("Shift Location")

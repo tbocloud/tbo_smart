@@ -24,6 +24,7 @@ STAFF = "geo.staff@tbosmart.test"
 SHIFT_STAFF = "geo.shift@tbosmart.test"
 FIELD_STAFF = "geo.field@tbosmart.test"
 REMOTE_STAFF = "geo.remote@tbosmart.test"
+UNUSABLE_STAFF = "geo.unusable@tbosmart.test"
 OFFICE = "TBO Geo Kottayam Office"
 BRANCH = "TBO Geo Branch"
 SITE = "TBO Geo Client Site"
@@ -119,6 +120,16 @@ class TestCheckinRadius(FrappeTestCase):
 			self.punch(SHIFT_STAFF, metres_north=0)
 		self.assertIn(SITE, str(caught.exception))
 		self.assertTrue(self.punch(SHIFT_STAFF, metres_north=3100)["name"])
+
+	def test_unusable_shift_location_falls_back_to_the_list(self):
+		make_shift_location("TBO Geo No Radius", radius=0, metres_north=3000)
+		set_checkin_settings(locations=[OFFICE])
+		employee = make_staff(UNUSABLE_STAFF)
+		delete_checkins(employee)
+		make_shift_assignment(employee, "TBO Geo No Radius")
+		with self.assertRaises(geofence.CheckinOutsideRadiusError) as caught:
+			self.punch(UNUSABLE_STAFF, metres_north=3000)
+		self.assertIn(OFFICE, str(caught.exception))
 
 	def test_exempt_role_checks_in_anywhere_flagged(self):
 		make_shift_location(SITE, radius=200, metres_north=3000)
@@ -269,6 +280,20 @@ class TestCheckinPlaceName(FrappeTestCase):
 		) as get:
 			self.assertIsNone(place.reverse_geocode(*offset_point()))
 		get.assert_called_once()
+
+	def test_slot_timeout_queues_a_retry_without_logging(self):
+		with patch("tbo_smart.checkin.place.frappe.enqueue"):
+			punch = self.punch()
+		errors = frappe.db.count("Error Log")
+		with (
+			patch("tbo_smart.checkin.place.wait_for_slot", side_effect=place.SlotTimeout),
+			patch("tbo_smart.checkin.place.frappe.enqueue") as enqueue,
+		):
+			place.fill_place_name(punch["name"])
+			self.assertEqual(enqueue.call_args.kwargs["attempt"], 1)
+			place.fill_place_name(punch["name"], attempt=place.MAX_SLOT_RETRIES)
+		enqueue.assert_called_once()
+		self.assertEqual(frappe.db.count("Error Log"), errors + 1)
 
 	def test_one_request_per_second(self):
 		key = frappe.cache.make_key(place.SLOT_KEY)
