@@ -19,6 +19,8 @@ class TBOSmartSettings(Document):
 	if TYPE_CHECKING:
 		from frappe.types import DF
 
+		from tbo_smart.tbo_smart.doctype.tbo_checkin_location.tbo_checkin_location import TBOCheckinLocation
+
 		accounts_lead: DF.Link | None
 		allocation_accounting_option: DF.Literal[
 			"Memo only", "Monthly inter-company invoice", "Journal Entry per receipt"
@@ -27,9 +29,13 @@ class TBOSmartSettings(Document):
 		allocation_percent: DF.Percent
 		allocation_start_date: DF.Date | None
 		amount_tolerance: DF.Currency
+		checkin_anywhere_roles: DF.SmallText | None
+		checkin_locations: DF.TableMultiSelect[TBOCheckinLocation]
+		checkin_max_accuracy: DF.Int
 		default_vat_rate: DF.Percent
 		enable_fund_allocation: DF.Check
 		enable_reconciliation: DF.Check
+		enforce_checkin_radius: DF.Check
 		enable_finance_dashboard: DF.Check
 		enable_finance_receivables: DF.Check
 		enable_finance_workflow: DF.Check
@@ -48,6 +54,8 @@ class TBOSmartSettings(Document):
 		oauth_client: DF.Link | None
 		partner_company: DF.Link | None
 		reminder_sender: DF.Link | None
+		reverse_geocode_email: DF.Data | None
+		reverse_geocode_url: DF.Data | None
 		second_approval_amount: DF.Currency
 		send_client_reminders: DF.Check
 		transfer_pending_days: DF.Int
@@ -59,6 +67,8 @@ class TBOSmartSettings(Document):
 		self.validate_microsoft_tenant_ids()
 		self.validate_finance_roles()
 		self.validate_allocation()
+		self.validate_checkin_roles()
+		self.validate_checkin_locations()
 
 	def on_update(self):
 		self.grant_finance_crm_read()
@@ -77,12 +87,40 @@ class TBOSmartSettings(Document):
 		self.microsoft_tenant_id = ", ".join(tenants) or None
 
 	def validate_finance_roles(self):
+		self.finance_crm_roles = self.clean_roles(self.finance_crm_roles)
+
+	def validate_checkin_roles(self):
+		self.checkin_anywhere_roles = self.clean_roles(self.checkin_anywhere_roles)
+
+	@staticmethod
+	def clean_roles(text: str | None) -> str | None:
 		"""One existing Role per line; blank lines dropped."""
-		roles = [line.strip() for line in (self.finance_crm_roles or "").splitlines() if line.strip()]
+		roles = [line.strip() for line in (text or "").splitlines() if line.strip()]
 		missing = [role for role in roles if not frappe.db.exists("Role", role)]
 		if missing:
 			frappe.throw(_("These roles do not exist: {0}").format(", ".join(missing)))
-		self.finance_crm_roles = "\n".join(roles) or None
+		return "\n".join(roles) or None
+
+	def validate_checkin_locations(self):
+		"""A listed location must have a centre and a radius, or it would silently not count."""
+		names = [row.shift_location for row in self.checkin_locations]
+		if not names:
+			return
+		unusable = [
+			row.name
+			for row in frappe.get_all(
+				"Shift Location",
+				filters={"name": ("in", names)},
+				fields=["name", "latitude", "longitude", "checkin_radius"],
+			)
+			if not (row.latitude or row.longitude) or (row.checkin_radius or 0) <= 0
+		]
+		if unusable:
+			frappe.throw(
+				_("Set the coordinates and a check-in radius on these Shift Locations first: {0}").format(
+					", ".join(unusable)
+				)
+			)
 
 	def grant_finance_crm_read(self):
 		"""Add the finance roles' CRM read rows, or remove the ones this setting added."""

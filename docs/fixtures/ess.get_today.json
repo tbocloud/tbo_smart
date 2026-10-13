@@ -13,6 +13,8 @@
         "log_type": "IN",
         "time": "2026-10-10 09:41:07",
         "location": "TBO Smart ±12 m",
+        "place_name": "Kakkanad, Ernakulam, Kerala",
+        "outside_radius": false,
         "latitude": 10.0158,
         "longitude": 76.3418
       }

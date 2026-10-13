@@ -5,6 +5,7 @@ from frappe.utils import add_days, nowdate
 from tbo_smart.api.mobile import ess, manager
 from tbo_smart.test_utils import (
 	make_crm_deal,
+	make_half_day_leave_application,
 	make_leave_application,
 	make_leave_type,
 	make_staff,
@@ -62,6 +63,16 @@ class TestMobileManager(FrappeTestCase):
 				{"reference_name": application, "comment_type": "Comment", "content": ("like", "%Enjoy%")},
 			)
 		)
+
+	def test_approvals_show_which_day_is_the_half_day(self):
+		application = make_half_day_leave_application(
+			self.report, make_leave_type("TBO Smart Half Day Leave", include_holiday=1), MANAGER
+		)
+		frappe.set_user(MANAGER)
+		row = {row["ref"]: row for row in manager.get_approvals()}[application.name]
+		self.assertTrue(row["half_day"])
+		self.assertEqual(str(row["half_day_date"]), str(application.half_day_date))
+		self.assertEqual(row["days"], 2.5)
 
 	def test_rejection_needs_a_reason(self):
 		application = make_leave_application(self.report, self.leave_type, days_ahead=6, approver=MANAGER)
