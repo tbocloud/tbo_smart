@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
@@ -98,6 +100,13 @@ class TestMobileAdvance(FrappeTestCase):
 		with self.assertRaises(frappe.PermissionError):
 			ess.cancel_advance(theirs)
 		self.assertTrue(frappe.db.exists("Employee Advance", theirs))
+
+	def test_cancel_needs_the_advances_capability(self):
+		name = ess.create_advance("Taxi to the airport", 400)["name"]
+		with patch("tbo_smart.api.mobile.capabilities.can_request_advance", return_value=False):
+			with self.assertRaises(frappe.PermissionError):
+				ess.cancel_advance(name)
+		self.assertTrue(frappe.db.exists("Employee Advance", name))
 
 	def test_cancel_refuses_a_paid_advance(self):
 		name = make_employee_advance(self.staff, 500, submit=True)

@@ -675,6 +675,7 @@ def cancel_advance(name: str) -> dict:
 	the Expense Approver role has by default.
 	"""
 	employee = get_session_employee()
+	require("advances", _("You cannot request employee advances."))
 	advance = frappe.get_doc("Employee Advance", name)
 	if advance.employee != employee.name:
 		frappe.throw(_("You can only cancel your own advance."), frappe.PermissionError)
