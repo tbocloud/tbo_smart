@@ -4,10 +4,15 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
+from frappe.utils import cint
 
+from tbo_smart.ai import reset_provider_state
 from tbo_smart.api.mobile.auth import GUID, parse_tenant_ids
 from tbo_smart.finance.access import sync_crm_read
 from tbo_smart.finance.setup import create_collections_view
+from tbo_smart.smart_leads.notify import teams_url_problem
+
+LADDER_FIELDS = ("lead_ladder_l1_days", "lead_ladder_l2_days", "lead_ladder_l3_days")
 
 
 class TBOSmartSettings(Document):
@@ -69,10 +74,57 @@ class TBOSmartSettings(Document):
 		self.validate_allocation()
 		self.validate_checkin_roles()
 		self.validate_checkin_locations()
+		self.validate_ai_urls()
+		self.validate_teams_url()
+		self.validate_smart_lead_numbers()
 
 	def on_update(self):
 		self.grant_finance_crm_read()
 		self.create_collections_view()
+		self.forget_ai_failures()
+
+	def validate_ai_urls(self):
+		"""Keys go to these URLs, so only https."""
+		for fieldname in ("openai_base_url", "anthropic_base_url"):
+			value = (self.get(fieldname) or "").strip().rstrip("/")
+			if value and not value.startswith("https://"):
+				frappe.throw(_("{0}: use an https:// URL.").format(_(self.meta.get_label(fieldname))))
+			self.set(fieldname, value or None)
+
+	def validate_teams_url(self):
+		"""A pasted Teams message link or a cut-off workflow URL is refused here, not at 09:30."""
+		raw = self.teams_dm_workflow_url or ""
+		if not raw or self.is_dummy_password(raw):
+			return
+		self.teams_dm_workflow_url = raw.strip()
+		problem = teams_url_problem(self.teams_dm_workflow_url)
+		if problem:
+			frappe.throw(_("Teams DM workflow URL: {0}").format(problem))
+
+	def validate_smart_lead_numbers(self):
+		"""Blank numbers fall back to their defaults in the code; set ones must make sense."""
+		if self.call_today_size and not 5 <= cint(self.call_today_size) <= 30:
+			frappe.throw(_("Leads in Call today must be between 5 and 30."))
+		ladder = [
+			cint(self.get(fieldname)) or default
+			for fieldname, default in zip(LADDER_FIELDS, (2, 4, 7), strict=True)
+		]
+		if ladder != sorted(set(ladder)):
+			frappe.throw(_("The escalation days must go up: BDM, then sales head, then managers."))
+		for fieldname in (
+			"lead_stale_days",
+			"triage_daily_capacity",
+			"triage_max_leads",
+			"ai_daily_lead_limit",
+		):
+			if cint(self.get(fieldname)) < 0:
+				frappe.throw(_("{0} can't be negative.").format(_(self.meta.get_label(fieldname))))
+		if cint(self.triage_max_leads) > 1000:
+			frappe.throw(_("The triage takes at most 1,000 leads per run."))
+
+	def forget_ai_failures(self):
+		"""A fixed key or model is tried at once, not after the 30-minute pause."""
+		reset_provider_state()
 
 	def validate_microsoft_tenant_ids(self):
 		"""Only real tenant GUIDs: "common" or "organizations" would let any Microsoft account in."""

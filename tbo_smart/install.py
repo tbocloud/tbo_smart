@@ -6,6 +6,7 @@ from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 from tbo_smart.checkin.setup import setup_checkin_location
 from tbo_smart.finance.setup import setup_finance
 from tbo_smart.quotation_control import COMMISSION_FIELD
+from tbo_smart.smart_leads.setup import setup_smart_leads
 
 # Designation levels for quotation approvals, lowest first. Limits ship unset on purpose:
 # management sets them in TBO Quotation Approval Settings, and until then every non-zero
@@ -23,6 +24,7 @@ def after_install():
 	setup_quotation_approval()
 	setup_finance()
 	setup_checkin_location()
+	setup_smart_leads()
 
 
 def setup_quotation_approval():
