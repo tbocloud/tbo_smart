@@ -120,11 +120,14 @@ lead's earliest open task with a due date, whatever its type. Escalation reuses 
 
 Each migrated lead has an FCRM Note titled "Migrated from tboindia-old <id>". The parser reads
 "Label: value" lines, "Label - value" lines and two-cell table rows, with or without HTML, and
-knows these labels: status (also "lead status", "original status"), source, owner ("lead
-owner"), created ("created on", "creation"), remarks (several lines, until the next label),
-priority, project type ("type of project"). Unknown labels are ignored.
-**[verify on site]** The note's exact layout was not available offline; check one note before
-switching scoring on, and add a label to `LABELS` if it differs. The migration note is never
+knows these labels: status (also "lead status", "original status"), source ("original
+source", "lead source"), owner ("original owner", "lead owner"), created ("created on old
+site", "created on", "creation"), remarks (several lines, until the next label), priority,
+project type ("type of project"). The note's other labels (Comment, WhatsApp,
+City/State/Country, Department) are recognised so they end a multi-line remarks value; other
+unknown labels are ignored. **Checked against the live layout** (2026-10-15): the migration
+wrote one `<p><b>Label:</b> value</p>` per field, which `test_live_migration_note_layout`
+covers. The migration note is never
 counted as a touch, and its title keeps it out of the "notes since" the AI reads.
 
 ### 3.3 Facts (`smart_leads/facts.py`)
