@@ -1,0 +1,146 @@
+{
+ "actions": [],
+ "autoname": "format:TBO-TRIAGE-{#####}",
+ "creation": "2026-10-15 10:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "status",
+  "requested_by",
+  "lead_limit",
+  "column_break_counts",
+  "lead_count",
+  "call_again",
+  "suggest_close",
+  "skipped",
+  "column_break_cost",
+  "estimated_cost_usd",
+  "applied_by",
+  "applied_on",
+  "error",
+  "rows_section",
+  "rows"
+ ],
+ "fields": [
+  {
+   "default": "Queued",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Queued\nRunning\nReady\nApplied\nFailed",
+   "read_only": 1
+  },
+  {
+   "fieldname": "requested_by",
+   "fieldtype": "Link",
+   "label": "Requested by",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "lead_limit",
+   "fieldtype": "Int",
+   "label": "Lead limit",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_counts",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "lead_count",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Leads triaged",
+   "read_only": 1
+  },
+  {
+   "fieldname": "call_again",
+   "fieldtype": "Int",
+   "label": "Call again",
+   "read_only": 1
+  },
+  {
+   "fieldname": "suggest_close",
+   "fieldtype": "Int",
+   "label": "Suggest close",
+   "read_only": 1
+  },
+  {
+   "fieldname": "skipped",
+   "fieldtype": "Int",
+   "label": "Not triaged (AI gave no answer)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_cost",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "estimated_cost_usd",
+   "fieldtype": "Float",
+   "label": "Estimated AI cost (USD)",
+   "precision": "4",
+   "read_only": 1
+  },
+  {
+   "fieldname": "applied_by",
+   "fieldtype": "Link",
+   "label": "Applied by",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "applied_on",
+   "fieldtype": "Datetime",
+   "label": "Applied on",
+   "read_only": 1
+  },
+  {
+   "fieldname": "error",
+   "fieldtype": "Small Text",
+   "label": "Error",
+   "read_only": 1
+  },
+  {
+   "fieldname": "rows_section",
+   "fieldtype": "Section Break",
+   "label": "Leads"
+  },
+  {
+   "fieldname": "rows",
+   "fieldtype": "Table",
+   "label": "Leads",
+   "options": "TBO Lead Triage Row",
+   "read_only": 1
+  }
+ ],
+ "in_create": 1,
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-10-15 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tbo Smart",
+ "name": "TBO Lead Triage",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "delete": 1,
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "write": 1
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Sales Manager"
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

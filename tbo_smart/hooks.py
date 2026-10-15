@@ -184,6 +184,11 @@ doc_events = {
 		],
 	},
 	"Journal Entry": {"on_submit": "tbo_smart.finance.allocation.journal_submitted"},
+	# Smart leads (docs/smart-leads.md): re-score a lead when it or its activity changes; no-op while off
+	"CRM Lead": {"on_update": "tbo_smart.smart_leads.scoring.lead_changed"},
+	"FCRM Note": {"after_insert": "tbo_smart.smart_leads.scoring.activity_changed"},
+	"CRM Call Log": {"after_insert": "tbo_smart.smart_leads.scoring.activity_changed"},
+	"CRM Task": {"on_update": "tbo_smart.smart_leads.scoring.activity_changed"},
 	"Bank Transaction": {
 		"before_insert": "tbo_smart.finance.reconciliation.line_before_insert",
 		"after_insert": "tbo_smart.finance.reconciliation.line_after_insert",
@@ -195,6 +200,7 @@ doc_events = {
 after_migrate = [
 	"tbo_smart.finance.setup.after_migrate",
 	"tbo_smart.checkin.setup.setup_checkin_location",
+	"tbo_smart.smart_leads.setup.after_migrate",
 ]
 
 scheduler_events = {
@@ -202,11 +208,14 @@ scheduler_events = {
 		"tbo_smart.finance.stage.recompute_all",
 		"tbo_smart.finance.transfers.flag_pending_transfers",
 		"tbo_smart.finance.reconciliation.flag_unmatched_lines",
+		"tbo_smart.smart_leads.scoring.score_all",
 	],
 	"cron": {
 		# Phase 2 (receivables): digest at 08:00, reminders at 09:00, site time
 		"0 8 * * *": ["tbo_smart.finance.digest.send_digest"],
 		"0 9 * * *": ["tbo_smart.finance.reminders.run_reminders"],
+		# Smart leads: escalation notices and the follow-up digest at 09:30, site time
+		"30 9 * * *": ["tbo_smart.smart_leads.follow_ups.run_follow_ups"],
 	},
 }
 
@@ -225,8 +234,8 @@ override_whitelisted_methods = {
 # Frappe CRM fork extension points (tbocloud/crm docs/tbo-finance.md)
 crm_app_permission = ["tbo_smart.finance.access.has_crm_app_access"]
 crm_unrestricted_access = ["tbo_smart.finance.access.has_unrestricted_crm_access"]
-crm_dashboard_providers = ["tbo_smart.finance.dashboard"]
-crm_dashboard_layout = ["tbo_smart.finance.dashboard.get_cards"]
+crm_dashboard_providers = ["tbo_smart.finance.dashboard", "tbo_smart.smart_leads.dashboard"]
+crm_dashboard_layout = ["tbo_smart.finance.dashboard.get_cards", "tbo_smart.smart_leads.dashboard.get_cards"]
 
 # doc_events = {
 # 	"*": {

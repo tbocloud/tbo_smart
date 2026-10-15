@@ -53,6 +53,8 @@ from tbo_smart.api.mobile.utils import (
 	period_windows,
 	trend_index,
 )
+from tbo_smart.smart_leads import scoring_enabled
+from tbo_smart.smart_leads.call_today import build_call_today
 
 REF_DOCTYPES = {"lead": "CRM Lead", "deal": "CRM Deal"}
 CLOSED_TASK_STATUSES = ("Done", "Canceled")
@@ -1281,6 +1283,17 @@ def get_my_follow_ups(scope: str | None = None) -> list[dict]:
 	]
 
 
+@frappe.whitelist()
+def get_call_today(user: str | None = None) -> dict:
+	"""Today's Call today list (docs/smart-leads.md §4.3): overdue and due follow-ups first, then
+	the best-scored leads with no plan, with the score's reason, last touch and phone links.
+	`user` opens a teammate's list (team or all scope only). Needs Lead scoring switched on."""
+	require_crm()
+	if not scoring_enabled():
+		frappe.throw(_("Lead scoring is switched off in TBO Smart Settings."), title=_("Switched off"))
+	return build_call_today(user)
+
+
 @frappe.whitelist(methods=["POST"])
 def log_activity(
 	doctype: str,
@@ -1397,8 +1410,10 @@ def add_follow_up_task(
 	title: str | None = None,
 	assigned_to: str | None = None,
 	description: str | None = None,
+	task_type: str | None = None,
 ):
-	"""A Todo CRM Task on the record, assigned to `assigned_to` (default: me); CRM assigns it on insert."""
+	"""A Todo CRM Task on the record, assigned to `assigned_to` (default: me); CRM assigns it on
+	insert. `task_type` sets the finance workflow's tbo_task_type (e.g. "Sales follow-up")."""
 	label = frappe.db.get_value(
 		reference_doctype, name, "lead_name" if reference_doctype == "CRM Lead" else "organization"
 	)
@@ -1415,6 +1430,8 @@ def add_follow_up_task(
 			"reference_docname": name,
 		}
 	)
+	if task_type:
+		task.tbo_task_type = task_type
 	task.insert()
 	return task
 

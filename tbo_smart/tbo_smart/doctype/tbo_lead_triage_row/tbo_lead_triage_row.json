@@ -1,0 +1,98 @@
+{
+ "actions": [],
+ "creation": "2026-10-15 10:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 0,
+ "engine": "InnoDB",
+ "field_order": [
+  "lead",
+  "lead_name",
+  "lead_owner",
+  "status",
+  "score",
+  "bucket",
+  "reason",
+  "follow_up_on",
+  "assign_to",
+  "task",
+  "closed_as"
+ ],
+ "fields": [
+  {
+   "fieldname": "lead",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Lead",
+   "options": "CRM Lead"
+  },
+  {
+   "fieldname": "lead_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Lead name"
+  },
+  {
+   "fieldname": "lead_owner",
+   "fieldtype": "Link",
+   "label": "Owner",
+   "options": "User"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Data",
+   "label": "Status when triaged"
+  },
+  {
+   "fieldname": "score",
+   "fieldtype": "Int",
+   "label": "Score"
+  },
+  {
+   "fieldname": "bucket",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Bucket",
+   "options": "Call again\nSuggest close"
+  },
+  {
+   "fieldname": "reason",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Reason"
+  },
+  {
+   "fieldname": "follow_up_on",
+   "fieldtype": "Date",
+   "label": "Follow-up on"
+  },
+  {
+   "fieldname": "assign_to",
+   "fieldtype": "Link",
+   "label": "Follow-up for",
+   "options": "User"
+  },
+  {
+   "fieldname": "task",
+   "fieldtype": "Link",
+   "label": "Follow-up task",
+   "options": "CRM Task"
+  },
+  {
+   "fieldname": "closed_as",
+   "fieldtype": "Data",
+   "label": "Closed as (by a person)"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-10-15 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tbo Smart",
+ "name": "TBO Lead Triage Row",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}
