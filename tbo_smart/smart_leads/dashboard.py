@@ -16,7 +16,7 @@ from frappe.query_builder.functions import Count
 from frappe.utils import getdate
 
 from tbo_smart.smart_leads import CLOSED_TASK_STATUSES, OPEN_STATUSES, follow_ups_enabled, scoring_enabled
-from tbo_smart.smart_leads.call_today import build_call_today
+from tbo_smart.smart_leads.call_today import build_call_today, check_person
 
 
 def get_tbo_call_today(from_date=None, to_date=None, user=None) -> dict | None:
@@ -36,6 +36,10 @@ def get_tbo_call_today(from_date=None, to_date=None, user=None) -> dict | None:
 def get_tbo_lead_follow_ups_overdue(from_date=None, to_date=None, user=None) -> dict | None:
 	if not follow_ups_enabled():
 		return None
+	try:
+		user = check_person(user)
+	except frappe.PermissionError:
+		return None
 	Task = frappe.qb.DocType("CRM Task")
 	Lead = frappe.qb.DocType("CRM Lead")
 	count = (
@@ -44,7 +48,7 @@ def get_tbo_lead_follow_ups_overdue(from_date=None, to_date=None, user=None) -> 
 		.on((Task.reference_doctype == "CRM Lead") & (Task.reference_docname == Lead.name))
 		.select(Count(Task.name))
 		.where(
-			(Task.assigned_to == (user or frappe.session.user))
+			(Task.assigned_to == user)
 			& Task.status.notin(CLOSED_TASK_STATUSES)
 			& (Task.due_date < getdate())
 			& Lead.status.isin(OPEN_STATUSES)

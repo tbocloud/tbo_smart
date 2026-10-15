@@ -194,7 +194,13 @@ class TestScoring(SmartLeadsTestCase):
 		with mock_ai(openai_answer({"leads": [{"id": lead, "adjust": 10, "reason": "Wants 50 licences"}]})):
 			result = scoring.score_leads([lead], use_ai=True, ai_limit=10)
 		self.assertEqual(result["ai"], 0)
-		self.assertFalse(frappe.db.get_value("CRM Lead", lead, "tbo_ai_reason"))
+		reason, read_of = frappe.db.get_value("CRM Lead", lead, ["tbo_ai_reason", "tbo_ai_hash"])
+		self.assertFalse(reason)
+		# still counted as read: not sent (and billed) again until the lead changes
+		self.assertTrue(read_of)
+		with mock_ai() as post:
+			scoring.score_leads([lead], use_ai=True, ai_limit=10)
+		self.assertEqual(post.call_count, 0)
 
 	def test_a_new_note_rescores_the_lead(self):
 		lead = make_crm_lead(BDE, "Fresh Note", mobile_no="9847000007")
@@ -322,6 +328,21 @@ class TestFollowUps(SmartLeadsTestCase):
 			self.assertNotIn(BDE, send_digests(run))
 		finally:
 			frappe.get_doc("Leave Application", application).cancel()
+
+	def test_a_cover_on_leave_is_skipped_too(self):
+		leave_type = make_leave_type()
+		lead = make_crm_lead(BDE, "Both Away")
+		make_lead_task(lead, days(-1), BDE)
+		applications = [
+			make_approved_leave(make_staff(user), leave_type, nowdate(), days(1)) for user in (BDE, BDM)
+		]
+		try:
+			run = FollowUpRun()
+			run.evaluate()
+			self.assertEqual(self.items(run)[lead].recipients, {HEAD})
+		finally:
+			for application in applications:
+				frappe.get_doc("Leave Application", application).cancel()
 
 	def test_a_half_day_still_counts_as_working(self):
 		employee = make_staff(BDE)

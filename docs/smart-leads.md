@@ -62,6 +62,8 @@ an SDK: both providers are spoken through `requests`.
   (Lead scoring, Lead note, Lead brief, WhatsApp draft, Lead triage, Test connection),
   reference, user, input/output tokens, **estimated cost (USD)** from the prices above (0 until
   the owner enters them), duration, answered or the failure kind. System Manager read/delete.
+  Rows are written by a job queued at once, not in the request's transaction, so a request
+  that fails after a billed attempt still leaves its rows.
 - **Number guard:** `ai.fact_numbers(...)` collects every number in the facts sent (dates give
   their year, month and day; 07 and 7 are the same); `ai.guarded(text, known)` returns the text
   only when every number in it is one of them. The lead's own ID is left out of the facts it
@@ -164,8 +166,9 @@ With `lead_scoring_use_ai` on and a provider set up, the nightly run sends up to
 `ai_daily_lead_limit` open leads **whose content hash changed** (status, notes, remarks, status
 changes; not the passing days) in batches of 10. The AI returns `adjust` (clamped to ±15) and a
 reason; a reason with an invented number is dropped with its adjustment; a failed batch is
-skipped and retried the next night. The result is cached on the lead (`tbo_ai_*`), so a lead is
-read again only after it changes. The reason line then starts with the AI's reason.
+skipped and retried the next night. Every lead of a batch that got an answer counts as read
+(`tbo_ai_hash`), even when its reason was dropped or missing (then adjust 0, no reason), so a
+lead is read, and billed, again only after it changes. The reason line then starts with the AI's reason.
 
 **When scores change:** daily (`scheduler_events.daily`, `score_all`), and as a background job
 (deduplicated per lead) when a lead's status, owner or conversion changes, or a note, call or
@@ -182,7 +185,11 @@ Built live from the facts for one person: their open leads that the session user
 3. no follow-up and no touch today, best score first.
 
 Leads with a follow-up on a later day are left out (they have a plan), and so are leads touched
-today with no follow-up. The list holds `call_today_size` rows; `more` counts the rest. Each row:
+today with no follow-up. The list holds `call_today_size` rows; `more` counts the rest.
+**Bounded work:** one cheap query lists the person's open leads by last night's stored score
+and one grouped query finds each one's earliest open follow-up; the full facts are loaded only
+for the leads with a follow-up due by today and the best `max(5 × size, 60)` with none (the
+live score reorders those). `more` is counted from the cheap queries. Each row:
 score, band, reason, why it is listed, phone, `+91`-normalised E.164, `tel:` and `wa.me` links,
 email, last touch (when, what, days) and the follow-up.
 
@@ -199,8 +206,9 @@ is dropped and 10 digits get **+91**; 8-15 digits or nothing.
 
 `crm_dashboard_providers` / `crm_dashboard_layout` add two number cards
 (`smart_leads/dashboard.py`): **Call today** (rows plus `more` for the dashboard's user, else me;
-while scoring is on) and **Overdue lead follow-ups** (my open tasks on open leads due before
-today; while follow-ups are on, lower is better).
+while scoring is on) and **Overdue lead follow-ups** (the person's open tasks on open leads due
+before today; while follow-ups are on, lower is better). Both take the dashboard's user only when
+the session user may open that person's list (`check_person`); otherwise the card is left out.
 
 ### 4.5 Mobile API (contract v1.7)
 
@@ -235,7 +243,9 @@ the same object as the web page; fixture `docs/fixtures/crm.get_call_today.json`
 
 - **Leave:** approved, submitted HRMS Leave Applications covering today (a half day doesn't
   count). Nobody on leave is told, at any level. When the assignee is away, the BDM covers
-  (else the sales head), and the text ends "Shahana K is on leave until 17 Oct".
+  (else the sales head), and the text ends "Shahana K is on leave until 17 Oct". The cover
+  people (BDMs, sales heads) are checked for leave too, so a BDM on leave hands over to the
+  sales head.
 - **Disabled owners** (Anjana, Dhanish) are never told. Their leads go to
   `lead_fallback_owner` when set; otherwise nobody is reminded and the leads are listed under
   **Call today → Needs owner** for the sales head (`get_needs_owner`), who can reassign them
@@ -278,9 +288,12 @@ on, a provider set up), recorded as a **TBO Lead Triage** with **TBO Lead Triage
    have**, best score first. The owner is the lead owner, else the fallback owner; a lead with
    neither is listed "Needs an owner first". The run shows its estimated AI cost (sum of its
    usage log rows). **Nothing on any lead changes.**
-2. **Apply** (`apply_triage`, Ready runs only): the dates are planned again from the next
+2. **Apply** (`apply_triage`, Ready runs only; the run row is locked first, so a double tap or
+   two managers can't create the follow-ups twice): the dates are planned again from the next
    working day, then one "Sales follow-up" CRM Task per Call again lead ("Call again: <reason>",
    10:00, assigned to its person). Leads closed meanwhile are skipped.
+A run left Queued or Running for 2 hours (its job died) is marked Failed when someone starts a
+new preview.
 3. **Suggest close** leads are only listed. A person ticks the ones they agree with and confirms
    **Close as Junk / Unqualified** (`close_triage_leads`): the status is saved under their own
    permissions with lost reason "Other" and the AI's reason in the lost notes. **The triage
@@ -314,14 +327,14 @@ skips the leads already triaged.
 
 | Method | Verb | Needs | Returns / does |
 | --- | --- | --- | --- |
-| `get_access` | GET | – | `{enabled, scoring, follow_ups, notes, triage, ai_ready, is_sales_head, can_manage, call_today_size}`; `{enabled: false}` without the CRM |
+| `get_access` | GET | – | `{enabled, scoring, follow_ups, notes, triage, ai_ready, is_sales_head, can_manage, call_today_size}`; `{enabled: false}` without the CRM app or for a user without CRM access |
 | `get_call_today(user?)` | GET | scoring | §4.3 |
 | `get_people` | GET | scoring | Whose list I may open: `[{user, full_name, image}]` |
-| `get_follow_up_summary(user?)` | GET | follow-ups | `{overdue, due_today, re_engage, no_follow_up, escalated}` for the person's own leads |
+| `get_follow_up_summary(user?)` | GET | follow-ups | `{overdue, due_today, re_engage, no_follow_up, escalated}` for the person's own leads that I may read (`frappe.get_list`) |
 | `get_needs_owner` | GET | sales head | Open leads whose owner is disabled or missing |
 | `reassign_leads(leads, user)` | POST | sales head, write on each lead | `{moved}` |
 | `get_lead_insight(lead)` | GET | read on the lead | Score, band, reason (scoring on), next follow-up, phone links, brief (notes on) |
-| `refresh_brief(lead)` | POST | notes, read | The new brief |
+| `refresh_brief(lead)` | POST | notes, write (it writes the cached brief) | The new brief; read-only users still see the cached one |
 | `draft_note(lead, text)` | POST | notes, read | The proposal (§6) |
 | `save_note(lead, text, kind, status?, follow_up_on?, follow_up_reason?)` | POST | read (write for a status) | `{lead, kind, note, call?, status?, task?}` |
 | `draft_whatsapp(lead, language)` | POST | notes, read | `{message, phone, url}` |

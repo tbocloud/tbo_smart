@@ -11,6 +11,7 @@ import frappe
 from frappe import _
 
 from tbo_smart import ai
+from tbo_smart.api.mobile.capabilities import get_capabilities
 from tbo_smart.api.mobile.crm import add_follow_up_task, get_crm_users
 from tbo_smart.api.mobile.utils import get_full_names
 from tbo_smart.finance import crm_installed
@@ -57,8 +58,9 @@ def parse_list(value) -> list:
 
 @frappe.whitelist()
 def get_access() -> dict:
-	"""Which smart lead features are on and what the session user may do."""
-	if not crm_installed():
+	"""Which smart lead features are on and what the session user may do (nothing for a user
+	without CRM access)."""
+	if not crm_installed() or not get_capabilities().crm:
 		return {"enabled": False}
 	scoring, follow_ups, lead_notes, lead_triage = (
 		scoring_enabled(),
@@ -104,7 +106,14 @@ def get_follow_up_summary(user: str | None = None) -> dict:
 	people = viewable_people()
 	if people is not None and user not in people:
 		frappe.throw(_("You can only see your own or your team's follow-ups."), frappe.PermissionError)
-	run = FollowUpRun(owners=[user])
+	# only the leads I may read under CRM's rules
+	visible = frappe.get_list(
+		"CRM Lead",
+		filters={"lead_owner": user, "status": ("in", OPEN_STATUSES), "converted": 0},
+		pluck="name",
+		limit_page_length=0,
+	)
+	run = FollowUpRun(leads=visible)
 	run.evaluate()
 	counts = {"overdue": 0, "due_today": 0, "re_engage": 0, "no_follow_up": 0, "escalated": 0}
 	for item in run.items:
@@ -206,7 +215,8 @@ def get_lead_insight(lead: str) -> dict:
 @frappe.whitelist(methods=["POST"])
 def refresh_brief(lead: str) -> dict:
 	require(notes_enabled(), _("AI notes are switched off in TBO Smart Settings."))
-	require_lead(lead)
+	# it writes the cached brief on the lead
+	require_lead(lead, "write")
 	return notes.refresh_brief(lead)
 
 

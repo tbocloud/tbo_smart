@@ -65,10 +65,10 @@ class FollowUpRun:
 	"""Evaluate every open lead once; nothing is sent here, so the digest, the summary on the
 	Call today page and the tests read the same result."""
 
-	def __init__(self, on_date=None, owners: list[str] | None = None):
+	def __init__(self, on_date=None, leads: list[str] | None = None):
 		self.today = getdate(on_date or today())
-		# only these owners' leads (the summary on Call today); None: every open lead
-		self.owners = owners
+		# only these leads (the summary on Call today); None: every open lead
+		self.leads = leads
 		self.calendar = WorkCalendar()
 		self.stale_days = cint(setting("lead_stale_days")) or 21
 		self.ladder = (
@@ -82,8 +82,8 @@ class FollowUpRun:
 
 	def evaluate(self) -> list[FollowUp]:
 		filters = {"status": ("in", OPEN_STATUSES), "converted": 0}
-		if self.owners is not None:
-			filters["lead_owner"] = ("in", self.owners)
+		if self.leads is not None:
+			filters["name"] = ("in", self.leads or [""])
 		names = frappe.get_all("CRM Lead", filters=filters, pluck="name", limit_page_length=0)
 		self.facts = LeadFacts(names, self.today)
 		owners = {self.facts.lead(name).lead_owner for name in self.facts.names}
@@ -96,7 +96,13 @@ class FollowUpRun:
 			item = self.rule_for(name)
 			if item:
 				self.items.append(item)
-		self.away = on_leave({user for item in self.items for user in item.recipients}, self.today)
+		# everyone told, and everyone who may cover for them
+		self.away = on_leave(
+			{user for item in self.items for user in item.recipients}
+			| set(self.managers.values())
+			| set(self.sales_heads),
+			self.today,
+		)
 		for item in self.items:
 			self.cover_leave(item)
 		return self.items

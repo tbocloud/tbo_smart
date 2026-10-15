@@ -250,7 +250,9 @@ def run_cost(run: str) -> float:
 
 
 def apply(run: str) -> dict:
-	"""Create the follow-ups of a Ready run. Never changes a lead's status."""
+	"""Create the follow-ups of a Ready run. Never changes a lead's status. The run row is
+	locked first, so a second apply waits and then finds it Applied."""
+	frappe.db.get_value(DOCTYPE, run, "status", for_update=True)
 	doc = frappe.get_doc(DOCTYPE, run)
 	if doc.status != "Ready":
 		frappe.throw(_("Only a run that is Ready can be applied (this one is {0}).").format(doc.status))
@@ -281,6 +283,7 @@ def close_leads(run: str, leads: list[str], status: str) -> dict:
 	"""A person confirms closing some Suggest close leads, under their own permissions."""
 	if status not in CLOSE_STATUSES:
 		frappe.throw(_("Close as Junk or Unqualified."))
+	frappe.db.get_value(DOCTYPE, run, "status", for_update=True)
 	doc = frappe.get_doc(DOCTYPE, run)
 	rows = {row.lead: row for row in doc.rows if row.bucket == SUGGEST_CLOSE}
 	closed = []

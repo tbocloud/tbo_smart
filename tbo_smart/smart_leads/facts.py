@@ -324,9 +324,8 @@ class LeadFacts:
 		return hashlib.sha1(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()[:20]
 
 
-def first_due(rows: list) -> dict:
-	"""{lead: earliest open follow-up due date} for lead rows (one query); used by lists."""
-	names = [row.name for row in rows]
+def first_due(names: list[str]) -> dict:
+	"""{lead: earliest open follow-up due date} (one grouped query, no other facts)."""
 	if not names:
 		return {}
 	Task = frappe.qb.DocType("CRM Task")
@@ -343,7 +342,3 @@ def first_due(rows: list) -> dict:
 			.groupby(Task.reference_docname)
 		).run()
 	)
-
-
-def now():
-	return now_datetime()

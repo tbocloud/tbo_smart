@@ -227,8 +227,8 @@ def draft_whatsapp(lead: str, language: str = "en") -> dict:
 	lead_facts = LeadFacts([lead])
 	facts = lead_facts.facts(lead)
 	doc = frappe.db.get_value("CRM Lead", lead, ["mobile_no", "phone"], as_dict=True)
-	phone = doc.mobile_no or doc.phone
-	if not normalise_phone(phone):
+	phone = next((number for number in (doc.mobile_no, doc.phone) if normalise_phone(number)), None)
+	if not phone:
 		frappe.throw(_("This lead has no usable mobile number."))
 	sender = frappe.utils.get_fullname(frappe.session.user)
 	answer = ai.call_ai(

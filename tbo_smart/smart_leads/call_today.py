@@ -18,12 +18,15 @@ from frappe.utils import get_datetime, getdate
 from tbo_smart.api.mobile.capabilities import get_capabilities, get_sales_team
 from tbo_smart.api.mobile.utils import get_full_names
 from tbo_smart.smart_leads import OPEN_STATUSES, call_today_size, is_sales_head
-from tbo_smart.smart_leads.facts import LeadFacts
+from tbo_smart.smart_leads.facts import LeadFacts, first_due
 from tbo_smart.smart_leads.scoring import conversion_rates, lead_score, status_positions
 from tbo_smart.smart_leads.utils import normalise_phone, tel_link, whatsapp_link
 
 OVERDUE, DUE_TODAY, BEST = "overdue", "due_today", "best_score"
 GROUP_ORDER = {OVERDUE: 0, DUE_TODAY: 1, BEST: 2}
+# leads with no follow-up whose facts are loaded, best stored score first: the live score
+# reorders them, and a lead whose score jumped today is re-scored on change anyway
+POOL_FACTOR, MIN_POOL = 5, 60
 
 
 def viewable_people() -> list[str] | None:
@@ -50,21 +53,29 @@ def build_call_today(user: str | None = None, size: int | None = None, today=Non
 	user = check_person(user)
 	today = getdate(today)
 	size = size or call_today_size()
+	# cheap first: the person's open leads by last night's score and each one's earliest
+	# follow-up; the full facts are loaded only for the ones that can make the list
 	names = frappe.get_list(
 		"CRM Lead",
 		filters={"lead_owner": user, "status": ("in", OPEN_STATUSES), "converted": 0},
 		pluck="name",
+		order_by="lead_score desc, creation desc",
 		limit_page_length=0,
 	)
-	facts = LeadFacts(names, today)
+	due_by = first_due(names)
+	with_due = [name for name in names if name in due_by and getdate(due_by[name]) <= today]
+	unplanned = [name for name in names if name not in due_by]
+	facts = LeadFacts(with_due + unplanned[: max(size * POOL_FACTOR, MIN_POOL)], today)
 	rates, positions = conversion_rates(), status_positions()
 	candidates = []
+	touched_today = 0
 	for name in facts.names:
 		follow_up = facts.next_follow_up(name)
 		due = getdate(follow_up.due_date) if follow_up else None
 		if due and due > today:
 			continue
 		if not due and facts.days_since_touch(name) == 0:
+			touched_today += 1
 			continue
 		group = OVERDUE if due and due < today else DUE_TODAY if due else BEST
 		score, temperature, reason = lead_score(facts, name, rates, positions)
@@ -86,7 +97,7 @@ def build_call_today(user: str | None = None, size: int | None = None, today=Non
 		"user_name": get_full_names([user]).get(user, user),
 		"date": str(today),
 		"size": size,
-		"more": max(len(candidates) - size, 0),
+		"more": max(len(with_due) + len(unplanned) - touched_today - size, 0),
 		"data": rows,
 	}
 

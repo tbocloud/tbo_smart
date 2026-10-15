@@ -507,12 +507,16 @@ def log_usage(
 	started: float,
 	error: str | None = None,
 ) -> None:
-	"""One TBO AI Usage Log row per attempt; never breaks the caller."""
+	"""One TBO AI Usage Log row per attempt, written by a job queued at once (not after the
+	commit): a request that fails after a billed attempt rolls back, and the row must stay.
+	Never breaks the caller."""
 	reference_doctype, reference_name = reference or (None, None)
 	try:
-		frappe.get_doc(
-			{
-				"doctype": "TBO AI Usage Log",
+		frappe.enqueue(
+			"tbo_smart.ai.write_usage_log",
+			queue="short",
+			now=frappe.flags.in_test,
+			values={
 				"provider": provider.slot,
 				"model": provider.model,
 				"feature": feature,
@@ -525,10 +529,17 @@ def log_usage(
 				"duration_ms": round((monotonic() - started) * 1000),
 				"ok": 0 if error else 1,
 				"error_kind": error,
-			}
-		).insert(ignore_permissions=True, ignore_links=True)
+			},
+		)
 	except Exception:
 		frappe.log_error(title="TBO AI: usage not logged")
+
+
+def write_usage_log(values: dict) -> None:
+	"""Background job of log_usage."""
+	frappe.get_doc({"doctype": "TBO AI Usage Log", **values}).insert(
+		ignore_permissions=True, ignore_links=True
+	)
 
 
 # ---------- answers and the number guard ----------

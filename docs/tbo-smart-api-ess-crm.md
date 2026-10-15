@@ -710,8 +710,8 @@ same as the CRM's `/crm/call-today` page (`docs/smart-leads.md` §4.3). Fixture:
 ```
 {user, user_name, date, size, more, data: [CallTodayRow]}
 CallTodayRow = {id, lead_name, organization, status, source, score (0-100), band ("Hot" | "Warm" | "Cold"),
-  reason, why ("overdue" | "due_today" | "best_score"), phone, phone_e164 ("+91…"), tel ("tel:+91…"),
-  whatsapp ("https://wa.me/91…"), email, last_touch: {at, kind, days} | null,
+  reason, why ("overdue" | "due_today" | "best_score"), phone, phone_e164 (international E.164, e.g.
+  "+919847012345" or "+971504182276"), tel ("tel:" + phone_e164), whatsapp ("https://wa.me/<digits>"), email, last_touch: {at, kind, days} | null,
   follow_up: {task, title, due, overdue} | null}
 ```
 
@@ -720,8 +720,8 @@ CallTodayRow = {id, lead_name, organization, status, source, score (0-100), band
   default), `more` = how many did not fit.
 - Visibility follows CRM's own rules (`frappe.get_list`); `user` other than me is refused with
   403 unless they are in my sales team, or I have crm_scope `all` or am a sales head.
-- `phone_e164`, `tel` and `whatsapp` are null when the lead has no usable number; a 10-digit
-  number gets +91.
+- `phone_e164`, `tel` and `whatsapp` are null when the lead has no usable number. A number
+  with + or 00 keeps its country code; a local 10-digit number gets +91 (the default).
 - To act on a row the app uses the existing `log_activity`, `add_follow_up` and
   `set_lead_status` on `doctype="lead"`.
 

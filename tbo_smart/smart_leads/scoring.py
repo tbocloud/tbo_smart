@@ -207,14 +207,15 @@ def score_leads(names: list[str], use_ai: bool = False, ai_limit: int = 0) -> di
 				"CRM Lead", name, {**values, "tbo_scored_at": now_datetime()}, update_modified=False
 			)
 			written += 1
-	return {"scored": written, "ai": len(ai_results)}
+	return {"scored": written, "ai": sum(1 for _adjust, reason in ai_results.values() if reason)}
 
 
 def score_with_ai(facts: LeadFacts, limit: int) -> dict[str, tuple[int, str | None]]:
 	"""{lead: (adjust, reason)} for open leads whose content changed since the last AI read,
-	at most `limit`, `AI_BATCH` per call. A reason with a number not in the lead's facts is
-	dropped together with its adjustment. A failed batch is skipped: those leads keep their
-	last AI read and are tried again tomorrow."""
+	at most `limit`, `AI_BATCH` per call. Every lead of a batch that got an answer counts as
+	read, so it isn't sent (and billed) again until it changes: a reason with a number not in
+	the lead's facts, an empty one or a missing row gives (0, None). A failed batch is
+	skipped: those leads keep their last AI read and are tried again tomorrow."""
 	due = [
 		name
 		for name in facts.names
@@ -232,6 +233,7 @@ def score_with_ai(facts: LeadFacts, limit: int) -> dict[str, tuple[int, str | No
 			)["response"]
 		except ai.AIProviderError:
 			continue
+		results.update({name: (0, None) for name in batch})
 		for item in answer.get("leads") or []:
 			name = item.get("id") if isinstance(item, dict) else None
 			if name not in lead_facts:
