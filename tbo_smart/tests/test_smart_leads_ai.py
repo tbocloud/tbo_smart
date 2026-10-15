@@ -170,6 +170,23 @@ class TestMigrationNote(FrappeTestCase):
 		)
 		self.assertEqual(parsed, {"status": "Lead", "project_type": "Website"})
 
+	def test_live_migration_note_layout(self):
+		# the exact layout of the notes written by the 2026-10-14 migration
+		parsed = parse_migration_note(
+			"<p><b>Original status:</b> Interested</p><p><b>Original source:</b> Cold Calling</p>"
+			"<p><b>Original owner:</b> anjana@tbo.test</p><p><b>Created on old site:</b> 2024-11-23 10:43</p>"
+			"<p><b>WhatsApp:</b> 88864212</p><p><b>City/State/Country:</b> India</p>"
+			"<p><b>Priority:</b> Medium</p><p><b>Project type:</b> External</p>"
+			"<p><b>Remarks:</b> call after demo<br>next week</p><p><b>Comment:</b> asked for price</p>"
+		)
+		self.assertEqual(parsed["status"], "Interested")
+		self.assertEqual(parsed["source"], "Cold Calling")
+		self.assertEqual(parsed["owner"], "anjana@tbo.test")
+		self.assertEqual(parsed["created"], "2024-11-23 10:43")
+		self.assertEqual(parsed["priority"], "Medium")
+		self.assertEqual(parsed["project_type"], "External")
+		self.assertEqual(parsed["remarks"], "call after demo\nnext week")
+
 	def test_empty_note(self):
 		self.assertEqual(parse_migration_note(None), {})
 

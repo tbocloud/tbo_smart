@@ -4,7 +4,7 @@ On 2026-10-14 every lead got an FCRM Note titled "Migrated from tboindia-old <id
 original status, source, owner, created date, remarks, priority and project type. The note's
 exact layout was not available offline, so the parser accepts "Label: value" lines, "Label -
 value" lines and two-cell table rows, in any order, with or without HTML, and ignores labels it
-doesn't know. **[verify on site]** against a real note before switching scoring on.
+doesn't know. Checked against the live layout on 2026-10-15 (docs §3.2).
 """
 
 import re
@@ -20,10 +20,13 @@ LABELS = (
 	("original status", "status"),
 	("lead status", "status"),
 	("status", "status"),
+	("original source", "source"),
 	("lead source", "source"),
 	("source", "source"),
+	("original owner", "owner"),
 	("lead owner", "owner"),
 	("owner", "owner"),
+	("created on old site", "created"),
 	("created on", "created"),
 	("created", "created"),
 	("creation", "created"),
@@ -31,6 +34,11 @@ LABELS = (
 	("remark", "remarks"),
 	("notes", "remarks"),
 	("priority", "priority"),
+	# other labels the migration note carries; recognised so they end a multi-line remarks value
+	("comment", "comment"),
+	("whatsapp", "whatsapp"),
+	("city/state/country", "location"),
+	("department", "department"),
 )
 LINE = re.compile(r"^\s*[-*•]?\s*([A-Za-z][A-Za-z /_]{1,40}?)\s*(?::|=|\s-\s|\t)\s*(.*)$")
 # the old ERPNext Lead statuses, best first; anything else counts as neutral
