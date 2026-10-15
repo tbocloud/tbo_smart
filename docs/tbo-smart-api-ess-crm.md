@@ -1,4 +1,4 @@
-# TBO Smart API: ESS, CRM and manager (tboindia side), v1.6
+# TBO Smart API: ESS, CRM and manager (tboindia side), v1.7
 
 This is the contract for the TBO Smart mobile app's **tboindia.tbocloud.in** half: HR
 self-service (HRMS), CRM (Frappe CRM) and the manager views. The hub (TBO Support) has its
@@ -7,7 +7,7 @@ own contract in `tbocloud/helpdesk`.
 - **Code:** `tbo_smart/api/mobile/{auth,capabilities,ess,crm,manager,quotation,device}.py` and `tbo_smart/push.py`.
 - **Fixtures:** `docs/fixtures/<module>.<method>.json`. Each one is the full HTTP body that
   Frappe returns (`{"message": ...}`).
-- **Status:** v1.6, 2026-10-13. Any change gets a version note in the changelog at the end of
+- **Status:** v1.7, 2026-10-15. Any change gets a version note in the changelog at the end of
   this file.
 
 ## 1. Conventions
@@ -594,6 +594,7 @@ Writes are normal inserts and saves under the session user.
 | `move_deal_stage` | POST | `name`, `stage`, `lost_reason?` (required for a Lost-type stage) | the Deal |
 | `get_organizations` | GET | `search?`, `page`, `page_length` | page of Organization |
 | `get_organization` | GET | `name` | Organization plus `contacts[]` and `deals[]` |
+| `get_call_today` | GET | `user?` (a teammate, within my team or crm_scope all) | Call today (§6.3); needs TBO Smart Settings → Lead scoring on, else a ValidationError |
 | `get_my_follow_ups` | GET | `scope?` (§4.1, default `mine`) | `[FollowUp]`: open CRM Tasks due today or overdue, oldest first, with `assigned_to` and `assigned_to_name` |
 | `get_sales_insights` | GET | `period` (`week`/`month`/`quarter`/`year`, default `month`), `scope?` (§4.1, default widest), `stalled_days?` (default 14, 1–365) | Sales insights (§6.1); needs `sales_insights` |
 | `log_activity` | POST | `doctype` (`lead`/`deal`), `name`, `kind` (`call`/`note`/`meeting`/`email`/`whatsapp`), `text`, `next_follow_up?`, `phone?` | the record's `{notes, tasks, activities}` |
@@ -699,6 +700,30 @@ sales team for `team`; an **empty list** for staff (`own`). Show the "Assign to"
 when it is not empty.
 
 **`get_options`** already returns `lead_sources` (since v1); unchanged.
+
+### 6.3 Call today (v1.7)
+
+`get_call_today(user=None)` returns today's list of leads to call for me (or a teammate), the
+same as the CRM's `/crm/call-today` page (`docs/smart-leads.md` §4.3). Fixture:
+`docs/fixtures/crm.get_call_today.json`.
+
+```
+{user, user_name, date, size, more, data: [CallTodayRow]}
+CallTodayRow = {id, lead_name, organization, status, source, score (0-100), band ("Hot" | "Warm" | "Cold"),
+  reason, why ("overdue" | "due_today" | "best_score"), phone, phone_e164 ("+91…"), tel ("tel:+91…"),
+  whatsapp ("https://wa.me/91…"), email, last_touch: {at, kind, days} | null,
+  follow_up: {task, title, due, overdue} | null}
+```
+
+- Order: overdue follow-ups (oldest first), due today, then leads with no follow-up and no touch
+  today by score. Leads with a follow-up on a later day are not listed. `size` rows (12 by
+  default), `more` = how many did not fit.
+- Visibility follows CRM's own rules (`frappe.get_list`); `user` other than me is refused with
+  403 unless they are in my sales team, or I have crm_scope `all` or am a sales head.
+- `phone_e164`, `tel` and `whatsapp` are null when the lead has no usable number; a 10-digit
+  number gets +91.
+- To act on a row the app uses the existing `log_activity`, `add_follow_up` and
+  `set_lead_status` on `doctype="lead"`.
 
 ### 6.1 Sales insights (`get_sales_insights`)
 
@@ -890,7 +915,7 @@ The tests are in `tbo_smart/tests/test_mobile_{ess,advance,crm,lead_capture,mana
 - **Approvals:** a leave approval shows its `half_day_date`.
 - **Manager:** endpoints refuse non-managers and non-approvers; only the named approver can
   decide.
-- **CRM:** visibility follows CRM rules.
+- **CRM:** visibility follows CRM rules. Call today (`test_smart_leads.py`): order, team permission, the off switch and the shape against `docs/fixtures/crm.get_call_today.json`.
 - **Lead capture** (`test_mobile_lead_capture.py`): phone formats (`+971 50…`, `050…`,
   `00971`, spaces and brackets), email and organization case, matches across leads,
   organizations, contacts and customers; hidden matches without details; 409 without
@@ -958,6 +983,8 @@ those apps on Frappe version-15.
   Half day on a leave of several days: `apply_leave` validates `half_day_date` within the
   range, new `ess.get_leave_days` previews HRMS's total, and leave approvals
   (`manager.get_approvals`) return `half_day_date`.
+- **v1.7 (2026-10-15):** `crm.get_call_today` (§6.3), the smart leads Call today list
+  (`docs/smart-leads.md`). Needs TBO Smart Settings → Lead scoring and Call today.
 - **v1.6 (2026-10-13):** employee advances. New `ess.get_advances`, `ess.create_advance` and
   `ess.cancel_advance` (§3.1); new drafts are shared with the employee's expense approver.
   New capabilities `advances` and `approve_advance` (§4). `manager.get_approvals` includes

@@ -1,0 +1,56 @@
+{
+  "message": {
+    "user": "shahana@teambackoffice.com",
+    "user_name": "Shahana K",
+    "date": "2026-10-15",
+    "size": 12,
+    "more": 31,
+    "data": [
+      {
+        "id": "CRM-LEAD-2026-00412",
+        "lead_name": "Ajith Kumar",
+        "organization": "Thrissur Gold House",
+        "status": "Contacted",
+        "source": "Website",
+        "score": 64,
+        "band": "Hot",
+        "reason": "Asked for the jewellery ERP price · Contacted · Website leads convert 9%",
+        "why": "overdue",
+        "phone": "9847012345",
+        "phone_e164": "+919847012345",
+        "tel": "tel:+919847012345",
+        "whatsapp": "https://wa.me/919847012345",
+        "email": null,
+        "last_touch": {
+          "at": "2026-10-09 16:20:00",
+          "kind": "call",
+          "days": 6
+        },
+        "follow_up": {
+          "task": "CRM-TASK-2026-00231",
+          "title": "Send the quote",
+          "due": "2026-10-13 10:00:00",
+          "overdue": true
+        }
+      },
+      {
+        "id": "CRM-LEAD-2026-00977",
+        "lead_name": "Rahul Menon",
+        "organization": null,
+        "status": "New",
+        "source": "IRFAD",
+        "score": 31,
+        "band": "Warm",
+        "reason": "New · was Interested before the migration · IRFAD leads convert 4%",
+        "why": "best_score",
+        "phone": "+971 50 418 2276",
+        "phone_e164": "+971504182276",
+        "tel": "tel:+971504182276",
+        "whatsapp": "https://wa.me/971504182276",
+        "email": "rahul@example.com",
+        "last_touch": null,
+        "follow_up": null
+      }
+    ]
+  }
+}

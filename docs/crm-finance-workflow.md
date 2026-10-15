@@ -174,7 +174,7 @@ every site gets the same fields. Every new doctype has `track_changes = 1`.
 | Payment Entry | `crm_deal` | Link CRM Deal, read-only | Set from references. If the references belong to different deals it is left blank and the allocation lines carry the deal per row. |
 | Payment Schedule (child) | `tbo_last_reminder` | Select (none, D-3, D0, D+7, D+15, D+30, Weekly) | Makes the reminder job idempotent. |
 | Payment Schedule (child) | `tbo_last_reminder_on` | Date | Same. |
-| CRM Task | `tbo_task_type` | Select (Sales follow-up, Collection, Onboarding) | Splits the collections list from sales tasks. |
+| CRM Task | `tbo_task_type` | Select (Sales follow-up, Collection, Onboarding) | Splits the collections list from sales tasks. Smart leads (`docs/smart-leads.md`) create their lead follow-ups as "Sales follow-up". |
 | CRM Task | `tbo_sales_invoice` | Link Sales Invoice | The invoice being chased. |
 | CRM Task | `tbo_promised_date`, `tbo_promised_amount` | Date, Currency | Promise to pay, from the follow-up remark. |
 | CRM Task | `tbo_escalation_level` | Int (0–4) | Set by the reminder job. |
