@@ -17,6 +17,7 @@ from erpnext.setup.doctype.employee.test_employee import make_employee
 from frappe.integrations.oauth2 import get_oauth_server, get_token
 from frappe.utils import add_days, get_year_ending, get_year_start, getdate, now_datetime, nowdate
 from frappe.utils.nestedset import rebuild_tree
+from frappe.utils.password import remove_encrypted_password, set_encrypted_password
 from hrms.tests.test_utils import before_tests as hrms_before_tests
 from jwt.algorithms import RSAAlgorithm
 from PIL import Image
@@ -49,14 +50,17 @@ def before_tests() -> None:
 def make_user(email: str, roles: list[str] | tuple = ()) -> str:
 	"""A website-enabled User with exactly the extra roles given (adds, never removes)."""
 	if not frappe.db.exists("User", email):
-		frappe.get_doc(
-			{
-				"doctype": "User",
-				"email": email,
-				"first_name": email.split("@")[0],
-				"send_welcome_email": 0,
-			}
-		).insert(ignore_permissions=True)
+		# CRM inserts commit, so test users stay: on a fresh site the suite creates more than the
+		# 60 an hour Frappe's sign-up throttle allows
+		with patch("frappe.core.doctype.user.user.throttle_user_creation"):
+			frappe.get_doc(
+				{
+					"doctype": "User",
+					"email": email,
+					"first_name": email.split("@")[0],
+					"send_welcome_email": 0,
+				}
+			).insert(ignore_permissions=True)
 	user = frappe.get_doc("User", email)
 	# Tests call this while signed in as a plain user, who may not save a User.
 	user.flags.ignore_permissions = True
@@ -687,6 +691,281 @@ def delete_crm_records(owners: list[str] | tuple) -> None:
 		frappe.db.delete(doctype, {owner_field: ("in", list(owners))})
 	# CRM's committing after_insert already persisted these fixtures, so the delete must persist too.
 	frappe.db.commit()  # nosemgrep
+
+
+# ---------- Smart leads (docs/smart-leads.md) ----------
+
+SMART_LEAD_SWITCHES = (
+	"enable_lead_scoring",
+	"lead_scoring_use_ai",
+	"enable_lead_follow_ups",
+	"enable_lead_notes",
+	"enable_lead_triage",
+)
+TEST_TEAMS_DM_URL = (
+	"https://prod-01.westeurope.logic.azure.com/workflows/abc/triggers/manual/paths/invoke"
+	"?api-version=2016-06-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=test-signature"
+)
+TEST_OPENAI_KEY = "sk-test-openai-key-123456789"
+TEST_ANTHROPIC_KEY = "sk-test-kimi-key-987654321"
+
+
+def set_smart_lead_settings(**values) -> None:
+	"""Write TBO Smart Settings fields directly and drop the cached settings document."""
+	for field, value in values.items():
+		frappe.db.set_single_value("TBO Smart Settings", field, value)
+	frappe.clear_document_cache("TBO Smart Settings", "TBO Smart Settings")
+
+
+def enable_smart_leads(**values) -> None:
+	"""Every smart lead switch on (scoring, AI scoring, follow-ups, notes, triage) with the
+	default numbers, plus any `values`."""
+	defaults = {
+		**{switch: 1 for switch in SMART_LEAD_SWITCHES},
+		"call_today_size": 12,
+		"lead_stale_days": 21,
+		"lead_ladder_l1_days": 2,
+		"lead_ladder_l2_days": 4,
+		"lead_ladder_l3_days": 7,
+		"lead_manager_role": "Sales Manager",
+		"triage_max_leads": 300,
+		"triage_daily_capacity": 15,
+		"ai_daily_lead_limit": 200,
+		"lead_fallback_owner": None,
+		"lead_digest_sent_on": None,
+	}
+	set_smart_lead_settings(**{**defaults, **values})
+
+
+def disable_smart_leads() -> None:
+	"""Every smart lead switch off, no AI keys, no Teams URL, and no AI pause left in Redis."""
+	from tbo_smart.ai import reset_provider_state
+
+	set_smart_lead_settings(**{switch: 0 for switch in SMART_LEAD_SWITCHES}, lead_fallback_owner=None)
+	for field in ("openai_api_key", "anthropic_api_key", "teams_dm_workflow_url"):
+		store_settings_secret(field, None)
+	reset_provider_state()
+
+
+def configure_ai_providers(openai: bool = True, anthropic: bool = False, primary: str = "OpenAI") -> None:
+	"""Store test keys and models for the AI provider sections (prices: $2 / $8 per 1M tokens)."""
+	from tbo_smart.ai import reset_provider_state
+
+	set_smart_lead_settings(
+		ai_primary_provider=primary,
+		ai_failover=1,
+		openai_base_url="https://api.openai.com/v1",
+		openai_model="gpt-5.6-luna",
+		openai_input_price=2,
+		openai_output_price=8,
+		anthropic_base_url="https://api.moonshot.ai/anthropic",
+		anthropic_model="kimi-k2.6",
+		anthropic_input_price=1,
+		anthropic_output_price=4,
+	)
+	for field, key, wanted in (
+		("openai_api_key", TEST_OPENAI_KEY, openai),
+		("anthropic_api_key", TEST_ANTHROPIC_KEY, anthropic),
+	):
+		store_settings_secret(field, key if wanted else None)
+	reset_provider_state()
+
+
+def set_teams_dm_url(url: str | None = TEST_TEAMS_DM_URL) -> None:
+	"""Store (or with None remove) the Teams DM workflow URL."""
+	store_settings_secret("teams_dm_workflow_url", url)
+
+
+def store_settings_secret(field: str, value: str | None) -> None:
+	"""A TBO Smart Settings Password field as a save from the form leaves it: encrypted in
+	__Auth and "*****" in the document (None removes both)."""
+	if value:
+		set_encrypted_password("TBO Smart Settings", "TBO Smart Settings", value, field)
+	else:
+		remove_encrypted_password("TBO Smart Settings", "TBO Smart Settings", field)
+	set_smart_lead_settings(**{field: "*****" if value else None})
+
+
+def ai_http_response(status: int = 200, body: dict | None = None) -> MagicMock:
+	"""A fake requests.Response with this status and JSON body."""
+	response = MagicMock()
+	response.status_code = status
+	response.ok = status < 400
+	response.reason = "Error" if status >= 400 else "OK"
+	response.json.return_value = body or {}
+	return response
+
+
+def openai_answer(answer: dict, prompt_tokens: int = 1000, completion_tokens: int = 200) -> MagicMock:
+	"""An OpenAI Chat Completions 200 whose message content is `answer` as JSON."""
+	return ai_http_response(
+		200,
+		{
+			"choices": [{"message": {"content": json.dumps(answer)}, "finish_reason": "stop"}],
+			"usage": {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens},
+		},
+	)
+
+
+def anthropic_answer(answer: dict) -> MagicMock:
+	"""An Anthropic Messages API 200 whose text block is `answer` as JSON."""
+	return ai_http_response(
+		200,
+		{
+			"content": [{"type": "text", "text": json.dumps(answer)}],
+			"usage": {"input_tokens": 500, "output_tokens": 100},
+			"stop_reason": "end_turn",
+		},
+	)
+
+
+def mock_ai(*responses):
+	"""Patch the AI module's HTTP calls to answer `responses` in order (a function may build
+	one from the request: fn(url, json) -> response). Use as a context manager; the mock's
+	call_args_list shows each request."""
+
+	def answer(url, json=None, headers=None, timeout=None):
+		reply = queue.pop(0) if queue else ai_http_response(500, {"error": {"message": "no more answers"}})
+		return reply if isinstance(reply, MagicMock) else reply(url, json)
+
+	queue = list(responses)
+	return patch("tbo_smart.ai.requests.post", side_effect=answer)
+
+
+def make_migration_note(lead: str, old_id: str = "CRM-LEAD-2025-00001", **fields) -> str:
+	"""The FCRM Note the 2026-10-14 migration left on a lead: "Label: value" lines for status,
+	source, owner, created, remarks, priority and project_type (labels as the parser reads them)."""
+	labels = {
+		"status": "Status",
+		"source": "Source",
+		"owner": "Lead Owner",
+		"created": "Created On",
+		"priority": "Priority",
+		"project_type": "Project Type",
+		"remarks": "Remarks",
+	}
+	content = "".join(f"<p>{labels[key]}: {value}</p>" for key, value in fields.items())
+	note = frappe.get_doc(
+		{
+			"doctype": "FCRM Note",
+			"title": f"Migrated from tboindia-old {old_id}",
+			"content": content,
+			"reference_doctype": "CRM Lead",
+			"reference_docname": lead,
+		}
+	)
+	note.insert(ignore_permissions=True)
+	return note.name
+
+
+def make_lead_note(lead: str, text: str, days_ago: int = 0) -> str:
+	"""An FCRM Note on a lead, its creation moved `days_ago` days back."""
+	note = frappe.get_doc(
+		{
+			"doctype": "FCRM Note",
+			"title": text[:140],
+			"content": text,
+			"reference_doctype": "CRM Lead",
+			"reference_docname": lead,
+		}
+	)
+	note.insert(ignore_permissions=True)
+	if days_ago:
+		frappe.db.set_value(
+			"FCRM Note", note.name, "creation", add_days(now_datetime(), -days_ago), update_modified=False
+		)
+	return note.name
+
+
+def make_lead_task(
+	lead: str, due, assigned_to: str, status: str = "Todo", task_type: str | None = "Sales follow-up"
+) -> str:
+	"""A CRM Task on a lead due on `due` (a date or datetime), inserted as Administrator."""
+	task = frappe.get_doc(
+		{
+			"doctype": "CRM Task",
+			"title": "Follow up",
+			"status": status,
+			"priority": "Medium",
+			"assigned_to": assigned_to,
+			"due_date": f"{getdate(due)} 10:00:00" if len(str(due)) <= 10 else due,
+			"reference_doctype": "CRM Lead",
+			"reference_docname": lead,
+			"tbo_task_type": task_type,
+		}
+	)
+	task.insert(ignore_permissions=True)
+	return task.name
+
+
+def change_lead_status(lead: str, status: str, **fields) -> None:
+	"""Save a new status on a lead as Administrator, so CRM logs the change."""
+	doc = frappe.get_doc("CRM Lead", lead)
+	doc.update({"status": status, **fields})
+	doc.save(ignore_permissions=True)
+
+
+def age_lead(lead: str, days: int) -> None:
+	"""Move a lead's creation `days` back (and its first status log row with it)."""
+	when = add_days(now_datetime(), -days)
+	frappe.db.set_value("CRM Lead", lead, "creation", when, update_modified=False)
+	frappe.db.set_value(
+		"CRM Status Change Log", {"parent": lead, "idx": 1}, "from_date", when, update_modified=False
+	)
+
+
+def make_approved_leave(employee: str, leave_type: str, from_date, to_date=None, half_day: int = 0) -> str:
+	"""A submitted, Approved Leave Application (half_day on the first day when asked)."""
+	application = frappe.get_doc(
+		{
+			"doctype": "Leave Application",
+			"employee": employee,
+			"leave_type": leave_type,
+			"from_date": from_date,
+			"to_date": to_date or from_date,
+			"half_day": half_day,
+			"half_day_date": from_date if half_day else None,
+			"status": "Approved",
+			"posting_date": nowdate(),
+		}
+	)
+	application.insert(ignore_permissions=True)
+	application.submit()
+	return application.name
+
+
+def make_role(name: str) -> str:
+	"""A desk Role, created when missing."""
+	if not frappe.db.exists("Role", name):
+		frappe.get_doc({"doctype": "Role", "role_name": name, "desk_access": 1}).insert(
+			ignore_permissions=True
+		)
+	return name
+
+
+def set_user_enabled(email: str, enabled: bool) -> None:
+	frappe.db.set_value("User", email, "enabled", int(enabled))
+
+
+def delete_smart_lead_records(owners: list[str] | tuple) -> None:
+	"""Delete the leads of `owners` with every note, call, task and triage row on them, and
+	commit (CRM inserts commit, so the fixtures outlive the test's rollback)."""
+	leads = frappe.get_all("CRM Lead", filters={"lead_owner": ("in", list(owners))}, pluck="name")
+	if leads:
+		for doctype in ("FCRM Note", "CRM Call Log", "CRM Task"):
+			frappe.db.delete(doctype, {"reference_doctype": "CRM Lead", "reference_docname": ("in", leads)})
+		frappe.db.delete("TBO Lead Triage Row", {"lead": ("in", leads)})
+	frappe.db.delete("CRM Task", {"assigned_to": ("in", list(owners))})
+	frappe.db.delete("CRM Lead", {"lead_owner": ("in", list(owners))})
+	frappe.db.delete("TBO Lead Triage", {"name": ("like", "TBO-TRIAGE-%")})
+	frappe.db.commit()  # nosemgrep
+
+
+def get_fixture(name: str) -> dict:
+	"""A response fixture from docs/fixtures (the mobile contract's examples)."""
+	path = frappe.get_app_path("tbo_smart", "..", "docs", "fixtures", f"{name}.json")
+	with open(path) as handle:
+		return json.load(handle)
 
 
 # ---------- Single sign-in with Microsoft ----------
