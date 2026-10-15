@@ -6,3 +6,4 @@
 # Patches added in this section will be executed after doctypes are migrated
 tbo_smart.patches.v1.setup_quotation_approval
 tbo_smart.patches.v1.backfill_finance_deal_links
+tbo_smart.patches.v1.set_smart_lead_defaults

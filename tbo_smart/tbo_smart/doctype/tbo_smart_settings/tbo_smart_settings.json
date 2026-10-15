@@ -47,6 +47,45 @@
   "second_approval_amount",
   "dashboard_section",
   "enable_finance_dashboard",
+  "ai_section",
+  "ai_primary_provider",
+  "ai_failover",
+  "column_break_ai_openai",
+  "openai_base_url",
+  "openai_model",
+  "openai_api_key",
+  "openai_input_price",
+  "openai_output_price",
+  "column_break_ai_anthropic",
+  "anthropic_base_url",
+  "anthropic_model",
+  "anthropic_api_key",
+  "anthropic_input_price",
+  "anthropic_output_price",
+  "lead_scoring_section",
+  "enable_lead_scoring",
+  "lead_scoring_use_ai",
+  "column_break_lead_scoring",
+  "call_today_size",
+  "ai_daily_lead_limit",
+  "lead_follow_up_section",
+  "enable_lead_follow_ups",
+  "lead_stale_days",
+  "lead_fallback_owner",
+  "column_break_lead_ladder",
+  "lead_ladder_l1_days",
+  "lead_ladder_l2_days",
+  "lead_ladder_l3_days",
+  "lead_manager_role",
+  "column_break_lead_delivery",
+  "teams_dm_workflow_url",
+  "lead_digest_sent_on",
+  "lead_ai_section",
+  "enable_lead_notes",
+  "column_break_lead_ai",
+  "enable_lead_triage",
+  "triage_max_leads",
+  "triage_daily_capacity",
   "checkin_section",
   "enforce_checkin_radius",
   "checkin_locations",
@@ -355,6 +394,238 @@
    "description": "Adds finance cards to the CRM dashboard by role: quotations, invoiced, collected, outstanding, overdue and lead-to-deal for CRM users (their own deals for a salesperson); payable to India, transfers waiting, bank lines to verify and open exceptions for accounts, finance and management. Needs Phase 1 on."
   },
   {
+   "description": "Used only by the smart lead features switched on below. Keys are stored encrypted and never shown again.",
+   "fieldname": "ai_section",
+   "fieldtype": "Section Break",
+   "label": "AI providers"
+  },
+  {
+   "default": "OpenAI",
+   "fieldname": "ai_primary_provider",
+   "fieldtype": "Select",
+   "label": "Primary provider",
+   "options": "OpenAI\nAnthropic-compatible"
+  },
+  {
+   "default": "1",
+   "description": "When the primary fails on billing, its key, its model, a rate limit, a server error or a timeout.",
+   "fieldname": "ai_failover",
+   "fieldtype": "Check",
+   "label": "Fall back to the other provider"
+  },
+  {
+   "fieldname": "column_break_ai_openai",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "https://api.openai.com/v1",
+   "fieldname": "openai_base_url",
+   "fieldtype": "Data",
+   "label": "OpenAI base URL"
+  },
+  {
+   "default": "gpt-5.6-luna",
+   "description": "Must match the model ID in the OpenAI dashboard exactly. Test connection proves it.",
+   "fieldname": "openai_model",
+   "fieldtype": "Data",
+   "label": "OpenAI model"
+  },
+  {
+   "fieldname": "openai_api_key",
+   "fieldtype": "Password",
+   "label": "OpenAI API key",
+   "length": 512
+  },
+  {
+   "default": "0",
+   "fieldname": "openai_input_price",
+   "fieldtype": "Float",
+   "label": "OpenAI input price (USD per 1M tokens)"
+  },
+  {
+   "default": "0",
+   "fieldname": "openai_output_price",
+   "fieldtype": "Float",
+   "label": "OpenAI output price (USD per 1M tokens)"
+  },
+  {
+   "fieldname": "column_break_ai_anthropic",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Blank: Anthropic. Kimi: https://api.moonshot.ai/anthropic",
+   "fieldname": "anthropic_base_url",
+   "fieldtype": "Data",
+   "label": "Anthropic-compatible base URL"
+  },
+  {
+   "fieldname": "anthropic_model",
+   "fieldtype": "Data",
+   "label": "Anthropic-compatible model"
+  },
+  {
+   "fieldname": "anthropic_api_key",
+   "fieldtype": "Password",
+   "label": "Anthropic-compatible API key",
+   "length": 512
+  },
+  {
+   "default": "0",
+   "fieldname": "anthropic_input_price",
+   "fieldtype": "Float",
+   "label": "Anthropic-compatible input price (USD per 1M tokens)"
+  },
+  {
+   "default": "0",
+   "fieldname": "anthropic_output_price",
+   "fieldtype": "Float",
+   "label": "Anthropic-compatible output price (USD per 1M tokens)"
+  },
+  {
+   "fieldname": "lead_scoring_section",
+   "fieldtype": "Section Break",
+   "label": "Smart leads: scoring and Call today"
+  },
+  {
+   "default": "0",
+   "description": "Scores open leads every night and when they change, and shows each salesperson a daily Call today list.",
+   "fieldname": "enable_lead_scoring",
+   "fieldtype": "Check",
+   "label": "Lead scoring and Call today"
+  },
+  {
+   "default": "0",
+   "description": "Needs an AI provider. Adjusts a score by at most 15 points and writes the reason.",
+   "fieldname": "lead_scoring_use_ai",
+   "fieldtype": "Check",
+   "label": "AI reads notes to adjust scores"
+  },
+  {
+   "fieldname": "column_break_lead_scoring",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "12",
+   "description": "Per salesperson, 5 to 30.",
+   "fieldname": "call_today_size",
+   "fieldtype": "Int",
+   "label": "Leads in Call today"
+  },
+  {
+   "default": "200",
+   "description": "Only leads whose notes or status changed since their last AI read are sent.",
+   "fieldname": "ai_daily_lead_limit",
+   "fieldtype": "Int",
+   "label": "AI scoring: leads per night"
+  },
+  {
+   "fieldname": "lead_follow_up_section",
+   "fieldtype": "Section Break",
+   "label": "Smart leads: follow-ups and escalation"
+  },
+  {
+   "default": "0",
+   "description": "Flags open leads with no next follow-up, reminds on the due day, escalates overdue ones and sends the 09:30 digest.",
+   "fieldname": "enable_lead_follow_ups",
+   "fieldtype": "Check",
+   "label": "Lead follow-ups and escalation"
+  },
+  {
+   "default": "21",
+   "fieldname": "lead_stale_days",
+   "fieldtype": "Int",
+   "label": "Re-engage after (days without a touch)"
+  },
+  {
+   "description": "Gets the reminders of leads whose owner is disabled. Blank: those leads are listed under Needs owner for the sales head.",
+   "fieldname": "lead_fallback_owner",
+   "fieldtype": "Link",
+   "label": "Fallback owner for disabled users' leads",
+   "options": "User"
+  },
+  {
+   "fieldname": "column_break_lead_ladder",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "2",
+   "fieldname": "lead_ladder_l1_days",
+   "fieldtype": "Int",
+   "label": "Escalate to the BDM after (working days overdue)"
+  },
+  {
+   "default": "4",
+   "fieldname": "lead_ladder_l2_days",
+   "fieldtype": "Int",
+   "label": "Escalate to the Sales & Marketing Head after"
+  },
+  {
+   "default": "7",
+   "fieldname": "lead_ladder_l3_days",
+   "fieldtype": "Int",
+   "label": "Escalate to the managers after"
+  },
+  {
+   "default": "Sales Manager",
+   "fieldname": "lead_manager_role",
+   "fieldtype": "Link",
+   "label": "Managers' role (last level)",
+   "options": "Role"
+  },
+  {
+   "fieldname": "column_break_lead_delivery",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "The Power Automate workflow that posts a Teams chat message to `recipient` (the same one as the TBO Support hub's Chat settings). Blank: digests go by email.",
+   "fieldname": "teams_dm_workflow_url",
+   "fieldtype": "Password",
+   "label": "Teams DM workflow URL",
+   "length": 2000
+  },
+  {
+   "fieldname": "lead_digest_sent_on",
+   "fieldtype": "Date",
+   "hidden": 1,
+   "label": "Digest sent on",
+   "read_only": 1
+  },
+  {
+   "fieldname": "lead_ai_section",
+   "fieldtype": "Section Break",
+   "label": "Smart leads: AI notes and triage"
+  },
+  {
+   "default": "0",
+   "description": "Needs an AI provider.",
+   "fieldname": "enable_lead_notes",
+   "fieldtype": "Check",
+   "label": "AI call notes, lead brief and WhatsApp drafts"
+  },
+  {
+   "fieldname": "column_break_lead_ai",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "description": "An admin action: preview first, then apply. It never closes a lead.",
+   "fieldname": "enable_lead_triage",
+   "fieldtype": "Check",
+   "label": "AI triage of stale leads"
+  },
+  {
+   "default": "300",
+   "fieldname": "triage_max_leads",
+   "fieldtype": "Int",
+   "label": "Triage: leads per run (at most 1,000)"
+  },
+  {
+   "default": "15",
+   "fieldname": "triage_daily_capacity",
+   "fieldtype": "Int",
+   "label": "Triage: follow-ups per person per day"
+  },
+  {
    "fieldname": "checkin_section",
    "fieldtype": "Section Break",
    "label": "Check-in location"
@@ -410,7 +681,7 @@
  "index_web_pages_for_search": 0,
  "issingle": 1,
  "links": [],
- "modified": "2026-10-13 09:00:00.000000",
+ "modified": "2026-10-15 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Smart Settings",
