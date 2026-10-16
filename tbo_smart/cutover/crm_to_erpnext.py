@@ -708,7 +708,13 @@ class Cutover:
 		`tbo_lead`."""
 		Quotation = table("Quotation")
 		columns = set(frappe.db.get_table_columns("Quotation"))
-		fields = [Quotation.name, Quotation.quotation_to, Quotation.party_name, Quotation.opportunity]
+		fields = [
+			Quotation.name,
+			Quotation.quotation_to,
+			Quotation.party_name,
+			Quotation.opportunity,
+			Quotation.tbo_lead,
+		]
 		if "crm_deal" in columns:
 			fields.append(Quotation.crm_deal)
 		if "tbo_crm_lead" in columns:
@@ -738,6 +744,11 @@ class Cutover:
 					values.update(
 						quotation_to=opportunity.opportunity_from, party_name=opportunity.party_name
 					)
+			# a quotation already moved to a Customer keeps its CRM lead only in tbo_crm_lead,
+			# which finalize() drops
+			crm_lead = self.lead_names.get(row.get("tbo_crm_lead"))
+			if crm_lead and not row.tbo_lead and not values.get("tbo_lead"):
+				values["tbo_lead"] = crm_lead
 			if values:
 				frappe.db.set_value("Quotation", row.name, values, update_modified=False)
 				moved += 1
@@ -762,16 +773,24 @@ class Cutover:
 					)
 					moved += 1
 		self.report.counts["finance_documents_relinked"] = moved
-		for old, new in self.report.renamed.items():
-			for doctype, field in (
-				("TBO Finance Exception", "opportunity"),
-				("TBO Fund Allocation", "opportunity"),
-				("TBO Fund Allocation Line", "opportunity"),
-				("TBO Quotation Adjustment", "deal"),
-				("TBO Lead Meeting", "lead"),
-				("TBO Lead Triage Row", "lead"),
-			):
-				frappe.db.set_value(doctype, {field: old}, field, new, update_modified=False)
+		# from every copy, not only this run's renames, so a resumed run still relinks
+		for names, links in (
+			(
+				self.deal_names,
+				(
+					("TBO Finance Exception", "opportunity"),
+					("TBO Fund Allocation", "opportunity"),
+					("TBO Fund Allocation Line", "opportunity"),
+					("TBO Quotation Adjustment", "deal"),
+				),
+			),
+			(self.lead_names, (("TBO Lead Meeting", "lead"), ("TBO Lead Triage Row", "lead"))),
+		):
+			for old, new in names.items():
+				if old == new:
+					continue
+				for doctype, field in links:
+					frappe.db.set_value(doctype, {field: old}, field, new, update_modified=False)
 
 	def relink_references(self, old: str, new: str, names: dict) -> None:
 		"""Comments, ToDos (assignments), Files, Communications and Notification Logs on a CRM

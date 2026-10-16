@@ -1311,6 +1311,7 @@ CRM_TABLES = (
 
 
 def crm_installed() -> bool:
+	"""Whether Frappe CRM is installed here; the cutover tests read its tables and skip without it."""
 	return "crm" in frappe.get_installed_apps()
 
 
@@ -1353,6 +1354,20 @@ def ensure_crm_lead_status(name: str, kind: str) -> str:
 			ignore_permissions=True
 		)
 	return name
+
+
+def ensure_quotation_crm_lead_field() -> None:
+	"""The `tbo_crm_lead` link tboindia's quotations carried before the cutover (finalize() drops it)."""
+	if not frappe.db.exists("Custom Field", {"dt": "Quotation", "fieldname": "tbo_crm_lead"}):
+		frappe.get_doc(
+			{
+				"doctype": "Custom Field",
+				"dt": "Quotation",
+				"fieldname": "tbo_crm_lead",
+				"fieldtype": "Data",
+				"label": "CRM Lead",
+			}
+		).insert(ignore_permissions=True)
 
 
 def make_crm_records(owner: str, manager: str) -> frappe._dict:

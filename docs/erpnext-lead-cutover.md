@@ -104,8 +104,8 @@ Frappe CRM's rule, unchanged, now on Lead and Opportunity:
 - Administrator, System Manager: everything.
 - A finance role (TBO Smart Settings → finance roles, while "Let finance roles read deals" is
   on): read every Opportunity.
-- With the sales hierarchy on and the user in it: leads (deals) owned by or assigned (an open
-  ToDo) to the user or anyone below them.
+- With the sales hierarchy on and the user in it: leads (deals) owned by or assigned (a ToDo,
+  open or closed but not cancelled) to the user or anyone below them.
 - A Sales Manager outside the hierarchy: everything.
 - Everyone else: what they own (`lead_owner`, `opportunity_owner`) or what is assigned to them.
 

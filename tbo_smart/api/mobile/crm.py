@@ -692,8 +692,10 @@ def move_deal_stage(name: str, stage: str, lost_reason: str | None = None) -> di
 	if not frappe.db.exists("Sales Stage", stage):
 		frappe.throw(_("{0} is not a deal stage.").format(stage))
 	deal.sales_stage = stage
-	probability = frappe.db.get_value("Sales Stage", stage, "tbo_probability")
-	if probability is not None:
+	# a Percent column reads 0 when unset: keep the deal's own probability unless the stage sets
+	# one, or closes the deal (Won 100, Lost 0)
+	probability = flt(frappe.db.get_value("Sales Stage", stage, "tbo_probability"))
+	if probability or stage_type(stage) in CLOSED_STAGE_TYPES:
 		deal.probability = probability
 	if stage_type(stage) == "Lost":
 		set_lost_reason(deal, lost_reason, _("Give a reason for losing the deal."))

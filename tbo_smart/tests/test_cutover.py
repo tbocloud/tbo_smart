@@ -4,7 +4,14 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from tbo_smart.cutover import crm_to_erpnext as cutover
-from tbo_smart.test_utils import clear_crm_cutover, crm_installed, make_crm_records, make_user
+from tbo_smart.test_utils import (
+	clear_crm_cutover,
+	crm_installed,
+	ensure_quotation_crm_lead_field,
+	make_crm_records,
+	make_lead_meeting,
+	make_user,
+)
 
 OWNER = "cut.owner@tbosmart.test"
 MANAGER = "cut.manager@tbosmart.test"
@@ -100,6 +107,31 @@ class TestCRMCutover(FrappeTestCase):
 		self.assertEqual(frappe.db.count("Lead", {"crm_lead_ref": self.crm.lead}), 1)
 		self.assertEqual(frappe.db.count("Comment", {"name": self.crm.note}), 1)
 		self.assertTrue(cutover.verify()["pass"])
+
+	def test_a_resumed_run_relinks_renamed_copies_and_quotation_leads(self):
+		cutover.run(dry_run=False)
+		ensure_quotation_crm_lead_field()
+		meeting = make_lead_meeting(self.crm.lead)
+		try:
+			# what a cut-off first run leaves: a TBO record still on the CRM name of a copy made
+			# under another name, and a quotation moved to a Customer that names its lead only in
+			# tbo_crm_lead
+			frappe.db.set_value("TBO Lead Meeting", meeting, "lead", "CRM-LEAD-OLD-NAME")
+			frappe.db.set_value(
+				"Quotation", self.crm.deal_quotation, {"tbo_lead": None, "tbo_crm_lead": "CRM-LEAD-OLD-NAME"}
+			)
+			resumed = cutover.Cutover(dry_run=False)
+			resumed.load_names()
+			resumed.lead_names["CRM-LEAD-OLD-NAME"] = self.crm.lead
+			resumed.relink_quotations()
+			resumed.relink_deal_fields()
+			self.assertEqual(resumed.report.renamed, {})
+			self.assertEqual(frappe.db.get_value("TBO Lead Meeting", meeting, "lead"), self.crm.lead)
+			self.assertEqual(
+				frappe.db.get_value("Quotation", self.crm.deal_quotation, "tbo_lead"), self.crm.lead
+			)
+		finally:
+			frappe.delete_doc("TBO Lead Meeting", meeting, force=True, ignore_permissions=True)
 
 	def test_finalize_removes_the_old_links(self):
 		cutover.run(dry_run=False)
