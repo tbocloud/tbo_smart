@@ -15,7 +15,15 @@ import requests
 from cryptography.hazmat.primitives.asymmetric import rsa
 from erpnext.setup.doctype.employee.test_employee import make_employee
 from frappe.integrations.oauth2 import get_oauth_server, get_token
-from frappe.utils import add_days, get_year_ending, get_year_start, getdate, now_datetime, nowdate
+from frappe.utils import (
+	add_days,
+	add_to_date,
+	get_year_ending,
+	get_year_start,
+	getdate,
+	now_datetime,
+	nowdate,
+)
 from frappe.utils.nestedset import rebuild_tree
 from frappe.utils.password import remove_encrypted_password, set_encrypted_password
 from hrms.tests.test_utils import before_tests as hrms_before_tests
@@ -45,6 +53,12 @@ def before_tests() -> None:
 	`run-tests --app tbo_smart` runs only this app's before_tests hook, so without this a new
 	CI site has no Company or Department and make_employee fails."""
 	hrms_before_tests()
+	# a test site runs on the pipeline statuses, as tboindia does after the deploy's patch;
+	# after the setup wizard, whose CRM demo data still uses Frappe CRM's default statuses
+	from tbo_smart.lead_pipeline.status_migration import execute as migrate_lead_statuses
+
+	migrate_lead_statuses()
+	frappe.db.commit()  # nosemgrep
 
 
 def make_user(email: str, roles: list[str] | tuple = ()) -> str:
@@ -912,6 +926,63 @@ def age_lead(lead: str, days: int) -> None:
 	frappe.db.set_value(
 		"CRM Status Change Log", {"parent": lead, "idx": 1}, "from_date", when, update_modified=False
 	)
+
+
+# ---------- Lead pipeline (docs/lead-pipeline.md) ----------
+
+
+def enable_lead_pipeline(**values) -> None:
+	set_smart_lead_settings(enable_lead_pipeline=1, meeting_reminder_minutes=60, **values)
+
+
+def disable_lead_pipeline() -> None:
+	set_smart_lead_settings(enable_lead_pipeline=0)
+
+
+def make_lead_meeting(lead: str, scheduled_at=None, **fields) -> str:
+	"""A TBO Lead Meeting on a lead, inserted as Administrator (an hour from now by default)."""
+	meeting = frappe.get_doc(
+		{
+			"doctype": "TBO Lead Meeting",
+			"lead": lead,
+			"scheduled_at": scheduled_at or add_to_date(now_datetime(), hours=1),
+			"meeting_type": "Online",
+			"meeting_link": "https://meet.google.com/abc-defg-hij",
+			**fields,
+		}
+	)
+	meeting.insert(ignore_permissions=True)
+	return meeting.name
+
+
+def move_meeting(meeting: str, scheduled_at, **values) -> None:
+	"""Put a meeting at another time straight in the database (as if the clock had moved)."""
+	frappe.db.set_value("TBO Lead Meeting", meeting, {"scheduled_at": scheduled_at, **values})
+
+
+def make_old_lead_status(name: str, kind: str) -> str:
+	"""One of Frappe CRM's pre-pipeline statuses (New, Nurture, Qualified, Junk, …), created when
+	missing, for the status migration's tests."""
+	if not frappe.db.exists("CRM Lead Status", name):
+		frappe.get_doc({"doctype": "CRM Lead Status", "lead_status": name, "type": kind}).insert(
+			ignore_permissions=True
+		)
+	return name
+
+
+def set_lead_values(lead: str, **values) -> None:
+	"""Write lead fields straight in the database, as the old site's data came in."""
+	frappe.db.set_value("CRM Lead", lead, values, update_modified=False)
+
+
+def delete_lead_meetings(leads: list[str] | tuple) -> None:
+	"""Delete the meetings of these leads and commit."""
+	if leads:
+		meetings = frappe.get_all("TBO Lead Meeting", filters={"lead": ("in", list(leads))}, pluck="name")
+		if meetings:
+			frappe.db.delete("TBO Lead Meeting Action", {"parent": ("in", meetings)})
+			frappe.db.delete("TBO Lead Meeting", {"name": ("in", meetings)})
+	frappe.db.commit()  # nosemgrep
 
 
 def make_approved_leave(employee: str, leave_type: str, from_date, to_date=None, half_day: int = 0) -> str:
