@@ -1,8 +1,9 @@
-# Lead pipeline: statuses, meetings, MOM and quotations on the lead (living spec, v1.1)
+# Lead pipeline: statuses, meetings, MOM and quotations on the lead (living spec, v1.2)
 
-**Status:** Phases 1 and 2 built 2026-10-16: the pipeline statuses and their migration, meetings
+**Status:** Phases 1 to 3 built 2026-10-16: the pipeline statuses and their migration, meetings
 and minutes of meeting (MOM), automatic lead statuses, the deal at Closed – Won, and quotations
-on the lead (presets, builder, status tracking, revisions, the TBO PDF). Everything but
+on the lead (presets, builder, status tracking, revisions, the TBO PDF), and the pipeline
+dashboard. Everything but
 the status migration is behind a switch that is off by default. This file is the living spec:
 it describes what is built, and every change to the feature updates it in the same pull
 request. The CRM screens are in tbocloud/crm, `docs/tbo-lead-pipeline.md`.
@@ -19,7 +20,7 @@ request. The CRM screens are in tbocloud/crm, `docs/tbo-lead-pipeline.md`.
 | --- | --- | --- |
 | 1 | Statuses, migration, meetings and MOM, automatic statuses, deal at Closed – Won, mobile | Built (this file) |
 | 2 | Quotations on the lead: presets, builder, status tracking, revisions, PDF (§9) | Built |
-| 3 | Pipeline dashboard | Not built yet |
+| 3 | Pipeline dashboard (§11) | Built |
 
 ## 1. Owner's decisions (2026-10-15)
 
@@ -144,6 +145,7 @@ and has not been mapped before:
 | TBO Smart Settings | `meeting_reminder_minutes` (60, 15-1,440) | The reminder before a meeting |
 | TBO Smart Settings | `pipeline_retired_statuses` (hidden) | §3 |
 | TBO Smart Settings | `enable_lead_quotations`, `quotation_validity_days` (30), `quotation_follow_up_days` (3), `quotation_terms`, `quotation_payment_terms`, `quotation_print_format` (blank: TBO Quotation), `quotation_preset_roles` (Sales Manager, System Manager) | §9 |
+| TBO Smart Settings | `enable_pipeline_dashboard` | §11 |
 | Quotation | `tbo_crm_lead`, `tbo_lead_meeting`, `tbo_package`, `tbo_quote_status`, `tbo_quote_family`, `tbo_revision_no`, `tbo_is_latest`, `tbo_sent_via`, `tbo_sent_on` | §9.1 |
 
 ### 4.2 TBO Lead Meeting (`TBO-MTG-YYYY-#####`, track changes)
@@ -301,6 +303,8 @@ lead_status?, lost_reason?, next_meeting?)`. Fixtures `docs/fixtures/meeting.*.j
    and follow-up days and the roles that edit prices; Save; then add the **packages** in the
    catalogue below. For Convert to Sales Order, ERPNext CRM Settings must be on with ERPNext's
    CRM Settings → Frappe CRM data synchronization, and the default customer group a leaf group.
+8. **Pipeline dashboard (Phase 3):** switch on **Pipeline dashboard** on the same settings page.
+   The **Pipeline** page appears in the CRM sidebar and the four cards on the CRM dashboard.
 
 **Roles:** no new roles. Sales User / Sales Manager work on meetings of the leads they may
 open; System Manager deletes meetings and edits the settings.
@@ -425,7 +429,46 @@ to the lead** (`save_pdf`) stores it as a private file "<quotation>--<time>.pdf"
 | `make_sales_order(quotation)` | POST | Sales Order create | §9.5 |
 | `get_catalogue` / `save_package(values)` / `set_service_rate(item_code, rate)` | GET / POST / POST | preset roles for the writes | §9.2 |
 
-## 10. Tests
+## 11. Pipeline dashboard (Phase 3)
+
+Switch: **TBO Smart Settings → Pipeline dashboard** (`enable_pipeline_dashboard`, off; needs the
+lead pipeline). Code: `lead_pipeline/dashboard.py` (one `PipelineDashboard` class, one grouped
+query per figure), `api/lead_pipeline_dashboard.py`.
+
+**Who sees what:** the CRM scope rule of the mobile API (`capabilities.crm_scopes`): a
+salesperson their own leads, a team lead in the CRM Sales Hierarchy their team, a Sales Manager
+outside the hierarchy and a System Manager everyone. Every figure counts only the leads of those
+owners. The BDE filter is refused for someone outside the scope.
+
+**Filters:** from / to date (this month by default, at most two years), BDE, lead source, lead
+status.
+
+| Figure | Definition |
+| --- | --- |
+| Leads by status | Leads created in the range, by their status now, in pipeline order (empty statuses too) |
+| Meetings completed | MOM submitted in the range, split 1st / 2nd / 3rd / Additional |
+| Upcoming meetings | Scheduled or Rescheduled from now on (count and the next 10) |
+| MOM pending | Meetings MOM Pending now (count and 10) |
+| Overdue follow-ups | Open CRM Tasks on open leads due before today |
+| High potential | Open leads that are Hot (smart-leads score) or Positive / Interested, best score first |
+| Won / lost, lost reasons | Leads that entered Closed – Won / Closed – Lost in the range (CRM Status Change Log), with the lost reasons |
+| Win rate | Won ÷ (won + lost) |
+| Conversion (Lead → won) | Leads created in the range that are won now ÷ leads created in the range |
+| By BDE | Meetings held, MOM submission rate (meetings due in the range that ended, with their MOM ÷ all of them), MOM pending now, quotations made and sent in the range, leads won |
+| Quotations | Lead quotations made in the range by status, count and value (company currency); pending approval and with the client now; accepted / rejected; **active value**: the latest revision of each quotation, Approved or with the client and still valid (the revenue potential) |
+
+**CRM dashboard cards** (`crm_dashboard_providers` / `crm_dashboard_layout`, placed below the CRM's
+own and the finance and smart-lead cards): **Meetings held**, **MOM pending** (lower is better),
+**Lead win rate** and **Active quotations** (with quotations on). They count the dashboard's
+user (a salesperson always gets themselves) when the session user may see that person, else
+nothing; their scope otherwise.
+
+| Method | Verb | Does |
+| --- | --- | --- |
+| `get_access` | GET | `{enabled}` |
+| `get_pipeline_dashboard(from_date?, to_date?, bde?, source?, status?)` | GET | The figures above plus `scope` (own / team / all) and `people` (the BDE filter's choices) |
+
+## 12. Tests
 
 `tbo_smart/tests/test_lead_pipeline.py` (helpers in `tbo_smart/test_utils.py`; AI mocked at the
 HTTP level): the statuses and their types, New Lead as the default, lost reason required (CRM
@@ -442,6 +485,12 @@ against the fixture; the deal at Closed – Won (Won stage, owner, once only, ma
 refused) and with the switch off; and the no-CRM guard. Smart leads, mobile and insights tests
 use the new status names.
 
+`tbo_smart/tests/test_pipeline_dashboard.py`: a BDE's own figures (status counts, won, lost,
+win rate, conversion, meetings, MOM pending, upcoming, overdue follow-ups, high potential, the
+BDE row, quotations and active value) without another BDE's leads, and the BDE filter refused
+outside the scope; a manager's everyone view and the BDE, source and status filters; the cards
+for the dashboard's user; the switch.
+
 `tbo_smart/tests/test_lead_quotations.py`: the builder from a package with GST and a 10%
 discount (totals 70,000 → 63,000 + 11,340 = 74,340), party and package on the quotation; only
 preset roles edit rates and packages, duplicate package names; a quotation from a meeting;
@@ -454,6 +503,8 @@ deal's customer); the print format rendering.
 
 ## Changelog
 
+- **v1.2 (2026-10-16):** Phase 3: the Pipeline page and the pipeline cards on the CRM dashboard
+  (§11).
 - **v1.1 (2026-10-16):** Phase 2: quotations on the lead (§9): the catalogue (TBO Quotation
   Package, service rates), the builder reusing the deal's dialog, status tracking with Mark sent,
   revisions with their diff, the TBO Quotation print format and PDF on the lead, re-linking at

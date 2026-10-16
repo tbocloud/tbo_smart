@@ -100,6 +100,7 @@
   "quotation_payment_terms",
   "quotation_print_format",
   "quotation_preset_roles",
+  "enable_pipeline_dashboard",
   "checkin_section",
   "enforce_checkin_radius",
   "checkin_locations",
@@ -733,6 +734,13 @@
    "label": "Roles that edit presets and prices"
   },
   {
+   "default": "0",
+   "description": "The Pipeline page and the pipeline cards on the CRM dashboard. Needs the lead pipeline.",
+   "fieldname": "enable_pipeline_dashboard",
+   "fieldtype": "Check",
+   "label": "Pipeline dashboard"
+  },
+  {
    "fieldname": "checkin_section",
    "fieldtype": "Section Break",
    "label": "Check-in location"
@@ -788,7 +796,7 @@
  "index_web_pages_for_search": 0,
  "issingle": 1,
  "links": [],
- "modified": "2026-10-16 12:00:00.000000",
+ "modified": "2026-10-16 15:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Smart Settings",

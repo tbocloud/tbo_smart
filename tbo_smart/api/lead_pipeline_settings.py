@@ -18,6 +18,7 @@ FIELDS = (
 	"quotation_payment_terms",
 	"quotation_print_format",
 	"quotation_preset_roles",
+	"enable_pipeline_dashboard",
 )
 
 

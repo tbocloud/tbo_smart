@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import add_days, add_to_date, getdate, now_datetime, nowdate
+from frappe.utils import add_days, getdate, nowdate
 
 from tbo_smart.api import lead_pipeline as api
 from tbo_smart.api.mobile import crm as mobile_crm
@@ -38,6 +38,7 @@ from tbo_smart.test_utils import (
 	ensure_company_holiday_list,
 	get_all_keys,
 	get_fixture,
+	hours_from_now,
 	make_crm_lead,
 	make_lead_meeting,
 	make_migration_note,
@@ -56,10 +57,6 @@ BDE2 = "lp.bde2@tbosmart.test"
 BDM = "lp.bdm@tbosmart.test"
 HEAD = "lp.head@tbosmart.test"
 OWNERS = (BDE, BDE2, BDM, HEAD)
-
-
-def hours(n: float):
-	return add_to_date(now_datetime(), hours=n)
 
 
 class LeadPipelineTestCase(FrappeTestCase):
@@ -279,11 +276,11 @@ class TestMeetings(LeadPipelineTestCase):
 
 	def test_clock_in_progress_mom_pending_and_reminder(self):
 		lead = make_crm_lead(BDE, "Clockwork")
-		soon = make_lead_meeting(lead, hours(0.5))
-		now_on = make_lead_meeting(lead, hours(2))
-		move_meeting(now_on, hours(-0.25))
-		past = make_lead_meeting(lead, hours(3))
-		move_meeting(past, hours(-3))
+		soon = make_lead_meeting(lead, hours_from_now(0.5))
+		now_on = make_lead_meeting(lead, hours_from_now(2))
+		move_meeting(now_on, hours_from_now(-0.25))
+		past = make_lead_meeting(lead, hours_from_now(3))
+		move_meeting(past, hours_from_now(-3))
 		with (
 			patch("tbo_smart.lead_pipeline.meetings.deliver", return_value="teams") as deliver,
 			patch("tbo_smart.lead_pipeline.meetings.notify") as notify,
@@ -302,7 +299,7 @@ class TestMeetings(LeadPipelineTestCase):
 	def test_submit_mom_moves_lead_creates_follow_up_and_next_meeting(self):
 		lead = make_crm_lead(BDE, "Minutes")
 		meeting = make_lead_meeting(lead)
-		move_meeting(meeting, hours(-2))
+		move_meeting(meeting, hours_from_now(-2))
 		follow_up = add_days(nowdate(), 3)
 		frappe.set_user(BDE)
 		self.assertRaises(frappe.ValidationError, api.save_mom, meeting, {"agenda": "Demo"}, 1)
@@ -321,7 +318,11 @@ class TestMeetings(LeadPipelineTestCase):
 			),
 			1,
 			next_meeting=json.dumps(
-				{"scheduled_at": str(hours(48)), "meeting_type": "Physical visit", "location": "Kochi office"}
+				{
+					"scheduled_at": str(hours_from_now(48)),
+					"meeting_type": "Physical visit",
+					"location": "Kochi office",
+				}
 			),
 		)
 		self.assertEqual(result["status"], meetings.MOM_SUBMITTED)
@@ -347,7 +348,7 @@ class TestMeetings(LeadPipelineTestCase):
 	def test_mom_can_close_the_lead_with_a_reason(self):
 		lead = make_crm_lead(BDE, "Not now")
 		meeting = make_lead_meeting(lead)
-		move_meeting(meeting, hours(-2))
+		move_meeting(meeting, hours_from_now(-2))
 		frappe.set_user(BDE)
 		self.assertRaises(
 			frappe.ValidationError,
@@ -363,7 +364,7 @@ class TestMeetings(LeadPipelineTestCase):
 	def test_needs_follow_up_flag(self):
 		lead = make_crm_lead(BDE, "Waiting")
 		meeting = make_lead_meeting(lead)
-		move_meeting(meeting, hours(-3))
+		move_meeting(meeting, hours_from_now(-3))
 		with patch("tbo_smart.lead_pipeline.meetings.notify"):
 			meetings.run_meeting_clock()
 		flag = api.get_lead_pipeline(lead)["summary"]["needs_follow_up"]
@@ -373,7 +374,7 @@ class TestMeetings(LeadPipelineTestCase):
 	def test_mom_pending_escalates_bde_bdm_head_once_per_level(self):
 		lead = make_crm_lead(BDE, "Late Minutes")
 		meeting = make_lead_meeting(lead)
-		move_meeting(meeting, hours(-3))
+		move_meeting(meeting, hours_from_now(-3))
 		with patch("tbo_smart.lead_pipeline.meetings.notify"):
 			meetings.run_meeting_clock()
 		from tbo_smart.smart_leads.follow_ups import FollowUpRun
@@ -414,7 +415,7 @@ class TestMeetings(LeadPipelineTestCase):
 		set_smart_lead_settings(enable_lead_notes=1)
 		lead = make_crm_lead(BDE, "Drafty")
 		meeting = make_lead_meeting(lead)
-		move_meeting(meeting, hours(-2))
+		move_meeting(meeting, hours_from_now(-2))
 		follow_up = add_days(nowdate(), 4)
 		frappe.set_user(BDE)
 		with mock_ai(
@@ -443,7 +444,7 @@ class TestMeetings(LeadPipelineTestCase):
 		lead = make_crm_lead(BDE, "On the phone")
 		frappe.set_user(BDE)
 		scheduled = mobile_meeting.schedule(
-			lead, str(hours(5)), "Online", "https://teams.microsoft.com/l/meetup-join/x"
+			lead, str(hours_from_now(5)), "Online", "https://teams.microsoft.com/l/meetup-join/x"
 		)
 		self.assertEqual(scheduled["stage_label"], "1st meeting")
 		result = mobile_meeting.get_meetings(lead)
