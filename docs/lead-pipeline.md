@@ -143,7 +143,7 @@ and has not been mapped before:
 | TBO Smart Settings | `enable_lead_pipeline` | The switch (§8) |
 | TBO Smart Settings | `meeting_reminder_minutes` (60, 15-1,440) | The reminder before a meeting |
 | TBO Smart Settings | `pipeline_retired_statuses` (hidden) | §3 |
-| TBO Smart Settings | `enable_lead_quotations`, `quotation_validity_days` (30), `quotation_follow_up_days` (3), `quotation_terms`, `quotation_payment_terms`, `quotation_print_format` (TBO Quotation), `quotation_preset_roles` (Sales Manager, System Manager) | §9 |
+| TBO Smart Settings | `enable_lead_quotations`, `quotation_validity_days` (30), `quotation_follow_up_days` (3), `quotation_terms`, `quotation_payment_terms`, `quotation_print_format` (blank: TBO Quotation), `quotation_preset_roles` (Sales Manager, System Manager) | §9 |
 | Quotation | `tbo_crm_lead`, `tbo_lead_meeting`, `tbo_package`, `tbo_quote_status`, `tbo_quote_family`, `tbo_revision_no`, `tbo_is_latest`, `tbo_sent_via`, `tbo_sent_on` | §9.1 |
 
 ### 4.2 TBO Lead Meeting (`TBO-MTG-YYYY-#####`, track changes)

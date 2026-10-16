@@ -717,12 +717,12 @@
    "options": "Payment Terms Template"
   },
   {
-   "default": "TBO Quotation",
    "depends_on": "eval:doc.enable_lead_quotations",
    "fieldname": "quotation_print_format",
    "fieldtype": "Link",
    "label": "Quotation print format",
-   "options": "Print Format"
+   "options": "Print Format",
+   "description": "Blank: TBO Quotation, the print format this app keeps up to date."
   },
   {
    "default": "Sales Manager\nSystem Manager",
