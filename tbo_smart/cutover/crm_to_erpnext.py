@@ -550,6 +550,9 @@ class Cutover:
 	# ---------- notes, calls, tasks ----------
 
 	def target(self, reference_doctype: str | None, name: str | None) -> tuple[str, str] | None:
+		if reference_doctype == "CRM Organization":
+			# a Prospect keeps its organization's name
+			return ("Prospect", name) if name and frappe.db.exists("Prospect", name) else None
 		names = {"CRM Lead": self.lead_names, "CRM Deal": self.deal_names}.get(reference_doctype)
 		if names is None or not names.get(name):
 			return None

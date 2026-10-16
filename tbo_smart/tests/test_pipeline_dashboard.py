@@ -1,4 +1,5 @@
 import json
+from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -25,12 +26,14 @@ from tbo_smart.test_utils import (
 	disable_lead_quotations,
 	disable_sales_hierarchy,
 	enable_lead_quotations,
+	enable_sales_hierarchy,
 	hours_from_now,
 	make_lead,
 	make_lead_meeting,
 	make_lead_source,
 	make_lead_task,
 	make_quotation_item,
+	make_sales_hierarchy_node,
 	make_user,
 	move_meeting,
 	set_lead_values,
@@ -179,6 +182,19 @@ class TestPipelineDashboard(FrappeTestCase):
 		frappe.set_user(BDE)
 		cards = {card["name"]: card["data"] for card in dashboard_api.get_cards(user=BDE2)}
 		self.assertEqual(cards["tbo_pipeline_mom_pending"]["value"], 1)
+
+	def test_a_team_lead_gets_only_their_teams_cards(self):
+		make_sales_hierarchy_node(BDE, make_sales_hierarchy_node(MANAGER))
+		enable_sales_hierarchy()
+		frappe.set_user(MANAGER)
+		try:
+			with patch.object(dashboard_api.pipeline_cards, "get_cards", return_value=[]) as cards:
+				for user in (BDE2, BDE, None):
+					dashboard_api.get_cards(user=user)
+			self.assertEqual([call.args[2] for call in cards.call_args_list], [MANAGER, BDE, MANAGER])
+		finally:
+			frappe.set_user("Administrator")
+			disable_sales_hierarchy(OWNERS)
 
 	def test_switch_off(self):
 		set_smart_lead_settings(enable_pipeline_dashboard=0)

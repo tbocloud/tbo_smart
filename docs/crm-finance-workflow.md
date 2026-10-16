@@ -1114,7 +1114,7 @@ Receivable category) and `tbo_smart/api/finance/exceptions.py`.
 
 | Method | HTTP | Returns / does |
 | --- | --- | --- |
-| `get_receivables(company, customer, opportunity_owner, accounts_owner)` | GET | Open invoices with ageing by each term's due date (not due, 1-30, 31-60, 61-90, 90+), overdue, days overdue, deal and accounts owner, escalation level, last reminder, promise to pay, open exceptions and terms; totals per client and per currency. Up to 2,000 invoices. |
+| `get_receivables(company, customer, deal_owner, accounts_owner)` | GET | Open invoices with ageing by each term's due date (not due, 1-30, 31-60, 61-90, 90+), overdue, days overdue, deal and accounts owner, escalation level, last reminder, promise to pay, open exceptions and terms; totals per client and per currency. Up to 2,000 invoices. |
 | `add_collection_follow_up(invoice, due_date, remark, promised_date, promised_amount)` | POST | Updates the invoice's open collection task (or creates one assigned to me): next date, promise to pay, and the remark appended with time and user. |
 | `set_accounts_owner(deal, user)` | POST | Accounts, finance and managers only. |
 

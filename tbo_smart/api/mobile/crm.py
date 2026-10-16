@@ -72,6 +72,7 @@ from tbo_smart.sales.opportunity import (
 	CLOSED_STAGE_TYPES,
 	converted_leads_query,
 	customer_of,
+	customers_of,
 	deal_stages,
 	leads_with_opportunity,
 	stage_type,
@@ -859,11 +860,12 @@ def get_organization_deal_links(names: list[str]) -> tuple[dict, dict]:
 		"Customer", filters={"prospect_name": ("in", names)}, fields=["prospect_name", "name"], as_list=True
 	):
 		customers.setdefault(name, set()).add(customer)
+	deal_customers = customers_of(deals)
 	for deal in deals:
 		organization = deal.party_name if deal.party_name in names else deal.customer_name
 		if types.get(deal.sales_stage) not in CLOSED_STAGE_TYPES:
 			open_deals[organization] = open_deals.get(organization, 0) + 1
-		customer = customer_of(deal)
+		customer = deal_customers.get(deal.name)
 		if customer:
 			customers.setdefault(organization, set()).add(customer)
 	return open_deals, customers

@@ -426,8 +426,8 @@ status.
 **Dashboard cards** (`get_cards`, served with the finance and smart-lead cards by
 `tbo_smart.api.dashboard.get_cards(from_date?, to_date?, user?)`): **Meetings held**, **MOM
 pending** (lower is better), **Lead win rate** and **Active quotations** (with quotations on). They count the dashboard's
-user (a salesperson always gets themselves) when the session user may see that person, else
-nothing; their scope otherwise.
+user (a salesperson always gets themselves; a team lead in the sales hierarchy one of their team,
+else themselves) when the session user may see that person, else nothing; their scope otherwise.
 
 | Method | Verb | Does |
 | --- | --- | --- |

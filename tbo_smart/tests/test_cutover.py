@@ -52,6 +52,12 @@ class TestCRMCutover(FrappeTestCase):
 			)
 		)
 		self.assertEqual(frappe.db.get_value("Comment", self.crm.note, "reference_name"), self.crm.lead)
+		self.assertEqual(
+			frappe.db.get_value(
+				"Comment", self.crm.organization_note, ["reference_doctype", "reference_name"]
+			),
+			("Prospect", self.crm.organization),
+		)
 		call = frappe.db.get_value("Event", self.crm.call, ["event_category", "description"], as_dict=True)
 		self.assertEqual((call.event_category, call.description), ("Call", "Rang about the demo"))
 		self.assertEqual(

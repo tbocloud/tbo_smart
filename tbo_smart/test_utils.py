@@ -1314,17 +1314,28 @@ def crm_installed() -> bool:
 
 
 def clear_crm_cutover(owners: list[str] | tuple = ()) -> None:
-	"""Empty the CRM's tables and delete what a cutover copied from them, and commit (the CRM's
-	inserts commit, so its fixtures outlive the test's rollback)."""
+	"""Empty the CRM's tables and delete what a cutover of the fixture `owners`' records copied,
+	and commit (the CRM's inserts commit, so its fixtures outlive the test's rollback). Only in
+	tests, on a test site: it empties every CRM table."""
+	if not frappe.flags.in_test:
+		frappe.throw("clear_crm_cutover runs only in tests.")
 	for doctype in CRM_TABLES:
 		frappe.db.delete(doctype)
-	for doctype, field in (("Lead", "crm_lead_ref"), ("Opportunity", "crm_deal_ref")):
-		names = frappe.get_all(doctype, filters={field: ("is", "set")}, pluck="name")
+	for doctype, field, owner_field in (
+		("Lead", "crm_lead_ref", "lead_owner"),
+		("Opportunity", "crm_deal_ref", "opportunity_owner"),
+	):
+		names = frappe.get_all(
+			doctype, filters={field: ("is", "set"), owner_field: ("in", list(owners) or [""])}, pluck="name"
+		)
 		if names:
-			frappe.db.delete("TBO Stage Change", {"parent": ("in", names)})
-			frappe.db.delete("Comment", {"reference_name": ("in", names)})
-			frappe.db.delete("ToDo", {"reference_name": ("in", names)})
+			frappe.db.delete("TBO Stage Change", {"parenttype": doctype, "parent": ("in", names)})
+			frappe.db.delete("Comment", {"reference_doctype": doctype, "reference_name": ("in", names)})
+			frappe.db.delete("ToDo", {"reference_type": doctype, "reference_name": ("in", names)})
 			frappe.db.delete(doctype, {"name": ("in", names)})
+	frappe.db.delete(
+		"Comment", {"reference_doctype": "Prospect", "reference_name": ("like", "TBO Cutover %")}
+	)
 	frappe.db.delete("Event", {"name": ("like", "TBO-CALL-%")})
 	frappe.db.delete("Event Participants", {"parent": ("like", "TBO-CALL-%")})
 	frappe.db.delete("TBO Sales Hierarchy", {"user": ("in", list(owners))})
@@ -1444,6 +1455,19 @@ def make_crm_records(owner: str, manager: str) -> frappe._dict:
 	names.won_lead = won_lead.name
 	names.organization = (
 		frappe.get_doc({"doctype": "CRM Organization", "organization_name": "TBO Cutover Winner Co"})
+		.insert(ignore_permissions=True)
+		.name
+	)
+	names.organization_note = (
+		frappe.get_doc(
+			{
+				"doctype": "FCRM Note",
+				"title": "Head office in Kochi",
+				"content": "Head office in Kochi",
+				"reference_doctype": "CRM Organization",
+				"reference_docname": names.organization,
+			}
+		)
 		.insert(ignore_permissions=True)
 		.name
 	)

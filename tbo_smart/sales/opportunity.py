@@ -93,6 +93,33 @@ def customer_of(deal) -> str | None:
 	return frappe.db.get_value("Customer", {field: deal.party_name}, "name") if field else None
 
 
+def customers_of(deals) -> dict[str, str]:
+	"""{deal name: its Customer} for many deals (`customer_of`), in one query per party type."""
+	made_from = {}
+	for party_type, field in (("Lead", "lead_name"), ("Prospect", "prospect_name")):
+		parties = {
+			deal.party_name
+			for deal in deals
+			if deal.get("opportunity_from") == party_type and not deal.get("tbo_customer")
+		}
+		if parties:
+			made_from[party_type] = dict(
+				frappe.get_all(
+					"Customer", filters={field: ("in", list(parties))}, fields=[field, "name"], as_list=True
+				)
+			)
+	result = {}
+	for deal in deals:
+		customer = deal.get("tbo_customer") or (
+			deal.party_name
+			if deal.get("opportunity_from") == "Customer"
+			else made_from.get(deal.get("opportunity_from"), {}).get(deal.party_name)
+		)
+		if customer:
+			result[deal.name] = customer
+	return result
+
+
 def make_opportunity(lead, stage: str | None = None) -> str:
 	"""The lead's deal through ERPNext's own Lead → Opportunity mapper (contact, address, owner,
 	notes), in `stage`. ERPNext then moves the lead's open ToDos and Events to it."""

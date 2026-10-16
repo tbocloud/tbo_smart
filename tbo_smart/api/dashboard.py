@@ -11,7 +11,9 @@ from frappe.utils import get_first_day, getdate, today
 
 from tbo_smart.api.mobile.capabilities import get_capabilities
 from tbo_smart.finance import dashboard as finance_cards
+from tbo_smart.finance.access import is_finance_user
 from tbo_smart.lead_pipeline import dashboard as pipeline_cards
+from tbo_smart.sales.hierarchy import get_sales_team
 from tbo_smart.smart_leads import dashboard as smart_lead_cards
 
 
@@ -20,11 +22,16 @@ def get_cards(
 	from_date: str | None = None, to_date: str | None = None, user: str | None = None
 ) -> list[dict]:
 	"""[{name, type, w, h, data}] for the date range (this month by default) and `user` (a sales
-	user whose figures to show; a salesperson always gets their own)."""
+	user whose figures to show; a salesperson always gets their own, a team lead their team's)."""
 	from_date = getdate(from_date or get_first_day(today()))
 	to_date = getdate(to_date or today())
-	if get_capabilities().crm_scope == "own":
+	scope = get_capabilities().crm_scope
+	if scope == "own":
 		user = frappe.session.user
+	elif scope == "team" and not is_finance_user():
+		# a team lead sees one of their team, never everyone's
+		if not user or user not in get_sales_team(frappe.session.user):
+			user = frappe.session.user
 	return [
 		*finance_cards.get_cards(from_date, to_date, user),
 		*smart_lead_cards.get_cards(from_date, to_date, user),

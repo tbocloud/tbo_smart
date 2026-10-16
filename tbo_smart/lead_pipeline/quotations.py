@@ -416,7 +416,7 @@ def make_sales_order(doc) -> str:
 	for row in order.items:
 		row.delivery_date = row.delivery_date or getdate(today())
 	order.delivery_date = order.delivery_date or getdate(today())
-	order.tbo_opportunity = deal
+	order.opportunity = deal
 	order.insert()
 	if not deal_doc.get("tbo_customer") and order.customer:
 		frappe.db.set_value("Opportunity", deal, "tbo_customer", order.customer, update_modified=False)
