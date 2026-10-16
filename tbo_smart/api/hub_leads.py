@@ -13,7 +13,7 @@ from contextlib import contextmanager
 import frappe
 from frappe import _
 from frappe.query_builder.functions import Min
-from frappe.utils import cint, get_datetime
+from frappe.utils import cint, get_datetime, getdate
 
 from tbo_smart.api.mobile.capabilities import CRM_ROLES, get_capabilities
 from tbo_smart.api.mobile.crm import check_assignee, get_crm_users
@@ -24,11 +24,18 @@ from tbo_smart.lead_pipeline.quotations import lead_quotations
 from tbo_smart.lead_pipeline.setup import HUB_ROLE, SEGMENTS
 from tbo_smart.lead_pipeline.statuses import STATUS_NAMES, stage_options, status_type
 from tbo_smart.sales import erpnext_installed
-from tbo_smart.sales.activities import OPEN, events_of, next_follow_ups, notes_of, plain_text
+from tbo_smart.sales.activities import (
+	OPEN,
+	add_follow_up_task,
+	events_of,
+	next_follow_ups,
+	notes_of,
+	plain_text,
+)
 from tbo_smart.sales.activities import add_note as add_comment_note
 from tbo_smart.sales.opportunity import lead_opportunity
 from tbo_smart.sales.stages import set_lead_stage
-from tbo_smart.smart_leads import call_today_size, scoring_enabled
+from tbo_smart.smart_leads import FOLLOW_UP_TYPE, call_today_size, scoring_enabled
 from tbo_smart.smart_leads.call_today import build_call_today
 
 VIEWS = ("all", "mine", "call_today", "follow_up")
@@ -324,6 +331,7 @@ def lead_payload(name: str) -> dict:
 	lead.segment = lead.pop("tbo_segment")
 	lead.owner_name = frappe.utils.get_fullname(lead.lead_owner) if lead.lead_owner else None
 	lead.deal = lead_opportunity(name)
+	lead.next_follow_up = next_follow_ups("Lead", [name]).get(name)
 	lead.can_write = bool(frappe.has_permission("Lead", "write", name))  # a flag for the screen - nosemgrep
 	quotations = lead_quotations(name, QUOTATION_FIELDS)
 	return {
@@ -419,7 +427,7 @@ def parse_data(data) -> dict:
 
 def lead_values(data: dict) -> dict:
 	"""The fields the hub sent, under the Lead's names; unknown keys are refused."""
-	unknown = sorted(set(data) - set(LEAD_FIELDS) - {"lead_name", "note"})
+	unknown = sorted(set(data) - set(LEAD_FIELDS) - {"lead_name", "note", "next_follow_up"})
 	if unknown:
 		frappe.throw(_("Unknown fields: {0}").format(", ".join(unknown)))
 	values = {LEAD_FIELDS[key]: value for key, value in data.items() if key in LEAD_FIELDS}
@@ -429,6 +437,17 @@ def lead_values(data: dict) -> dict:
 	if values.get("tbo_segment") and values["tbo_segment"] not in SEGMENTS:
 		frappe.throw(_("{0} is not a segment.").format(values["tbo_segment"]))
 	return values
+
+
+def schedule_follow_up(lead, due) -> None:
+	"""A follow-up for the lead's owner on `due`, unless one is already open for that day."""
+	if not due:
+		return
+	if next_follow_ups("Lead", [lead.name]).get(lead.name) == getdate(due):
+		return
+	add_follow_up_task(
+		"Lead", lead.name, due, assigned_to=lead.lead_owner or frappe.session.user, task_type=FOLLOW_UP_TYPE
+	)
 
 
 def check_owner(owner: str | None) -> None:
@@ -451,6 +470,7 @@ def create_lead(data: dict | str, acting_user: str | None = None) -> dict:
 		lead = frappe.new_doc("Lead")
 		lead.update({"lead_owner": user, **values})
 		lead.insert()
+		schedule_follow_up(lead, data.get("next_follow_up"))
 		if (note or "").strip():
 			add_comment_note("Lead", lead.name, note)
 		return lead_payload(lead.name)
@@ -470,6 +490,7 @@ def update_lead(name: str, data: dict | str, acting_user: str | None = None) -> 
 			check_owner(values["lead_owner"])
 		lead.update(values)
 		lead.save()
+		schedule_follow_up(lead, data.get("next_follow_up"))
 		return lead_payload(name)
 
 
