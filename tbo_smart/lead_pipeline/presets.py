@@ -52,8 +52,17 @@ def get_catalogue() -> dict:
 	"""{packages, services, item_groups, defaults, can_edit}: what the quotation builder offers."""
 	packages = frappe.get_all(
 		PACKAGE,
-		filters={"enabled": 1},
-		fields=["name", "package_name", "item_group", "description", "project_duration", "validity_days"],
+		# editors see the disabled ones too, to switch them back on; the builder offers enabled ones
+		filters=None if can_edit_presets() else {"enabled": 1},
+		fields=[
+			"name",
+			"package_name",
+			"item_group",
+			"description",
+			"project_duration",
+			"validity_days",
+			"enabled",
+		],
 		order_by="package_name asc",
 		limit_page_length=0,
 	)
