@@ -240,6 +240,10 @@ Director and CEO (capability `approve_quotations`), through the thin wrappers in
 for me* and *I requested*, approve in full or a lower %, reject, forward, CEO override with a
 reason, and the trail. A notification about a request opens it in the app.
 
+**Quotations on the lead** (`lead-pipeline.md` §9) use the same control: the lead's
+Quotations tab shows the same chips and Request approval, a draft with an open request shows
+*Pending Approval*, and *Mark sent* refuses it until the approval is granted.
+
 ## 9. What management must do after deploy
 
 1. `bench --site tboindia.tbocloud.in migrate`, which runs

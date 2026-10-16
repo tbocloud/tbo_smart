@@ -1,7 +1,8 @@
-# Lead pipeline: statuses, meetings and MOM on the lead (living spec, v1.0)
+# Lead pipeline: statuses, meetings, MOM and quotations on the lead (living spec, v1.1)
 
-**Status:** Phase 1 built 2026-10-16: the pipeline statuses and their migration, meetings and
-minutes of meeting (MOM), automatic lead statuses and the deal at Closed – Won. Everything but
+**Status:** Phases 1 and 2 built 2026-10-16: the pipeline statuses and their migration, meetings
+and minutes of meeting (MOM), automatic lead statuses, the deal at Closed – Won, and quotations
+on the lead (presets, builder, status tracking, revisions, the TBO PDF). Everything but
 the status migration is behind a switch that is off by default. This file is the living spec:
 it describes what is built, and every change to the feature updates it in the same pull
 request. The CRM screens are in tbocloud/crm, `docs/tbo-lead-pipeline.md`.
@@ -17,7 +18,7 @@ request. The CRM screens are in tbocloud/crm, `docs/tbo-lead-pipeline.md`.
 | Phase | Scope | State |
 | --- | --- | --- |
 | 1 | Statuses, migration, meetings and MOM, automatic statuses, deal at Closed – Won, mobile | Built (this file) |
-| 2 | Quotations on the lead: presets, builder, status tracking, revisions, PDF | Not built yet |
+| 2 | Quotations on the lead: presets, builder, status tracking, revisions, PDF (§9) | Built |
 | 3 | Pipeline dashboard | Not built yet |
 
 ## 1. Owner's decisions (2026-10-15)
@@ -67,7 +68,7 @@ recolour or reorder them in CRM Settings. The code names them in this one module
 | --- | --- |
 | A meeting is scheduled | Meeting Scheduled |
 | The MOM of the 1st / 2nd / 3rd meeting is submitted | First / Second / Third Meeting Completed |
-| (Phase 2) Quotation sent / under negotiation / accepted | Proposal Sent / Negotiation / Closed – Won |
+| A quotation is sent / under negotiation / accepted (§9.3) | Proposal Sent / Negotiation / Closed – Won |
 
 - An automatic move only goes **forward** along `PROGRESS` and never touches a closed lead.
   Contacted, Positive / Interested, Follow-up Required and On Hold rank together before the
@@ -142,6 +143,8 @@ and has not been mapped before:
 | TBO Smart Settings | `enable_lead_pipeline` | The switch (§8) |
 | TBO Smart Settings | `meeting_reminder_minutes` (60, 15-1,440) | The reminder before a meeting |
 | TBO Smart Settings | `pipeline_retired_statuses` (hidden) | §3 |
+| TBO Smart Settings | `enable_lead_quotations`, `quotation_validity_days` (30), `quotation_follow_up_days` (3), `quotation_terms`, `quotation_payment_terms`, `quotation_print_format` (TBO Quotation), `quotation_preset_roles` (Sales Manager, System Manager) | §9 |
+| Quotation | `tbo_crm_lead`, `tbo_lead_meeting`, `tbo_package`, `tbo_quote_status`, `tbo_quote_family`, `tbo_revision_no`, `tbo_is_latest`, `tbo_sent_via`, `tbo_sent_on` | §9.1 |
 
 ### 4.2 TBO Lead Meeting (`TBO-MTG-YYYY-#####`, track changes)
 
@@ -256,7 +259,7 @@ or (past New Lead) nothing planned at all.
   mobile `convert_lead` refuses a lead that isn't Closed – Won ("Set the lead to Closed – Won:
   its deal is created then."); for a Won lead it returns its deal. Off, CRM's own conversion
   runs unchanged.
-- Phase 2 will re-link the lead's quotations to the deal here.
+- The lead's quotations are re-linked to the deal here (§9.5).
 
 ## 7. API (`tbo_smart.api.lead_pipeline`)
 
@@ -290,11 +293,137 @@ lead_status?, lost_reason?, next_meeting?)`. Fixtures `docs/fixtures/meeting.*.j
 5. For the BDM step of the MOM escalation, the CRM Sales Hierarchy must list the BDEs under
    their BDM; the sales head is TBO Smart Settings → Head - Sales & Marketing.
 6. Tell the team: the Convert to Deal button is gone; set the lead to Closed – Won.
+7. **Quotations (Phase 2):** in ERPNext set up the masters the builder offers: sales **Items**
+   for TBO's services with an **Item Group** each, their rates (or set them in the CRM's catalogue),
+   the GST **Sales Taxes and Charges Template**, a **Payment Terms Template** and **Terms and
+   Conditions**. Then in CRM → Settings → TBO → Lead pipeline: switch on **Quotations on the
+   lead**, pick the default terms, payment terms and print format (TBO Quotation), the validity
+   and follow-up days and the roles that edit prices; Save; then add the **packages** in the
+   catalogue below. For Convert to Sales Order, ERPNext CRM Settings must be on with ERPNext's
+   CRM Settings → Frappe CRM data synchronization, and the default customer group a leaf group.
 
 **Roles:** no new roles. Sales User / Sales Manager work on meetings of the leads they may
 open; System Manager deletes meetings and edits the settings.
 
-## 9. Tests
+## 9. Quotations on the lead (Phase 2)
+
+Switch: **TBO Smart Settings → Quotations on the lead** (`enable_lead_quotations`, off; needs the
+lead pipeline). Code: `lead_pipeline/quotations.py`, `lead_pipeline/presets.py`,
+`api/lead_quotation.py`; the builder reuses `api/finance/quotation.py` (the deal's dialog).
+
+### 9.1 The quotation
+
+An ordinary ERPNext **Quotation**, made out to the lead: *Quotation To* = **CRM Lead** (added to
+the field's link filter next to Frappe CRM's CRM Deal), *Party* = the lead, `customer_name` = its
+organization (else its name), `tbo_crm_lead` = the lead and `crm_deal` empty. The discount comes
+off the **net total** (`apply_discount_on`), as the approval limits read it. Because it is a
+normal Quotation, ERPNext's permissions, taxes, payment schedule and the discount/commission
+control (`quotation-discount-control.md`) all apply.
+
+| Quotation field (custom) | Purpose |
+| --- | --- |
+| `tbo_crm_lead` | The lead it belongs to |
+| `tbo_lead_meeting` | The meeting it came from ("Create quotation" on a meeting card) |
+| `tbo_package` | The package used, for the PDF's project duration |
+| `tbo_quote_status` | §9.3 (allow on submit; history in Version and timeline comments) |
+| `tbo_quote_family`, `tbo_revision_no`, `tbo_is_latest` | §9.4 |
+| `tbo_sent_via`, `tbo_sent_on` | How and when it went to the client |
+
+### 9.2 The catalogue (presets)
+
+ERPNext's own masters wherever they fit (`presets.py`):
+
+| Need | Master |
+| --- | --- |
+| Services and products, their category | **Item** (enabled sales items) and **Item Group** |
+| Rates | **Item Price** on Selling Settings' selling price list |
+| Packages: default lines with description, qty and rate, project duration, validity | **TBO Quotation Package** (new, with **TBO Quotation Package Item** lines). ERPNext's Product Bundle is a stock bundle with no rates, text or duration, so it doesn't fit. A line's rate of 0 means the item's price. |
+| GST | **Sales Taxes and Charges Template** (the company's default is preselected) |
+| Payment terms | **Payment Terms Template** (default in settings; ERPNext builds the schedule) |
+| Terms and conditions | **Terms and Conditions** (default in settings; its text fills the quotation) |
+| Validity | `quotation_validity_days` (30), or a package's own |
+
+They are managed in the CRM (**Settings → TBO → Lead pipeline → Quotation catalogue**): new and
+edited packages, and each service's rate. **Only the roles in "Roles that edit presets and
+prices"** (`quotation_preset_roles`, default Sales Manager and System Manager) may change them;
+the API refuses everyone else. A package name must be unique.
+
+### 9.3 Status tracking (`tbo_quote_status`)
+
+| Status | Set by |
+| --- | --- |
+| Draft | A draft with nothing waiting |
+| Pending Approval | A draft with an open discount/commission request (reuses TBO Quotation Adjustment; kept in step on save, submit and every request or decision) |
+| Approved | A draft whose above-limit adjustment is granted, or a submitted one not sent yet |
+| Sent to Client | **Mark sent** (below) |
+| Viewed / Acknowledged | By hand, from Sent |
+| Under Negotiation | By hand, from Sent, Viewed or Revision Required |
+| Revision Required | By hand, or automatically when a revision is made of a quotation that was with the client |
+| Accepted | By hand, from any with-the-client status |
+| Rejected | By hand, with the client's reason; optionally closes the lead as Closed – Lost (lost reason required) |
+| Expired | Nightly (`expire_quotations`): submitted, Approved or with the client, and `valid_till` has passed |
+
+- Every change is written with a **Version** row and an Info comment on the quotation ("Quote
+  status: Under Negotiation: wants 5% off").
+- The lead follows: Sent → **Proposal Sent**, Under Negotiation → **Negotiation**, Accepted →
+  **Closed – Won** (forward only, §2.2), which creates the deal (§6).
+- **Mark sent** (`mark_sent`): a draft is **submitted first**, so the discount/commission control
+  refuses it while an approval is missing; a draft with a request **pending approval can't be
+  sent**. Then: **Email** sends it through ERPNext (`communication.email.make`) with the TBO PDF
+  attached, logged on the quotation; **WhatsApp** returns the `wa.me` link with the message
+  (the user attaches the PDF); **Manual** records it. A **Sales follow-up** task follows after
+  `quotation_follow_up_days` (3; 0 = none), assigned to the lead owner.
+
+### 9.4 Revisions
+
+**Create revision** copies the quotation (lines, taxes, discount, terms) as a new **draft** with
+the next `tbo_revision_no` in its family (`tbo_quote_family` = the first quotation's name), today's
+date and a fresh validity; it becomes the **latest** (`tbo_is_latest`), the others are not. A
+copy rather than ERPNext's amend: amend needs a cancelled document, and the earlier version must
+stay valid and visible. Every version stays linked to the lead. **Revision history**
+(`get_revisions`) lists the family with, for each, what changed from the one before: grand total,
+discount %, lines added, removed and changed (qty, rate), terms changed, validity. Only the
+latest revision can be sent.
+
+### 9.5 Won: the deal, re-linking and the Sales Order
+
+- When the lead turns Closed – Won (by hand or through an accepted quotation), §6 creates the deal
+  and **re-links the lead's quotations**: `crm_deal` = the deal, and those made out to the lead
+  become *Quotation To* CRM Deal with the deal as party. The deal's Finance tab then lists them,
+  and ERPNext finds the deal's customer.
+- **Convert to Sales Order** (`make_sales_order`): only an **Accepted** quotation of a won lead,
+  only for people who may create Sales Orders. Frappe CRM creates the deal's ERPNext customer when
+  missing (ERPNext CRM Settings must be on, and ERPNext's CRM Settings → Frappe CRM data
+  synchronization), then ERPNext's own mapper makes a **draft** Sales Order; the finance
+  workflow's pending-approval guard runs on its validate.
+
+### 9.6 The PDF: print format "TBO Quotation"
+
+A Jinja print format created and kept in step on every migrate from
+`lead_pipeline/quotation_print.html`: the company logo (or name), address and GSTIN; the client
+(organization, contact, email, phone); quotation number and revision, date, valid till, project
+duration; the lines with description, qty, rate, discount and amount; subtotal, discount, each tax
+and the grand total in words; the payment schedule; terms and conditions; the validity line.
+Tables, not flex, so wkhtmltopdf lays it out. To change it, copy it under another name and pick
+it in `quotation_print_format`. **Preview** (`/printview`) and **Download PDF** use it; **Save PDF
+to the lead** (`save_pdf`) stores it as a private file on the lead's Attachments.
+
+### 9.7 API (`tbo_smart.api.lead_quotation`)
+
+| Method | Verb | Needs | Does |
+| --- | --- | --- | --- |
+| `get_access` | GET | – | `{enabled, can_edit_presets, can_make_orders}` |
+| `get_lead_quotations(lead)` | GET | read on the lead | The quotations (status, totals, family, latest, sent, package, saved PDF) and the deal |
+| `get_quotation_form(lead, quotation?, meeting?)` | GET | read | The builder: choices (companies, tax templates with rates, payment terms, terms), the catalogue, and a new quotation's defaults or a draft |
+| `save_quotation(lead, values, quotation?)` | POST | write | A draft (the deal dialog's values plus `description` per line, `tc_name`, `payment_terms_template`, `package`, `meeting`); returns it with `needs_approval` |
+| `mark_sent(quotation, via, recipients?, message?, follow_up_days?)` | POST | write | §9.3 |
+| `set_quote_status(quotation, status, note?, close_lead?, lost_reason?)` | POST | write | §9.3 |
+| `create_revision(quotation)` / `get_revisions(quotation)` | POST / GET | write / read | §9.4 |
+| `save_pdf(quotation)` | POST | write | §9.6 |
+| `make_sales_order(quotation)` | POST | Sales Order create | §9.5 |
+| `get_catalogue` / `save_package(values)` / `set_service_rate(item_code, rate)` | GET / POST / POST | preset roles for the writes | §9.2 |
+
+## 10. Tests
 
 `tbo_smart/tests/test_lead_pipeline.py` (helpers in `tbo_smart/test_utils.py`; AI mocked at the
 HTTP level): the statuses and their types, New Lead as the default, lost reason required (CRM
@@ -311,8 +440,22 @@ against the fixture; the deal at Closed – Won (Won stage, owner, once only, ma
 refused) and with the switch off; and the no-CRM guard. Smart leads, mobile and insights tests
 use the new status names.
 
+`tbo_smart/tests/test_lead_quotations.py`: the builder from a package with GST and a 10%
+discount (totals 70,000 → 63,000 + 11,340 = 74,340), party and package on the quotation; only
+preset roles edit rates and packages, duplicate package names; a quotation from a meeting;
+permissions and the switch; Sent → Negotiation → Accepted moving the lead to Closed – Won with the
+deal created and the quotation re-linked, Version rows; sending blocked while approval is pending
+and allowed once the BDM approves; Rejected needs a reason and can close the lead; expiry; WhatsApp
+link and email through ERPNext with the TBO format; the revision chain with its diff and latest
+flag; the PDF saved on the lead and the Sales Order from an accepted quotation (permissions, the
+deal's customer); the print format rendering.
+
 ## Changelog
 
+- **v1.1 (2026-10-16):** Phase 2: quotations on the lead (§9): the catalogue (TBO Quotation
+  Package, service rates), the builder reusing the deal's dialog, status tracking with Mark sent,
+  revisions with their diff, the TBO Quotation print format and PDF on the lead, re-linking at
+  Closed – Won and Convert to Sales Order.
 - **v1.0 (2026-10-16):** Phase 1: pipeline statuses and their migration, TBO Lead Meeting with
   its MOM, automatic statuses, MOM Pending clock, reminders and escalation, AI MOM draft, the
   deal at Closed – Won, the API, settings and mobile (contract v1.8).

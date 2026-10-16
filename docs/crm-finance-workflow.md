@@ -1,4 +1,4 @@
-# CRM finance workflow: lead to reconciled cash (living spec, v0.7)
+# CRM finance workflow: lead to reconciled cash (living spec, v0.8)
 
 **Status:** Phases 1 to 5 built (owner approved start 2026-10-12; management sign-off and
 open questions pending). Every phase ships behind its own switch in TBO Smart Settings, off by
@@ -946,6 +946,11 @@ limited to drafts and to the fields above; "Open in ERPNext" stays for
 anything else. **Deviation:** the plan only asked for drafts; Submit was added so a BDE never
 needs `/app` for a quotation within their limit.
 
+The same dialog serves the **lead's Quotations tab** (`lead-pipeline.md` §9): quotations made
+out to the CRM Lead before there is a deal. It also offers payment terms, a terms template, line
+descriptions and live totals (subtotal, discount, tax, grand total) on the deal. `form_choices`
+and `get_tax_rates` feed both.
+
 **Pending-approval guard** - `FinanceDocument.block_pending_approval`, using
 `tbo_smart.quotation_control.get_unapproved` (added to the discount-control module, not
 duplicated). A Sales Order or Sales Invoice (not a return) is refused on `validate` when any
@@ -1353,3 +1358,4 @@ the finance cards; hidden amounts and the switch. The fork tests the hooks in
 | 0.5 | 2026-10-13 | Phase 4 built: bank-line duplicate, mismatch and ageing checks, maker-checker verification and lock, second approver, Settling / Reconciled / On Exception stages and closure (§14.7). |
 | 0.6 | 2026-10-13 | Phase 5 built: finance cards on the CRM dashboard by role (§14.9). |
 | 0.7 | 2026-10-16 | Stages 1 and 4 follow the lead pipeline (`lead-pipeline.md`): its statuses, and the deal made at Closed – Won. |
+| 0.8 | 2026-10-16 | The quotation dialog also serves the lead (lead-pipeline.md §9); payment terms, terms template and totals added. |
