@@ -53,6 +53,8 @@ ignore = [
     "W191", # indentation contains tabs
 ]
 typing-modules = ["frappe.types.DF"]
+# the lead pipeline's status names use an en dash ("Closed – Won"), as CRM shows them
+allowed-confusables = ["–"]
 
 [tool.ruff.format]
 quote-style = "double"
