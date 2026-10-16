@@ -27,7 +27,8 @@ def advance_lead(lead: str, target: str, reason: str) -> bool:
 	Returns whether the status changed."""
 	if not pipeline_enabled():
 		return False
-	current = frappe.db.get_value("CRM Lead", lead, "status")
+	# read under the row lock, held until the save, so a status someone sets meanwhile wins
+	current = frappe.db.get_value("CRM Lead", lead, "status", for_update=True)
 	if not moves_forward(current, target):
 		return False
 	set_lead_status(lead, target, reason)

@@ -21,6 +21,7 @@ from tbo_smart.lead_pipeline.statuses import (
 	PROPOSAL_SENT,
 	SECOND_MEETING,
 	STATUS_NAMES,
+	ensure_statuses,
 )
 from tbo_smart.lead_pipeline.transitions import moves_forward
 from tbo_smart.test_utils import (
@@ -230,10 +231,15 @@ class TestStatusMigration(LeadPipelineTestCase):
 		self.assertEqual(sum(status_migration.execute().values()), 0)
 		self.assertEqual(frappe.db.get_value("CRM Lead", leads["demo"], "status"), CONTACTED)
 
-		# revert puts every mapped lead back (the site's other leads too), so map them again after
-		self.assertGreaterEqual(status_migration.revert(), len(leads))
+		# revert puts back every lead still on the status it was given (the site's other leads
+		# too, so they are mapped again after); the one set back by hand is kept for a person
+		reverted = status_migration.revert()
+		self.assertIn(leads["demo"], reverted["kept"])
+		self.assertGreaterEqual(reverted["restored"], len(leads) - 1)
 		self.assertEqual(frappe.db.get_value("CRM Lead", leads["junk"], "status"), "Junk")
 		self.assertTrue(frappe.db.exists("CRM Lead Status", "Junk"))
+		self.assertTrue(frappe.db.exists("CRM Lead Status", CONTACTED))
+		ensure_statuses()
 		status_migration.execute()
 		self.assertEqual(frappe.db.get_value("CRM Lead", leads["junk"], "status"), CLOSED_LOST)
 
@@ -299,6 +305,7 @@ class TestMeetings(LeadPipelineTestCase):
 		follow_up = add_days(nowdate(), 3)
 		frappe.set_user(BDE)
 		self.assertRaises(frappe.ValidationError, api.save_mom, meeting, {"agenda": "Demo"}, 1)
+		self.assertRaises(frappe.ValidationError, api.save_mom, meeting, {"action_items": ["Send prices"]})
 		result = api.save_mom(
 			meeting,
 			json.dumps(

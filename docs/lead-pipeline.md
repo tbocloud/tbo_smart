@@ -74,6 +74,8 @@ recolour or reorder them in CRM Settings. The code names them in this one module
   first meeting. So a status someone set by hand (say Negotiation) is never pulled back by a
   later meeting; Additional meetings (4th and later) move nothing.
 - **Manual changes** are always allowed, from the lead page, the MOM dialog or the app.
+- The status is read under a row lock held until the save, so a status someone sets at the
+  same moment is never overwritten by an older stage.
 - Each move is saved on the lead as a system change (`ignore_permissions`, since the person
   submitting a MOM may not own the lead), so the Status Change Log and Version keep it, plus an
   Info comment on the timeline: "Status set to First Meeting Completed: MOM of the 1st meeting
@@ -119,8 +121,11 @@ and has not been mapped before:
   deleted once no lead uses it, and its definition (type, colour, position) is kept as JSON in
   TBO Smart Settings → `pipeline_retired_statuses` (hidden). Contacted keeps its name.
 - **Undo:** `bench --site <site> execute tbo_smart.lead_pipeline.status_migration.revert`
-  recreates the retired statuses and puts every mapped lead back on its old status. Lost
-  reasons it added stay.
+  recreates the retired statuses, puts each mapped lead back on its old status **while it still
+  has the status the migration gave it**, and deletes the pipeline statuses no lead uses.
+  Leads that moved on since (say, Closed – Won with a deal) are left alone and returned in
+  `kept` for a person to settle. Lost reasons it added stay. Deploy a tbo_smart without the
+  pipeline afterwards, or the next migrate creates the pipeline statuses again.
 - **New sites:** install creates the pipeline statuses next to Frappe CRM's defaults (the setup
   wizard's CRM demo data still uses the defaults). Run the same `execute
   tbo_smart.lead_pipeline.status_migration.execute` to retire them. Test sites do this in
@@ -181,7 +186,8 @@ Scheduled ──(its time)──▶ Meeting in Progress ──(its end)──▶
   minutes (Scheduled, Rescheduled, In Progress, Completed) whose end has passed turns **MOM
   Pending** (with `mom_pending_since`), and the BDE gets an in-app notification (push through
   `tbo_smart.push`).
-- **Reminder** `meeting_reminder_minutes` before a meeting: Teams DM (the smart leads workflow
+- **Reminder** `meeting_reminder_minutes` before a meeting (checked before the clock moves
+  meetings on, so one booked minutes before it starts still gets it): Teams DM (the smart leads workflow
   URL), else email, plus in-app, once (`reminded_at` is written first, so a failed Teams post
   never sends it twice).
 - **By hand:** Meeting in Progress, Completed, Follow-up Required and Cancelled. MOM Submitted

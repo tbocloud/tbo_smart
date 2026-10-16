@@ -127,11 +127,17 @@ def retire_old_statuses() -> list[str]:
 	return retired
 
 
-def revert() -> int:
+def revert() -> dict:
 	"""Undo the migration by hand (`bench --site … execute
-	tbo_smart.lead_pipeline.status_migration.revert`): recreate the retired statuses and put
-	every mapped lead back on its old status. Lost reasons it added stay. Returns the leads moved."""
-	for row in json.loads(frappe.db.get_single_value("TBO Smart Settings", RETIRED_FIELD) or "[]"):
+	tbo_smart.lead_pipeline.status_migration.revert`): recreate the retired statuses, put each
+	mapped lead back on its old status while it still has the status the migration gave it, and
+	delete the pipeline statuses no lead uses any more. Leads that moved on since (say, to
+	Closed – Won with a deal) are left alone and listed in `kept` for a person to settle; they
+	keep `tbo_pre_pipeline_status`. Lost reasons the migration added stay. Deploy a tbo_smart
+	without the pipeline afterwards, or the next migrate creates the pipeline statuses again.
+	Returns {restored, kept}."""
+	retired = json.loads(frappe.db.get_single_value("TBO Smart Settings", RETIRED_FIELD) or "[]")
+	for row in retired:
 		if not frappe.db.exists("CRM Lead Status", row["name"]):
 			frappe.get_doc(
 				{
@@ -145,15 +151,27 @@ def revert() -> int:
 	leads = frappe.get_all(
 		"CRM Lead",
 		filters={PREVIOUS_FIELD: ("is", "set")},
-		fields=["name", PREVIOUS_FIELD],
+		fields=["name", "status", "converted", PREVIOUS_FIELD],
 		limit_page_length=0,
 	)
+	notes = get_migration_notes([lead.name for lead in leads])
+	restored, kept = 0, []
 	for lead in leads:
+		given = new_status(lead[PREVIOUS_FIELD], notes.get(lead.name, {}).get("status"), bool(lead.converted))
+		if lead.status != given:
+			kept.append(lead.name)
+			continue
 		frappe.db.set_value(
 			"CRM Lead",
 			lead.name,
 			{"status": lead[PREVIOUS_FIELD], PREVIOUS_FIELD: None},
 			update_modified=False,
 		)
-	frappe.db.set_single_value("TBO Smart Settings", RETIRED_FIELD, None)
-	return len(leads)
+		restored += 1
+	old = set(OLD_STATUSES)
+	for name, _kind, _color in STATUSES:
+		if name not in old and not frappe.db.exists("CRM Lead", {"status": name}):
+			frappe.delete_doc("CRM Lead Status", name, ignore_permissions=True, force=True)
+	if not kept:
+		frappe.db.set_single_value("TBO Smart Settings", RETIRED_FIELD, None)
+	return {"restored": restored, "kept": kept}

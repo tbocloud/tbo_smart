@@ -389,11 +389,13 @@ def digest_line(item: FollowUp) -> str:
 
 def send_digests(run: FollowUpRun, only: str | None = None) -> dict:
 	"""Each person's digest by Teams (else email), plus one in-app summary. {user: channel}."""
-	people = (
-		{only}
-		if only
-		else run.people() | (set(run.sales_heads) if run.needs_owner else set()) | meeting_people(run.today)
-	)
+	if only:
+		people = {only}
+	else:
+		people = run.people() | (set(run.sales_heads) if run.needs_owner else set())
+		# BDEs with only meetings today were not part of the run's leave check
+		meeting_only = meeting_people(run.today) - people
+		people |= meeting_only - set(on_leave(meeting_only, run.today))
 	people -= set(run.away)
 	sent = {}
 	for user in sorted(people):

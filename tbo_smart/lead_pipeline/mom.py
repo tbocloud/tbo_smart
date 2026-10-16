@@ -52,9 +52,13 @@ def apply_mom(doc, values: dict) -> None:
 			frappe.throw(_("At most {0} action items.").format(MAX_ACTIONS))
 		doc.set("action_items", [])
 		for row in items:
-			item = clean_text((row or {}).get("item"))
+			if not isinstance(row, dict):
+				frappe.throw(_("Each action item must be an object with an item."))
+			item = clean_text(row.get("item"))
 			if not item:
 				continue
+			if row.get("due_date"):
+				valid_date_or_throw(row["due_date"])
 			doc.append(
 				"action_items",
 				{
@@ -66,6 +70,13 @@ def apply_mom(doc, values: dict) -> None:
 					"done": cint(row.get("done")),
 				},
 			)
+
+
+def valid_date_or_throw(value) -> None:
+	try:
+		getdate(value)
+	except Exception:
+		frappe.throw(_("{0} is not a date.").format(value))
 
 
 def clean_text(value) -> str | None:

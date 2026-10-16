@@ -193,10 +193,12 @@ def run_meeting_clock(now=None) -> dict | None:
 	if not pipeline_enabled():
 		return None
 	now = get_datetime(now or now_datetime())
+	# reminders first: a meeting booked less than a tick before it starts still gets one
+	reminded = send_reminders(now)
 	return {
 		"in_progress": start_meetings(now),
 		"mom_pending": mark_mom_pending(now),
-		"reminded": send_reminders(now),
+		"reminded": reminded,
 	}
 
 
