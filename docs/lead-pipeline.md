@@ -408,7 +408,7 @@ duration; the lines with description, qty, rate, discount and amount; subtotal, 
 and the grand total in words; the payment schedule; terms and conditions; the validity line.
 Tables, not flex, so wkhtmltopdf lays it out. To change it, copy it under another name and pick
 it in `quotation_print_format`. **Preview** (`/printview`) and **Download PDF** use it; **Save PDF
-to the lead** (`save_pdf`) stores it as a private file on the lead's Attachments.
+to the lead** (`save_pdf`) stores it as a private file "<quotation>--<time>.pdf" on the lead's Attachments.
 
 ### 9.7 API (`tbo_smart.api.lead_quotation`)
 

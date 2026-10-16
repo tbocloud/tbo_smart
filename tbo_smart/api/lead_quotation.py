@@ -10,7 +10,7 @@ submit, which run as the session user.
 import frappe
 from erpnext.controllers.accounts_controller import get_default_taxes_and_charges
 from frappe import _
-from frappe.utils import add_days, cint, flt, today
+from frappe.utils import add_days, cint, flt, now_datetime, today
 
 from tbo_smart.api.finance.quotation import (
 	TAX_TEMPLATE,
@@ -26,6 +26,9 @@ from tbo_smart.lead_pipeline import quotations_enabled, require_quotations
 from tbo_smart.quotation_control import QuotationControl
 from tbo_smart.smart_leads.utils import normalise_phone, whatsapp_link
 
+# "<quotation>--<time>.pdf": unique, so Frappe never appends its own suffix, and SAL-QTN-1's
+# PDF can't be mistaken for SAL-QTN-10's
+PDF_SEPARATOR = "--"
 LIST_FIELDS = [
 	"name",
 	"docstatus",
@@ -74,7 +77,7 @@ def get_lead_quotations(lead: str) -> dict:
 	for row in rows:
 		if row.docstatus == 0:
 			row.tbo_quote_status = states[row.name]
-		row.pdf = next((url for name, url in pdfs if name.startswith(row.name)), None)
+		row.pdf = next((url for name, url in pdfs if name.startswith(f"{row.name}{PDF_SEPARATOR}")), None)
 	return {
 		"lead": lead,
 		"deal": frappe.db.get_value("CRM Deal", {"lead": lead}, "name"),
@@ -83,9 +86,13 @@ def get_lead_quotations(lead: str) -> dict:
 	}
 
 
+def pdf_file_name(quotation: str) -> str:
+	return f"{quotation}{PDF_SEPARATOR}{now_datetime().strftime('%Y%m%d-%H%M%S')}.pdf"
+
+
 def lead_pdfs(lead: str) -> list:
-	"""(file name, url) of the PDFs saved on the lead, newest first. Frappe adds a suffix when a
-	file of that name exists, so a quotation's PDFs are matched on the name's prefix."""
+	"""(file name, url) of the PDFs saved on the lead, newest first. Each is named
+	"<quotation>--<time>.pdf" (pdf_file_name), so it matches its own quotation only."""
 	return frappe.get_all(
 		"File",
 		filters={"attached_to_doctype": "CRM Lead", "attached_to_name": lead, "file_name": ("like", "%.pdf")},
@@ -297,7 +304,7 @@ def save_pdf(quotation: str) -> dict:
 	file = frappe.get_doc(
 		{
 			"doctype": "File",
-			"file_name": f"{doc.name}.pdf",
+			"file_name": pdf_file_name(doc.name),
 			"attached_to_doctype": "CRM Lead",
 			"attached_to_name": doc.tbo_crm_lead,
 			"is_private": 1,

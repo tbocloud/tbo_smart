@@ -307,7 +307,7 @@ class TestRevisionsAndOrders(LeadQuotationTestCase):
 		name = self.sent()
 		with patch("tbo_smart.api.lead_quotation.frappe.get_print", return_value=make_pdf_bytes()):
 			pdf = api.save_pdf(name)
-		self.assertTrue(pdf["file_name"].startswith(name))
+		self.assertTrue(pdf["file_name"].startswith(f"{name}--"))
 		self.assertEqual(api.get_lead_quotations(self.lead)["quotations"][0]["pdf"], pdf["file_url"])
 		# only an accepted quotation, and only for people who may create Sales Orders
 		self.assertRaises(frappe.ValidationError, api.make_sales_order, name)
