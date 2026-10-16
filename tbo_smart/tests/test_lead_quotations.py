@@ -24,6 +24,7 @@ from tbo_smart.test_utils import (
 	make_pdf_bytes,
 	make_quotation_item,
 	make_user,
+	quotation_line,
 	set_leaf_customer_group,
 )
 
@@ -34,16 +35,6 @@ OWNERS = (BDE, BDE2, BDM)
 SERVICE = "TBO Smart Pipeline Implementation"
 SUPPORT = "TBO Smart Pipeline Support"
 PACKAGE = "TBO Smart Test ERP Starter"
-
-
-def line(item_code, qty=1, rate=1000, discount=0, description=None):
-	return {
-		"item_code": item_code,
-		"qty": qty,
-		"price_list_rate": rate,
-		"discount_percentage": discount,
-		"description": description,
-	}
 
 
 class LeadQuotationTestCase(FrappeTestCase):
@@ -99,7 +90,11 @@ class LeadQuotationTestCase(FrappeTestCase):
 		frappe.set_user("Administrator")
 
 	def save(self, items=None, quotation=None, **values):
-		payload = {"valid_till": add_days(nowdate(), 20), "items": items or [line(SERVICE)], **values}
+		payload = {
+			"valid_till": add_days(nowdate(), 20),
+			"items": items or [quotation_line(SERVICE)],
+			**values,
+		}
 		return api.save_quotation(self.lead, json.dumps(payload, default=str), quotation)
 
 	def sent(self, **values):
@@ -136,7 +131,10 @@ class TestBuilder(LeadQuotationTestCase):
 		self.assertEqual(form["tax_rates"].get(self.gst), 18)
 
 		saved = self.save(
-			items=[line(SERVICE, 1, 50000, description="Setup and training"), line(SUPPORT, 2, 10000)],
+			items=[
+				quotation_line(SERVICE, 1, 50000, description="Setup and training"),
+				quotation_line(SUPPORT, 2, 10000),
+			],
 			package=PACKAGE,
 			taxes_and_charges=self.gst,
 			additional_discount_percentage=10,
@@ -234,6 +232,16 @@ class TestStatuses(LeadQuotationTestCase):
 		api.mark_sent(saved["name"], "Manual")
 		self.assertEqual(frappe.db.get_value("Quotation", saved["name"], "tbo_quote_status"), q.SENT)
 
+	def test_a_lowered_discount_no_longer_waits_for_approval(self):
+		configure_quotation_approval(limits={"BDE": (5, 2), "BDM": (10, 4)})
+		frappe.set_user(BDE)
+		saved = self.save(additional_discount_percentage=8)
+		quotation_adjustment.request_adjustment(saved["name"], "Discount", 8, "Long-term client")
+		lowered = self.save(quotation=saved["name"], additional_discount_percentage=3)
+		self.assertEqual(lowered["quote_status"], q.DRAFT)
+		api.mark_sent(saved["name"], "Manual")
+		self.assertEqual(frappe.db.get_value("Quotation", saved["name"], "tbo_quote_status"), q.SENT)
+
 	def test_rejected_asks_why_and_can_close_the_lead(self):
 		frappe.set_user(BDE)
 		name = self.sent()
@@ -269,7 +277,7 @@ class TestStatuses(LeadQuotationTestCase):
 class TestRevisionsAndOrders(LeadQuotationTestCase):
 	def test_revision_chain_and_diff(self):
 		frappe.set_user(BDE)
-		first = self.sent(items=[line(SERVICE, 1, 1000), line(SUPPORT, 1, 500)])
+		first = self.sent(items=[quotation_line(SERVICE, 1, 1000), quotation_line(SUPPORT, 1, 500)])
 		revision = api.create_revision(first)
 		self.assertEqual(
 			(revision["revision"], revision["family"], revision["quote_status"]), (1, first, q.DRAFT)
@@ -277,7 +285,13 @@ class TestRevisionsAndOrders(LeadQuotationTestCase):
 		self.assertEqual(
 			frappe.db.get_value("Quotation", first, ["tbo_quote_status", "tbo_is_latest"]), (q.REVISION, 0)
 		)
-		self.save(quotation=revision["name"], items=[line(SERVICE, 2, 900)], terms="New terms")
+		# only the latest revision goes out
+		self.assertRaises(frappe.ValidationError, api.mark_sent, first, "Manual")
+		self.save(
+			quotation=revision["name"],
+			items=[quotation_line(SERVICE, 2, 900, description="Now with training")],
+			terms="New terms",
+		)
 		rows = api.get_revisions(revision["name"])
 		self.assertEqual([row["name"] for row in rows], [first, revision["name"]])
 		changes = rows[1]["changes"]
@@ -285,6 +299,7 @@ class TestRevisionsAndOrders(LeadQuotationTestCase):
 		self.assertEqual(changes["removed"], [SUPPORT])
 		self.assertEqual(changes["changed"][0]["qty"], [1, 2])
 		self.assertTrue(changes["terms_changed"])
+		self.assertTrue(changes["changed"][0]["description_changed"])
 		self.assertEqual([row["is_latest"] for row in rows], [0, 1])
 
 	def test_accepted_quotation_becomes_a_sales_order_and_pdf_on_the_lead(self):

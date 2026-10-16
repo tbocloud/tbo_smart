@@ -28,6 +28,7 @@ def create_deal(lead) -> str:
 	assignees carried over) as a system action. Returns the deal's name."""
 	existing = frappe.db.get_value("CRM Deal", {"lead": lead.name}, "name")
 	if existing:
+		relink_to_deal(lead.name, existing)
 		return existing
 	stage = won_deal_stage()
 	lead.flags.ignore_permissions = True

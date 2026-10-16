@@ -135,7 +135,7 @@ def save_package(values: dict) -> str:
 		frappe.get_doc(PACKAGE, name) if name and frappe.db.exists(PACKAGE, name) else frappe.new_doc(PACKAGE)
 	)
 	package_name = (values.get("package_name") or name).strip()
-	if doc.is_new() and frappe.db.exists(PACKAGE, package_name):
+	if frappe.db.exists(PACKAGE, {"package_name": package_name, "name": ("!=", doc.name or "")}):
 		frappe.throw(
 			_("A package called {0} already exists.").format(package_name), frappe.DuplicateEntryError
 		)

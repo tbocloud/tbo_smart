@@ -58,19 +58,42 @@ def validity_days() -> int:
 def draft_status(doc) -> str:
 	"""Pending Approval while a request is open; Approved once a granted, not voided approval
 	covers it and nothing is above the limit; else Draft."""
+	return draft_states([doc.name], {doc.name: doc})[doc.name]
+
+
+def draft_states(names: list[str], docs: dict | None = None) -> dict[str, str]:
+	"""{quotation: Draft / Pending Approval / Approved} for drafts, in one query; a quotation is
+	loaded only when it has a request or a grant to check against its current figures. An open
+	request no longer counts once nothing is above the limit (the discount was lowered)."""
 	from tbo_smart.quotation_control import QuotationControl
 
-	open_request = frappe.db.exists(
-		"TBO Quotation Adjustment", {"quotation": doc.name, "status": ("in", OPEN_REQUEST), "voided": 0}
+	docs = dict(docs or {})
+	rows = frappe.get_all(
+		"TBO Quotation Adjustment",
+		filters={
+			"quotation": ("in", names or [""]),
+			"voided": 0,
+			"status": ("in", (*OPEN_REQUEST, *GRANTED)),
+		},
+		fields=["quotation", "status", "within_limit"],
+		limit_page_length=0,
 	)
-	if open_request:
-		return PENDING
-	granted = frappe.db.exists(
-		"TBO Quotation Adjustment", {"quotation": doc.name, "status": ("in", GRANTED), "voided": 0}
-	)
-	if granted and not QuotationControl(doc).uncovered():
-		return APPROVED
-	return DRAFT
+	open_requests = {row.quotation for row in rows if row.status in OPEN_REQUEST}
+	# an adjustment the person applied within their own limit is not an approval
+	granted = {row.quotation for row in rows if row.status in GRANTED and not row.within_limit}
+	states = {}
+	for name in names:
+		if name not in open_requests and name not in granted:
+			states[name] = DRAFT
+			continue
+		uncovered = QuotationControl(docs.get(name) or frappe.get_doc("Quotation", name)).uncovered()
+		if name in open_requests and uncovered:
+			states[name] = PENDING
+		elif name in granted and not uncovered:
+			states[name] = APPROVED
+		else:
+			states[name] = DRAFT
+	return states
 
 
 def sync_status(doc) -> None:
@@ -132,6 +155,8 @@ def mark_sent(doc, via: str, follow_up_days: int | None = None) -> str | None:
 	task."""
 	if via not in SEND_VIA:
 		frappe.throw(_("Sent via Email, WhatsApp or Manual."))
+	if not cint(doc.get("tbo_is_latest")):
+		frappe.throw(_("Only the latest revision of a quotation can be sent."))
 	if doc.docstatus == 0:
 		if draft_status(doc) == PENDING:
 			frappe.throw(_("This quotation is waiting for approval. It can be sent once it is approved."))
@@ -294,10 +319,15 @@ def diff(before, after) -> dict:
 			"item_name": row.item_name,
 			"qty": [flt(lines_before[code].qty), flt(row.qty)],
 			"rate": [flt(lines_before[code].rate), flt(row.rate)],
+			"description_changed": (lines_before[code].description or "") != (row.description or ""),
 		}
 		for code, row in lines_after.items()
 		if code in lines_before
-		and (flt(lines_before[code].qty) != flt(row.qty) or flt(lines_before[code].rate) != flt(row.rate))
+		and (
+			flt(lines_before[code].qty) != flt(row.qty)
+			or flt(lines_before[code].rate) != flt(row.rate)
+			or (lines_before[code].description or "") != (row.description or "")
+		)
 	]
 	return {
 		"grand_total": [flt(before.grand_total), flt(after.grand_total)],
@@ -347,11 +377,16 @@ def make_sales_order(doc) -> str:
 	deal = doc.get("crm_deal")
 	if not deal:
 		frappe.throw(_("The lead has no deal yet: set it to {0} first.").format(CLOSED_WON))
-	if not check_customer_for_deal(deal):
+	customer = check_customer_for_deal(deal)
+	if not customer:
 		frappe.throw(
 			_("The deal has no ERPNext customer. Turn on ERPNext CRM Settings so the CRM can create it.")
 		)
 	order = erpnext_sales_order(doc.name)
+	if not order.customer:
+		# ERPNext finds the customer by Customer.crm_deal; a customer that an earlier deal of the
+		# same client created still names that deal, so give the order this deal's customer
+		order.customer = customer
 	for row in order.items:
 		row.delivery_date = row.delivery_date or getdate(today())
 	order.delivery_date = order.delivery_date or getdate(today())

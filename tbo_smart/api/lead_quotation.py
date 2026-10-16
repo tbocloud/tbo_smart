@@ -69,10 +69,12 @@ def get_lead_quotations(lead: str) -> dict:
 		order_by="creation desc",
 		limit_page_length=0,
 	)
+	states = q.draft_states([row.name for row in rows if row.docstatus == 0])
+	pdfs = lead_pdfs(lead)
 	for row in rows:
 		if row.docstatus == 0:
-			row.tbo_quote_status = q.draft_status(frappe.get_doc("Quotation", row.name))
-		row.pdf = latest_pdf(lead, row.name)
+			row.tbo_quote_status = states[row.name]
+		row.pdf = next((url for name, url in pdfs if name.startswith(row.name)), None)
 	return {
 		"lead": lead,
 		"deal": frappe.db.get_value("CRM Deal", {"lead": lead}, "name"),
@@ -81,17 +83,15 @@ def get_lead_quotations(lead: str) -> dict:
 	}
 
 
-def latest_pdf(lead: str, quotation: str) -> str | None:
-	return frappe.db.get_value(
+def lead_pdfs(lead: str) -> list:
+	"""(file name, url) of the PDFs saved on the lead, newest first. Frappe adds a suffix when a
+	file of that name exists, so a quotation's PDFs are matched on the name's prefix."""
+	return frappe.get_all(
 		"File",
-		# Frappe adds a suffix when a file of that name exists, so a saved-again PDF still matches
-		{
-			"attached_to_doctype": "CRM Lead",
-			"attached_to_name": lead,
-			"file_name": ("like", f"{quotation}%.pdf"),
-		},
-		"file_url",
+		filters={"attached_to_doctype": "CRM Lead", "attached_to_name": lead, "file_name": ("like", "%.pdf")},
+		fields=["file_name", "file_url"],
 		order_by="creation desc",
+		as_list=True,
 	)
 
 

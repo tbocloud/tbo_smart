@@ -1027,6 +1027,19 @@ def set_leaf_customer_group() -> None:
 	frappe.db.set_default("customer_group", group)
 
 
+def quotation_line(
+	item_code: str, qty: float = 1, rate: float = 1000, discount: float = 0, description=None
+) -> dict:
+	"""One line of the quotation builder's payload (save_quotation's `items`)."""
+	return {
+		"item_code": item_code,
+		"qty": qty,
+		"price_list_rate": rate,
+		"discount_percentage": discount,
+		"description": description,
+	}
+
+
 def make_pdf_bytes() -> bytes:
 	"""A real one-page PDF, for mocking the print renderer (File parses PDFs on save)."""
 	from pypdf import PdfWriter
