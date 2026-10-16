@@ -1,0 +1,54 @@
+{
+  "message": {
+    "name": "TBO-MTG-2026-00012",
+    "stage": 1,
+    "stage_label": "1st meeting",
+    "status": "MOM Submitted",
+    "meeting_type": "Online",
+    "meeting_link": "https://teams.microsoft.com/l/meetup-join/19%3ameeting",
+    "location": null,
+    "scheduled_at": "2026-10-17 11:00:00",
+    "ends_at": "2026-10-17 12:00:00",
+    "duration_minutes": 60,
+    "participants": "Ajith (owner), Shahana K (TBO)",
+    "bde": "shahana@teambackoffice.com",
+    "bde_name": "Shahana K",
+    "summary": "Walked through billing, stock and GST reports.",
+    "client_interest": "Positive",
+    "next_follow_up_on": "2026-10-20",
+    "actions_open": 1,
+    "actions_total": 1,
+    "submitted_on": "2026-10-17 12:20:00",
+    "prepared_by_name": "Shahana K",
+    "mom_pending_since": null,
+    "escalation_level": 0,
+    "follow_up_task": "CRM-TASK-2026-00310",
+    "next_meeting": "TBO-MTG-2026-00015",
+    "lead": "CRM-LEAD-2026-00141",
+    "lead_name": "Ajith Kumar",
+    "agenda": "Demo of billing and stock",
+    "discussion_points": "Walked through billing, stock and GST reports.",
+    "client_requirements": "Billing for two branches\nGST reports",
+    "decisions": "Client will share the item master",
+    "objections": "Wants Malayalam invoices",
+    "quotation_feedback": null,
+    "next_meeting_details": "Site visit to see their stock room",
+    "action_items": [
+      {
+        "item": "Send the price list",
+        "responsible": "TBO",
+        "due_date": "2026-10-20",
+        "done": 0
+      }
+    ],
+    "attachments": [
+      {
+        "name": "a1b2c3d4e5",
+        "file_name": "whiteboard.jpg",
+        "file_url": "/private/files/whiteboard.jpg",
+        "is_private": 1
+      }
+    ],
+    "can_write": true
+  }
+}
