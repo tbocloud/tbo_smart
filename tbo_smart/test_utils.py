@@ -960,6 +960,15 @@ def move_meeting(meeting: str, scheduled_at, **values) -> None:
 	frappe.db.set_value("TBO Lead Meeting", meeting, {"scheduled_at": scheduled_at, **values})
 
 
+def delete_lead_deals(leads: list[str] | tuple) -> None:
+	"""Delete the deals made from these leads, with their contact and product rows."""
+	deals = frappe.get_all("CRM Deal", filters={"lead": ("in", list(leads) or [""])}, pluck="name")
+	if deals:
+		for child in ("CRM Contacts", "CRM Products"):
+			frappe.db.delete(child, {"parenttype": "CRM Deal", "parent": ("in", deals)})
+		frappe.db.delete("CRM Deal", {"name": ("in", deals)})
+
+
 def make_old_lead_status(name: str, kind: str) -> str:
 	"""One of Frappe CRM's pre-pipeline statuses (New, Nurture, Qualified, Junk, …), created when
 	missing, for the status migration's tests."""
@@ -982,6 +991,89 @@ def delete_lead_meetings(leads: list[str] | tuple) -> None:
 		if meetings:
 			frappe.db.delete("TBO Lead Meeting Action", {"parent": ("in", meetings)})
 			frappe.db.delete("TBO Lead Meeting", {"name": ("in", meetings)})
+	frappe.db.commit()  # nosemgrep
+
+
+def make_gst_template(rate: float = 18, company: str | None = None) -> str:
+	"""A Sales Taxes and Charges Template "TBO GST <rate>%" on the net total, for the company."""
+	company = company or erpnext.get_default_company()
+	abbr = frappe.get_cached_value("Company", company, "abbr")
+	name = f"TBO GST {rate:g}% - {abbr}"
+	if not frappe.db.exists("Sales Taxes and Charges Template", name):
+		frappe.get_doc(
+			{
+				"doctype": "Sales Taxes and Charges Template",
+				"title": f"TBO GST {rate:g}%",
+				"company": company,
+				"taxes": [
+					{
+						"charge_type": "On Net Total",
+						"account_head": get_vat_account(company),
+						"description": f"GST {rate:g}%",
+						"rate": rate,
+					}
+				],
+			}
+		).insert(ignore_permissions=True)
+	return name
+
+
+def set_leaf_customer_group() -> None:
+	"""Selling Settings' default customer group on a leaf group: a fresh test site's default is
+	the "All Customer Groups" group node, which ERPNext refuses for a new Customer."""
+	group = frappe.db.get_value("Customer Group", {"is_group": 0}, "name")
+	frappe.db.set_single_value("Selling Settings", "customer_group", group)
+	# a new Customer takes it from the defaults, which Selling Settings' own save would set
+	frappe.db.set_default("customer_group", group)
+
+
+def make_pdf_bytes() -> bytes:
+	"""A real one-page PDF, for mocking the print renderer (File parses PDFs on save)."""
+	from pypdf import PdfWriter
+
+	writer = PdfWriter()
+	writer.add_blank_page(width=200, height=200)
+	buffer = io.BytesIO()
+	writer.write(buffer)
+	return buffer.getvalue()
+
+
+def enable_lead_quotations(**values) -> None:
+	set_smart_lead_settings(
+		enable_lead_pipeline=1,
+		enable_lead_quotations=1,
+		quotation_validity_days=30,
+		quotation_follow_up_days=3,
+		quotation_preset_roles="Sales Manager\nSystem Manager",
+		**values,
+	)
+
+
+def disable_lead_quotations() -> None:
+	set_smart_lead_settings(enable_lead_pipeline=0, enable_lead_quotations=0)
+
+
+def delete_lead_quotations(leads: list[str] | tuple) -> None:
+	"""Cancel and delete the quotations, sales orders and deals of these leads, and commit."""
+	if not leads:
+		return
+	quotations = frappe.get_all("Quotation", filters={"tbo_crm_lead": ("in", list(leads))}, pluck="name")
+	if not quotations:
+		return
+	for order in frappe.get_all(
+		"Sales Order Item", filters={"prevdoc_docname": ("in", quotations)}, pluck="parent", distinct=True
+	):
+		doc = frappe.get_doc("Sales Order", order)
+		if doc.docstatus == 1:
+			doc.cancel()
+		frappe.delete_doc("Sales Order", order, force=True, ignore_permissions=True)
+	for name in quotations:
+		doc = frappe.get_doc("Quotation", name)
+		if doc.docstatus == 1:
+			doc.cancel()
+		frappe.delete_doc("Quotation", name, force=True, ignore_permissions=True)
+	frappe.db.delete("TBO Quotation Adjustment", {"quotation": ("in", quotations)})
+	frappe.db.delete("File", {"attached_to_doctype": "CRM Lead", "attached_to_name": ("in", list(leads))})
 	frappe.db.commit()  # nosemgrep
 
 

@@ -27,6 +27,7 @@ from tbo_smart.lead_pipeline.transitions import moves_forward
 from tbo_smart.test_utils import (
 	change_lead_status,
 	configure_ai_providers,
+	delete_lead_deals,
 	delete_lead_meetings,
 	delete_smart_lead_records,
 	disable_lead_pipeline,
@@ -96,7 +97,7 @@ class LeadPipelineTestCase(FrappeTestCase):
 	def clean(cls):
 		leads = frappe.get_all("CRM Lead", filters={"lead_owner": ("in", OWNERS)}, pluck="name")
 		delete_lead_meetings(leads)
-		frappe.db.delete("CRM Deal", {"lead": ("in", leads or [""])})
+		delete_lead_deals(leads)
 		delete_smart_lead_records(OWNERS)
 
 	def setUp(self):
