@@ -1,13 +1,13 @@
-# TBO Smart API: ESS, CRM and manager (tboindia side), v1.7
+# TBO Smart API: ESS, CRM and manager (tboindia side), v1.8
 
 This is the contract for the TBO Smart mobile app's **tboindia.tbocloud.in** half: HR
 self-service (HRMS), CRM (Frappe CRM) and the manager views. The hub (TBO Support) has its
 own contract in `tbocloud/helpdesk`.
 
-- **Code:** `tbo_smart/api/mobile/{auth,capabilities,ess,crm,manager,quotation,device}.py` and `tbo_smart/push.py`.
+- **Code:** `tbo_smart/api/mobile/{auth,capabilities,ess,crm,meeting,manager,quotation,device}.py` and `tbo_smart/push.py`.
 - **Fixtures:** `docs/fixtures/<module>.<method>.json`. Each one is the full HTTP body that
   Frappe returns (`{"message": ...}`).
-- **Status:** v1.7, 2026-10-15. Any change gets a version note in the changelog at the end of
+- **Status:** v1.8, 2026-10-16. Any change gets a version note in the changelog at the end of
   this file.
 
 ## 1. Conventions
@@ -587,8 +587,8 @@ Writes are normal inserts and saves under the session user.
 | `create_lead` | POST | `lead_name`, `organization?`, `email?`, `mobile_no?`, `source?`, `note?`, and for lead capture (§6.2) `follow_up_on?`, `follow_up_note?`, `assign_to?`, `source_channel?`, `card_image?`, `force?` | the new Lead (owner = me), as `get_lead`. Possible duplicates without `force`: 409 `DuplicateLead` |
 | `check_duplicates` | GET | `phone?`, `email?`, `organization?` | `{data: {matches: [Match]}}` (§6.2) |
 | `get_assignable_users` | GET | – | `{data: [{user, full_name, image}]}`: who I may pass as `assign_to` (§6.2) |
-| `set_lead_status` | POST | `name`, `status` | `{name, status}` |
-| `convert_lead` | POST | `name` | the Deal (an already-converted lead returns its existing deal) |
+| `set_lead_status` | POST | `name`, `status`, `lost_reason?` (required for a Lost-type status, e.g. Closed – Lost) | `{name, status, lost_reason}` |
+| `convert_lead` | POST | `name` | the Deal (an already-converted lead returns its existing deal). With the lead pipeline on, only a Closed – Won lead converts (417 otherwise; its deal is made when it turns Closed – Won) |
 | `get_deals` | GET | `stage?`, `scope?` (§4.1), `mine?` (v1 alias of `scope=mine`), `search?`, `page`, `page_length` | page of Deal |
 | `get_deal` | GET | `name` | Deal plus `erpnext_customer`, `stage_history[]`, `notes[]`, `tasks[]`, `activities[]` |
 | `move_deal_stage` | POST | `name`, `stage`, `lost_reason?` (required for a Lost-type stage) | the Deal |
@@ -724,6 +724,35 @@ CallTodayRow = {id, lead_name, organization, status, source, score (0-100), band
   with + or 00 keeps its country code; a local 10-digit number gets +91 (the default).
 - To act on a row the app uses the existing `log_activity`, `add_follow_up` and
   `set_lead_status` on `doctype="lead"`.
+
+### 6.4 Meetings and minutes (v1.8): `tbo_smart.api.mobile.meeting`
+
+The lead pipeline's meetings (`docs/lead-pipeline.md` §5), the same as the CRM's lead Meetings
+tab. Every method needs `crm` and TBO Smart Settings → Lead pipeline (else 417), and checks the
+lead under CRM's own rules (read for reads, write for writes). Fixtures:
+`meeting.get_meetings.json`, `meeting.submit_mom.json`.
+
+| Method | Verb | Params | Returns |
+| --- | --- | --- | --- |
+| `get_meetings` | GET | `lead` | `{lead, status, status_type, deal, can_write, ai, summary: {last_meeting_on, next_activity: {kind ("meeting" \| "follow_up"), at, label, meeting? \| task?} \| null, meetings_completed, needs_follow_up: {flag, reasons[]}}, meetings: [Meeting]}` |
+| `get_meeting` | GET | `name` | Meeting plus `lead`, `lead_name`, the MOM fields, `action_items[]`, `attachments[]`, `can_write` |
+| `schedule` | POST | `lead`, `scheduled_at` (future, site time), `meeting_type` (`Online` / `Physical visit`), `meeting_link?` (https), `location?`, `duration_minutes?` (60), `participants?`, `agenda?` | the full meeting; the lead moves to Meeting Scheduled |
+| `set_status` | POST | `name`, `status` (`Meeting in Progress`, `Completed`, `Follow-up Required`, `Cancelled`) | the full meeting |
+| `submit_mom` | POST | `name`, `mom` (JSON: `agenda`, `discussion_points` (required), `client_requirements`, `decisions`, `client_interest` (`Positive` / `Neutral` / `Negative`), `objections`, `quotation_feedback`, `action_items: [{item, responsible, due_date, done}]`, `next_follow_up_on`, `next_meeting_details`), `lead_status?`, `lost_reason?`, `next_meeting?` (the `schedule` fields as JSON) | the full meeting. Needs a next step: `next_follow_up_on`, `next_meeting` or a closing `lead_status`. Creates the Sales follow-up task and moves the lead (§5.3 of the spec) |
+
+```
+Meeting = {name, stage, stage_label ("1st meeting" … "Additional meeting 1"), status, meeting_type,
+  meeting_link, location, scheduled_at, ends_at, duration_minutes, participants, bde, bde_name,
+  summary (first 240 characters of the discussion), client_interest, next_follow_up_on,
+  actions_open, actions_total, submitted_on, prepared_by_name, mom_pending_since,
+  escalation_level (0-2), follow_up_task, next_meeting}
+```
+
+- Statuses: Scheduled, Meeting in Progress, Completed, MOM Pending, MOM Submitted, Follow-up
+  Required, Rescheduled, Cancelled. MOM Pending is set by the server once the meeting has ended
+  without minutes; show it in red with an icon.
+- Push: MOM pending, escalations and the reminder before a meeting are Notification Logs on the
+  CRM Lead (open the lead).
 
 ### 6.1 Sales insights (`get_sales_insights`)
 
@@ -915,6 +944,7 @@ The tests are in `tbo_smart/tests/test_mobile_{ess,advance,crm,lead_capture,mana
 - **Approvals:** a leave approval shows its `half_day_date`.
 - **Manager:** endpoints refuse non-managers and non-approvers; only the named approver can
   decide.
+- **Meetings** (`test_lead_pipeline.py`): the `get_meetings` shape against its fixture, status rules, MOM submit and `set_lead_status` with a lost reason.
 - **CRM:** visibility follows CRM rules. Call today (`test_smart_leads.py`): order, team permission, the off switch and the shape against `docs/fixtures/crm.get_call_today.json`.
 - **Lead capture** (`test_mobile_lead_capture.py`): phone formats (`+971 50…`, `050…`,
   `00971`, spaces and brackets), email and organization case, matches across leads,
@@ -983,6 +1013,11 @@ those apps on Frappe version-15.
   Half day on a leave of several days: `apply_leave` validates `half_day_date` within the
   range, new `ess.get_leave_days` previews HRMS's total, and leave approvals
   (`manager.get_approvals`) return `half_day_date`.
+- **v1.8 (2026-10-16):** the lead pipeline (`docs/lead-pipeline.md`). New
+  `tbo_smart.api.mobile.meeting` (§6.4): `get_meetings`, `get_meeting`, `schedule`, `set_status`,
+  `submit_mom`. `crm.set_lead_status` takes `lost_reason` (required for Closed – Lost) and
+  returns it. `crm.convert_lead` refuses a lead that isn't Closed – Won while the pipeline is on.
+  `get_options` returns the 13 pipeline statuses.
 - **v1.7 (2026-10-15):** `crm.get_call_today` (§6.3), the smart leads Call today list
   (`docs/smart-leads.md`). Needs TBO Smart Settings → Lead scoring and Call today.
 - **v1.6 (2026-10-13):** employee advances. New `ess.get_advances`, `ess.create_advance` and

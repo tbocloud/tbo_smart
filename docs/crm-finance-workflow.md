@@ -1,4 +1,4 @@
-# CRM finance workflow: lead to reconciled cash (living spec, v0.6)
+# CRM finance workflow: lead to reconciled cash (living spec, v0.7)
 
 **Status:** Phases 1 to 5 built (owner approved start 2026-10-12; management sign-off and
 open questions pending). Every phase ships behind its own switch in TBO Smart Settings, off by
@@ -129,10 +129,10 @@ Version (track_changes on CRM Deal) keeps its history. Only "Onboarding complete
 
 | # | Stage | Status values | System record | Owner role | Carried forward automatically | Exit criteria |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | Lead | CRM Lead Status (New, Contacted, Nurture, Qualified, Unqualified, Junk **[verify on site]**) | CRM Lead | Sales Team (captures), BDE | Source, contact, organization, products (web form, mobile `create_lead`, import) | Owner assigned |
+| 1 | Lead | CRM Lead Status: the 13 pipeline statuses, New Lead to Closed – Won / Closed – Lost (`lead-pipeline.md` §2) | CRM Lead | Sales Team (captures), BDE | Source, contact, organization, products (web form, mobile `create_lead`, import) | Owner assigned |
 | 2 | BDE assignment | `lead_owner` set | CRM Lead + ToDo | BDM / Head – Sales & Marketing | Owner gets share + assignment (`share_with_agent`, `assign_agent`) | `lead_owner` not empty |
 | 3 | Follow-up | Lead status; open CRM Task due date = next follow-up | CRM Task, FCRM Note, CRM Call Log | BDE | Notes, tasks and calls stay on the lead | Qualified, or Lost with reason |
-| 4 | Conversion | `converted = 1`; deal created | CRM Deal (`lead` link) | BDE | `convert_to_deal` copies owner, contact, organization and products | Deal exists |
+| 4 | Conversion | `converted = 1`; deal created automatically at Closed – Won while the lead pipeline is on (`lead-pipeline.md` §6) | CRM Deal (`lead` link) | BDE | `convert_to_deal` copies owner, contact, organization and products | Deal exists |
 | 5 | Onboarding | `tbo_stage = Onboarding` | CRM Deal + onboarding checklist (CRM Task template) | BDE + KSA Accounts | Deal → ERPNext Customer (`create_customer_from_deal`) with contacts and address | Customer exists with VAT/CR no. and billing address; checklist done; "Onboarding complete" ticked |
 | 6 | Quotation approval | Quotation → adjustment → role check → approval (if needed) → final quotation, run by **Quotation discount/commission approval (separate feature, docs/quotation-discount-control.md)**; client acceptance = Sales Order | Quotation (`crm_deal`) + that feature's adjustment and approval records, Sales Order | BDE drafts and adjusts within their limit; BDM, Head – Sales & Marketing, Director and CEO approve above it (limits per designation live in that feature's settings) | Items from deal products (`prefill_quotation_items`); customer, company and contact from the deal | Final quotation submitted with **no approval pending**, and Sales Order submitted (client accepted). **A quotation whose approval is pending cannot become a Sales Order or Sales Invoice** (`validate` guard, §3.1). |
 | 7 | Invoice | SI status (Unpaid, Partly Paid, Overdue, Paid) | Sales Invoice (`crm_deal`, payment schedule) | KSA Accounts | SO → SI mapper (items, taxes, payment terms, project); `crm_deal` set by hook | Invoice submitted |
@@ -1352,3 +1352,4 @@ the finance cards; hidden amounts and the switch. The fork tests the hooks in
 | 0.4 | 2026-10-12 | Phase 3 built: fund allocation per receipt and transfers, memo only (§14.5); §3.2 and §12 updated. |
 | 0.5 | 2026-10-13 | Phase 4 built: bank-line duplicate, mismatch and ageing checks, maker-checker verification and lock, second approver, Settling / Reconciled / On Exception stages and closure (§14.7). |
 | 0.6 | 2026-10-13 | Phase 5 built: finance cards on the CRM dashboard by role (§14.9). |
+| 0.7 | 2026-10-16 | Stages 1 and 4 follow the lead pipeline (`lead-pipeline.md`): its statuses, and the deal made at Closed – Won. |
