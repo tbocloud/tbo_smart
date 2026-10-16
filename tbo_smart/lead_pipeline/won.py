@@ -13,6 +13,7 @@ from crm.fcrm.doctype.crm_lead.crm_lead import convert_to_deal as crm_convert_to
 from frappe import _
 
 from tbo_smart.lead_pipeline import pipeline_enabled
+from tbo_smart.lead_pipeline.quotations import relink_to_deal
 from tbo_smart.lead_pipeline.statuses import CLOSED_WON, status_type
 
 
@@ -27,6 +28,7 @@ def create_deal(lead) -> str:
 	assignees carried over) as a system action. Returns the deal's name."""
 	existing = frappe.db.get_value("CRM Deal", {"lead": lead.name}, "name")
 	if existing:
+		relink_to_deal(lead.name, existing)
 		return existing
 	stage = won_deal_stage()
 	lead.flags.ignore_permissions = True
@@ -36,6 +38,7 @@ def create_deal(lead) -> str:
 	# CRM's conversion sets the lead to "Qualified" when that status exists; it stays Won
 	frappe.db.set_value("CRM Lead", lead.name, "status", lead.status, update_modified=False)
 	lead.add_comment("Info", _("Deal {0} created: the lead is {1}").format(deal, lead.status))
+	relink_to_deal(lead.name, deal)
 	return deal
 
 

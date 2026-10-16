@@ -33,10 +33,7 @@ def get_quotation_form(deal: str, quotation: str | None = None) -> dict:
 	require_deal(deal)
 	doc = frappe.get_doc("CRM Deal", deal)
 	company = doc.get("tbo_company") or get_default_company()
-	choices = {
-		"companies": frappe.get_list("Company", pluck="name", limit_page_length=0),
-		"tax_templates": get_tax_templates(company),
-	}
+	choices = form_choices(company)
 	if quotation:
 		existing = get_editable_quotation(deal, quotation, "read")
 		return {**choices, **serialize_quotation(existing)}
@@ -132,6 +129,23 @@ def can_create_desk_quotations() -> bool:
 
 
 # ---------- helpers ----------
+
+
+def form_choices(company: str | None) -> dict:
+	"""The dialog's pick lists: companies, the company's tax templates with their rates, payment
+	terms templates and terms and conditions."""
+	templates = get_tax_templates(company)
+	return {
+		"companies": frappe.get_list("Company", pluck="name", limit_page_length=0),
+		"tax_templates": templates,
+		"tax_rates": get_tax_rates(templates),
+		"payment_terms_templates": frappe.get_list(
+			"Payment Terms Template", pluck="name", limit_page_length=0
+		),
+		"terms_templates": frappe.get_list(
+			"Terms and Conditions", filters={"disabled": 0, "selling": 1}, pluck="name", limit_page_length=0
+		),
+	}
 
 
 def get_editable_quotation(deal: str, quotation: str, ptype: str):
@@ -230,23 +244,33 @@ def apply_values(doc, values: frappe._dict) -> None:
 	doc.additional_discount_percentage = flt(values.get("additional_discount_percentage"))
 	doc.discount_amount = 0
 	doc.set(COMMISSION_FIELD, flt(values.get("commission")))
-	doc.terms = values.get("terms") or None
+	if "tc_name" in values:
+		doc.tc_name = values.get("tc_name") or None
+	doc.terms = values.get("terms") or (
+		frappe.db.get_value("Terms and Conditions", doc.tc_name, "terms") if doc.get("tc_name") else None
+	)
+	if "payment_terms_template" in values and values.get("payment_terms_template") != doc.get(
+		"payment_terms_template"
+	):
+		# ERPNext rebuilds the schedule from the template on validate
+		doc.payment_terms_template = values.get("payment_terms_template") or None
+		doc.set("payment_schedule", [])
 	doc.set("items", [])
 	for row in values["items"]:
 		list_rate = flt(row.get("price_list_rate"))
 		discount = flt(row.get("discount_percentage"))
 		rate = flt(list_rate * (1 - discount / 100), 2)
-		doc.append(
-			"items",
-			{
-				"item_code": row["item_code"],
-				"qty": flt(row["qty"]),
-				"price_list_rate": list_rate,
-				"discount_percentage": discount,
-				"discount_amount": flt(list_rate - rate, 2),
-				"rate": rate,
-			},
-		)
+		line = {
+			"item_code": row["item_code"],
+			"qty": flt(row["qty"]),
+			"price_list_rate": list_rate,
+			"discount_percentage": discount,
+			"discount_amount": flt(list_rate - rate, 2),
+			"rate": rate,
+		}
+		if (row.get("description") or "").strip():
+			line["description"] = row["description"].strip()
+		doc.append("items", line)
 
 
 def item_names(codes: list[str]) -> dict[str, str]:
@@ -255,6 +279,28 @@ def item_names(codes: list[str]) -> dict[str, str]:
 	return dict(
 		frappe.get_all("Item", filters={"name": ("in", codes)}, fields=["name", "item_name"], as_list=True)
 	)
+
+
+def get_tax_rates(templates: list[str]) -> dict[str, float]:
+	"""{template: total % of its "On Net Total" rows}, for the dialog's live tax estimate; the
+	saved quotation's own taxes are the real figure."""
+	if not templates:
+		return {}
+	Tax = frappe.qb.DocType("Sales Taxes and Charges")
+	rows = (
+		frappe.qb.from_(Tax)
+		.select(Tax.parent, Tax.rate)
+		.where(
+			(Tax.parenttype == TAX_TEMPLATE)
+			& Tax.parent.isin(templates)
+			& (Tax.charge_type == "On Net Total")
+			& (Tax.included_in_print_rate == 0)
+		)
+	).run(as_dict=True)
+	rates: dict[str, float] = {}
+	for row in rows:
+		rates[row.parent] = flt(rates.get(row.parent)) + flt(row.rate)
+	return rates
 
 
 def get_tax_templates(company: str | None) -> list[str]:
@@ -282,7 +328,12 @@ def serialize_quotation(doc) -> dict:
 		"additional_discount_percentage": flt(doc.additional_discount_percentage),
 		"commission": flt(doc.get(COMMISSION_FIELD)),
 		"terms": doc.get("terms"),
+		"tc_name": doc.get("tc_name"),
+		"payment_terms_template": doc.get("payment_terms_template"),
+		"total": flt(doc.total),
+		"discount_amount": flt(doc.discount_amount),
 		"net_total": flt(doc.net_total),
+		"total_taxes_and_charges": flt(doc.total_taxes_and_charges),
 		"grand_total": flt(doc.grand_total),
 		"items": [
 			{
@@ -291,6 +342,7 @@ def serialize_quotation(doc) -> dict:
 				"qty": flt(row.qty),
 				"price_list_rate": flt(row.price_list_rate) or flt(row.rate),
 				"discount_percentage": flt(row.discount_percentage),
+				"description": row.description,
 				"amount": flt(row.amount),
 			}
 			for row in doc.items

@@ -68,15 +68,21 @@ def write_deal(deal, values: dict, comment: str | None = None) -> None:
 	A full save would re-run Frappe CRM's on_update (customer creation, automations) from an
 	accounting document's submit. So the values go straight to the row, and a Version row and
 	an optional timeline comment record who changed what."""
-	before = copy.deepcopy(deal)
-	deal.update(values)
-	frappe.db.set_value("CRM Deal", deal.name, values)
+	write_tracked(deal, values, comment)
+	publish_deal_update([deal.name])
+
+
+def write_tracked(doc, values: dict, comment: str | None = None) -> None:
+	"""Write fields straight to a document's row (no save hooks, also on a submitted document)
+	and keep the history: a Version row and an optional timeline comment."""
+	before = copy.deepcopy(doc)
+	doc.update(values)
+	frappe.db.set_value(doc.doctype, doc.name, values)
 	version = frappe.new_doc("Version")
-	if version.update_version_info(before, deal):
+	if version.update_version_info(before, doc):
 		version.insert(ignore_permissions=True)
 	if comment:
-		deal.add_comment("Info", comment)
-	publish_deal_update([deal.name])
+		doc.add_comment("Info", comment)
 
 
 def update_stage(deal_name: str) -> str | None:
