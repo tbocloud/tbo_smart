@@ -939,6 +939,11 @@ def disable_lead_pipeline() -> None:
 	set_smart_lead_settings(enable_lead_pipeline=0)
 
 
+def hours_from_now(hours: float):
+	"""The datetime `hours` from now (negative: in the past), for meeting times."""
+	return add_to_date(now_datetime(), hours=hours)
+
+
 def make_lead_meeting(lead: str, scheduled_at=None, **fields) -> str:
 	"""A TBO Lead Meeting on a lead, inserted as Administrator (an hour from now by default)."""
 	meeting = frappe.get_doc(

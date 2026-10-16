@@ -416,14 +416,16 @@ class PipelineDashboard:
 def build_dashboard(from_date=None, to_date=None, bde=None, source=None, status=None) -> dict:
 	"""The Pipeline page for the session user, within their CRM scope."""
 	require_dashboard()
-	owners = scope_owners()
+	allowed = scope_owners()
+	owners = allowed
 	if bde:
-		if owners is not None and bde not in owners:
+		if allowed is not None and bde not in allowed:
 			frappe.throw(_("{0} is not in your team.").format(bde), frappe.PermissionError)
 		owners = [bde]
 	result = PipelineDashboard(from_date, to_date, owners, source, status).build()
-	result["scope"] = "all" if owners is None else ("own" if owners == [frappe.session.user] else "team")
-	result["people"] = people(scope_owners())
+	# the caller's own scope, whatever the BDE filter narrowed it to
+	result["scope"] = "all" if allowed is None else ("own" if allowed == [frappe.session.user] else "team")
+	result["people"] = people(allowed)
 	return result
 
 

@@ -2,7 +2,7 @@ import json
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import add_days, add_to_date, now_datetime, nowdate
+from frappe.utils import add_days, now_datetime, nowdate
 
 from tbo_smart.api import lead_pipeline_dashboard as api
 from tbo_smart.api import lead_quotation
@@ -24,6 +24,7 @@ from tbo_smart.test_utils import (
 	disable_lead_quotations,
 	disable_sales_hierarchy,
 	enable_lead_quotations,
+	hours_from_now,
 	make_crm_lead,
 	make_crm_lead_source,
 	make_lead_meeting,
@@ -41,10 +42,6 @@ MANAGER = "pd.manager@tbosmart.test"
 OWNERS = (BDE, BDE2, MANAGER)
 SOURCE = "TBO Smart Test Website"
 SERVICE = "TBO Smart Dashboard Service"
-
-
-def hours(n: float):
-	return add_to_date(now_datetime(), hours=n)
 
 
 class TestPipelineDashboard(FrappeTestCase):
@@ -94,13 +91,15 @@ class TestPipelineDashboard(FrappeTestCase):
 		change_lead_status(self.other_won, CLOSED_WON)
 		enable_lead_quotations(enable_pipeline_dashboard=1)
 		held = make_lead_meeting(self.hot)
-		move_meeting(held, hours(-3))
+		move_meeting(held, hours_from_now(-3))
 		frappe.db.set_value(
 			"TBO Lead Meeting", held, {"status": "MOM Submitted", "submitted_on": now_datetime()}
 		)
 		pending = make_lead_meeting(self.hot)
-		move_meeting(pending, hours(-30), status="MOM Pending", mom_pending_since=hours(-28))
-		make_lead_meeting(self.new, hours(30))
+		move_meeting(
+			pending, hours_from_now(-30), status="MOM Pending", mom_pending_since=hours_from_now(-28)
+		)
+		make_lead_meeting(self.new, hours_from_now(30))
 		make_lead_task(self.new, add_days(nowdate(), -2), BDE)
 		frappe.set_user(BDE)
 		quote = lead_quotation.save_quotation(
@@ -149,6 +148,8 @@ class TestPipelineDashboard(FrappeTestCase):
 		frappe.set_user(MANAGER)
 		board = api.get_pipeline_dashboard()
 		self.assertEqual(board["scope"], "all")
+		# a BDE filter narrows the figures, not the manager's scope
+		self.assertEqual(api.get_pipeline_dashboard(bde=BDE)["scope"], "all")
 		self.assertGreaterEqual(board["won"], 2)
 		self.assertEqual(api.get_pipeline_dashboard(bde=BDE2)["won"], 1)
 		by_source = api.get_pipeline_dashboard(bde=BDE, source=SOURCE)
