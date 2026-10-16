@@ -14,6 +14,8 @@ import jwt
 import requests
 from cryptography.hazmat.primitives.asymmetric import rsa
 from erpnext.setup.doctype.employee.test_employee import make_employee
+from frappe import _
+from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 from frappe.integrations.oauth2 import get_oauth_server, get_token
 from frappe.utils import (
 	add_days,
@@ -37,6 +39,8 @@ from tbo_smart.api.mobile.capabilities import get_capabilities
 from tbo_smart.api.mobile.utils import INSIGHTS_CACHE_PREFIX
 from tbo_smart.checkin import place
 from tbo_smart.install import setup_quotation_approval
+from tbo_smart.sales.opportunity import customer_of
+from tbo_smart.smart_leads.migration import note_html
 
 TEST_HOLIDAY_LIST = "TBO Smart Test Holidays"
 MS_TEST_TENANT = "11111111-2222-3333-4444-555555555555"
@@ -53,19 +57,13 @@ def before_tests() -> None:
 	`run-tests --app tbo_smart` runs only this app's before_tests hook, so without this a new
 	CI site has no Company or Department and make_employee fails."""
 	hrms_before_tests()
-	# a test site runs on the pipeline statuses, as tboindia does after the deploy's patch;
-	# after the setup wizard, whose CRM demo data still uses Frappe CRM's default statuses
-	from tbo_smart.lead_pipeline.status_migration import execute as migrate_lead_statuses
-
-	migrate_lead_statuses()
-	frappe.db.commit()  # nosemgrep
 
 
 def make_user(email: str, roles: list[str] | tuple = ()) -> str:
 	"""A website-enabled User with exactly the extra roles given (adds, never removes)."""
 	if not frappe.db.exists("User", email):
-		# CRM inserts commit, so test users stay: on a fresh site the suite creates more than the
-		# 60 an hour Frappe's sign-up throttle allows
+		# the suite creates more than the 60 users an hour Frappe's sign-up throttle allows on a
+		# fresh site (some tests commit, so test users stay)
 		with patch("frappe.core.doctype.user.user.throttle_user_creation"):
 			frappe.get_doc(
 				{
@@ -425,33 +423,60 @@ def make_salary_slip_record(employee: str, start_date: str, net_pay: float = 100
 	return slip.name
 
 
-def make_crm_lead(owner: str, first_name: str = "Test Lead", **fields) -> str:
-	"""A CRM Lead owned by `owner`, inserted as Administrator."""
-	lead = frappe.get_doc({"doctype": "CRM Lead", "first_name": first_name, "lead_owner": owner, **fields})
+def make_lead(owner: str, first_name: str = "Test Lead", **fields) -> str:
+	"""An ERPNext Lead owned by `owner`, inserted as Administrator; `fields` are Lead fields
+	(company_name, email_id, mobile_no, source, tbo_stage, …)."""
+	lead = frappe.get_doc({"doctype": "Lead", "first_name": first_name, "lead_owner": owner, **fields})
 	lead.insert(ignore_permissions=True)
 	return lead.name
 
 
-def make_crm_deal(owner: str, status: str = "Qualification", deal_value: float = 1000, **fields) -> str:
-	"""A CRM Deal owned by `owner`, inserted as Administrator."""
+def make_sales_stage(name: str, kind: str = "Ongoing", probability: float = 0, position: int = 0) -> str:
+	"""A Sales Stage typed for the deal pipeline (tbo_stage_type), created or updated."""
+	values = {"tbo_stage_type": kind, "tbo_probability": probability, "tbo_position": position}
+	if frappe.db.exists("Sales Stage", name):
+		frappe.db.set_value("Sales Stage", name, values)
+	else:
+		frappe.get_doc({"doctype": "Sales Stage", "stage_name": name, **values}).insert(
+			ignore_permissions=True
+		)
+	frappe.clear_document_cache("Sales Stage", name)
+	return name
+
+
+def make_deal(owner: str, status: str = "Qualification", deal_value: float = 1000, **fields) -> str:
+	"""An Opportunity (a deal) owned by `owner` in the Sales Stage `status`, made out to a new
+	organization (Prospect) unless `fields` name the party; inserted as Administrator."""
+	if not frappe.db.exists("Sales Stage", status):
+		make_sales_stage(status)
+	if "party_name" not in fields:
+		fields.update(
+			opportunity_from="Prospect",
+			party_name=make_organization(f"TBO Deal {frappe.generate_hash(length=8)}"),
+		)
 	deal = frappe.get_doc(
-		{"doctype": "CRM Deal", "deal_owner": owner, "status": status, "deal_value": deal_value, **fields}
+		{
+			"doctype": "Opportunity",
+			"opportunity_owner": owner,
+			"sales_stage": status,
+			"opportunity_amount": deal_value,
+			"company": erpnext.get_default_company(),
+			**fields,
+		}
 	)
 	deal.insert(ignore_permissions=True)
 	return deal.name
 
 
 def make_test_mobile() -> str:
-	"""A random 9-digit mobile number without country code or trunk 0 (e.g. 504182276).
-
-	CRM inserts commit, so duplicate-check tests use a fresh number each time and never
-	match a lead left by another test or an earlier run."""
+	"""A random 9-digit mobile number without country code or trunk 0 (e.g. 504182276), so
+	duplicate-check tests never match a lead left by another test or an earlier run."""
 	return "50" + str(int(frappe.generate_hash(length=12), 16))[-7:].zfill(7)
 
 
-def make_crm_organization(name: str) -> str:
-	"""A CRM Organization named `name`, inserted as Administrator."""
-	organization = frappe.get_doc({"doctype": "CRM Organization", "organization_name": name})
+def make_organization(name: str) -> str:
+	"""A Prospect (an organization) named `name`, inserted as Administrator."""
+	organization = frappe.get_doc({"doctype": "Prospect", "company_name": name})
 	organization.insert(ignore_permissions=True)
 	return organization.name
 
@@ -564,10 +589,10 @@ def get_adjustments(quotation: str, kind: str | None = None) -> list[frappe._dic
 	return rows
 
 
-def make_crm_lead_source(name: str) -> str:
-	"""A CRM Lead Source named `name`, if the site does not have it yet."""
-	if not frappe.db.exists("CRM Lead Source", name):
-		frappe.get_doc({"doctype": "CRM Lead Source", "source_name": name}).insert(ignore_permissions=True)
+def make_lead_source(name: str) -> str:
+	"""A Lead Source named `name`, if the site does not have it yet."""
+	if not frappe.db.exists("Lead Source", name):
+		frappe.get_doc({"doctype": "Lead Source", "source_name": name}).insert(ignore_permissions=True)
 	return name
 
 
@@ -624,35 +649,30 @@ def make_attendance(employee: str, day: str, status: str = "Present", late_entry
 
 
 def make_sales_hierarchy_node(user: str, reports_to: str | None = None) -> str:
-	"""A CRM Sales Hierarchy node for `user` under the node `reports_to`; rebuilds the tree."""
+	"""A TBO Sales Hierarchy node for `user` under the node `reports_to`; rebuilds the tree."""
 	node = frappe.get_doc(
 		{
-			"doctype": "CRM Sales Hierarchy",
+			"doctype": "TBO Sales Hierarchy",
 			"user": user,
 			"reports_to": reports_to,
 			"is_group": 1,
 		}
 	)
 	node.insert(ignore_permissions=True)
-	rebuild_tree("CRM Sales Hierarchy")
+	rebuild_tree("TBO Sales Hierarchy")
 	return node.name
 
 
 def enable_sales_hierarchy() -> None:
-	frappe.db.set_single_value("FCRM Settings", "enable_sales_hierarchy", 1)
+	frappe.db.set_single_value("TBO Smart Settings", "enable_sales_hierarchy", 1)
 
 
 def disable_sales_hierarchy(users: list[str] | tuple = ()) -> None:
-	"""Turn the CRM sales hierarchy off and delete the nodes of `users`.
-
-	CRM Lead and Deal inserts commit (their after_insert assigns and shares), so a setting
-	changed in a test is already persisted; the cleanup is committed for the same reason.
-	"""
-	frappe.db.set_single_value("FCRM Settings", "enable_sales_hierarchy", 0)
+	"""Turn the sales hierarchy off and delete the nodes of `users`, and commit (some tests
+	commit, so a node they made may already be persisted)."""
+	frappe.db.set_single_value("TBO Smart Settings", "enable_sales_hierarchy", 0)
 	for user in users:
-		frappe.db.delete("CRM Sales Hierarchy", {"user": user})
-	frappe.cache.delete_value("crm_sales_hierarchy_subtree")
-	# CRM's committing after_insert already persisted the fixtures, so the undo must persist too.
+		frappe.db.delete("TBO Sales Hierarchy", {"user": user})
 	frappe.db.commit()  # nosemgrep
 
 
@@ -673,9 +693,8 @@ def capabilities_as(user: str) -> frappe._dict:
 
 
 def get_deal_base_value(name: str) -> float:
-	"""A deal's value in the CRM base currency (deal_value x exchange_rate), as insights count it."""
-	deal_value, exchange_rate = frappe.db.get_value("CRM Deal", name, ["deal_value", "exchange_rate"])
-	return deal_value * (exchange_rate or 1)
+	"""A deal's value in the company currency, as insights count it."""
+	return frappe.db.get_value("Opportunity", name, "base_opportunity_amount")
 
 
 def get_all_keys(value) -> list[str]:
@@ -690,20 +709,18 @@ def get_all_keys(value) -> list[str]:
 	return keys
 
 
-def delete_crm_records(owners: list[str] | tuple) -> None:
-	"""Delete the CRM Deals, Leads, Notes and Tasks of `owners` and commit.
-
-	CRM inserts commit, so their fixtures outlive the test's rollback; this keeps reruns
-	and later classes starting from a clean slate.
-	"""
+def delete_sales_records(owners: list[str] | tuple) -> None:
+	"""Delete the deals, leads, notes, calls and tasks of `owners` and commit (some tests commit,
+	e.g. through an email sent at once, so fixtures can outlive the test's rollback)."""
+	owners = list(owners)
 	for doctype, owner_field in (
-		("CRM Deal", "deal_owner"),
-		("CRM Lead", "lead_owner"),
-		("FCRM Note", "owner"),
-		("CRM Task", "assigned_to"),
+		("Opportunity", "opportunity_owner"),
+		("Lead", "lead_owner"),
+		("Comment", "owner"),
+		("Event", "owner"),
+		("ToDo", "allocated_to"),
 	):
-		frappe.db.delete(doctype, {owner_field: ("in", list(owners))})
-	# CRM's committing after_insert already persisted these fixtures, so the delete must persist too.
+		frappe.db.delete(doctype, {owner_field: ("in", owners)})
 	frappe.db.commit()  # nosemgrep
 
 
@@ -847,8 +864,9 @@ def mock_ai(*responses):
 
 
 def make_migration_note(lead: str, old_id: str = "CRM-LEAD-2025-00001", **fields) -> str:
-	"""The FCRM Note the 2026-10-14 migration left on a lead: "Label: value" lines for status,
-	source, owner, created, remarks, priority and project_type (labels as the parser reads them)."""
+	"""The note the 2026-10-14 migration left on a lead, as the cutover copies it (a Comment
+	starting with its title): "Label: value" lines for status, source, owner, created, remarks,
+	priority and project_type (labels as the parser reads them)."""
 	labels = {
 		"status": "Status",
 		"source": "Source",
@@ -859,52 +877,42 @@ def make_migration_note(lead: str, old_id: str = "CRM-LEAD-2025-00001", **fields
 		"remarks": "Remarks",
 	}
 	content = "".join(f"<p>{labels[key]}: {value}</p>" for key, value in fields.items())
-	note = frappe.get_doc(
-		{
-			"doctype": "FCRM Note",
-			"title": f"Migrated from tboindia-old {old_id}",
-			"content": content,
-			"reference_doctype": "CRM Lead",
-			"reference_docname": lead,
-		}
-	)
-	note.insert(ignore_permissions=True)
-	return note.name
+	return make_lead_note(lead, note_html(f"Migrated from tboindia-old {old_id}", content))
 
 
 def make_lead_note(lead: str, text: str, days_ago: int = 0) -> str:
-	"""An FCRM Note on a lead, its creation moved `days_ago` days back."""
+	"""A note (Comment) on a lead, its creation moved `days_ago` days back."""
 	note = frappe.get_doc(
 		{
-			"doctype": "FCRM Note",
-			"title": text[:140],
+			"doctype": "Comment",
+			"comment_type": "Comment",
 			"content": text,
-			"reference_doctype": "CRM Lead",
-			"reference_docname": lead,
+			"reference_doctype": "Lead",
+			"reference_name": lead,
 		}
 	)
 	note.insert(ignore_permissions=True)
 	if days_ago:
 		frappe.db.set_value(
-			"FCRM Note", note.name, "creation", add_days(now_datetime(), -days_ago), update_modified=False
+			"Comment", note.name, "creation", add_days(now_datetime(), -days_ago), update_modified=False
 		)
 	return note.name
 
 
 def make_lead_task(
-	lead: str, due, assigned_to: str, status: str = "Todo", task_type: str | None = "Sales follow-up"
+	lead: str, due, assigned_to: str, status: str = "Open", task_type: str | None = "Sales follow-up"
 ) -> str:
-	"""A CRM Task on a lead due on `due` (a date or datetime), inserted as Administrator."""
+	"""An open ToDo (a follow-up) on a lead due on `due`'s day, inserted as Administrator."""
 	task = frappe.get_doc(
 		{
-			"doctype": "CRM Task",
-			"title": "Follow up",
+			"doctype": "ToDo",
+			"description": "Follow up",
 			"status": status,
 			"priority": "Medium",
-			"assigned_to": assigned_to,
-			"due_date": f"{getdate(due)} 10:00:00" if len(str(due)) <= 10 else due,
-			"reference_doctype": "CRM Lead",
-			"reference_docname": lead,
+			"allocated_to": assigned_to,
+			"date": getdate(due),
+			"reference_type": "Lead",
+			"reference_name": lead,
 			"tbo_task_type": task_type,
 		}
 	)
@@ -912,19 +920,19 @@ def make_lead_task(
 	return task.name
 
 
-def change_lead_status(lead: str, status: str, **fields) -> None:
-	"""Save a new status on a lead as Administrator, so CRM logs the change."""
-	doc = frappe.get_doc("CRM Lead", lead)
-	doc.update({"status": status, **fields})
+def change_lead_stage(lead: str, stage: str, **fields) -> None:
+	"""Save a new stage on a lead as Administrator, so its stage log keeps the change."""
+	doc = frappe.get_doc("Lead", lead)
+	doc.update({"tbo_stage": stage, **fields})
 	doc.save(ignore_permissions=True)
 
 
 def age_lead(lead: str, days: int) -> None:
-	"""Move a lead's creation `days` back (and its first status log row with it)."""
+	"""Move a lead's creation `days` back (and its first stage log row with it)."""
 	when = add_days(now_datetime(), -days)
-	frappe.db.set_value("CRM Lead", lead, "creation", when, update_modified=False)
+	frappe.db.set_value("Lead", lead, "creation", when, update_modified=False)
 	frappe.db.set_value(
-		"CRM Status Change Log", {"parent": lead, "idx": 1}, "from_date", when, update_modified=False
+		"TBO Stage Change", {"parent": lead, "idx": 1}, "changed_on", when, update_modified=False
 	)
 
 
@@ -966,27 +974,21 @@ def move_meeting(meeting: str, scheduled_at, **values) -> None:
 
 
 def delete_lead_deals(leads: list[str] | tuple) -> None:
-	"""Delete the deals made from these leads, with their contact and product rows."""
-	deals = frappe.get_all("CRM Deal", filters={"lead": ("in", list(leads) or [""])}, pluck="name")
+	"""Delete the deals made from these leads, with their child rows."""
+	deals = frappe.get_all(
+		"Opportunity",
+		filters={"tbo_lead": ("in", list(leads) or [""])},
+		pluck="name",
+	)
 	if deals:
-		for child in ("CRM Contacts", "CRM Products"):
-			frappe.db.delete(child, {"parenttype": "CRM Deal", "parent": ("in", deals)})
-		frappe.db.delete("CRM Deal", {"name": ("in", deals)})
-
-
-def make_old_lead_status(name: str, kind: str) -> str:
-	"""One of Frappe CRM's pre-pipeline statuses (New, Nurture, Qualified, Junk, …), created when
-	missing, for the status migration's tests."""
-	if not frappe.db.exists("CRM Lead Status", name):
-		frappe.get_doc({"doctype": "CRM Lead Status", "lead_status": name, "type": kind}).insert(
-			ignore_permissions=True
-		)
-	return name
+		for child in ("Opportunity Item", "TBO Stage Change", "Opportunity Lost Reason Detail", "CRM Note"):
+			frappe.db.delete(child, {"parenttype": "Opportunity", "parent": ("in", deals)})
+		frappe.db.delete("Opportunity", {"name": ("in", deals)})
 
 
 def set_lead_values(lead: str, **values) -> None:
 	"""Write lead fields straight in the database, as the old site's data came in."""
-	frappe.db.set_value("CRM Lead", lead, values, update_modified=False)
+	frappe.db.set_value("Lead", lead, values, update_modified=False)
 
 
 def delete_lead_meetings(leads: list[str] | tuple) -> None:
@@ -1072,10 +1074,10 @@ def disable_lead_quotations() -> None:
 
 
 def delete_lead_quotations(leads: list[str] | tuple) -> None:
-	"""Cancel and delete the quotations, sales orders and deals of these leads, and commit."""
+	"""Cancel and delete the quotations and sales orders of these leads, and commit."""
 	if not leads:
 		return
-	quotations = frappe.get_all("Quotation", filters={"tbo_crm_lead": ("in", list(leads))}, pluck="name")
+	quotations = frappe.get_all("Quotation", filters={"tbo_lead": ("in", list(leads))}, pluck="name")
 	if not quotations:
 		return
 	for order in frappe.get_all(
@@ -1091,7 +1093,7 @@ def delete_lead_quotations(leads: list[str] | tuple) -> None:
 			doc.cancel()
 		frappe.delete_doc("Quotation", name, force=True, ignore_permissions=True)
 	frappe.db.delete("TBO Quotation Adjustment", {"quotation": ("in", quotations)})
-	frappe.db.delete("File", {"attached_to_doctype": "CRM Lead", "attached_to_name": ("in", list(leads))})
+	frappe.db.delete("File", {"attached_to_doctype": "Lead", "attached_to_name": ("in", list(leads))})
 	frappe.db.commit()  # nosemgrep
 
 
@@ -1130,14 +1132,23 @@ def set_user_enabled(email: str, enabled: bool) -> None:
 
 def delete_smart_lead_records(owners: list[str] | tuple) -> None:
 	"""Delete the leads of `owners` with every note, call, task and triage row on them, and
-	commit (CRM inserts commit, so the fixtures outlive the test's rollback)."""
-	leads = frappe.get_all("CRM Lead", filters={"lead_owner": ("in", list(owners))}, pluck="name")
+	commit (the digest's marker and its emails commit, so fixtures can outlive the rollback)."""
+	leads = frappe.get_all("Lead", filters={"lead_owner": ("in", list(owners))}, pluck="name")
 	if leads:
-		for doctype in ("FCRM Note", "CRM Call Log", "CRM Task"):
-			frappe.db.delete(doctype, {"reference_doctype": "CRM Lead", "reference_docname": ("in", leads)})
+		frappe.db.delete("Comment", {"reference_doctype": "Lead", "reference_name": ("in", leads)})
+		frappe.db.delete("ToDo", {"reference_type": "Lead", "reference_name": ("in", leads)})
+		events = frappe.get_all(
+			"Event Participants",
+			filters={"reference_doctype": "Lead", "reference_docname": ("in", leads)},
+			pluck="parent",
+		)
+		if events:
+			frappe.db.delete("Event Participants", {"parent": ("in", events)})
+			frappe.db.delete("Event", {"name": ("in", events)})
 		frappe.db.delete("TBO Lead Triage Row", {"lead": ("in", leads)})
-	frappe.db.delete("CRM Task", {"assigned_to": ("in", list(owners))})
-	frappe.db.delete("CRM Lead", {"lead_owner": ("in", list(owners))})
+		frappe.db.delete("TBO Stage Change", {"parenttype": "Lead", "parent": ("in", leads)})
+	frappe.db.delete("ToDo", {"allocated_to": ("in", list(owners)), "reference_type": "Lead"})
+	frappe.db.delete("Lead", {"lead_owner": ("in", list(owners))})
 	frappe.db.delete("TBO Lead Triage", {"name": ("like", "TBO-TRIAGE-%")})
 	frappe.db.commit()  # nosemgrep
 
@@ -1281,6 +1292,283 @@ def bearer_token_is_valid(access_token: str) -> bool:
 	return valid
 
 
+# ---------- The CRM cutover (docs/erpnext-lead-cutover.md) ----------
+
+CUTOVER_TEST_ITEM = "TBO Smart Cutover Service"
+# every table of Frappe CRM the cutover reads, emptied around its tests
+CRM_TABLES = (
+	"CRM Lead",
+	"CRM Deal",
+	"CRM Organization",
+	"FCRM Note",
+	"CRM Call Log",
+	"CRM Task",
+	"CRM Sales Hierarchy",
+	"CRM Status Change Log",
+	"CRM Products",
+	"CRM Contacts",
+)
+
+
+def crm_installed() -> bool:
+	"""Whether Frappe CRM is installed here; the cutover tests read its tables and skip without it."""
+	return "crm" in frappe.get_installed_apps()
+
+
+def clear_crm_cutover(owners: list[str] | tuple = ()) -> None:
+	"""Empty the CRM's tables and delete what a cutover of the fixture `owners`' records copied,
+	and commit (the CRM's inserts commit, so its fixtures outlive the test's rollback). Only in
+	tests, on a test site: it empties every CRM table."""
+	if not frappe.flags.in_test:
+		frappe.throw(_("clear_crm_cutover runs only in tests."))
+	for doctype in CRM_TABLES:
+		frappe.db.delete(doctype)
+	for doctype, field, owner_field in (
+		("Lead", "crm_lead_ref", "lead_owner"),
+		("Opportunity", "crm_deal_ref", "opportunity_owner"),
+	):
+		names = frappe.get_all(
+			doctype, filters={field: ("is", "set"), owner_field: ("in", list(owners) or [""])}, pluck="name"
+		)
+		if names:
+			frappe.db.delete("TBO Stage Change", {"parenttype": doctype, "parent": ("in", names)})
+			frappe.db.delete("Comment", {"reference_doctype": doctype, "reference_name": ("in", names)})
+			frappe.db.delete("ToDo", {"reference_type": doctype, "reference_name": ("in", names)})
+			frappe.db.delete(doctype, {"name": ("in", names)})
+	frappe.db.delete(
+		"Comment", {"reference_doctype": "Prospect", "reference_name": ("like", "TBO Cutover %")}
+	)
+	frappe.db.delete("Event", {"name": ("like", "TBO-CALL-%")})
+	frappe.db.delete("Event Participants", {"parent": ("like", "TBO-CALL-%")})
+	frappe.db.delete("TBO Sales Hierarchy", {"user": ("in", list(owners))})
+	frappe.db.delete("Prospect", {"name": ("like", "TBO Cutover %")})
+	frappe.db.delete("Lead", {"lead_owner": ("in", list(owners))})
+	frappe.db.delete("Opportunity", {"opportunity_owner": ("in", list(owners))})
+	frappe.db.commit()  # nosemgrep
+
+
+def ensure_crm_lead_status(name: str, kind: str) -> str:
+	"""A CRM Lead Status, as the pipeline migration left them on tboindia."""
+	if not frappe.db.exists("CRM Lead Status", name):
+		frappe.get_doc({"doctype": "CRM Lead Status", "lead_status": name, "type": kind}).insert(
+			ignore_permissions=True
+		)
+	return name
+
+
+def ensure_quotation_crm_lead_field() -> None:
+	"""The `tbo_crm_lead` link tboindia's quotations carried before the cutover (finalize() drops it)."""
+	if not frappe.db.exists("Custom Field", {"dt": "Quotation", "fieldname": "tbo_crm_lead"}):
+		frappe.get_doc(
+			{
+				"doctype": "Custom Field",
+				"dt": "Quotation",
+				"fieldname": "tbo_crm_lead",
+				"fieldtype": "Data",
+				"label": "CRM Lead",
+			}
+		).insert(ignore_permissions=True)
+
+
+def make_crm_records(owner: str, manager: str) -> frappe._dict:
+	"""A small Frappe CRM data set with the shapes tboindia has: a lead with a stage history, its
+	migration note, a note, a call with its note, an open and a done task and an assignment; a
+	won lead with its deal (an organization, a contact, a product, finance fields) and a quotation
+	to each; the owner under `manager` in the sales hierarchy. Returns the names."""
+	names = frappe._dict()
+	for status, kind in (("Contacted", "Ongoing"), ("Proposal Sent", "Ongoing"), ("Closed – Won", "Won")):
+		ensure_crm_lead_status(status, kind)
+	top = frappe.get_doc({"doctype": "CRM Sales Hierarchy", "user": manager, "is_group": 1}).insert(
+		ignore_permissions=True
+	)
+	frappe.get_doc({"doctype": "CRM Sales Hierarchy", "user": owner, "reports_to": top.name}).insert(
+		ignore_permissions=True
+	)
+	lead = frappe.get_doc(
+		{
+			"doctype": "CRM Lead",
+			"first_name": "Cutover",
+			"last_name": "Lead",
+			"organization": "Cutover Traders",
+			"mobile_no": "9847000901",
+			"email": f"cutover.{frappe.generate_hash(length=6)}@example.com",
+			"lead_owner": owner,
+			"status": "Contacted",
+			"lead_score": 41,
+			"lead_temperature": "Warm",
+		}
+	).insert(ignore_permissions=True)
+	lead.status = "Proposal Sent"
+	lead.save(ignore_permissions=True)
+	names.lead = lead.name
+	names.migration_note = (
+		frappe.get_doc(
+			{
+				"doctype": "FCRM Note",
+				"title": "Migrated from tboindia-old CRM-LEAD-2025-00777",
+				"content": "<p><b>Status:</b> Interested</p><p><b>Source:</b> Website</p>",
+				"reference_doctype": "CRM Lead",
+				"reference_docname": lead.name,
+			}
+		)
+		.insert(ignore_permissions=True)
+		.name
+	)
+	names.note = (
+		frappe.get_doc(
+			{
+				"doctype": "FCRM Note",
+				"title": "Wants the stock module",
+				"content": "Wants the stock module",
+				"reference_doctype": "CRM Lead",
+				"reference_docname": lead.name,
+			}
+		)
+		.insert(ignore_permissions=True)
+		.name
+	)
+	call_note = frappe.get_doc(
+		{
+			"doctype": "FCRM Note",
+			"title": "Rang about the demo",
+			"content": "Rang about the demo",
+			"reference_doctype": "CRM Lead",
+			"reference_docname": lead.name,
+		}
+	).insert(ignore_permissions=True)
+	names.call = (
+		frappe.get_doc(
+			{
+				"doctype": "CRM Call Log",
+				"id": f"TBO-CALL-{frappe.generate_hash(length=8)}",
+				"type": "Outgoing",
+				"status": "Completed",
+				"telephony_medium": "Manual",
+				"from": "+919847000001",
+				"to": "+919847000901",
+				"caller": owner,
+				"start_time": now_datetime(),
+				"note": call_note.name,
+				"reference_doctype": "CRM Lead",
+				"reference_docname": lead.name,
+			}
+		)
+		.insert(ignore_permissions=True)
+		.name
+	)
+	names.open_task = make_crm_task(lead.name, "CRM Lead", owner, "Todo")
+	names.done_task = make_crm_task(lead.name, "CRM Lead", owner, "Done")
+	won_lead = frappe.get_doc(
+		{
+			"doctype": "CRM Lead",
+			"first_name": "Cutover",
+			"last_name": "Winner",
+			"organization": "TBO Cutover Winner Co",
+			"lead_owner": owner,
+			"status": "Closed – Won",
+		}
+	).insert(ignore_permissions=True)
+	names.won_lead = won_lead.name
+	names.organization = (
+		frappe.get_doc({"doctype": "CRM Organization", "organization_name": "TBO Cutover Winner Co"})
+		.insert(ignore_permissions=True)
+		.name
+	)
+	names.organization_note = (
+		frappe.get_doc(
+			{
+				"doctype": "FCRM Note",
+				"title": "Head office in Kochi",
+				"content": "Head office in Kochi",
+				"reference_doctype": "CRM Organization",
+				"reference_docname": names.organization,
+			}
+		)
+		.insert(ignore_permissions=True)
+		.name
+	)
+	deal = frappe.get_doc(
+		{
+			"doctype": "CRM Deal",
+			"lead": won_lead.name,
+			"organization": names.organization,
+			"deal_owner": owner,
+			"status": "Won",
+			"deal_value": 120000,
+			"next_step": "Kick-off",
+		}
+	).insert(ignore_permissions=True)
+	names.deal = deal.name
+	# the finance fields the deals carried on tboindia
+	create_custom_fields(
+		{
+			"CRM Deal": [
+				{"fieldname": "tbo_stage", "fieldtype": "Data", "label": "Post-sale stage"},
+				{
+					"fieldname": "tbo_onboarding_complete",
+					"fieldtype": "Check",
+					"label": "Onboarding complete",
+				},
+			]
+		},
+		ignore_validate=True,
+	)
+	frappe.db.set_value("CRM Deal", deal.name, {"tbo_stage": "Invoiced", "tbo_onboarding_complete": 1})
+	names.deal_task = make_crm_task(deal.name, "CRM Deal", owner, "Todo")
+	names.lead_quotation = make_cutover_quotation({"quotation_to": "CRM Lead", "party_name": lead.name})
+	names.deal_quotation = make_cutover_quotation({"quotation_to": "CRM Deal", "party_name": deal.name})
+	frappe.get_doc(
+		{
+			"doctype": "ToDo",
+			"description": "Assigned in the CRM",
+			"allocated_to": owner,
+			"reference_type": "CRM Lead",
+			"reference_name": lead.name,
+		}
+	).insert(ignore_permissions=True)
+	frappe.db.commit()  # nosemgrep
+	return names
+
+
+def make_cutover_quotation(party: dict) -> str:
+	"""A draft Quotation made out to a CRM record, as the CRM's quotations were stored. It has its
+	own item: ERPNext gives an item a price the first time it is quoted, which would change the
+	other tests' list prices."""
+	quotation = frappe.get_doc(
+		{
+			"doctype": "Quotation",
+			"quotation_to": "Customer",
+			"party_name": make_customer(f"TBO Cutover Client {frappe.generate_hash(length=6)}"),
+			"company": erpnext.get_default_company(),
+			"transaction_date": nowdate(),
+			"valid_till": add_days(nowdate(), 30),
+			"items": [{"item_code": make_quotation_item(CUTOVER_TEST_ITEM), "qty": 1, "rate": 5000}],
+		}
+	).insert(ignore_permissions=True)
+	frappe.db.set_value("Quotation", quotation.name, party)
+	return quotation.name
+
+
+def make_crm_task(reference: str, doctype: str, owner: str, status: str) -> str:
+	"""A Frappe CRM Task on a CRM record, due tomorrow."""
+	return (
+		frappe.get_doc(
+			{
+				"doctype": "CRM Task",
+				"title": f"Follow up ({status})",
+				"status": status,
+				"assigned_to": owner,
+				"due_date": add_days(now_datetime(), 1),
+				"reference_doctype": doctype,
+				"reference_docname": reference,
+				"tbo_task_type": "Sales follow-up",
+			}
+		)
+		.insert(ignore_permissions=True)
+		.name
+	)
+
+
 # ---------- Finance workflow (docs/crm-finance-workflow.md) ----------
 
 
@@ -1303,41 +1591,26 @@ def disable_finance_workflow() -> None:
 	frappe.db.set_single_value("TBO Smart Settings", "enable_finance_workflow", 0)
 
 
-def enable_erpnext_crm() -> None:
-	"""ERPNext CRM Settings on, same site, with the default company: creates Frappe CRM's
-	Quotation.crm_deal and Customer.crm_deal fields, as on tboindia."""
-	settings = frappe.get_single("ERPNext CRM Settings")
-	settings.update(
-		{
-			"enabled": 1,
-			"is_erpnext_in_different_site": 0,
-			"erpnext_company": erpnext.get_default_company(),
-			"create_customer_on_status_change": 0,
-			"sync_products": 0,
-		}
-	)
-	settings.save(ignore_permissions=True)
-
-
 def make_finance_deal(owner: str, **fields) -> str:
-	"""A CRM Deal owned by `owner` with its own ERPNext Customer (erpnext_customer and
-	Customer.crm_deal set both ways, as Frappe CRM links them). Returns the deal name."""
-	deal = make_crm_deal(owner, **fields)
+	"""A deal (Opportunity) owned by `owner` for its own new ERPNext Customer. Returns its name."""
 	customer = make_customer(f"TBO Finance {frappe.generate_hash(length=8)}")
-	frappe.db.set_value("Customer", customer, "crm_deal", deal)
-	frappe.db.set_value("CRM Deal", deal, "erpnext_customer", customer)
-	return deal
+	return make_deal(owner, opportunity_from="Customer", party_name=customer, **fields)
+
+
+def deal_customer(deal: str) -> str | None:
+	"""The deal's ERPNext Customer."""
+	return customer_of(frappe.get_doc("Opportunity", deal))
 
 
 def make_deal_quotation(deal: str, rate: float = 1000, qty: float = 1, submit: bool = True, **fields):
-	"""A Quotation to the deal's customer with `crm_deal` set, inserted as the session user and
-	submitted unless `submit` is False. Returns the Document."""
+	"""A Quotation to the deal's customer linked to the deal (`opportunity`), inserted as the
+	session user and submitted unless `submit` is False. Returns the Document."""
 	quotation = frappe.get_doc(
 		{
 			"doctype": "Quotation",
 			"quotation_to": "Customer",
-			"party_name": frappe.db.get_value("CRM Deal", deal, "erpnext_customer"),
-			"crm_deal": deal,
+			"party_name": deal_customer(deal),
+			"opportunity": deal,
 			"company": erpnext.get_default_company(),
 			"transaction_date": nowdate(),
 			"valid_till": add_days(nowdate(), 30),
@@ -1353,13 +1626,14 @@ def make_deal_quotation(deal: str, rate: float = 1000, qty: float = 1, submit: b
 
 def make_order_from_quotation(quotation: str, submit: bool = True, keep_deal: bool = True):
 	"""A Sales Order mapped from a submitted Quotation by ERPNext's own mapper, delivery in a
-	week. `keep_deal=False` clears the crm_deal the mapper copies, to exercise the hook."""
+	week. `keep_deal=False` clears the deal (`opportunity`) the mapper copies, to exercise the
+	hook."""
 	from erpnext.selling.doctype.quotation.quotation import make_sales_order
 
 	order = make_sales_order(quotation)
 	order.delivery_date = add_days(nowdate(), 7)
 	if not keep_deal:
-		order.crm_deal = None
+		order.opportunity = None
 	order.insert(ignore_permissions=True)
 	if submit:
 		order.submit()
@@ -1392,13 +1666,13 @@ def make_manual_order(quotation: str, rate: float = 1000):
 
 
 def make_invoice_from_order(order: str, submit: bool = True, keep_deal: bool = True):
-	"""A Sales Invoice mapped from a submitted Sales Order. `keep_deal=False` clears the
-	crm_deal the mapper copies."""
+	"""A Sales Invoice mapped from a submitted Sales Order. `keep_deal=False` clears the deal
+	(`opportunity`) the mapper copies."""
 	from erpnext.selling.doctype.sales_order.sales_order import make_sales_invoice
 
 	invoice = make_sales_invoice(order)
 	if not keep_deal:
-		invoice.crm_deal = None
+		invoice.opportunity = None
 	invoice.insert(ignore_permissions=True)
 	if submit:
 		invoice.submit()
@@ -1417,24 +1691,6 @@ def make_receipt(doctype: str, name: str, amount: float | None = None, submit: b
 	if submit:
 		entry.submit()
 	return entry
-
-
-def make_crm_product(item_code: str, rate: float = 1000) -> str:
-	"""A CRM Product linked to the ERPNext Item `item_code` (erpnext_item_code), as product
-	sync makes it. Returns the product code."""
-	code = f"TBO-{item_code}"
-	if not frappe.db.exists("CRM Product", code):
-		frappe.get_doc(
-			{
-				"doctype": "CRM Product",
-				"product_code": code,
-				"product_name": item_code,
-				"standard_rate": rate,
-				"erpnext_item_code": item_code,
-			}
-		).insert(ignore_permissions=True)
-	frappe.db.set_value("CRM Product", code, "erpnext_item_code", item_code)
-	return code
 
 
 def get_versions(doctype: str, name: str) -> list[dict]:
@@ -1483,15 +1739,15 @@ def enable_finance_receivables(**settings) -> None:
 def make_deal_invoice(
 	deal: str, rate: float = 1000, due_in: int = 0, posted_days_ago: int = 0, submit: bool = True
 ):
-	"""A Sales Invoice to the deal's customer with `crm_deal` set, posted `posted_days_ago`
+	"""A Sales Invoice to the deal's customer linked to the deal, posted `posted_days_ago`
 	days ago and due `due_in` days from today (negative: already overdue). One payment-term
 	row, as ERPNext builds it from the due date. Returns the Document."""
 	posting = add_days(nowdate(), -max(posted_days_ago, -due_in if due_in < 0 else 0))
 	invoice = frappe.get_doc(
 		{
 			"doctype": "Sales Invoice",
-			"customer": frappe.db.get_value("CRM Deal", deal, "erpnext_customer"),
-			"crm_deal": deal,
+			"customer": deal_customer(deal),
+			"opportunity": deal,
 			"company": erpnext.get_default_company(),
 			"set_posting_time": 1,
 			"posting_date": posting,
@@ -1516,9 +1772,9 @@ def get_terms(invoice: str) -> list[frappe._dict]:
 
 
 def get_collection_task(invoice: str) -> frappe._dict | None:
-	"""The invoice's collection CRM Task, if any."""
-	name = frappe.db.get_value("CRM Task", {"tbo_sales_invoice": invoice, "tbo_task_type": "Collection"})
-	return frappe.get_doc("CRM Task", name) if name else None
+	"""The invoice's collection ToDo, if any."""
+	name = frappe.db.get_value("ToDo", {"tbo_sales_invoice": invoice, "tbo_task_type": "Collection"})
+	return frappe.get_doc("ToDo", name) if name else None
 
 
 # ---------- Finance workflow Phase 3: allocation and transfers ----------
@@ -1587,8 +1843,8 @@ def make_vat_order(deal: str, rate: float, vat: float = 15, submit: bool = True)
 	order = frappe.get_doc(
 		{
 			"doctype": "Sales Order",
-			"customer": frappe.db.get_value("CRM Deal", deal, "erpnext_customer"),
-			"crm_deal": deal,
+			"customer": deal_customer(deal),
+			"opportunity": deal,
 			"company": erpnext.get_default_company(),
 			"transaction_date": nowdate(),
 			"delivery_date": add_days(nowdate(), 30),
@@ -1762,7 +2018,7 @@ def match_bank_line(line: str, payment_entry: str, amount: float) -> None:
 
 
 def get_dashboard_cards(window: tuple, user: str | None = None) -> dict:
-	"""The Phase 5 finance cards the session user gets on the CRM dashboard, as {name: data}.
+	"""The Phase 5 finance cards the session user gets on the sales dashboard, as {name: data}.
 	`window` is the dashboard's (from_date, to_date); `user` is its user filter (blank: everyone)."""
 	from tbo_smart.finance import dashboard
 

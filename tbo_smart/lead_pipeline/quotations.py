@@ -1,10 +1,11 @@
 """Quotations on the lead (docs/lead-pipeline.md §9).
 
-A lead's quotation is an ordinary ERPNext Quotation made out to the CRM Lead (*Quotation To* =
-CRM Lead) with `tbo_crm_lead` set and `crm_deal` empty, so the discount/commission approval
-(tbo_smart.quotation_control) and every ERPNext rule apply as on the desk. When the lead
-becomes Closed – Won and gets its deal, the lead's quotations are re-linked to the deal
-(`relink_to_deal`), and the deal's Finance tab and the Sales Order carry on from there.
+A lead's quotation is an ordinary ERPNext Quotation made out to the Lead (*Quotation To* = Lead,
+*Party* = the lead), so the discount/commission approval (tbo_smart.quotation_control) and every
+ERPNext rule apply as on the desk. When the lead becomes Closed – Won and gets its deal, the
+lead's quotations are linked to the deal (ERPNext's own `opportunity`, `relink_to_deal`), and the
+deal's Finance and the Sales Order carry on from there; ERPNext makes the Customer from the lead
+when the order is made.
 
 `tbo_quote_status` tracks where the quotation is with the client. The draft states (Draft,
 Pending Approval, Approved) follow the approval record; the rest are set by people (mark sent,
@@ -20,6 +21,10 @@ from tbo_smart.finance.stage import write_tracked
 from tbo_smart.lead_pipeline import quotations_enabled, setting
 from tbo_smart.lead_pipeline.statuses import CLOSED_LOST, CLOSED_WON, NEGOTIATION, PROPOSAL_SENT
 from tbo_smart.lead_pipeline.transitions import advance_lead
+from tbo_smart.sales import LEAD_LINK
+from tbo_smart.sales.activities import add_follow_up_task
+from tbo_smart.sales.opportunity import customer_of
+from tbo_smart.sales.stages import set_lead_stage
 
 DRAFT, PENDING, APPROVED = "Draft", "Pending Approval", "Approved"
 SENT, VIEWED, NEGOTIATING = "Sent to Client", "Viewed / Acknowledged", "Under Negotiation"
@@ -44,8 +49,38 @@ DEFAULT_VALIDITY = 30
 DEFAULT_FOLLOW_UP_DAYS = 3
 
 
+def lead_of(doc) -> str | None:
+	"""The lead a quotation belongs to: the one it was made for (`tbo_lead`), or the lead its deal
+	was made from (a won lead's quotation may be made out to the client's Customer)."""
+	if doc.get("quotation_to") == "Lead":
+		return doc.get("party_name")
+	if doc.get(LEAD_LINK):
+		return doc.get(LEAD_LINK)
+	if doc.get("opportunity"):
+		return frappe.db.get_value("Opportunity", doc.opportunity, LEAD_LINK)
+	return None
+
+
+def lead_quotations(lead: str, fields: list, filters: dict | None = None) -> list:
+	"""The lead's quotations: made for it, or linked to its deal."""
+	from tbo_smart.sales.opportunity import lead_opportunity
+
+	deal = lead_opportunity(lead)
+	or_filters = {LEAD_LINK: lead}
+	if deal:
+		or_filters["opportunity"] = deal
+	return frappe.get_all(
+		"Quotation",
+		filters={"docstatus": ("!=", 2), **(filters or {})},
+		or_filters=or_filters,
+		fields=list(dict.fromkeys(["quotation_to", "opportunity", *fields])),
+		order_by="creation desc",
+		limit_page_length=0,
+	)
+
+
 def is_lead_quotation(doc) -> bool:
-	return bool(doc.get("tbo_crm_lead"))
+	return bool(lead_of(doc))
 
 
 def validity_days() -> int:
@@ -146,7 +181,7 @@ def set_status(doc, status: str, note: str | None = None) -> None:
 def move_lead(doc, status: str) -> None:
 	target = LEAD_MOVES.get(status)
 	if target:
-		advance_lead(doc.tbo_crm_lead, target, _("quotation {0} {1}").format(doc.name, status.lower()))
+		advance_lead(lead_of(doc), target, _("quotation {0} {1}").format(doc.name, status.lower()))
 
 
 def mark_sent(doc, via: str, follow_up_days: int | None = None) -> str | None:
@@ -175,7 +210,6 @@ def mark_sent(doc, via: str, follow_up_days: int | None = None) -> str | None:
 
 
 def schedule_follow_up(doc, days: int | None) -> str | None:
-	from tbo_smart.api.mobile.crm import add_follow_up_task
 	from tbo_smart.smart_leads import FOLLOW_UP_TYPE
 
 	days = (
@@ -185,11 +219,11 @@ def schedule_follow_up(doc, days: int | None) -> str | None:
 	)
 	if days <= 0:
 		return None
-	owner = frappe.db.get_value("CRM Lead", doc.tbo_crm_lead, "lead_owner") or frappe.session.user
+	owner = frappe.db.get_value("Lead", lead_of(doc), "lead_owner") or frappe.session.user
 	task = add_follow_up_task(
-		"CRM Lead",
-		doc.tbo_crm_lead,
-		f"{add_days(today(), days)} 10:00:00",
+		"Lead",
+		lead_of(doc),
+		add_days(today(), days),
 		title=_("Follow up on quotation {0}").format(doc.name),
 		assigned_to=owner,
 		task_type=FOLLOW_UP_TYPE,
@@ -204,7 +238,6 @@ def expire_quotations() -> int:
 	names = frappe.get_all(
 		"Quotation",
 		filters={
-			"tbo_crm_lead": ("is", "set"),
 			"docstatus": 1,
 			"tbo_quote_status": ("in", (APPROVED, *WITH_CLIENT)),
 			"valid_till": ("<", today()),
@@ -344,57 +377,51 @@ def diff(before, after) -> dict:
 
 
 def relink_to_deal(lead: str, deal: str) -> list[str]:
-	"""At Closed – Won: the lead's quotations without a deal now belong to it (Frappe CRM's
-	`crm_deal`, and *Quotation To* CRM Deal for those made out to the lead), so the deal's Finance
-	tab lists them and ERPNext finds the deal's customer for the Sales Order."""
+	"""At Closed – Won: the lead's quotations without a deal now belong to it (ERPNext's
+	`opportunity`), so the deal's Finance lists them."""
 	names = frappe.get_all(
 		"Quotation",
-		filters={"tbo_crm_lead": lead, "docstatus": ("!=", 2)},
-		pluck="name",
+		filters={LEAD_LINK: lead, "docstatus": ("!=", 2)},
+		fields=["name", "opportunity"],
 		limit_page_length=0,
 	)
-	for name in names:
-		doc = frappe.get_doc("Quotation", name)
-		values = {}
-		if doc.meta.has_field("crm_deal") and not doc.get("crm_deal"):
-			values["crm_deal"] = deal
-		if doc.quotation_to == "CRM Lead":
-			values.update({"quotation_to": "CRM Deal", "party_name": deal})
-		if values:
-			write_tracked(doc, values, _("Linked to deal {0}").format(deal))
-	return names
+	for row in names:
+		if not row.opportunity:
+			write_tracked(
+				frappe.get_doc("Quotation", row.name),
+				{"opportunity": deal},
+				_("Linked to deal {0}").format(deal),
+			)
+	return [row.name for row in names]
 
 
 def make_sales_order(doc) -> str:
-	"""A draft Sales Order from an accepted quotation, through ERPNext's own mapper, once the
-	deal's customer exists (Frappe CRM creates it). The finance workflow's pending-approval
-	guard applies on its validate."""
-	from crm.fcrm.doctype.erpnext_crm_settings.erpnext_crm_settings import check_customer_for_deal
+	"""A draft Sales Order from an accepted quotation of a won lead, through ERPNext's own mapper,
+	which makes the Customer from the lead when it has none. The finance workflow's
+	pending-approval guard applies on its validate."""
 	from erpnext.selling.doctype.quotation.quotation import make_sales_order as erpnext_sales_order
 
 	if doc.get("tbo_quote_status") != ACCEPTED or doc.docstatus != 1:
 		frappe.throw(_("Only an accepted quotation becomes a Sales Order."))
-	deal = doc.get("crm_deal")
+	deal = doc.get("opportunity")
 	if not deal:
 		frappe.throw(_("The lead has no deal yet: set it to {0} first.").format(CLOSED_WON))
-	customer = check_customer_for_deal(deal)
-	if not customer:
-		frappe.throw(
-			_("The deal has no ERPNext customer. Turn on ERPNext CRM Settings so the CRM can create it.")
-		)
+	deal_doc = frappe.get_doc("Opportunity", deal)
+	customer = customer_of(deal_doc)
+	if customer and lead_of(doc) and not frappe.db.exists("Customer", {"lead_name": lead_of(doc)}):
+		# the client already has a Customer (an earlier deal's): quote to it, so ERPNext doesn't
+		# make a second one from the lead
+		write_tracked(doc, {"quotation_to": "Customer", "party_name": customer})
 	order = erpnext_sales_order(doc.name)
-	if not order.customer:
-		# ERPNext finds the customer by Customer.crm_deal; a customer that an earlier deal of the
-		# same client created still names that deal, so give the order this deal's customer
-		order.customer = customer
 	for row in order.items:
 		row.delivery_date = row.delivery_date or getdate(today())
 	order.delivery_date = order.delivery_date or getdate(today())
+	order.opportunity = deal
 	order.insert()
+	if not deal_doc.get("tbo_customer") and order.customer:
+		frappe.db.set_value("Opportunity", deal, "tbo_customer", order.customer, update_modified=False)
 	return order.name
 
 
 def close_lead_lost(doc, lost_reason: str) -> None:
-	from tbo_smart.api.mobile.crm import apply_lead_status
-
-	apply_lead_status(doc.tbo_crm_lead, CLOSED_LOST, lost_reason)
+	set_lead_stage(lead_of(doc), CLOSED_LOST, lost_reason)

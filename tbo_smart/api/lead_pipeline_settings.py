@@ -1,11 +1,11 @@
-"""CRM Settings → TBO → Lead pipeline (docs/lead-pipeline.md §8). System Managers only."""
+"""The lead pipeline settings (docs/lead-pipeline.md §8). System Managers only."""
 
 import json
 
 import frappe
 
 from tbo_smart.api.smart_leads_settings import require_manager
-from tbo_smart.finance import crm_installed
+from tbo_smart.sales import erpnext_installed
 
 SETTINGS = "TBO Smart Settings"
 FIELDS = (
@@ -24,12 +24,12 @@ FIELDS = (
 
 @frappe.whitelist()
 def get_settings() -> dict:
-	"""{settings, crm, choices}: the pipeline and quotation settings, and the pick lists."""
+	"""{settings, erpnext, choices}: the pipeline and quotation settings, and the pick lists."""
 	require_manager()
 	doc = frappe.get_single(SETTINGS)
 	return {
 		"settings": {field: doc.get(field) for field in FIELDS},
-		"crm": crm_installed(),
+		"erpnext": erpnext_installed(),
 		"choices": {
 			"terms": frappe.get_all("Terms and Conditions", filters={"disabled": 0}, pluck="name"),
 			"payment_terms": frappe.get_all("Payment Terms Template", pluck="name"),

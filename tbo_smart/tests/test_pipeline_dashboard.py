@@ -1,9 +1,11 @@
 import json
+from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, now_datetime, nowdate
 
+from tbo_smart.api import dashboard as dashboard_api
 from tbo_smart.api import lead_pipeline_dashboard as api
 from tbo_smart.api import lead_quotation
 from tbo_smart.lead_pipeline import dashboard
@@ -16,7 +18,7 @@ from tbo_smart.lead_pipeline.statuses import (
 	PROPOSAL_SENT,
 )
 from tbo_smart.test_utils import (
-	change_lead_status,
+	change_lead_stage,
 	delete_lead_deals,
 	delete_lead_meetings,
 	delete_lead_quotations,
@@ -24,12 +26,14 @@ from tbo_smart.test_utils import (
 	disable_lead_quotations,
 	disable_sales_hierarchy,
 	enable_lead_quotations,
+	enable_sales_hierarchy,
 	hours_from_now,
-	make_crm_lead,
-	make_crm_lead_source,
+	make_lead,
 	make_lead_meeting,
+	make_lead_source,
 	make_lead_task,
 	make_quotation_item,
+	make_sales_hierarchy_node,
 	make_user,
 	move_meeting,
 	set_lead_values,
@@ -53,7 +57,7 @@ class TestPipelineDashboard(FrappeTestCase):
 		make_user(BDE2, ["Sales User"])
 		make_user(MANAGER, ["Sales Manager"])
 		disable_sales_hierarchy(OWNERS)
-		make_crm_lead_source(SOURCE)
+		make_lead_source(SOURCE)
 		make_quotation_item(SERVICE)
 		frappe.db.commit()  # nosemgrep
 
@@ -68,7 +72,7 @@ class TestPipelineDashboard(FrappeTestCase):
 
 	@classmethod
 	def clean(cls):
-		leads = frappe.get_all("CRM Lead", filters={"lead_owner": ("in", OWNERS)}, pluck="name")
+		leads = frappe.get_all("Lead", filters={"lead_owner": ("in", OWNERS)}, pluck="name")
 		delete_lead_quotations(leads)
 		delete_lead_meetings(leads)
 		delete_lead_deals(leads)
@@ -79,16 +83,16 @@ class TestPipelineDashboard(FrappeTestCase):
 		self.clean()
 		# statuses are set with the pipeline off, so no deals are made for the won leads
 		set_smart_lead_settings(enable_lead_pipeline=0)
-		self.new = make_crm_lead(BDE, "Fresh", source=SOURCE)
-		self.hot = make_crm_lead(BDE, "Keen", organization="Keen Traders")
-		change_lead_status(self.hot, POSITIVE)
-		set_lead_values(self.hot, lead_score=72, lead_temperature="Hot")
-		self.won = make_crm_lead(BDE, "Winner")
-		change_lead_status(self.won, CLOSED_WON)
-		self.lost = make_crm_lead(BDE, "Gone")
-		change_lead_status(self.lost, CLOSED_LOST, lost_reason="Other", lost_notes="Price")
-		self.other_won = make_crm_lead(BDE2, "Elsewhere")
-		change_lead_status(self.other_won, CLOSED_WON)
+		self.new = make_lead(BDE, "Fresh", source=SOURCE)
+		self.hot = make_lead(BDE, "Keen", company_name="Keen Traders")
+		change_lead_stage(self.hot, POSITIVE)
+		set_lead_values(self.hot, tbo_score=72, tbo_temperature="Hot")
+		self.won = make_lead(BDE, "Winner")
+		change_lead_stage(self.won, CLOSED_WON)
+		self.lost = make_lead(BDE, "Gone")
+		change_lead_stage(self.lost, CLOSED_LOST, tbo_lost_reason="Other", tbo_lost_notes="Price")
+		self.other_won = make_lead(BDE2, "Elsewhere")
+		change_lead_stage(self.other_won, CLOSED_WON)
 		enable_lead_quotations(enable_pipeline_dashboard=1)
 		held = make_lead_meeting(self.hot)
 		move_meeting(held, hours_from_now(-3))
@@ -173,6 +177,24 @@ class TestPipelineDashboard(FrappeTestCase):
 		self.assertEqual(cards["tbo_pipeline_win_rate"]["value"], 50.0)
 		self.assertEqual(cards["tbo_pipeline_active_quotes"]["value"], 10000)
 		self.assertEqual(dashboard.get_cards(nowdate(), nowdate(), BDE2), [])
+
+	def test_the_dashboard_api_gives_a_salesperson_their_own_cards(self):
+		frappe.set_user(BDE)
+		cards = {card["name"]: card["data"] for card in dashboard_api.get_cards(user=BDE2)}
+		self.assertEqual(cards["tbo_pipeline_mom_pending"]["value"], 1)
+
+	def test_a_team_lead_gets_only_their_teams_cards(self):
+		make_sales_hierarchy_node(BDE, make_sales_hierarchy_node(MANAGER))
+		enable_sales_hierarchy()
+		frappe.set_user(MANAGER)
+		try:
+			with patch.object(dashboard_api.pipeline_cards, "get_cards", return_value=[]) as cards:
+				for user in (BDE2, BDE, None):
+					dashboard_api.get_cards(user=user)
+			self.assertEqual([call.args[2] for call in cards.call_args_list], [MANAGER, BDE, MANAGER])
+		finally:
+			frappe.set_user("Administrator")
+			disable_sales_hierarchy(OWNERS)
 
 	def test_switch_off(self):
 		set_smart_lead_settings(enable_pipeline_dashboard=0)

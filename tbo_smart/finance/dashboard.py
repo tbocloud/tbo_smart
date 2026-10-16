@@ -1,27 +1,26 @@
-"""Finance cards on the CRM dashboard (docs/crm-finance-workflow.md §8, Phase 5).
+"""Finance cards of the sales dashboard (docs/crm-finance-workflow.md §8, Phase 5).
 
-Registered with the CRM fork's dashboard hooks: `crm_dashboard_providers` makes the `get_tbo_*`
-functions below resolvable as charts, and `crm_dashboard_layout` (`get_cards`) adds the cards
-each user may see, by role, below the CRM's own cards.
+`get_cards` returns the cards each user may see, by role, through tbo_smart.api.dashboard (the
+CRM dashboard they were made for went with the Frappe CRM app).
 
 | Card | Who | Definition |
 | --- | --- | --- |
-| Quotations | CRM users | Submitted quotations of deals in the date range: count, net value |
-| Invoiced | CRM users (amounts) | Submitted invoices (not returns) posted in the range |
-| Collected | CRM users (amounts) | Customer receipts in the range, refunds subtracted |
-| Outstanding | CRM users (amounts) | Outstanding on submitted invoices now |
-| Overdue | CRM users (amounts) | Outstanding on payment terms due before today |
-| Lead → deal | CRM users | Deals created from a lead in the range ÷ leads created in the range |
+| Quotations | Sales users | Submitted quotations of deals in the date range: count, net value |
+| Invoiced | Sales users (amounts) | Submitted invoices (not returns) posted in the range |
+| Collected | Sales users (amounts) | Customer receipts in the range, refunds subtracted |
+| Outstanding | Sales users (amounts) | Outstanding on submitted invoices now |
+| Overdue | Sales users (amounts) | Outstanding on payment terms due before today |
+| Lead → deal | Sales users | Deals created from a lead in the range ÷ leads created in the range |
 | Payable to India | Accounts, finance, management (Phase 3) | Open share on allocations |
 | Transfers waiting | Accounts, finance, management (Phase 3) | Transfers sent, not confirmed |
 | Bank lines to verify | Accounts, finance, management (Phase 4) | Matched lines not yet verified |
 | Open exceptions | Accounts, finance, management (Phases 2-4) | Exceptions Open or Pending Approval |
 
-`user` is the CRM dashboard's own user filter (a plain Sales User always gets their own): when
-set, sales figures count only that user's deals, so a BDE sees only their own deals' figures.
-Amounts are in the invoicing company's currency (TBO Smart Settings), or the CRM default
-company's when that is blank; with no company filter they would mix currencies, so the
-company filter always applies.
+`user` is the dashboard's user filter (a plain Sales User always gets their own): when set,
+sales figures count only that user's deals, so a BDE sees only their own deals' figures.
+Amounts are in the invoicing company's currency (TBO Smart Settings), or the default company's
+when that is blank; with no company filter they would mix currencies, so the company filter
+always applies.
 """
 
 import functools
@@ -58,7 +57,7 @@ AMOUNT_CARDS = {"tbo_invoiced", "tbo_collected", "tbo_outstanding", "tbo_overdue
 
 def card(fn):
 	"""A dashboard card: nothing while Phase 5 is off, and no amount for a user who may not
-	see amounts (Q17), even when asked for directly through the CRM's get_chart."""
+	see amounts (Q17)."""
 
 	@functools.wraps(fn)
 	def wrapper(from_date=None, to_date=None, user=None):
@@ -98,7 +97,7 @@ def delta(current: float, previous: float) -> float:
 
 
 def owned(Deal, user: str | None):
-	return Deal.deal_owner == user if user else Deal.name.isnotnull()
+	return Deal.opportunity_owner == user if user else Deal.name.isnotnull()
 
 
 # ---------- sales, collections, receivables ----------
@@ -106,11 +105,11 @@ def owned(Deal, user: str | None):
 
 def quotation_totals(from_date, to_date, user):
 	Quotation = frappe.qb.DocType("Quotation")
-	Deal = frappe.qb.DocType("CRM Deal")
+	Deal = frappe.qb.DocType("Opportunity")
 	return (
 		frappe.qb.from_(Quotation)
 		.join(Deal)
-		.on(Quotation.crm_deal == Deal.name)
+		.on(Quotation.opportunity == Deal.name)
 		.select(Count(Quotation.name), Sum(Quotation.base_net_total))
 		.where(
 			(Quotation.docstatus == 1)
@@ -139,13 +138,13 @@ def get_tbo_quotations(from_date, to_date, user=None) -> dict:
 
 
 def invoice_query(user):
-	"""Submitted invoices of CRM deals (the user's own deals when one is given)."""
+	"""Submitted invoices of deals (the user's own deals when one is given)."""
 	Invoice = frappe.qb.DocType("Sales Invoice")
-	Deal = frappe.qb.DocType("CRM Deal")
+	Deal = frappe.qb.DocType("Opportunity")
 	query = (
 		frappe.qb.from_(Invoice)
 		.join(Deal)
-		.on(Invoice.crm_deal == Deal.name)
+		.on(Invoice.opportunity == Deal.name)
 		.where(
 			(Invoice.docstatus == 1)
 			& (Invoice.is_return == 0)
@@ -180,14 +179,14 @@ def get_tbo_invoiced(from_date, to_date, user=None) -> dict:
 
 def collected(from_date, to_date, user) -> float:
 	Entry = frappe.qb.DocType("Payment Entry")
-	Deal = frappe.qb.DocType("CRM Deal")
+	Deal = frappe.qb.DocType("Opportunity")
 	signed = (
 		Case().when(Entry.payment_type == "Pay", -Entry.base_paid_amount).else_(Entry.base_received_amount)
 	)
 	query = (
 		frappe.qb.from_(Entry)
 		.join(Deal)
-		.on(Entry.crm_deal == Deal.name)
+		.on(Entry.opportunity == Deal.name)
 		.select(Sum(signed))
 		.where(
 			(Entry.docstatus == 1)
@@ -254,8 +253,8 @@ def get_tbo_overdue(from_date=None, to_date=None, user=None) -> dict:
 
 @card
 def get_tbo_conversion(from_date, to_date, user=None) -> dict:
-	Lead = frappe.qb.DocType("CRM Lead")
-	Deal = frappe.qb.DocType("CRM Deal")
+	Lead = frappe.qb.DocType("Lead")
+	Deal = frappe.qb.DocType("Opportunity")
 	window = (getdate(from_date), add_days(getdate(to_date), 1))
 	leads = (
 		frappe.qb.from_(Lead)
@@ -272,8 +271,7 @@ def get_tbo_conversion(from_date, to_date, user=None) -> dict:
 		.where(
 			(Deal.creation >= window[0])
 			& (Deal.creation < window[1])
-			& Deal.lead.isnotnull()
-			& (Deal.lead != "")
+			& Deal.tbo_lead.isnotnull()
 			& owned(Deal, user)
 		)
 	).run()[0][0]
@@ -357,7 +355,7 @@ FINANCE_CARDS = ("tbo_payable", "tbo_transfers_waiting", "tbo_lines_to_verify", 
 
 
 def get_cards(from_date, to_date, user=None) -> list[dict]:
-	"""crm_dashboard_layout hook: the finance cards this user may see, with their data."""
+	"""The finance cards this user may see, with their data (tbo_smart.api.dashboard)."""
 	if not dashboard_enabled():
 		return []
 	names = []

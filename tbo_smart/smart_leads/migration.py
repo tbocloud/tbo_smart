@@ -1,16 +1,17 @@
 """The migration note each lead brought from the old ERPNext site (docs/smart-leads.md §3.2).
 
-On 2026-10-14 every lead got an FCRM Note titled "Migrated from tboindia-old <id>" holding the
-original status, source, owner, created date, remarks, priority and project type. The note's
-exact layout was not available offline, so the parser accepts "Label: value" lines, "Label -
-value" lines and two-cell table rows, in any order, with or without HTML, and ignores labels it
-doesn't know. Checked against the live layout on 2026-10-15 (docs §3.2).
+On 2026-10-14 every lead got a note titled "Migrated from tboindia-old <id>" holding the
+original status, source, owner, created date, remarks, priority and project type. Since the
+switch to ERPNext's Lead it is a Comment whose text starts with that title (`note_html`,
+docs/erpnext-lead-cutover.md). The parser accepts "Label: value" lines, "Label - value" lines
+and two-cell table rows, in any order, with or without HTML, and ignores labels it doesn't know.
+Checked against the live layout on 2026-10-15 (docs §3.2).
 """
 
 import re
 
 import frappe
-from frappe.utils import strip_html
+from frappe.utils import escape_html, strip_html
 
 NOTE_TITLE_PREFIX = "Migrated from tboindia-old"
 # label words → key; the first match wins, so "lead owner" is checked before "lead"
@@ -55,6 +56,21 @@ ORIGINAL_STATUS_POINTS = {
 PRIORITY_POINTS = {"high": 5, "urgent": 5, "medium": 2}
 
 
+def note_html(title: str | None, content: str | None) -> str:
+	"""A Frappe CRM note as one Comment: its title becomes the first paragraph, unless the content
+	already starts with it (Frappe CRM made the title of a typed note from its first line)."""
+	title = (title or "").strip()
+	text = strip_html(content or "").strip()
+	if not title or text.startswith(title):
+		return content or ""
+	return f"<p>{escape_html(title)}</p>{content or ''}"
+
+
+def is_migration_note(content: str | None) -> bool:
+	"""The note's text starts with the migration title (whatever HTML wraps it)."""
+	return strip_html(content or "").strip().startswith(NOTE_TITLE_PREFIX)
+
+
 def note_text(html: str | None) -> str:
 	"""Plain lines from the note's HTML: one per paragraph, line break or table row."""
 	text = html or ""
@@ -96,18 +112,23 @@ def get_migration_notes(leads: list[str]) -> dict[str, dict]:
 	"""{lead: parsed note} for the leads that have a migration note (one query)."""
 	if not leads:
 		return {}
-	Note = frappe.qb.DocType("FCRM Note")
+	Comment = frappe.qb.DocType("Comment")
 	rows = (
-		frappe.qb.from_(Note)
-		.select(Note.reference_docname, Note.content)
+		frappe.qb.from_(Comment)
+		.select(Comment.reference_name, Comment.content)
 		.where(
-			(Note.reference_doctype == "CRM Lead")
-			& (Note.reference_docname.isin(leads))
-			& (Note.title.like(f"{NOTE_TITLE_PREFIX}%"))
+			(Comment.reference_doctype == "Lead")
+			& (Comment.reference_name.isin(leads))
+			& (Comment.comment_type == "Comment")
+			& (Comment.content.like(f"%{NOTE_TITLE_PREFIX}%"))
 		)
-		.orderby(Note.creation)
+		.orderby(Comment.creation)
 	).run(as_dict=True)
-	return {row.reference_docname: parse_migration_note(row.content) for row in rows}
+	return {
+		row.reference_name: parse_migration_note(row.content)
+		for row in rows
+		if is_migration_note(row.content)
+	}
 
 
 def original_status_points(status: str | None) -> int:

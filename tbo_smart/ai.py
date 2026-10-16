@@ -363,7 +363,7 @@ def alert_once(error: AIProviderError, fallback: AIProvider | None, since: str) 
 		)
 	else:
 		subject = _(
-			"AI provider {0} failing since {1}: {2}. AI lead features are paused until it is fixed in CRM Settings → TBO smart leads."
+			"AI provider {0} failing since {1}: {2}. AI lead features are paused until it is fixed in TBO Smart Settings."
 		).format(provider.label, when, reason)
 	frappe.enqueue("tbo_smart.ai.send_alert", subject=subject, queue="short", now=frappe.flags.in_test)
 
@@ -439,7 +439,7 @@ def call_ai(
 	provider is set up and AIProviderError when every provider failed or is paused."""
 	providers = get_providers()
 	if not providers:
-		frappe.throw(_("AI isn't set up. Add an API key in CRM Settings → TBO smart leads."), AINotConfigured)
+		frappe.throw(_("AI isn't set up. Add an API key in TBO Smart Settings."), AINotConfigured)
 	ready = [provider for provider in providers if not circuit_open(provider)]
 	if not ready:
 		raise AIProviderError(providers[0], "paused")

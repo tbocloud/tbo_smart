@@ -1,9 +1,11 @@
-"""TBO Smart CRM façade over Frappe CRM: leads, deals, organizations, follow-ups, activity, insights.
+"""TBO Smart CRM façade over ERPNext's own sales records: leads (Lead), deals (Opportunity),
+organizations (Prospect), follow-ups (ToDo), activity and insights.
 
-Every endpoint needs the `crm` capability. Lists use frappe.get_list, so Frappe CRM's own
-rules (roles, the sales hierarchy and shares) decide what each user sees; `scope` narrows
-that further within the caller's crm_scopes. Writes are normal inserts and saves under the
-session user. Contract: docs/tbo-smart-api-ess-crm.md.
+Every endpoint needs the `crm` capability. Lists use frappe.get_list, so the sales rules
+(tbo_smart.sales.permissions: owner, assignment, the sales hierarchy) decide what each user
+sees; `scope` narrows that further within the caller's crm_scopes. Writes are normal inserts
+and saves under the session user. The JSON is the contract the app was built against when the
+records were Frappe CRM's: docs/tbo-smart-api-ess-crm.md.
 """
 
 import base64
@@ -11,9 +13,6 @@ import binascii
 import re
 
 import frappe
-from crm.api.activities import get_linked_notes, get_linked_tasks
-from crm.api.comment import add_comment
-from crm.api.dashboard import TimestampDiff
 from frappe import _
 from frappe.desk.form.assign_to import add as add_assignment
 from frappe.query_builder import Case
@@ -26,11 +25,10 @@ from frappe.query_builder.functions import (
 	IfNull,
 	Lower,
 	Max,
-	Min,
 	Sum,
 	Trim,
 )
-from frappe.utils import add_days, cint, flt, get_datetime, now_datetime, strip_html
+from frappe.utils import add_days, cint, flt, getdate, now_datetime, today
 from hrms.api import upload_base64_file
 from pypika.terms import EmptyCriterion, LiteralValue
 
@@ -52,15 +50,42 @@ from tbo_smart.api.mobile.utils import (
 	period_windows,
 	trend_index,
 )
-from tbo_smart.lead_pipeline.won import convert_to_deal
+from tbo_smart.lead_pipeline.statuses import STATUSES, WON_STATUSES
+from tbo_smart.lead_pipeline.won import convert_lead as make_lead_deal
+from tbo_smart.sales import default_currency
+from tbo_smart.sales.activities import (
+	CALL,
+	DONE,
+	OPEN,
+	TimestampDiff,
+	add_call,
+	add_follow_up_task,
+	add_log,
+	add_note,
+	close_due_follow_ups,
+	get_timeline,
+	last_calls,
+	next_follow_ups,
+	task_title,
+)
+from tbo_smart.sales.opportunity import (
+	CLOSED_STAGE_TYPES,
+	converted_leads_query,
+	customer_of,
+	customers_of,
+	deal_stages,
+	leads_with_opportunity,
+	stage_type,
+	stage_types,
+)
+from tbo_smart.sales.stages import lead_lost_reason, set_lead_stage, set_lost_reason
 from tbo_smart.smart_leads import scoring_enabled
 from tbo_smart.smart_leads.call_today import build_call_today
 
-REF_DOCTYPES = {"lead": "CRM Lead", "deal": "CRM Deal"}
-CLOSED_TASK_STATUSES = ("Done", "Canceled")
+REF_DOCTYPES = {"lead": "Lead", "deal": "Opportunity"}
 ACTIVITY_KINDS = ("call", "note", "meeting", "email", "whatsapp")
-COMMENT_LABELS = {"meeting": "Meeting", "email": "Email", "whatsapp": "WhatsApp"}
-CLOSED_STAGE_TYPES = ["Won", "Lost"]
+# the app shows the task statuses Frappe CRM had
+TASK_STATUS_LABELS = {OPEN: "Todo", DONE: "Done", "Cancelled": "Canceled"}
 STALLED_DAYS = 14
 INSIGHT_LIST_LIMIT = 10
 
@@ -68,7 +93,7 @@ DUPLICATE_LIMIT = 10
 # Phones match on their last 9 digits, so +971 50 418 2276, 050 418 2276 and 504182276 are one number.
 PHONE_MATCH_DIGITS = 9
 MIN_PHONE_DIGITS = 7
-# How the app captured a lead: a label for the capture note, and CRM Lead Source names it may map to.
+# How the app captured a lead: a label for the capture note, and Lead Source names it may map to.
 SOURCE_CHANNELS = {
 	"card_scan": ("Business card scan", ("Business Card", "Card Scan", "Visiting Card")),
 	"contacts": ("Phone contacts", ("Phone Contacts", "Phone Contact", "Contacts")),
@@ -94,37 +119,32 @@ class DuplicateLead(frappe.ValidationError):
 LEAD_FIELDS = [
 	"name",
 	"lead_name",
-	"organization",
+	"company_name as organization",
 	"job_title",
-	"status",
+	"tbo_stage as status",
 	"source",
 	"lead_owner",
 	"mobile_no",
 	"phone",
-	"email",
+	"email_id as email",
 	"territory",
-	"converted",
 	"creation",
 ]
 DEAL_FIELDS = [
 	"name",
-	"organization",
-	"lead_name",
-	"first_name",
-	"last_name",
-	"status",
-	"deal_value",
-	"expected_deal_value",
+	"customer_name as organization",
+	"contact_display as lead_name",
+	"sales_stage as status",
+	"opportunity_amount as deal_value",
 	"currency",
 	"probability",
-	"expected_closure_date",
-	"closed_date",
-	"deal_owner",
-	"lost_reason",
-	"lost_notes",
-	"next_step",
-	"mobile_no",
-	"email",
+	"expected_closing as expected_closure_date",
+	"tbo_closed_on as closed_date",
+	"opportunity_owner as deal_owner",
+	"order_lost_reason as lost_notes",
+	"tbo_next_step as next_step",
+	"contact_mobile as mobile_no",
+	"contact_email as email",
 	"creation",
 ]
 
@@ -134,15 +154,13 @@ DEAL_FIELDS = [
 
 @frappe.whitelist()
 def get_options() -> dict:
-	"""The site's lead sources, lead statuses, deal stages and lost reasons, in CRM order."""
+	"""The site's lead sources, lead stages, deal stages and lost reasons, in pipeline order."""
 	require_crm()
 	return {
-		"lead_sources": frappe.get_list("CRM Lead Source", pluck="name", order_by="name asc"),
-		"lead_statuses": frappe.get_list("CRM Lead Status", fields=["name", "type"], order_by="position asc"),
-		"deal_stages": frappe.get_list(
-			"CRM Deal Status", fields=["name", "type", "probability"], order_by="position asc"
-		),
-		"lost_reasons": frappe.get_list("CRM Lost Reason", pluck="name", order_by="name asc"),
+		"lead_sources": frappe.get_list("Lead Source", pluck="name", order_by="name asc"),
+		"lead_statuses": [{"name": name, "type": kind} for name, kind, _color in STATUSES],
+		"deal_stages": deal_stages(),
+		"lost_reasons": frappe.get_list("Opportunity Lost Reason", pluck="name", order_by="name asc"),
 	}
 
 
@@ -162,13 +180,15 @@ def get_leads(
 	capabilities = require_crm()
 	filters = scope_filter(capabilities, scope, "lead_owner")
 	if status:
-		filters["status"] = status
+		filters["tbo_stage"] = status
 	if not cint(include_converted):
-		filters["converted"] = 0
-	or_filters = search_filters(search, ["lead_name", "organization", "email", "mobile_no"])
+		converted = converted_leads_query().run(pluck=True)
+		if converted:
+			filters["name"] = ("not in", converted)
+	or_filters = search_filters(search, ["lead_name", "company_name", "email_id", "mobile_no"])
 	start, length = page_window(page, page_length)
 	leads = frappe.get_list(
-		"CRM Lead",
+		"Lead",
 		fields=LEAD_FIELDS,
 		filters=filters,
 		or_filters=or_filters,
@@ -183,9 +203,9 @@ def get_leads(
 def get_lead(name: str) -> dict:
 	"""One lead with its notes, tasks and activity."""
 	require_crm()
-	frappe.has_permission("CRM Lead", "read", name, throw=True)
-	lead = frappe.db.get_value("CRM Lead", name, LEAD_FIELDS, as_dict=True)
-	return {**serialize_leads([lead])[0], **get_timeline("CRM Lead", name)}
+	frappe.has_permission("Lead", "read", name, throw=True)
+	lead = frappe.get_all("Lead", filters={"name": name}, fields=LEAD_FIELDS)[0]
+	return {**serialize_leads([lead])[0], **app_timeline("Lead", name)}
 
 
 @frappe.whitelist(methods=["POST"])
@@ -205,9 +225,9 @@ def create_lead(
 ) -> dict:
 	"""Create a lead owned by the session user.
 
-	Everything is checked before the insert, because CRM's lead insert commits: the assignee,
-	the source channel, the card image and possible duplicates. Duplicates without `force`
-	raise DuplicateLead (HTTP 409) with the matches in the response.
+	Everything is checked before the insert: the assignee, the source channel, the card image
+	and possible duplicates. Duplicates without `force` raise DuplicateLead (HTTP 409) with the
+	matches in the response.
 	"""
 	capabilities = require_crm()
 	first_name, _space, last_name = (lead_name or "").strip().partition(" ")
@@ -225,13 +245,13 @@ def create_lead(
 			title=_("Possible duplicate"),
 		)
 
-	lead = frappe.new_doc("CRM Lead")
+	lead = frappe.new_doc("Lead")
 	lead.update(
 		{
 			"first_name": first_name,
 			"last_name": last_name,
-			"organization": organization,
-			"email": email,
+			"company_name": organization,
+			"email_id": email,
 			"mobile_no": mobile_no,
 			"source": source or get_channel_lead_source(channel),
 			"lead_owner": frappe.session.user,
@@ -239,31 +259,31 @@ def create_lead(
 	)
 	lead.insert()
 	if assignee:
-		add_assignment({"assign_to": [assignee], "doctype": "CRM Lead", "name": lead.name})
+		add_assignment({"assign_to": [assignee], "doctype": "Lead", "name": lead.name})
 	if note:
-		add_note("CRM Lead", lead.name, note)
+		add_note("Lead", lead.name, note)
 	if follow_up_note:
-		add_note("CRM Lead", lead.name, follow_up_note)
+		add_note("Lead", lead.name, follow_up_note)
 	if follow_up_on:
 		add_follow_up_task(
-			"CRM Lead",
+			"Lead",
 			lead.name,
 			follow_up_on,
 			assigned_to=assignee or frappe.session.user,
 			description=follow_up_note,
 		)
 	if channel:
-		add_note("CRM Lead", lead.name, f"{CAPTURE_NOTE_PREFIX} {SOURCE_CHANNELS[channel][0]} ({channel})")
+		add_note("Lead", lead.name, f"{CAPTURE_NOTE_PREFIX} {SOURCE_CHANNELS[channel][0]} ({channel})")
 	if matches:
-		add_note("CRM Lead", lead.name, describe_duplicates(matches))
+		add_note("Lead", lead.name, describe_duplicates(matches))
 	if card:
-		upload_base64_file(card, f"{lead.name}-card.jpg", "CRM Lead", lead.name)
+		upload_base64_file(card, f"{lead.name}-card.jpg", "Lead", lead.name)
 	return get_lead(lead.name)
 
 
 @frappe.whitelist()
 def get_assignable_users() -> dict:
-	"""Enabled CRM users the session user may assign a new lead to: anyone for crm_scope all,
+	"""Enabled sales users the session user may assign a new lead to: anyone for crm_scope all,
 	their sales team for team, nobody for staff (own)."""
 	capabilities = require_crm()
 	return {"data": get_crm_users(assignable_team(capabilities))}
@@ -273,7 +293,7 @@ def get_assignable_users() -> dict:
 def check_duplicates(
 	phone: str | None = None, email: str | None = None, organization: str | None = None
 ) -> dict:
-	"""Leads, deals, organizations, contacts and ERPNext customers that look like this person.
+	"""Leads, deals, organizations, contacts and customers that look like this person.
 
 	Records the caller cannot read come back without their name, title or status."""
 	require_crm()
@@ -284,7 +304,7 @@ def check_duplicates(
 
 
 def assignable_team(capabilities: frappe._dict) -> list[str] | None:
-	"""Who the caller may assign to: None = any CRM user (all), their sales team (team), else []."""
+	"""Who the caller may assign to: None = any sales user (all), their sales team (team), else []."""
 	if "all" in capabilities.crm_scopes:
 		return None
 	if "team" in capabilities.crm_scopes:
@@ -293,7 +313,7 @@ def assignable_team(capabilities: frappe._dict) -> list[str] | None:
 
 
 def get_crm_users(users: list[str] | None) -> list[dict]:
-	"""Enabled system users with a CRM role, limited to `users` unless None (one query)."""
+	"""Enabled system users with a sales role, limited to `users` unless None (one query)."""
 	if users == []:
 		return []
 	User = frappe.qb.DocType("User")
@@ -327,7 +347,7 @@ def check_assignee(capabilities: frappe._dict, assign_to: str | None) -> str | N
 	if team is not None and assign_to not in team:
 		frappe.throw(_("You can only assign leads to people in your sales team."), frappe.PermissionError)
 	if not get_crm_users([assign_to]):
-		frappe.throw(_("{0} is not an active CRM user.").format(assign_to))
+		frappe.throw(_("{0} is not an active sales user.").format(assign_to))
 	return assign_to
 
 
@@ -340,11 +360,11 @@ def check_source_channel(source_channel: str | None) -> str | None:
 
 
 def get_channel_lead_source(channel: str | None) -> str | None:
-	"""An existing CRM Lead Source that names the channel; never creates one."""
+	"""An existing Lead Source that names the channel; never creates one."""
 	names = SOURCE_CHANNELS[channel][1] if channel else ()
 	if not names:
 		return None
-	return frappe.db.get_value("CRM Lead Source", {"name": ("in", names)}, "name")
+	return frappe.db.get_value("Lead Source", {"name": ("in", names)}, "name")
 
 
 def check_card_image(card_image: str | None) -> str | None:
@@ -395,52 +415,57 @@ def text_criterion(fields: list, key: str):
 
 def duplicate_sources() -> list[frappe._dict]:
 	"""Per kind: the query, the fields each key is compared with, and the columns to return."""
-	Lead = frappe.qb.DocType("CRM Lead")
-	Deal = frappe.qb.DocType("CRM Deal")
-	DealContact = frappe.qb.DocType("CRM Contacts")
-	Organization = frappe.qb.DocType("CRM Organization")
+	Lead = frappe.qb.DocType("Lead")
+	Deal = frappe.qb.DocType("Opportunity")
+	Organization = frappe.qb.DocType("Prospect")
 	Contact = frappe.qb.DocType("Contact")
 	ContactPhone = frappe.qb.DocType("Contact Phone")
 	ContactEmail = frappe.qb.DocType("Contact Email")
+	Link = frappe.qb.DocType("Dynamic Link")
 	Customer = frappe.qb.DocType("Customer")
+	# ERPNext makes a Contact for each new lead: the lead is the match, and its contact would show
+	# a hidden lead's person to someone who may not see the lead
+	lead_contacts = (
+		frappe.qb.from_(Link)
+		.select(Link.parent)
+		.where((Link.parenttype == "Contact") & (Link.link_doctype == "Lead"))
+	)
 	return [
 		frappe._dict(
 			kind="lead",
-			doctype="CRM Lead",
+			doctype="Lead",
 			table=Lead,
 			# A converted lead is found through its deal.
-			query=frappe.qb.from_(Lead).where(Lead.converted == 0),
+			query=frappe.qb.from_(Lead).where(Lead.name.notin(converted_leads_query())),
 			phone=[Lead.mobile_no, Lead.phone],
-			email=[Lead.email],
-			organization=[Lead.organization],
-			title=Coalesce(Lead.lead_name, Lead.organization, Lead.name),
+			email=[Lead.email_id],
+			organization=[Lead.company_name],
+			title=Coalesce(Lead.lead_name, Lead.company_name, Lead.name),
 			owner=Lead.lead_owner,
-			status=Lead.status,
+			status=Lead.tbo_stage,
 		),
 		frappe._dict(
 			kind="deal",
-			doctype="CRM Deal",
+			doctype="Opportunity",
 			table=Deal,
-			query=frappe.qb.from_(Deal)
-			.left_join(DealContact)
-			.on((DealContact.parent == Deal.name) & (DealContact.parenttype == "CRM Deal")),
-			phone=[Deal.mobile_no, Deal.phone, DealContact.mobile_no, DealContact.phone],
-			email=[Deal.email, DealContact.email],
-			organization=[Deal.organization],
-			title=Coalesce(Deal.organization, Deal.lead_name, Deal.name),
-			owner=Deal.deal_owner,
-			status=Deal.status,
+			query=frappe.qb.from_(Deal),
+			phone=[Deal.contact_mobile, Deal.phone, Deal.whatsapp],
+			email=[Deal.contact_email],
+			organization=[Deal.customer_name],
+			title=Coalesce(Deal.customer_name, Deal.contact_display, Deal.name),
+			owner=Deal.opportunity_owner,
+			status=Deal.sales_stage,
 		),
 		frappe._dict(
 			kind="organization",
-			doctype="CRM Organization",
+			doctype="Prospect",
 			table=Organization,
 			query=frappe.qb.from_(Organization),
 			phone=[],
 			email=[],
-			organization=[Organization.organization_name],
-			title=Organization.organization_name,
-			owner=Organization.owner,
+			organization=[Organization.company_name],
+			title=Organization.company_name,
+			owner=Coalesce(Organization.prospect_owner, Organization.owner),
 			status=None,
 		),
 		frappe._dict(
@@ -451,7 +476,8 @@ def duplicate_sources() -> list[frappe._dict]:
 			.left_join(ContactPhone)
 			.on((ContactPhone.parent == Contact.name) & (ContactPhone.parenttype == "Contact"))
 			.left_join(ContactEmail)
-			.on((ContactEmail.parent == Contact.name) & (ContactEmail.parenttype == "Contact")),
+			.on((ContactEmail.parent == Contact.name) & (ContactEmail.parenttype == "Contact"))
+			.where(Contact.name.notin(lead_contacts)),
 			phone=[ContactPhone.phone, Contact.mobile_no, Contact.phone],
 			email=[ContactEmail.email_id, Contact.email_id],
 			organization=[],
@@ -561,45 +587,25 @@ def describe_duplicates(matches: list[dict]) -> str:
 
 @frappe.whitelist(methods=["POST"])
 def set_lead_status(name: str, status: str, lost_reason: str | None = None) -> dict:
-	"""Change a lead's status. A Lost-type status (Closed – Lost) needs a reason, as for deals."""
+	"""Change a lead's stage. A Lost-type stage (Closed – Lost) needs a reason, as for deals."""
 	require_crm()
-	lead = apply_lead_status(name, status, lost_reason)
-	return {"name": lead.name, "status": lead.status, "lost_reason": lead.lost_notes or lead.lost_reason}
-
-
-def apply_lead_status(name: str, status: str, lost_reason: str | None = None):
-	"""Save a lead's new status under the session user's permissions; a Lost-type status needs a
-	reason (set_lost_reason). Returns the lead."""
-	lead = frappe.get_doc("CRM Lead", name)
-	lead.check_permission("write")
-	status_type = frappe.db.get_value("CRM Lead Status", status, "type")
-	if not status_type:
-		frappe.throw(_("{0} is not a lead status.").format(status))
-	lead.status = status
-	if status_type == "Lost":
-		set_lost_reason(lead, lost_reason, _("Give a reason for losing the lead."))
-	lead.save()
-	return lead
+	lead = set_lead_stage(name, status, lost_reason)
+	return {"name": lead.name, "status": lead.tbo_stage, "lost_reason": lead_lost_reason(lead)}
 
 
 @frappe.whitelist(methods=["POST"])
 def convert_lead(name: str) -> dict:
-	"""Convert a lead to a deal with Frappe CRM's own conversion; a converted lead returns its deal.
-
-	The existing-deal check is done here rather than with convert_to_deal(if_converted=...),
-	which older Frappe CRM releases do not have.
-	"""
+	"""The lead's deal; a converted lead returns its existing deal. With the lead pipeline on,
+	only a Closed – Won lead gets its deal (docs/lead-pipeline.md §6)."""
 	require_crm()
-	frappe.has_permission("CRM Lead", "write", name, throw=True)
-	# with the lead pipeline on, only a Closed – Won lead gets its deal (docs/lead-pipeline.md §6)
-	deal = frappe.db.get_value("CRM Deal", {"lead": name}, "name") or convert_to_deal(lead=name)
-	return get_deal(deal)
+	return get_deal(make_lead_deal(name))
 
 
 def serialize_leads(leads: list) -> list[dict]:
 	names = [lead.name for lead in leads]
-	next_follow_up = get_next_follow_ups("CRM Lead", names)
-	last_contact = get_last_calls("CRM Lead", names)
+	next_follow_up = next_follow_ups("Lead", names)
+	last_contact = last_calls("Lead", names)
+	converted = leads_with_opportunity(names)
 	owners = get_full_names({lead.lead_owner for lead in leads})
 	return [
 		{
@@ -614,7 +620,7 @@ def serialize_leads(leads: list) -> list[dict]:
 			"phone": lead.mobile_no or lead.phone,
 			"email": lead.email,
 			"territory": lead.territory,
-			"converted": bool(lead.converted),
+			"converted": lead.name in converted,
 			"last_contact": last_contact.get(lead.name),
 			"next_follow_up": next_follow_up.get(lead.name),
 			"created": lead.creation,
@@ -637,13 +643,15 @@ def get_deals(
 ) -> dict:
 	"""Deals the session user may read in `scope`, optionally one stage. `mine=1` is scope=mine."""
 	capabilities = require_crm()
-	filters = scope_filter(capabilities, "mine" if cint(mine) else scope, "deal_owner")
+	filters = scope_filter(capabilities, "mine" if cint(mine) else scope, "opportunity_owner")
 	if stage:
-		filters["status"] = stage
-	or_filters = search_filters(search, ["organization", "lead_name", "email", "mobile_no"])
+		filters["sales_stage"] = stage
+	or_filters = search_filters(
+		search, ["customer_name", "contact_display", "contact_email", "contact_mobile"]
+	)
 	start, length = page_window(page, page_length)
 	deals = frappe.get_list(
-		"CRM Deal",
+		"Opportunity",
 		fields=DEAL_FIELDS,
 		filters=filters,
 		or_filters=or_filters,
@@ -658,61 +666,67 @@ def get_deals(
 def get_deal(name: str) -> dict:
 	"""One deal with its stage history, tasks, notes, activity and ERPNext customer."""
 	require_crm()
-	frappe.has_permission("CRM Deal", "read", name, throw=True)
-	deal = frappe.get_doc("CRM Deal", name)
-	row = frappe._dict({field: deal.get(field) for field in DEAL_FIELDS})
+	frappe.has_permission("Opportunity", "read", name, throw=True)
+	deal = frappe.get_doc("Opportunity", name)
+	row = frappe.get_all("Opportunity", filters={"name": name}, fields=DEAL_FIELDS)[0]
 	return {
 		**serialize_deals([row])[0],
-		"erpnext_customer": deal.get("erpnext_customer"),
+		"erpnext_customer": customer_of(deal),
 		"stage_history": [
-			{"stage": log.get("from"), "at": log.from_date}
-			for log in deal.status_change_log
-			if log.get("from")
+			{"stage": log.stage, "at": log.changed_on} for log in deal.get("tbo_stage_log") or []
 		],
-		**get_timeline("CRM Deal", name),
+		**app_timeline("Opportunity", name),
 	}
 
 
 @frappe.whitelist(methods=["POST"])
 def move_deal_stage(name: str, stage: str, lost_reason: str | None = None) -> dict:
-	"""Move a deal to another CRM Deal Status. Lost needs a reason.
+	"""Move a deal to another Sales Stage. A Lost-type stage needs a reason.
 
-	A reason that matches a CRM Lost Reason is used as is; free text is saved as
-	lost reason "Other" with the text in lost notes, which is what CRM asks for.
+	A reason that is an Opportunity Lost Reason is used as it is; free text is saved as lost
+	reason "Other" with the text as the detailed reason.
 	"""
 	require_crm()
-	deal = frappe.get_doc("CRM Deal", name)
+	deal = frappe.get_doc("Opportunity", name)
 	deal.check_permission("write")
-	stage_type = frappe.db.get_value("CRM Deal Status", stage, "type")
-	if not stage_type:
+	if not frappe.db.exists("Sales Stage", stage):
 		frappe.throw(_("{0} is not a deal stage.").format(stage))
-	deal.status = stage
-	if stage_type == "Lost":
+	deal.sales_stage = stage
+	# a Percent column reads 0 when unset: keep the deal's own probability unless the stage sets
+	# one, or closes the deal (Won 100, Lost 0)
+	probability = flt(frappe.db.get_value("Sales Stage", stage, "tbo_probability"))
+	if probability or stage_type(stage) in CLOSED_STAGE_TYPES:
+		deal.probability = probability
+	if stage_type(stage) == "Lost":
 		set_lost_reason(deal, lost_reason, _("Give a reason for losing the deal."))
 	deal.save()
 	return get_deal(deal.name)
 
 
-def set_lost_reason(doc, lost_reason: str | None, missing: str) -> None:
-	"""A reason that matches a CRM Lost Reason is used as is; free text is saved as lost reason
-	"Other" with the text in lost notes, which is what CRM asks for."""
-	reason = (lost_reason or "").strip()
-	if not reason:
-		frappe.throw(missing)
-	if frappe.db.exists("CRM Lost Reason", reason):
-		doc.lost_reason, doc.lost_notes = reason, None
-	else:
-		doc.lost_reason, doc.lost_notes = "Other", reason
+def deal_lost_reasons(names: list[str]) -> dict[str, str]:
+	"""{deal: its first lost reason} (one query)."""
+	if not names:
+		return {}
+	Row = frappe.qb.DocType("Opportunity Lost Reason Detail")
+	return dict(
+		(
+			frappe.qb.from_(Row)
+			.select(Row.parent, Max(Row.lost_reason))
+			.where((Row.parenttype == "Opportunity") & Row.parent.isin(names))
+			.groupby(Row.parent)
+		).run()
+	)
 
 
 def serialize_deals(deals: list) -> list[dict]:
 	names = [deal.name for deal in deals]
-	stage_types = dict(frappe.get_all("CRM Deal Status", fields=["name", "type"], as_list=True))
+	types = stage_types()
 	owners = get_full_names({deal.deal_owner for deal in deals})
-	next_follow_up = get_next_follow_ups("CRM Deal", names)
+	next_follow_up = next_follow_ups("Opportunity", names)
+	reasons = deal_lost_reasons(names)
 	result = []
 	for deal in deals:
-		contact = deal.lead_name or " ".join(part for part in (deal.first_name, deal.last_name) if part)
+		contact = deal.lead_name
 		result.append(
 			{
 				"name": deal.name,
@@ -720,15 +734,15 @@ def serialize_deals(deals: list) -> list[dict]:
 				"organization": deal.organization,
 				"contact": contact,
 				"stage": deal.status,
-				"stage_type": stage_types.get(deal.status),
-				"amount": flt(deal.deal_value or deal.expected_deal_value),
+				"stage_type": types.get(deal.status) if deal.status else None,
+				"amount": flt(deal.deal_value),
 				"currency": deal.currency,
 				"probability": flt(deal.probability),
 				"expected_close": deal.expected_closure_date,
 				"closed_on": deal.closed_date,
 				"owner": owners.get(deal.deal_owner, deal.deal_owner),
 				"owner_id": deal.deal_owner,
-				"lost_reason": deal.lost_notes or deal.lost_reason,
+				"lost_reason": deal.lost_notes or reasons.get(deal.name),
 				"next_step": deal.next_step,
 				"phone": deal.mobile_no,
 				"email": deal.email,
@@ -741,18 +755,27 @@ def serialize_deals(deals: list) -> list[dict]:
 
 # ---------- Organizations ----------
 
+ORGANIZATION_FIELDS = [
+	"name",
+	"company_name as organization_name",
+	"territory",
+	"industry",
+	"website",
+	"no_of_employees",
+]
+
 
 @frappe.whitelist()
 def get_organizations(search: str | None = None, page: int = 1, page_length: int = 20) -> dict:
-	"""CRM Organizations with open deal counts and the ERPNext Customers CRM linked to their deals."""
+	"""Organizations (Prospects) with open deal counts and their ERPNext Customers."""
 	require_crm()
-	or_filters = search_filters(search, ["organization_name", "website"])
+	or_filters = search_filters(search, ["company_name", "website"])
 	start, length = page_window(page, page_length)
 	organizations = frappe.get_list(
-		"CRM Organization",
-		fields=["name", "organization_name", "territory", "industry", "website", "no_of_employees"],
+		"Prospect",
+		fields=ORGANIZATION_FIELDS,
 		or_filters=or_filters,
-		order_by="organization_name asc",
+		order_by="company_name asc",
 		start=start,
 		page_length=length + 1,
 	)
@@ -763,13 +786,8 @@ def get_organizations(search: str | None = None, page: int = 1, page_length: int
 def get_organization(name: str) -> dict:
 	"""One organization with its contacts and deals."""
 	require_crm()
-	frappe.has_permission("CRM Organization", "read", name, throw=True)
-	organization = frappe.db.get_value(
-		"CRM Organization",
-		name,
-		["name", "organization_name", "territory", "industry", "website", "no_of_employees"],
-		as_dict=True,
-	)
+	frappe.has_permission("Prospect", "read", name, throw=True)
+	organization = frappe.get_all("Prospect", filters={"name": name}, fields=ORGANIZATION_FIELDS)[0]
 	contacts = frappe.get_list(
 		"Contact",
 		filters={"company_name": name},
@@ -777,7 +795,10 @@ def get_organization(name: str) -> dict:
 		order_by="full_name asc",
 	)
 	deals = frappe.get_list(
-		"CRM Deal", filters={"organization": name}, fields=DEAL_FIELDS, order_by="modified desc"
+		"Opportunity",
+		or_filters=organization_deal_filters([name]),
+		fields=DEAL_FIELDS,
+		order_by="modified desc",
 	)
 	return {
 		**serialize_organizations([organization])[0],
@@ -793,6 +814,11 @@ def get_organization(name: str) -> dict:
 		],
 		"deals": serialize_deals(deals),
 	}
+
+
+def organization_deal_filters(names: list[str]) -> dict:
+	"""A deal belongs to an organization when it is made out to it or names it as the client."""
+	return {"customer_name": ("in", names), "party_name": ("in", names)}
 
 
 def serialize_organizations(organizations: list) -> list[dict]:
@@ -814,25 +840,36 @@ def serialize_organizations(organizations: list) -> list[dict]:
 
 
 def get_organization_deal_links(names: list[str]) -> tuple[dict, dict]:
-	"""Open deal count and ERPNext customers per organization, from the deals the user can read.
-
-	Frappe CRM links a Customer to a Deal (CRM Deal.erpnext_customer, set when the deal
-	is won with the ERPNext integration on); there is no direct Organization -> Customer link.
-	"""
+	"""Open deal count and ERPNext customers per organization: the Customers made from it
+	(`prospect_name`) and those of the deals the user can read."""
 	if not names:
 		return {}, {}
-	fields = ["name", "organization", "status"]
-	has_customer = frappe.get_meta("CRM Deal").has_field("erpnext_customer")
-	if has_customer:
-		fields.append("erpnext_customer")
-	deals = frappe.get_list("CRM Deal", filters={"organization": ("in", names)}, fields=fields)
-	stage_types = dict(frappe.get_all("CRM Deal Status", fields=["name", "type"], as_list=True))
+	deals = frappe.get_list(
+		"Opportunity",
+		or_filters=organization_deal_filters(names),
+		fields=[
+			"name",
+			"customer_name",
+			"party_name",
+			"opportunity_from",
+			"sales_stage",
+			"tbo_customer",
+		],
+	)
+	types = stage_types()
 	open_deals, customers = {}, {}
+	for name, customer in frappe.get_all(
+		"Customer", filters={"prospect_name": ("in", names)}, fields=["prospect_name", "name"], as_list=True
+	):
+		customers.setdefault(name, set()).add(customer)
+	deal_customers = customers_of(deals)
 	for deal in deals:
-		if stage_types.get(deal.status) not in ("Won", "Lost"):
-			open_deals[deal.organization] = open_deals.get(deal.organization, 0) + 1
-		if has_customer and deal.erpnext_customer:
-			customers.setdefault(deal.organization, set()).add(deal.erpnext_customer)
+		organization = deal.party_name if deal.party_name in names else deal.customer_name
+		if types.get(deal.sales_stage) not in CLOSED_STAGE_TYPES:
+			open_deals[organization] = open_deals.get(organization, 0) + 1
+		customer = deal_customers.get(deal.name)
+		if customer:
+			customers.setdefault(organization, set()).add(customer)
 	return open_deals, customers
 
 
@@ -845,9 +882,8 @@ def get_sales_insights(
 ) -> dict:
 	"""Read-only pipeline, win/loss, funnel, activity and trend aggregates, cached for a few minutes.
 
-	`scope` (mine / team / all, default the widest in crm_scopes) filters on the deal and
-	lead owner, as Frappe CRM's dashboard does. Values are deal_value x exchange_rate in
-	the CRM base currency, the dashboard's formula.
+	`scope` (mine / team / all, default the widest in crm_scopes) filters on the deal and lead
+	owner. Values are the deals' amounts in the company currency (`base_opportunity_amount`).
 	"""
 	capabilities = require("sales_insights", _("Only Sales Managers can see sales insights."))
 	scope = resolve_crm_scope(capabilities, scope)
@@ -871,7 +907,7 @@ def build_sales_insights(windows: frappe._dict, scope: str, stalled_days: int) -
 		"to_date": windows.to_date,
 		"previous": {"from_date": windows.previous_from, "to_date": windows.previous_to},
 		"scope": scope,
-		"currency": get_crm_currency(),
+		"currency": default_currency(),
 		"pipeline": get_pipeline(owners),
 		"won": won,
 		"lost": lost,
@@ -887,8 +923,8 @@ def build_sales_insights(windows: frappe._dict, scope: str, stalled_days: int) -
 
 
 def deal_value(Deal):
-	"""Frappe CRM's dashboard value: deal_value in the base currency."""
-	return Coalesce(Deal.deal_value, 0) * IfNull(Deal.exchange_rate, 1)
+	"""A deal's value in the company currency."""
+	return Coalesce(Deal.base_opportunity_amount, 0)
 
 
 def owned_by(field, owners: list[str] | None):
@@ -896,64 +932,61 @@ def owned_by(field, owners: list[str] | None):
 	return field.isin(owners) if owners else EmptyCriterion()
 
 
-def get_crm_currency() -> str | None:
-	return frappe.db.get_single_value("FCRM Settings", "currency") or frappe.db.get_default("currency")
-
-
-def current_stage_log(Log, Deal):
-	"""Join to the open CRM Status Change Log row of the deal's current stage (when it entered it)."""
-	return (
-		(Log.parent == Deal.name)
-		& (Log.parenttype == "CRM Deal")
-		& (Log["from"] == Deal.status)
-		& (IfNull(Log["to"], "") == "")
-	)
+def open_stage(Stage):
+	"""A Sales Stage that is neither Won nor Lost (a blank type reads as Ongoing)."""
+	return IfNull(Stage.tbo_stage_type, "").notin(CLOSED_STAGE_TYPES)
 
 
 def get_pipeline(owners: list[str] | None) -> dict:
-	"""Open stages in CRM order: count, value, weighted value, average age and days in stage."""
-	Deal = frappe.qb.DocType("CRM Deal")
-	Status = frappe.qb.DocType("CRM Deal Status")
-	Log = frappe.qb.DocType("CRM Status Change Log")
+	"""Open stages in pipeline order: count, value, weighted value, average age and days in stage."""
+	Deal = frappe.qb.DocType("Opportunity")
+	Stage = frappe.qb.DocType("Sales Stage")
+	Log = frappe.qb.DocType("TBO Stage Change")
 	now = now_datetime()
 	value = deal_value(Deal)
 	stages = (
-		frappe.qb.from_(Status)
+		frappe.qb.from_(Stage)
 		.left_join(Deal)
-		.on((Deal.status == Status.name) & owned_by(Deal.deal_owner, owners))
+		.on((Deal.sales_stage == Stage.name) & owned_by(Deal.opportunity_owner, owners))
 		.select(
-			Status.name.as_("stage"),
-			Status.type.as_("type"),
+			Stage.name.as_("stage"),
+			Stage.tbo_stage_type.as_("type"),
 			Count(Deal.name).as_("count"),
 			Sum(value).as_("value"),
 			Sum(value * IfNull(Deal.probability, 0) / 100).as_("weighted"),
 			Avg(TimestampDiff(LiteralValue("DAY"), Deal.creation, now)).as_("avg_age_days"),
 		)
-		.where(Status.type.notin(CLOSED_STAGE_TYPES))
-		.groupby(Status.name, Status.type, Status.position)
-		.orderby(Status.position)
+		.where(open_stage(Stage))
+		.groupby(Stage.name, Stage.tbo_stage_type, Stage.tbo_position)
+		.orderby(IfNull(Stage.tbo_position, 10_000))
+		.orderby(Stage.name)
 	).run(as_dict=True)
-	in_stage = dict(
-		(
-			frappe.qb.from_(Deal)
-			.join(Log)
-			.on(current_stage_log(Log, Deal))
-			.select(Deal.status, Avg(TimestampDiff(LiteralValue("DAY"), Log.from_date, now)))
-			.where(
-				Deal.status.isin([row.stage for row in stages] or [""]) & owned_by(Deal.deal_owner, owners)
-			)
-			.groupby(Deal.status)
-		).run()
-	)
+	# when each deal entered its current stage: its newest log row for that stage
+	entered = (
+		frappe.qb.from_(Deal)
+		.join(Log)
+		.on((Log.parent == Deal.name) & (Log.parenttype == "Opportunity") & (Log.stage == Deal.sales_stage))
+		.select(Deal.name, Deal.sales_stage, Max(Log.changed_on).as_("since"))
+		.where(
+			Deal.sales_stage.isin([row.stage for row in stages] or [""])
+			& owned_by(Deal.opportunity_owner, owners)
+		)
+		.groupby(Deal.name, Deal.sales_stage)
+	).run(as_dict=True)
+	days_in: dict[str, list[float]] = {}
+	for row in entered:
+		days_in.setdefault(row.sales_stage, []).append((now - row.since).total_seconds() / 86400)
 	by_stage = [
 		{
 			"stage": row.stage,
-			"type": row.type,
+			"type": row.type or "Ongoing",
 			"count": row["count"],
 			"value": flt(row.value),
 			"weighted": flt(row.weighted),
 			"avg_age_days": round(flt(row.avg_age_days), 1) if row["count"] else None,
-			"avg_days_in_stage": round(flt(in_stage[row.stage]), 1) if row.stage in in_stage else None,
+			"avg_days_in_stage": round(sum(days_in[row.stage]) / len(days_in[row.stage]), 1)
+			if days_in.get(row.stage)
+			else None,
 		}
 		for row in stages
 	]
@@ -966,42 +999,34 @@ def get_pipeline(owners: list[str] | None) -> dict:
 
 
 def get_closed_deals(from_date, owners: list[str] | None) -> list:
-	"""Won and lost deals per closing day since from_date, in one grouped query.
-
-	Won uses closed_date, as CRM's dashboard does. CRM stores no date for a loss, so a lost
-	deal closes on the day it entered its Lost stage (status change log), else its last edit.
-	"""
-	Deal = frappe.qb.DocType("CRM Deal")
-	Status = frappe.qb.DocType("CRM Deal Status")
-	Log = frappe.qb.DocType("CRM Status Change Log")
-	closed_on = Coalesce(
-		Case().when(Status.type == "Won", Deal.closed_date), Date(Coalesce(Log.from_date, Deal.modified))
-	)
+	"""Won and lost deals per closing day since from_date, in one grouped query. A deal closes on
+	the day it entered its Won or Lost stage (`tbo_closed_on`), else on its last edit."""
+	Deal = frappe.qb.DocType("Opportunity")
+	Stage = frappe.qb.DocType("Sales Stage")
+	closed_on = Coalesce(Deal.tbo_closed_on, Date(Deal.modified))
 	return (
 		frappe.qb.from_(Deal)
-		.join(Status)
-		.on(Deal.status == Status.name)
-		.left_join(Log)
-		.on(current_stage_log(Log, Deal))
+		.join(Stage)
+		.on(Deal.sales_stage == Stage.name)
 		.select(
-			Status.type.as_("type"),
+			Stage.tbo_stage_type.as_("type"),
 			closed_on.as_("closed_on"),
 			Count(Deal.name).distinct().as_("count"),
 			Sum(deal_value(Deal)).as_("value"),
 		)
 		.where(
-			Status.type.isin(CLOSED_STAGE_TYPES)
-			& owned_by(Deal.deal_owner, owners)
+			Stage.tbo_stage_type.isin(CLOSED_STAGE_TYPES)
+			& owned_by(Deal.opportunity_owner, owners)
 			& (closed_on >= from_date)
 		)
-		.groupby(Status.type, closed_on)
+		.groupby(Stage.tbo_stage_type, closed_on)
 	).run(as_dict=True)
 
 
-def summarize_closed(closed: list, stage_type: str, windows: frappe._dict) -> dict:
+def summarize_closed(closed: list, kind: str, windows: frappe._dict) -> dict:
 	totals = {"count": 0, "value": 0.0, "previous_count": 0, "previous_value": 0.0}
 	for row in closed:
-		if row.type != stage_type:
+		if row.type != kind:
 			continue
 		if in_window(row.closed_on, windows.from_date, windows.to_date):
 			totals["count"] += row["count"]
@@ -1021,25 +1046,23 @@ def summarize_closed(closed: list, stage_type: str, windows: frappe._dict) -> di
 
 def get_stalled_deals(owners: list[str] | None, stalled_days: int) -> dict:
 	"""Open deals with no edit, call, note, task change or comment in the last N days."""
-	Deal = frappe.qb.DocType("CRM Deal")
-	Status = frappe.qb.DocType("CRM Deal Status")
+	Deal = frappe.qb.DocType("Opportunity")
+	Stage = frappe.qb.DocType("Sales Stage")
 	cutoff = add_days(now_datetime(), -stalled_days)
-	stalled = (
-		Status.type.notin(CLOSED_STAGE_TYPES) & owned_by(Deal.deal_owner, owners) & (Deal.modified < cutoff)
-	)
+	stalled = open_stage(Stage) & owned_by(Deal.opportunity_owner, owners) & (Deal.modified < cutoff)
 	for activity in recent_deal_activity(cutoff):
 		stalled &= Deal.name.notin(activity)
 	value = deal_value(Deal)
-	base = frappe.qb.from_(Deal).join(Status).on(Deal.status == Status.name).where(stalled)
+	base = frappe.qb.from_(Deal).join(Stage).on(Deal.sales_stage == Stage.name).where(stalled)
 	summary = base.select(Count(Deal.name).as_("count"), Sum(value).as_("value")).run(as_dict=True)[0]
 	deals = (
 		base.select(
 			Deal.name,
-			Deal.organization,
-			Deal.lead_name,
-			Deal.status.as_("stage"),
+			Deal.customer_name.as_("organization"),
+			Deal.contact_display.as_("lead_name"),
+			Deal.sales_stage.as_("stage"),
 			value.as_("value"),
-			Deal.deal_owner,
+			Deal.opportunity_owner.as_("deal_owner"),
 			Deal.modified.as_("idle_since"),
 		)
 		.orderby(value, order=frappe.qb.desc)
@@ -1066,43 +1089,41 @@ def get_stalled_deals(owners: list[str] | None, stalled_days: int) -> dict:
 
 
 def recent_deal_activity(cutoff) -> list:
-	"""Subqueries of deals with a call, note, task change or comment since cutoff."""
-	queries = []
-	for doctype, ref_field, time_field in (
-		("CRM Call Log", "reference_docname", "creation"),
-		("FCRM Note", "reference_docname", "creation"),
-		("CRM Task", "reference_docname", "modified"),
-	):
-		table = frappe.qb.DocType(doctype)
-		queries.append(
-			frappe.qb.from_(table)
-			.select(table[ref_field])
-			.where(
-				(table.reference_doctype == "CRM Deal")
-				& table[ref_field].isnotnull()
-				& (table[time_field] >= cutoff)
-			)
-		)
+	"""Subqueries of deals with a call or logged activity, a note, or a task change since cutoff."""
+	Event = frappe.qb.DocType("Event")
+	Participant = frappe.qb.DocType("Event Participants")
 	Comment = frappe.qb.DocType("Comment")
-	queries.append(
+	ToDo = frappe.qb.DocType("ToDo")
+	return [
+		frappe.qb.from_(Participant)
+		.join(Event)
+		.on(Event.name == Participant.parent)
+		.select(Participant.reference_docname)
+		.where((Participant.reference_doctype == "Opportunity") & (Event.creation >= cutoff)),
 		frappe.qb.from_(Comment)
 		.select(Comment.reference_name)
 		.where(
-			(Comment.reference_doctype == "CRM Deal")
+			(Comment.reference_doctype == "Opportunity")
 			& Comment.reference_name.isnotnull()
 			& (Comment.comment_type == "Comment")
 			& (Comment.creation >= cutoff)
-		)
-	)
-	return queries
+		),
+		frappe.qb.from_(ToDo)
+		.select(ToDo.reference_name)
+		.where(
+			(ToDo.reference_type == "Opportunity")
+			& ToDo.reference_name.isnotnull()
+			& (ToDo.modified >= cutoff)
+		),
+	]
 
 
 def get_leads_funnel(windows: frappe._dict, owners: list[str] | None) -> dict:
-	"""Leads created in the period, how many are qualified (a Won-type lead status, or
-	converted) and how many became deals, with the change against the previous span."""
-	Lead = frappe.qb.DocType("CRM Lead")
-	LeadStatus = frappe.qb.DocType("CRM Lead Status")
-	qualified = (Lead.converted == 1) | (LeadStatus.type == "Won")
+	"""Leads created in the period, how many are qualified (a Won-type stage, or converted) and
+	how many became deals, with the change against the previous span."""
+	Lead = frappe.qb.DocType("Lead")
+	converted = Lead.name.isin(converted_leads_query())
+	qualified = converted | Lead.tbo_stage.isin(WON_STATUSES)
 
 	def created_in(from_date, to_date):
 		return (Lead.creation >= from_date) & (Lead.creation < add_days(to_date, 1))
@@ -1114,14 +1135,12 @@ def get_leads_funnel(windows: frappe._dict, owners: list[str] | None) -> dict:
 	previous = created_in(windows.previous_from, windows.previous_to)
 	row = (
 		frappe.qb.from_(Lead)
-		.left_join(LeadStatus)
-		.on(Lead.status == LeadStatus.name)
 		.select(
 			count_if(current).as_("new"),
 			count_if(current & qualified).as_("qualified"),
-			count_if(current & (Lead.converted == 1)).as_("converted"),
+			count_if(current & converted).as_("converted"),
 			count_if(previous).as_("previous_new"),
-			count_if(previous & (Lead.converted == 1)).as_("previous_converted"),
+			count_if(previous & converted).as_("previous_converted"),
 		)
 		.where(
 			owned_by(Lead.lead_owner, owners)
@@ -1129,36 +1148,51 @@ def get_leads_funnel(windows: frappe._dict, owners: list[str] | None) -> dict:
 			& (Lead.creation < add_days(windows.to_date, 1))
 		)
 	).run(as_dict=True)[0]
-	new, converted = cint(row.new), cint(row.converted)
+	new, converted_count = cint(row.new), cint(row.converted)
 	return {
 		"new": new,
 		"qualified": cint(row.qualified),
-		"converted": converted,
+		"converted": converted_count,
 		"qualified_pct": percent(row.qualified, new),
-		"converted_pct": percent(converted, new),
+		"converted_pct": percent(converted_count, new),
 		"new_delta": new - cint(row.previous_new),
-		"converted_delta": converted - cint(row.previous_converted),
+		"converted_delta": converted_count - cint(row.previous_converted),
 	}
 
 
 def get_activity_by_owner(windows: frappe._dict, owners: list[str] | None) -> list[dict]:
-	"""Calls logged, notes written and CRM tasks done in the period, per person (three grouped queries)."""
+	"""Calls logged, notes written and sales tasks done in the period, per person (three grouped
+	queries)."""
 	start, end = windows.from_date, add_days(windows.to_date, 1)
-	CallLog = frappe.qb.DocType("CRM Call Log")
-	Note = frappe.qb.DocType("FCRM Note")
-	Task = frappe.qb.DocType("CRM Task")
-	call_user = Coalesce(
-		Case().when(CallLog.type == "Incoming", CallLog.receiver).else_(CallLog.caller), CallLog.owner
-	)
+	Event = frappe.qb.DocType("Event")
+	Comment = frappe.qb.DocType("Comment")
+	ToDo = frappe.qb.DocType("ToDo")
+	on_sales = ("Lead", "Opportunity")
 	counts = {}
 	for key, table, user, criterion in (
-		("calls", CallLog, call_user, (CallLog.creation >= start) & (CallLog.creation < end)),
-		("notes", Note, Note.owner, (Note.creation >= start) & (Note.creation < end)),
+		(
+			"calls",
+			Event,
+			Event.owner,
+			(Event.event_category == CALL) & (Event.creation >= start) & (Event.creation < end),
+		),
+		(
+			"notes",
+			Comment,
+			Comment.owner,
+			(Comment.comment_type == "Comment")
+			& Comment.reference_doctype.isin(on_sales)
+			& (Comment.creation >= start)
+			& (Comment.creation < end),
+		),
 		(
 			"tasks_done",
-			Task,
-			Task.assigned_to,
-			(Task.status == "Done") & (Task.modified >= start) & (Task.modified < end),
+			ToDo,
+			ToDo.allocated_to,
+			(ToDo.status == DONE)
+			& ToDo.reference_type.isin(on_sales)
+			& (ToDo.modified >= start)
+			& (ToDo.modified < end),
 		),
 	):
 		rows = (
@@ -1195,7 +1229,7 @@ def get_sales_trend(windows: frappe._dict, owners: list[str] | None, closed: lis
 		if index is not None:
 			trend[index]["won_value"] += flt(row.value)
 			trend[index]["won_count"] += row["count"]
-	Lead = frappe.qb.DocType("CRM Lead")
+	Lead = frappe.qb.DocType("Lead")
 	created = Date(Lead.creation)
 	leads = (
 		frappe.qb.from_(Lead)
@@ -1212,27 +1246,27 @@ def get_sales_trend(windows: frappe._dict, owners: list[str] | None, closed: lis
 
 def get_closing_deals(windows: frappe._dict, owners: list[str] | None) -> list[dict]:
 	"""The biggest open deals expected to close in the current period."""
-	Deal = frappe.qb.DocType("CRM Deal")
-	Status = frappe.qb.DocType("CRM Deal Status")
+	Deal = frappe.qb.DocType("Opportunity")
+	Stage = frappe.qb.DocType("Sales Stage")
 	value = deal_value(Deal)
 	deals = (
 		frappe.qb.from_(Deal)
-		.join(Status)
-		.on(Deal.status == Status.name)
+		.join(Stage)
+		.on(Deal.sales_stage == Stage.name)
 		.select(
 			Deal.name,
-			Deal.organization,
-			Deal.lead_name,
-			Deal.status.as_("stage"),
+			Deal.customer_name.as_("organization"),
+			Deal.contact_display.as_("lead_name"),
+			Deal.sales_stage.as_("stage"),
 			value.as_("value"),
 			Deal.probability,
-			Deal.expected_closure_date,
-			Deal.deal_owner,
+			Deal.expected_closing,
+			Deal.opportunity_owner.as_("deal_owner"),
 		)
 		.where(
-			Status.type.notin(CLOSED_STAGE_TYPES)
-			& owned_by(Deal.deal_owner, owners)
-			& Deal.expected_closure_date.between(windows.from_date, windows.end_date)
+			open_stage(Stage)
+			& owned_by(Deal.opportunity_owner, owners)
+			& Deal.expected_closing.between(windows.from_date, windows.end_date)
 		)
 		.orderby(value, order=frappe.qb.desc)
 		.limit(INSIGHT_LIST_LIMIT)
@@ -1245,7 +1279,7 @@ def get_closing_deals(windows: frappe._dict, owners: list[str] | None) -> list[d
 			"stage": deal.stage,
 			"value": flt(deal.value),
 			"probability": flt(deal.probability),
-			"expected_close": deal.expected_closure_date,
+			"expected_close": deal.expected_closing,
 			"owner": names.get(deal.deal_owner, deal.deal_owner),
 			"owner_id": deal.deal_owner,
 		}
@@ -1258,46 +1292,51 @@ def get_closing_deals(windows: frappe._dict, owners: list[str] | None) -> list[d
 
 @frappe.whitelist()
 def get_my_follow_ups(scope: str | None = None) -> list[dict]:
-	"""Open CRM Tasks due today or overdue, oldest first: assigned to me (scope=mine, the
-	default), to my sales team (team) or to anyone (all)."""
+	"""Open tasks on leads and deals due today or overdue, oldest first: assigned to me
+	(scope=mine, the default), to my sales team (team) or to anyone (all)."""
 	capabilities = require_crm()
 	users = scope_users(resolve_crm_scope(capabilities, scope or "mine"))
-	end_of_today = get_datetime(f"{frappe.utils.nowdate()} 23:59:59")
-	filters = {"status": ("not in", CLOSED_TASK_STATUSES), "due_date": ("<=", end_of_today)}
+	filters = {
+		"status": OPEN,
+		"date": ("<=", today()),
+		"reference_type": ("in", list(REF_DOCTYPES.values())),
+	}
 	if users:
-		filters["assigned_to"] = ("in", users)
-	tasks = frappe.get_list(
-		"CRM Task",
+		filters["allocated_to"] = ("in", users)
+	# the scope is the permission: the caller may see the follow-ups of these people
+	tasks = frappe.get_all(
+		"ToDo",
 		filters=filters,
 		fields=[
 			"name",
-			"title",
+			"description",
 			"status",
 			"priority",
-			"due_date",
-			"assigned_to",
-			"reference_doctype",
-			"reference_docname",
+			"date",
+			"allocated_to",
+			"reference_type",
+			"reference_name",
 		],
-		order_by="due_date asc",
+		order_by="date asc",
 		limit=100,
 	)
 	refs = get_ref_labels(tasks)
-	assignees = get_full_names({task.assigned_to for task in tasks})
+	assignees = get_full_names({task.allocated_to for task in tasks})
+	now = getdate()
 	return [
 		{
 			"id": task.name,
 			"kind": "task",
-			"subject": task.title,
-			"status": task.status,
+			"subject": task_title(task.description),
+			"status": TASK_STATUS_LABELS.get(task.status, task.status),
 			"priority": task.priority,
-			"due": task.due_date,
-			"overdue": get_datetime(task.due_date) < now_datetime(),
-			"with": refs.get(task.reference_docname, {}).get("with"),
-			"organization": refs.get(task.reference_docname, {}).get("organization"),
-			"ref": ref_of(task.reference_doctype, task.reference_docname),
-			"assigned_to": task.assigned_to,
-			"assigned_to_name": assignees.get(task.assigned_to, task.assigned_to),
+			"due": task.date,
+			"overdue": getdate(task.date) < now,
+			"with": refs.get(task.reference_name, {}).get("with"),
+			"organization": refs.get(task.reference_name, {}).get("organization"),
+			"ref": ref_of(task.reference_type, task.reference_name),
+			"assigned_to": task.allocated_to,
+			"assigned_to_name": assignees.get(task.allocated_to, task.allocated_to),
 		}
 		for task in tasks
 	]
@@ -1325,11 +1364,10 @@ def log_activity(
 ) -> dict:
 	"""Log a call, note, meeting, email or WhatsApp on a lead or deal.
 
-	call -> CRM Call Log (Manual, Outgoing, Completed) to `phone` (default: the record's
-	mobile) from the caller's own mobile, with the text as its note;
-	note -> FCRM Note; meeting / email / whatsapp -> a CRM comment, as Frappe CRM has no
-	doctype for them. A call or meeting closes my open follow-ups on the record that are
-	due by now. next_follow_up (date or datetime) adds a CRM Task assigned to me.
+	call -> a completed call Event (to `phone`, default the record's mobile) with the text as
+	its description; note -> a Comment; meeting / email / whatsapp -> an Event "Meeting: …".
+	A call or meeting closes my open follow-ups on the record that are due by today.
+	next_follow_up (a date) adds a ToDo assigned to me.
 	"""
 	require_crm()
 	reference_doctype = REF_DOCTYPES.get(doctype)
@@ -1346,273 +1384,62 @@ def log_activity(
 	elif kind == "call":
 		add_call(reference_doctype, name, text, phone)
 	else:
-		add_comment(reference_doctype, name, f"{COMMENT_LABELS[kind]}: {frappe.utils.escape_html(text)}")
+		add_log(reference_doctype, name, kind, text)
 
 	if kind in ("call", "meeting"):
 		close_due_follow_ups(reference_doctype, name)
 	if next_follow_up:
 		add_follow_up_task(reference_doctype, name, next_follow_up)
-	return get_timeline(reference_doctype, name)
+	return app_timeline(reference_doctype, name)
 
 
 @frappe.whitelist(methods=["POST"])
 def add_follow_up(doctype: str, name: str, due: str, title: str | None = None) -> dict:
-	"""Schedule a follow-up (a CRM Task assigned to me) on a lead or deal."""
+	"""Schedule a follow-up (a ToDo assigned to me) on a lead or deal."""
 	require_crm()
 	reference_doctype = REF_DOCTYPES.get(doctype)
 	if not reference_doctype:
 		frappe.throw(_("doctype must be lead or deal."))
 	frappe.has_permission(reference_doctype, "read", name, throw=True)
 	task = add_follow_up_task(reference_doctype, name, due, title)
-	return {"id": task.name, "subject": task.title, "due": task.due_date, "status": task.status}
+	return {
+		"id": task.name,
+		"subject": task_title(task.description),
+		"due": task.date,
+		"status": TASK_STATUS_LABELS[task.status],
+	}
 
 
 @frappe.whitelist(methods=["POST"])
 def set_task_done(name: str, done: bool = True) -> dict:
-	"""Tick or untick a CRM Task."""
+	"""Tick or untick a task."""
 	require_crm()
-	task = frappe.get_doc("CRM Task", name)
+	task = frappe.get_doc("ToDo", name)
 	task.check_permission("write")
-	task.status = "Done" if cint(done) else "Todo"
+	task.status = DONE if cint(done) else OPEN
 	task.save()
-	return {"id": task.name, "status": task.status, "done": task.status == "Done"}
+	return {"id": task.name, "status": TASK_STATUS_LABELS[task.status], "done": task.status == DONE}
 
 
-def add_note(reference_doctype: str, name: str, text: str):
-	note = frappe.new_doc("FCRM Note")
-	note.update(
-		{
-			"title": text.strip().splitlines()[0][:140],
-			"content": frappe.utils.escape_html(text),
-			"reference_doctype": reference_doctype,
-			"reference_docname": name,
-		}
-	)
-	note.insert()
-	return note
-
-
-def add_call(reference_doctype: str, name: str, text: str, phone: str | None = None):
-	"""CRM Call Log needs both numbers: the one called and the caller's own."""
-	now = now_datetime()
-	called = phone or frappe.db.get_value(reference_doctype, name, "mobile_no")
-	caller = frappe.db.get_value("User", frappe.session.user, "mobile_no") or frappe.db.get_value(
-		"Employee", {"user_id": frappe.session.user, "status": "Active"}, "cell_number"
-	)
-	if not called:
-		frappe.throw(_("{0} has no mobile number. Send the number you called.").format(name))
-	if not caller:
-		frappe.throw(_("Add your mobile number to your user profile to log calls."))
-	call = frappe.new_doc("CRM Call Log")
-	call.update(
-		{
-			"type": "Outgoing",
-			"status": "Completed",
-			"telephony_medium": "Manual",
-			"caller": frappe.session.user,
-			"from": caller,
-			"to": called,
-			"start_time": now,
-			"end_time": now,
-			"note": add_note(reference_doctype, name, text).name,
-			"reference_doctype": reference_doctype,
-			"reference_docname": name,
-		}
-	)
-	call.insert()
-	return call
-
-
-def add_follow_up_task(
-	reference_doctype: str,
-	name: str,
-	due: str,
-	title: str | None = None,
-	assigned_to: str | None = None,
-	description: str | None = None,
-	task_type: str | None = None,
-):
-	"""A Todo CRM Task on the record, assigned to `assigned_to` (default: me); CRM assigns it on
-	insert. `task_type` sets the finance workflow's tbo_task_type (e.g. "Sales follow-up")."""
-	label = frappe.db.get_value(
-		reference_doctype, name, "lead_name" if reference_doctype == "CRM Lead" else "organization"
-	)
-	task = frappe.new_doc("CRM Task")
-	task.update(
-		{
-			"title": title or _("Follow up with {0}").format(label or name),
-			"description": frappe.utils.escape_html(description) if description else None,
-			"status": "Todo",
-			"priority": "Medium",
-			"assigned_to": assigned_to or frappe.session.user,
-			"due_date": get_datetime(due),
-			"reference_doctype": reference_doctype,
-			"reference_docname": name,
-		}
-	)
-	if task_type:
-		task.tbo_task_type = task_type
-	task.insert()
-	return task
-
-
-def close_due_follow_ups(reference_doctype: str, name: str) -> None:
-	due = frappe.get_list(
-		"CRM Task",
-		filters={
-			"reference_doctype": reference_doctype,
-			"reference_docname": name,
-			"assigned_to": frappe.session.user,
-			"status": ("not in", CLOSED_TASK_STATUSES),
-			"due_date": ("<=", now_datetime()),
-		},
-		pluck="name",
-	)
-	for task_name in due:
-		task = frappe.get_doc("CRM Task", task_name)
-		task.status = "Done"
-		task.save()
-
-
-def get_timeline(reference_doctype: str, name: str) -> dict:
-	"""Notes, tasks and a merged newest-first activity list (calls, notes, comments)."""
-	notes = get_linked_notes(name)
-	tasks = get_linked_tasks(name)
-	CallLog = frappe.qb.DocType("CRM Call Log")
-	calls = (
-		frappe.qb.from_(CallLog)
-		.select(
-			CallLog.name,
-			CallLog.type,
-			CallLog.status,
-			CallLog.duration,
-			CallLog.caller,
-			CallLog.receiver,
-			CallLog.note,
-			Coalesce(CallLog.start_time, CallLog.creation).as_("at"),
-		)
-		.where((CallLog.reference_doctype == reference_doctype) & (CallLog.reference_docname == name))
-	).run(as_dict=True)
-	Comment = frappe.qb.DocType("Comment")
-	comments = (
-		frappe.qb.from_(Comment)
-		.select(Comment.name, Comment.content, Comment.comment_email, Comment.creation)
-		.where(
-			(Comment.reference_doctype == reference_doctype)
-			& (Comment.reference_name == name)
-			& (Comment.comment_type == "Comment")
-		)
-	).run(as_dict=True)
-
-	people = get_full_names(
-		{note.owner for note in notes}
-		| {call.caller or call.receiver for call in calls}
-		| {comment.comment_email for comment in comments}
-	)
-	note_text = {note.name: strip_html(note.content or note.title or "").strip() for note in notes}
-	call_notes = {call.note for call in calls if call.note}
-
-	activities = [
-		{
-			"id": call.name,
-			"at": call.at,
-			"who": people.get(call.caller or call.receiver),
-			"kind": "call",
-			"text": note_text.get(call.note) or _("{0} call, {1}").format(call.type, call.status),
-		}
-		for call in calls
-	]
-	activities += [
-		{
-			"id": note.name,
-			"at": note.creation,
-			"who": people.get(note.owner),
-			"kind": "note",
-			"text": note_text[note.name],
-		}
-		for note in notes
-		if note.name not in call_notes
-	]
-	activities += [
-		{
-			"id": comment.name,
-			"at": comment.creation,
-			"who": people.get(comment.comment_email, comment.comment_email),
-			"kind": "comment",
-			"text": strip_html(comment.content or "").strip(),
-		}
-		for comment in comments
-	]
-	activities.sort(key=lambda row: get_datetime(row["at"]), reverse=True)
-	return {
-		"notes": [
-			{
-				"id": note.name,
-				"at": note.creation,
-				"who": people.get(note.owner),
-				"text": note_text[note.name],
-			}
-			for note in sorted(notes, key=lambda note: note.creation, reverse=True)
-		],
-		"tasks": [
-			{
-				"id": task.name,
-				"title": task.title,
-				"due": task.due_date,
-				"status": task.status,
-				"done": task.status == "Done",
-				"assigned_to": task.assigned_to,
-			}
-			for task in sorted(tasks, key=lambda task: str(task.due_date or ""))
-		],
-		"activities": activities,
-	}
-
-
-def get_next_follow_ups(reference_doctype: str, names: list[str]) -> dict:
-	if not names:
-		return {}
-	Task = frappe.qb.DocType("CRM Task")
-	return dict(
-		(
-			frappe.qb.from_(Task)
-			.select(Task.reference_docname, Min(Task.due_date))
-			.where(
-				(Task.reference_doctype == reference_doctype)
-				& (Task.reference_docname.isin(names))
-				& (Task.status.notin(CLOSED_TASK_STATUSES))
-				& (Task.due_date.isnotnull())
-			)
-			.groupby(Task.reference_docname)
-		).run()
-	)
-
-
-def get_last_calls(reference_doctype: str, names: list[str]) -> dict:
-	if not names:
-		return {}
-	CallLog = frappe.qb.DocType("CRM Call Log")
-	return dict(
-		(
-			frappe.qb.from_(CallLog)
-			.select(CallLog.reference_docname, Max(Coalesce(CallLog.start_time, CallLog.creation)))
-			.where((CallLog.reference_doctype == reference_doctype) & (CallLog.reference_docname.isin(names)))
-			.groupby(CallLog.reference_docname)
-		).run()
-	)
+def app_timeline(reference_doctype: str, name: str) -> dict:
+	"""The record's timeline with the task statuses the app knows."""
+	timeline = get_timeline(reference_doctype, name)
+	for task in timeline["tasks"]:
+		task["status"] = TASK_STATUS_LABELS.get(task["status"], task["status"])
+	return timeline
 
 
 def get_ref_labels(tasks: list) -> dict:
 	"""Contact name and organization for each lead or deal the tasks point at (two queries)."""
 	labels = {}
 	for doctype, fields in (
-		("CRM Lead", ["name", "lead_name", "organization"]),
-		("CRM Deal", ["name", "lead_name", "organization"]),
+		("Lead", ["name", "lead_name as contact", "company_name as organization"]),
+		("Opportunity", ["name", "contact_display as contact", "customer_name as organization"]),
 	):
-		names = [task.reference_docname for task in tasks if task.reference_doctype == doctype]
+		names = [task.reference_name for task in tasks if task.reference_type == doctype]
 		if names:
-			for row in frappe.get_list(doctype, filters={"name": ("in", names)}, fields=fields):
-				labels[row.name] = {"with": row.lead_name, "organization": row.organization}
+			for row in frappe.get_all(doctype, filters={"name": ("in", names)}, fields=fields):
+				labels[row.name] = {"with": row.contact, "organization": row.organization}
 	return labels
 
 

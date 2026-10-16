@@ -32,7 +32,7 @@ class TestAIProviders(FrappeTestCase):
 	def test_openai_answer_is_parsed_and_logged_with_cost(self):
 		configure_ai_providers(openai=True)
 		with mock_ai(openai_answer({"ok": True}, prompt_tokens=1_000_000, completion_tokens=500_000)) as post:
-			result = ai.call_ai("Answer in JSON.", "hi", "Test", ("CRM Lead", "LEAD-X"))
+			result = ai.call_ai("Answer in JSON.", "hi", "Test", ("Lead", "LEAD-X"))
 		self.assertEqual(result["response"], {"ok": True})
 		self.assertEqual(result["provider"], ai.OPENAI)
 		url = post.call_args.args[0]

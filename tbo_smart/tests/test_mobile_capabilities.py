@@ -7,7 +7,7 @@ from tbo_smart.test_utils import (
 	capabilities_as,
 	disable_sales_hierarchy,
 	enable_sales_hierarchy,
-	make_crm_lead,
+	make_lead,
 	make_sales_hierarchy_node,
 	make_staff,
 	make_user,
@@ -142,8 +142,8 @@ class TestMobileCrmScope(FrappeTestCase):
 	def setUp(self):
 		make_user(SALES_USER, ["Sales User"])
 		make_user(SALES_MANAGER, ["Sales Manager"])
-		self.seller_lead = make_crm_lead(SALES_USER, "Scope Seller Lead")
-		self.manager_lead = make_crm_lead(SALES_MANAGER, "Scope Manager Lead")
+		self.seller_lead = make_lead(SALES_USER, "Scope Seller Lead")
+		self.manager_lead = make_lead(SALES_MANAGER, "Scope Manager Lead")
 
 	def tearDown(self):
 		frappe.set_user("Administrator")
@@ -179,8 +179,8 @@ class TestMobileCrmScope(FrappeTestCase):
 		make_user(TEAM_REP, ["Sales User"])
 		enable_sales_hierarchy()
 		make_sales_hierarchy_node(TEAM_REP, reports_to=make_sales_hierarchy_node(TEAM_LEAD))
-		lead_own = make_crm_lead(TEAM_LEAD, "Team Lead Own")
-		rep_lead = make_crm_lead(TEAM_REP, "Team Rep Lead")
+		lead_own = make_lead(TEAM_LEAD, "Team Lead Own")
+		rep_lead = make_lead(TEAM_REP, "Team Rep Lead")
 
 		caps = capabilities_as(TEAM_LEAD)
 		self.assertEqual((caps.crm_scope, caps.crm_scopes), ("team", ["mine", "team"]))

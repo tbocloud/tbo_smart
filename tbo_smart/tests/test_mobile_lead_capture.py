@@ -3,21 +3,21 @@ import json
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import add_days, get_datetime, nowdate
+from frappe.utils import add_days, getdate, nowdate
 
 from tbo_smart.api.mobile import crm
 from tbo_smart.test_utils import (
-	delete_crm_records,
+	delete_sales_records,
 	disable_sales_hierarchy,
 	enable_sales_hierarchy,
 	find_match,
 	get_note_texts,
 	make_card_image_base64,
 	make_contact,
-	make_crm_lead,
-	make_crm_lead_source,
-	make_crm_organization,
 	make_customer,
+	make_lead,
+	make_lead_source,
+	make_organization,
 	make_sales_hierarchy_node,
 	make_test_mobile,
 	make_user,
@@ -45,13 +45,13 @@ class TestMobileLeadCapture(FrappeTestCase):
 		frappe.set_user("Administrator")
 		frappe.response.pop("matches", None)
 		disable_sales_hierarchy((TEAM_LEAD, TEAM_REP))
-		delete_crm_records(CRM_PEOPLE)
+		delete_sales_records(CRM_PEOPLE)
 
 	# ---------- check_duplicates ----------
 
 	def test_phone_matches_in_any_format(self):
 		mobile = make_test_mobile()
-		lead = make_crm_lead(SELLER, "Phone Match", mobile_no=f"+971 {mobile[:2]} {mobile[2:5]} {mobile[5:]}")
+		lead = make_lead(SELLER, "Phone Match", mobile_no=f"+971 {mobile[:2]} {mobile[2:5]} {mobile[5:]}")
 		for phone in (
 			f"0{mobile}",
 			f"+971{mobile}",
@@ -73,8 +73,8 @@ class TestMobileLeadCapture(FrappeTestCase):
 		tag = frappe.generate_hash(length=8)
 		organization = f"Gulf Star {tag}"
 		frappe.set_user("Administrator")
-		lead = make_crm_lead(SELLER, "Ravi Kumar", email=f"Ravi.{tag}@Example.com", organization=organization)
-		make_crm_organization(organization)
+		lead = make_lead(SELLER, "Ravi Kumar", email_id=f"Ravi.{tag}@Example.com", company_name=organization)
+		make_organization(organization)
 		make_customer(organization)
 		make_contact("Ravi", email=f"ravi.{tag}@example.com")
 		frappe.set_user(SELLER)
@@ -97,7 +97,7 @@ class TestMobileLeadCapture(FrappeTestCase):
 
 	def test_hidden_matches_say_a_match_exists_without_details(self):
 		mobile = make_test_mobile()
-		hidden = make_crm_lead(OTHER_SELLER, "Secret Prospect", mobile_no=mobile, organization="Hidden Org")
+		hidden = make_lead(OTHER_SELLER, "Secret Prospect", mobile_no=mobile, company_name="Hidden Org")
 		matches = crm.check_duplicates(phone=f"0{mobile}")["data"]["matches"]
 		self.assertEqual(
 			matches,
@@ -128,13 +128,13 @@ class TestMobileLeadCapture(FrappeTestCase):
 
 	def test_duplicate_is_refused_with_409_until_forced(self):
 		mobile = make_test_mobile()
-		make_crm_lead(OTHER_SELLER, "First Capture", mobile_no=mobile)
+		make_lead(OTHER_SELLER, "First Capture", mobile_no=mobile)
 		with self.assertRaises(crm.DuplicateLead) as refused:
 			crm.create_lead("Second Capture", mobile_no=f"0{mobile}")
 		self.assertEqual(refused.exception.http_status_code, 409)
 		self.assertEqual([row["kind"] for row in frappe.response["matches"]], ["lead"])
 		self.assertIsNone(frappe.response["matches"][0]["name"])
-		self.assertFalse(frappe.db.exists("CRM Lead", {"lead_name": "Second Capture"}))
+		self.assertFalse(frappe.db.exists("Lead", {"lead_name": "Second Capture"}))
 
 		lead = crm.create_lead("Second Capture", mobile_no=f"0{mobile}", force=True)
 		self.assertEqual(lead["owner_id"], SELLER)
@@ -148,17 +148,17 @@ class TestMobileLeadCapture(FrappeTestCase):
 		self.assertEqual(len(lead["tasks"]), 1)
 		task = lead["tasks"][0]
 		self.assertEqual(task["title"], "Follow up with Follow Capture")
-		self.assertEqual(get_datetime(task["due"]), get_datetime(due))
+		self.assertEqual(getdate(task["due"]), getdate(due))
 		self.assertEqual(task["assigned_to"], SELLER)
-		self.assertEqual(frappe.db.get_value("CRM Task", task["id"], "description"), "Send the price list")
+		self.assertIn("Send the price list", frappe.db.get_value("ToDo", task["id"], "description"))
 		self.assertIn("Send the price list", get_note_texts(lead))
-		self.assertEqual(get_datetime(lead["next_follow_up"]), get_datetime(due))
+		self.assertEqual(getdate(lead["next_follow_up"]), getdate(due))
 
 	def test_staff_cannot_assign_and_have_nobody_to_assign_to(self):
 		self.assertEqual(crm.get_assignable_users(), {"data": []})
 		with self.assertRaises(frappe.PermissionError):
 			crm.create_lead("Staff Assigned", assign_to=OTHER_SELLER)
-		self.assertFalse(frappe.db.exists("CRM Lead", {"lead_name": "Staff Assigned"}))
+		self.assertFalse(frappe.db.exists("Lead", {"lead_name": "Staff Assigned"}))
 		lead = crm.create_lead("Self Assigned", assign_to=SELLER)
 		self.assertEqual(lead["owner_id"], SELLER)
 
@@ -174,7 +174,7 @@ class TestMobileLeadCapture(FrappeTestCase):
 			frappe.db.exists(
 				"ToDo",
 				{
-					"reference_type": "CRM Lead",
+					"reference_type": "Lead",
 					"reference_name": lead["name"],
 					"allocated_to": SELLER,
 					"status": "Open",
@@ -211,7 +211,7 @@ class TestMobileLeadCapture(FrappeTestCase):
 		lead = crm.create_lead("Card Capture", card_image=make_card_image_base64())
 		file = frappe.db.get_value(
 			"File",
-			{"attached_to_doctype": "CRM Lead", "attached_to_name": lead["name"]},
+			{"attached_to_doctype": "Lead", "attached_to_name": lead["name"]},
 			["is_private", "file_name"],
 			as_dict=True,
 		)
@@ -220,10 +220,10 @@ class TestMobileLeadCapture(FrappeTestCase):
 
 		with self.assertRaises(frappe.ValidationError):
 			crm.create_lead("Bad Card", card_image=base64.b64encode(b"GIF89a not a jpeg").decode())
-		self.assertFalse(frappe.db.exists("CRM Lead", {"lead_name": "Bad Card"}))
+		self.assertFalse(frappe.db.exists("Lead", {"lead_name": "Bad Card"}))
 
 	def test_source_channel_is_stored(self):
-		make_crm_lead_source("Business Card")
+		make_lead_source("Business Card")
 		lead = crm.create_lead("Scanned Capture", source_channel="card_scan")
 		self.assertEqual(lead["source"], "Business Card")
 		self.assertIn("Captured in TBO Smart: Business card scan (card_scan)", get_note_texts(lead))

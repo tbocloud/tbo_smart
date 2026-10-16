@@ -19,7 +19,15 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-    name: Server
+      matrix:
+        include:
+          # every test, on a site without Frappe CRM (as tboindia after the cutover)
+          - name: Server
+            crm: false
+          # the CRM cutover's tests, which read Frappe CRM's tables
+          - name: Server (CRM cutover)
+            crm: true
+    name: ${{ matrix.name }}
 
     services:
       redis-cache:
@@ -55,7 +63,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v3
         with:
-          # Frappe CRM's dependencies need Node 20 or newer
+          # Frappe CRM's dependencies (the cutover job) need Node 20 or newer
           node-version: 20
           check-latest: true
 
@@ -95,11 +103,16 @@ jobs:
         run: |
           bench get-app erpnext --branch version-15
           bench get-app hrms --branch version-15
-          # the CRM fork tboindia runs
-          bench get-app https://github.com/tbocloud/crm --branch main
+          if [ "${{ matrix.crm }}" = "true" ]; then
+            # the CRM fork tboindia runs until the cutover
+            bench get-app https://github.com/tbocloud/crm --branch main
+          fi
           bench get-app tbo_smart $GITHUB_WORKSPACE
           bench setup requirements --dev
           bench new-site --db-root-password root --admin-password admin test_site
+          if [ "${{ matrix.crm }}" = "true" ]; then
+            bench --site test_site install-app crm
+          fi
           bench --site test_site install-app tbo_smart
           bench build
         env:
@@ -109,6 +122,10 @@ jobs:
         working-directory: /home/runner/frappe-bench
         run: |
           bench --site test_site set-config allow_tests true
-          bench --site test_site run-tests --app tbo_smart
+          if [ "${{ matrix.crm }}" = "true" ]; then
+            bench --site test_site run-tests --app tbo_smart --module tbo_smart.tests.test_cutover
+          else
+            bench --site test_site run-tests --app tbo_smart
+          fi
         env:
           TYPE: server

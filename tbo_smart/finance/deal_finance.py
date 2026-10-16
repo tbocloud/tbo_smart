@@ -1,5 +1,5 @@
-"""The ERPNext documents of one CRM Deal, read once and shared by the post-sale stage and the
-CRM Finance tab, so the stage and the numbers on the tab always agree.
+"""The ERPNext documents of one deal (Opportunity), read once and shared by the post-sale stage
+and the deal's Finance view, so the stage and the numbers always agree.
 
 Reads ignore ERPNext document permissions on purpose: the caller has already checked that the
 user may see the deal (docs/crm-finance-workflow.md §9, "R own (Finance tab)").
@@ -38,13 +38,7 @@ class DealFinance:
 				Quotation.currency,
 				Quotation.company,
 			)
-			.where(
-				(
-					(Quotation.crm_deal == self.deal)
-					| ((Quotation.quotation_to == "CRM Deal") & (Quotation.party_name == self.deal))
-				)
-				& (Quotation.docstatus < 2)
-			)
+			.where((Quotation.opportunity == self.deal) & (Quotation.docstatus < 2))
 			.orderby(Quotation.creation, order=frappe.qb.desc)
 		).run(as_dict=True)
 
@@ -63,7 +57,7 @@ class DealFinance:
 				Order.currency,
 				Order.company,
 			)
-			.where((Order.crm_deal == self.deal) & (Order.docstatus == 1))
+			.where((Order.opportunity == self.deal) & (Order.docstatus == 1))
 			.orderby(Order.transaction_date, order=frappe.qb.desc)
 		).run(as_dict=True)
 
@@ -84,7 +78,7 @@ class DealFinance:
 				Invoice.company,
 				Invoice.is_return,
 			)
-			.where((Invoice.crm_deal == self.deal) & (Invoice.docstatus == 1))
+			.where((Invoice.opportunity == self.deal) & (Invoice.docstatus == 1))
 			.orderby(Invoice.posting_date, order=frappe.qb.desc)
 		).run(as_dict=True)
 
@@ -143,7 +137,7 @@ class DealFinance:
 				.where(
 					(Entry.docstatus == 1)
 					& (Entry.party_type == "Customer")
-					& (Entry.crm_deal == self.deal)
+					& (Entry.opportunity == self.deal)
 					& (Entry.unallocated_amount > 0)
 				)
 			).run()
@@ -236,7 +230,7 @@ class DealFinance:
 		return bool(
 			frappe.db.exists(
 				"TBO Finance Exception",
-				{"crm_deal": self.deal, "status": ("in", ["Open", "Pending Approval"])},
+				{"opportunity": self.deal, "status": ("in", ["Open", "Pending Approval"])},
 			)
 		)
 
@@ -252,7 +246,7 @@ class DealFinance:
 				.select(Allocation.name)
 				.where(
 					(Allocation.docstatus == 1)
-					& (Line.crm_deal == self.deal)
+					& (Line.opportunity == self.deal)
 					& (Allocation.status != "Reversed")
 					& (Allocation.outstanding_amount != 0)
 				)

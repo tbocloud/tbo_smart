@@ -4,7 +4,7 @@ from frappe.utils import add_days, nowdate
 
 from tbo_smart.api.mobile import ess, manager
 from tbo_smart.test_utils import (
-	make_crm_deal,
+	make_deal,
 	make_half_day_leave_application,
 	make_leave_application,
 	make_leave_type,
@@ -90,7 +90,7 @@ class TestMobileManager(FrappeTestCase):
 		self.assertEqual(frappe.db.get_value("Leave Application", application, "docstatus"), 0)
 
 	def test_sales_snapshot_for_sales_managers_only(self):
-		make_crm_deal(MANAGER, deal_value=5000, expected_closure_date=add_days(nowdate(), 3))
+		make_deal(MANAGER, deal_value=5000, expected_closing=add_days(nowdate(), 3))
 		frappe.set_user(MANAGER)
 		snapshot = manager.get_sales_snapshot()
 		for key in ("by_stage", "pipeline", "weighted", "won_this_month", "closing_this_week", "currency"):

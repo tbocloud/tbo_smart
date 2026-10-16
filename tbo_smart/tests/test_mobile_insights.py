@@ -7,12 +7,12 @@ from tbo_smart.api.mobile.utils import period_windows
 from tbo_smart.test_utils import (
 	age_document,
 	clear_insights_cache,
-	delete_crm_records,
+	delete_sales_records,
 	get_all_keys,
 	get_deal_base_value,
 	make_attendance,
-	make_crm_deal,
-	make_crm_lead,
+	make_deal,
+	make_lead,
 	make_leave_application,
 	make_leave_type,
 	make_staff,
@@ -104,20 +104,22 @@ class TestSalesInsights(FrappeTestCase):
 		super().setUpClass()
 		make_user(SELLER_MANAGER, ["Sales Manager"])
 		make_user(SALES_USER, ["Sales User"])
-		delete_crm_records((SELLER_MANAGER, SALES_USER))
-		cls.open_deal = make_crm_deal(
-			SELLER_MANAGER, "Qualification", 5000, probability=40, expected_closure_date=nowdate()
+		delete_sales_records((SELLER_MANAGER, SALES_USER))
+		cls.open_deal = make_deal(
+			SELLER_MANAGER, "Qualification", 5000, probability=40, expected_closing=nowdate()
 		)
-		cls.won = make_crm_deal(SELLER_MANAGER, "Won", 3000)
-		cls.lost = make_crm_deal(SELLER_MANAGER, "Lost", 1000, lost_reason="Other", lost_notes="Price")
-		cls.stalled = make_crm_deal(SELLER_MANAGER, "Negotiation", 2000)
-		age_document("CRM Deal", cls.stalled, 30)
-		cls.lead = make_crm_lead(SELLER_MANAGER, "Funnel One")
-		make_crm_lead(SELLER_MANAGER, "Funnel Two", status="Closed – Won")
+		cls.won = make_deal(SELLER_MANAGER, "Won", 3000)
+		cls.lost = make_deal(
+			SELLER_MANAGER, "Lost", 1000, lost_reasons=[{"lost_reason": "Other"}], order_lost_reason="Price"
+		)
+		cls.stalled = make_deal(SELLER_MANAGER, "Negotiation", 2000)
+		age_document("Opportunity", cls.stalled, 30)
+		cls.lead = make_lead(SELLER_MANAGER, "Funnel One")
+		make_lead(SELLER_MANAGER, "Funnel Two", tbo_stage="Closed – Won")
 
 	@classmethod
 	def tearDownClass(cls):
-		delete_crm_records((SELLER_MANAGER, SALES_USER))
+		delete_sales_records((SELLER_MANAGER, SALES_USER))
 		super().tearDownClass()
 
 	def setUp(self):
@@ -162,7 +164,7 @@ class TestSalesInsights(FrappeTestCase):
 		self.assertEqual(getdate(insights["from_date"]).day, 1)
 
 	def test_all_scope_includes_other_owners(self):
-		make_crm_deal(SALES_USER, "Qualification", 700)
+		make_deal(SALES_USER, "Qualification", 700)
 		frappe.set_user(SELLER_MANAGER)
 		mine = crm.get_sales_insights("month", "mine")["pipeline"]["count"]
 		everyone = crm.get_sales_insights("month", "all")["pipeline"]["count"]

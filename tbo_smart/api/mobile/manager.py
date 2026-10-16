@@ -22,13 +22,14 @@ from tbo_smart.api.mobile.capabilities import (
 	require,
 	scope_users,
 )
-from tbo_smart.api.mobile.crm import CLOSED_STAGE_TYPES, deal_value, get_crm_currency, owned_by
+from tbo_smart.api.mobile.crm import deal_value, open_stage, owned_by
 from tbo_smart.api.mobile.utils import (
 	cached_insights,
 	get_session_employee,
 	percent,
 	period_windows,
 )
+from tbo_smart.sales import default_currency
 
 APPROVAL_DOCTYPES = {
 	"leave": ("Leave Application", "leave_approver", "status"),
@@ -595,71 +596,77 @@ def serialize_advance_approval(row) -> dict:
 def get_sales_snapshot() -> dict:
 	"""Open pipeline by stage, deals won this month and open deals closing within a week.
 
-	Values are in the company's base currency (deal_value x exchange_rate), the same
-	formula as Frappe CRM's own dashboard. Covers the caller's widest crm_scope.
+	Values are in the company currency (the deal's `base_opportunity_amount`). Covers the
+	caller's widest crm_scope.
 	"""
 	capabilities = require("sales_insights", _("Only Sales Managers can see the sales snapshot."))
-	Deal = frappe.qb.DocType("CRM Deal")
-	Status = frappe.qb.DocType("CRM Deal Status")
+	Deal = frappe.qb.DocType("Opportunity")
+	Stage = frappe.qb.DocType("Sales Stage")
 	value = deal_value(Deal)
-	is_open = Status.type.notin(CLOSED_STAGE_TYPES)
-	in_scope = owned_by(Deal.deal_owner, scope_users(capabilities.crm_scopes[-1]))
+	is_open = open_stage(Stage)
+	in_scope = owned_by(Deal.opportunity_owner, scope_users(capabilities.crm_scopes[-1]))
 
 	stages = (
-		frappe.qb.from_(Status)
+		frappe.qb.from_(Stage)
 		.left_join(Deal)
-		.on((Deal.status == Status.name) & in_scope)
+		.on((Deal.sales_stage == Stage.name) & in_scope)
 		.select(
-			Status.name.as_("stage"),
-			Status.type.as_("type"),
+			Stage.name.as_("stage"),
+			Stage.tbo_stage_type.as_("type"),
 			Count(Deal.name).as_("count"),
 			Sum(value).as_("amount"),
 			Sum(value * IfNull(Deal.probability, 0) / 100).as_("weighted"),
 		)
 		.where(is_open)
-		.groupby(Status.name, Status.type, Status.position)
-		.orderby(Status.position)
+		.groupby(Stage.name, Stage.tbo_stage_type, Stage.tbo_position)
+		.orderby(IfNull(Stage.tbo_position, 10_000))
+		.orderby(Stage.name)
 	).run(as_dict=True)
 
 	today = getdate()
 	month_start = today.replace(day=1)
 	won = (
 		frappe.qb.from_(Deal)
-		.join(Status)
-		.on(Deal.status == Status.name)
+		.join(Stage)
+		.on(Deal.sales_stage == Stage.name)
 		.select(Count(Deal.name).as_("count"), Sum(value).as_("amount"))
 		.where(
 			in_scope
-			& (Status.type == "Won")
-			& (Deal.closed_date >= month_start)
-			& (Deal.closed_date <= today)
+			& (Stage.tbo_stage_type == "Won")
+			& (Deal.tbo_closed_on >= month_start)
+			& (Deal.tbo_closed_on <= today)
 		)
 	).run(as_dict=True)[0]
 
 	closing = (
 		frappe.qb.from_(Deal)
-		.join(Status)
-		.on(Deal.status == Status.name)
+		.join(Stage)
+		.on(Deal.sales_stage == Stage.name)
 		.select(
 			Deal.name,
-			Deal.organization,
-			Deal.lead_name,
-			Deal.status.as_("stage"),
+			Deal.customer_name.as_("organization"),
+			Deal.contact_display.as_("lead_name"),
+			Deal.sales_stage.as_("stage"),
 			value.as_("amount"),
 			Deal.probability,
-			Deal.expected_closure_date,
-			Deal.deal_owner,
-			Case().when(Deal.expected_closure_date < today, 1).else_(0).as_("overdue"),
+			Deal.expected_closing.as_("expected_closure_date"),
+			Deal.opportunity_owner.as_("deal_owner"),
+			Case().when(Deal.expected_closing < today, 1).else_(0).as_("overdue"),
 		)
-		.where(in_scope & is_open & (Deal.expected_closure_date <= add_days(today, CLOSING_SOON_DAYS)))
-		.orderby(Deal.expected_closure_date)
+		.where(in_scope & is_open & (Deal.expected_closing <= add_days(today, CLOSING_SOON_DAYS)))
+		.orderby(Deal.expected_closing)
 		.limit(50)
 	).run(as_dict=True)
 
 	return {
-		"currency": get_crm_currency(),
+		"currency": default_currency(),
 		"by_stage": [
-			{"stage": row.stage, "type": row.type, "count": row["count"], "amount": flt(row.amount)}
+			{
+				"stage": row.stage,
+				"type": row.type or "Ongoing",
+				"count": row["count"],
+				"amount": flt(row.amount),
+			}
 			for row in stages
 		],
 		"pipeline": sum(flt(row.amount) for row in stages),

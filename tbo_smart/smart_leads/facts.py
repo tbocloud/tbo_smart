@@ -11,26 +11,27 @@ import json
 
 import frappe
 from frappe.query_builder.functions import Max, Min
-from frappe.utils import cstr, date_diff, get_datetime, getdate, now_datetime, strip_html
+from frappe.utils import cstr, date_diff, get_datetime, getdate, strip_html
 
 from tbo_smart import ai
-from tbo_smart.smart_leads import CLOSED_TASK_STATUSES, OPEN_STATUSES
-from tbo_smart.smart_leads.migration import NOTE_TITLE_PREFIX, get_migration_notes
+from tbo_smart.sales.activities import DONE, OPEN, calls_of, notes_of, task_title
+from tbo_smart.smart_leads import OPEN_STATUSES
+from tbo_smart.smart_leads.migration import get_migration_notes, is_migration_note
 
+# a lead's fields under the names the scoring has always used
 LEAD_FIELDS = [
 	"name",
 	"lead_name",
-	"organization",
-	"status",
+	"company_name as organization",
+	"tbo_stage as status",
 	"source",
 	"lead_owner",
 	"mobile_no",
 	"phone",
-	"email",
+	"email_id as email",
 	"creation",
-	"converted",
-	"lead_score",
-	"lead_temperature",
+	"tbo_score as lead_score",
+	"tbo_temperature as lead_temperature",
 	"tbo_score_reason",
 	"tbo_ai_adjust",
 	"tbo_ai_reason",
@@ -65,12 +66,11 @@ class LeadFacts:
 		self.names = [name for name in self.names if name in self.leads]
 		self.migration = get_migration_notes(self.names)
 		self.notes = self.load_notes()
-		self.calls = self.load_calls()
+		self.calls = calls_of("Lead", self.names) if self.names else {}
 		self.follow_ups = self.load_follow_ups()
-		self.done_tasks = self.max_by("CRM Task", "modified", {"status": "Done"})
+		self.done_tasks = self.load_done_tasks()
 		self.status_changes = self.load_status_changes()
 		self.emails = self.load_emails()
-		self.comments = self.max_by_comment()
 
 	# ---------- loading ----------
 
@@ -78,104 +78,82 @@ class LeadFacts:
 		if not self.names:
 			return []
 		return frappe.get_all(
-			"CRM Lead", filters={"name": ("in", self.names)}, fields=LEAD_FIELDS, limit_page_length=0
+			"Lead", filters={"name": ("in", self.names)}, fields=LEAD_FIELDS, limit_page_length=0
 		)
 
 	def load_notes(self) -> dict[str, list]:
-		"""Notes other than the migration note, newest first (call notes included)."""
+		"""Notes (Comments) other than the migration note, newest first."""
 		if not self.names:
 			return {}
-		Note = frappe.qb.DocType("FCRM Note")
-		rows = (
-			frappe.qb.from_(Note)
-			.select(Note.name, Note.reference_docname, Note.title, Note.content, Note.creation, Note.owner)
-			.where(
-				(Note.reference_doctype == "CRM Lead")
-				& (Note.reference_docname.isin(self.names))
-				& (Note.title.not_like(f"{NOTE_TITLE_PREFIX}%"))
-			)
-			.orderby(Note.creation, order=frappe.qb.desc)
-		).run(as_dict=True)
-		notes: dict[str, list] = {}
-		for row in rows:
-			notes.setdefault(row.reference_docname, []).append(row)
-		return notes
-
-	def load_calls(self) -> dict[str, list]:
-		if not self.names:
-			return {}
-		Call = frappe.qb.DocType("CRM Call Log")
-		rows = (
-			frappe.qb.from_(Call)
-			.select(
-				Call.name,
-				Call.reference_docname,
-				Call.note,
-				Call.type,
-				Call.status,
-				Call.creation,
-				Call.start_time,
-			)
-			.where((Call.reference_doctype == "CRM Lead") & (Call.reference_docname.isin(self.names)))
-			.orderby(Call.creation, order=frappe.qb.desc)
-		).run(as_dict=True)
-		calls: dict[str, list] = {}
-		for row in rows:
-			calls.setdefault(row.reference_docname, []).append(row)
-		return calls
+		notes = notes_of("Lead", self.names)
+		return {
+			lead: [note for note in rows if not is_migration_note(note.content)]
+			for lead, rows in notes.items()
+		}
 
 	def load_follow_ups(self) -> dict[str, list]:
-		"""Open tasks on each lead with a due date, earliest first."""
+		"""Open tasks (ToDos) on each lead, earliest due first; `due_date` is the ToDo's day."""
 		if not self.names:
 			return {}
-		Task = frappe.qb.DocType("CRM Task")
+		ToDo = frappe.qb.DocType("ToDo")
 		rows = (
-			frappe.qb.from_(Task)
+			frappe.qb.from_(ToDo)
 			.select(
-				Task.name,
-				Task.reference_docname,
-				Task.title,
-				Task.due_date,
-				Task.assigned_to,
-				Task.tbo_escalation_level,
-				Task.creation,
+				ToDo.name,
+				ToDo.reference_name.as_("reference_docname"),
+				ToDo.description,
+				ToDo.date.as_("due_date"),
+				ToDo.allocated_to.as_("assigned_to"),
+				ToDo.tbo_escalation_level,
+				ToDo.creation,
 			)
 			.where(
-				(Task.reference_doctype == "CRM Lead")
-				& (Task.reference_docname.isin(self.names))
-				& (Task.status.notin(CLOSED_TASK_STATUSES))
+				(ToDo.reference_type == "Lead")
+				& (ToDo.reference_name.isin(self.names))
+				& (ToDo.status == OPEN)
 			)
-			.orderby(Task.due_date)
+			.orderby(ToDo.date)
 		).run(as_dict=True)
 		tasks: dict[str, list] = {}
 		for row in rows:
+			row.title = task_title(row.description)
 			tasks.setdefault(row.reference_docname, []).append(row)
 		return tasks
 
-	def max_by(self, doctype: str, field: str, filters: dict) -> dict:
+	def load_done_tasks(self) -> dict:
+		"""{lead: when its newest task was done}."""
 		if not self.names:
 			return {}
-		Table = frappe.qb.DocType(doctype)
-		query = (
-			frappe.qb.from_(Table)
-			.select(Table.reference_docname, Max(Table[field]))
-			.where((Table.reference_doctype == "CRM Lead") & (Table.reference_docname.isin(self.names)))
-			.groupby(Table.reference_docname)
+		ToDo = frappe.qb.DocType("ToDo")
+		return dict(
+			(
+				frappe.qb.from_(ToDo)
+				.select(ToDo.reference_name, Max(ToDo.modified))
+				.where(
+					(ToDo.reference_type == "Lead")
+					& (ToDo.reference_name.isin(self.names))
+					& (ToDo.status == DONE)
+				)
+				.groupby(ToDo.reference_name)
+			).run()
 		)
-		for key, value in filters.items():
-			query = query.where(Table[key] == value)
-		return dict(query.run())
 
 	def load_status_changes(self) -> dict[str, list]:
-		"""Status changes after the lead was created (its first log row is the insert itself,
-		which for the migrated leads is the import of 2026-10-14)."""
+		"""Stage changes after the lead was created (its first log row is the insert itself, which
+		for the migrated leads is the copy from the CRM)."""
 		if not self.names:
 			return {}
-		Log = frappe.qb.DocType("CRM Status Change Log")
+		Log = frappe.qb.DocType("TBO Stage Change")
 		rows = (
 			frappe.qb.from_(Log)
-			.select(Log.parent, Log["from"].as_("status"), Log.from_date, Log.log_owner, Log.idx)
-			.where((Log.parenttype == "CRM Lead") & (Log.parent.isin(self.names)) & (Log.idx > 1))
+			.select(
+				Log.parent,
+				Log.stage.as_("status"),
+				Log.changed_on.as_("from_date"),
+				Log.changed_by.as_("log_owner"),
+				Log.idx,
+			)
+			.where((Log.parenttype == "Lead") & (Log.parent.isin(self.names)) & (Log.idx > 1))
 			.orderby(Log.idx)
 		).run(as_dict=True)
 		changes: dict[str, list] = {}
@@ -192,28 +170,12 @@ class LeadFacts:
 				frappe.qb.from_(Communication)
 				.select(Communication.reference_name, Max(Communication.communication_date))
 				.where(
-					(Communication.reference_doctype == "CRM Lead")
+					(Communication.reference_doctype == "Lead")
 					& (Communication.reference_name.isin(self.names))
 					& (Communication.communication_type == "Communication")
+					& (Communication.communication_medium == "Email")
 				)
 				.groupby(Communication.reference_name)
-			).run()
-		)
-
-	def max_by_comment(self) -> dict:
-		if not self.names:
-			return {}
-		Comment = frappe.qb.DocType("Comment")
-		return dict(
-			(
-				frappe.qb.from_(Comment)
-				.select(Comment.reference_name, Max(Comment.creation))
-				.where(
-					(Comment.reference_doctype == "CRM Lead")
-					& (Comment.reference_name.isin(self.names))
-					& (Comment.comment_type == "Comment")
-				)
-				.groupby(Comment.reference_name)
 			).run()
 		)
 
@@ -223,33 +185,28 @@ class LeadFacts:
 		return self.leads[name]
 
 	def is_open(self, name: str) -> bool:
-		lead = self.leads[name]
-		return lead.status in OPEN_STATUSES and not lead.converted
+		return self.leads[name].status in OPEN_STATUSES
 
 	def created_on(self, name: str):
 		"""The original created date from the migration note, else the lead's creation."""
 		return parse_date(self.migration.get(name, {}).get("created")) or getdate(self.leads[name].creation)
 
 	def last_touch(self, name: str) -> tuple:
-		"""(datetime, kind) of the newest note, call, done task, status change, email or comment
-		since the lead came in, or (None, None)."""
+		"""(datetime, kind) of the newest note, call, done task, status change or email since the
+		lead came in, or (None, None)."""
 		candidates = []
 		notes = self.notes.get(name) or []
 		calls = self.calls.get(name) or []
 		if calls:
-			candidates.append((get_datetime(calls[0].start_time or calls[0].creation), "call"))
-		call_notes = {call.note for call in calls}
-		other_notes = [note for note in notes if note.name not in call_notes]
-		if other_notes:
-			candidates.append((get_datetime(other_notes[0].creation), "note"))
+			candidates.append((get_datetime(calls[0].at), "call"))
+		if notes:
+			candidates.append((get_datetime(notes[0].creation), "note"))
 		if self.done_tasks.get(name):
 			candidates.append((get_datetime(self.done_tasks[name]), "follow-up done"))
 		if self.status_changes.get(name):
 			candidates.append((get_datetime(self.status_changes[name][-1].from_date), "status change"))
 		if self.emails.get(name):
 			candidates.append((get_datetime(self.emails[name]), "email"))
-		if self.comments.get(name):
-			candidates.append((get_datetime(self.comments[name]), "comment"))
 		return max(candidates, key=lambda item: item[0]) if candidates else (None, None)
 
 	def days_since_touch(self, name: str) -> int | None:
@@ -262,15 +219,12 @@ class LeadFacts:
 
 	def note_lines(self, name: str) -> list[dict]:
 		"""Newest notes and call notes as {on, kind, text}, for the AI."""
-		calls = self.calls.get(name) or []
-		call_notes = {call.note for call in calls}
+		entries = [(get_datetime(note.creation), "note", note.content) for note in self.notes.get(name) or []]
+		entries += [(get_datetime(call.at), "call", call.note) for call in self.calls.get(name) or []]
+		entries.sort(key=lambda entry: entry[0], reverse=True)
 		lines = [
-			{
-				"on": str(getdate(note.creation)),
-				"kind": "call" if note.name in call_notes else "note",
-				"text": clip(strip_html(note.content or note.title), NOTE_CHARS),
-			}
-			for note in (self.notes.get(name) or [])[:NOTES_PER_LEAD]
+			{"on": str(getdate(at)), "kind": kind, "text": clip(strip_html(text or ""), NOTE_CHARS)}
+			for at, kind, text in entries[:NOTES_PER_LEAD]
 		]
 		return [line for line in lines if line["text"]]
 
@@ -328,17 +282,17 @@ def first_due(names: list[str]) -> dict:
 	"""{lead: earliest open follow-up due date} (one grouped query, no other facts)."""
 	if not names:
 		return {}
-	Task = frappe.qb.DocType("CRM Task")
+	ToDo = frappe.qb.DocType("ToDo")
 	return dict(
 		(
-			frappe.qb.from_(Task)
-			.select(Task.reference_docname, Min(Task.due_date))
+			frappe.qb.from_(ToDo)
+			.select(ToDo.reference_name, Min(ToDo.date))
 			.where(
-				(Task.reference_doctype == "CRM Lead")
-				& (Task.reference_docname.isin(names))
-				& (Task.status.notin(CLOSED_TASK_STATUSES))
-				& Task.due_date.isnotnull()
+				(ToDo.reference_type == "Lead")
+				& (ToDo.reference_name.isin(names))
+				& (ToDo.status == OPEN)
+				& ToDo.date.isnotnull()
 			)
-			.groupby(Task.reference_docname)
+			.groupby(ToDo.reference_name)
 		).run()
 	)

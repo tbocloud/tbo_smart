@@ -1,11 +1,11 @@
-# Smart leads: scoring, Call today, follow-ups and AI notes (living spec, v1.1)
+# Smart leads: scoring, Call today, follow-ups and AI notes (living spec, v1.2)
 
-**Status:** built 2026-10-15, every feature off by default. This file is the living spec: it
+**Status:** built 2026-10-15, every feature off by default; since v1.2 on **ERPNext's own Lead**
+instead of Frappe CRM's CRM Lead (`erpnext-lead-cutover.md`). This file is the living spec: it
 describes what is built, and every change to the feature updates it in the same pull request.
-The CRM screens are in tbocloud/crm, `docs/tbo-smart-leads.md`.
+The screens are the TBO Support hub's lead page (`hub-leads-api.md`) and the TBO Smart app.
 
-- **Site:** india.teambackoffice.com (tboindia): Frappe v15, ERPNext, HRMS, the Frappe CRM fork
-  and tbo_smart.
+- **Site:** india.teambackoffice.com (tboindia): Frappe v15, ERPNext, HRMS and tbo_smart.
 - **Why:** 1,572 leads came over from the old ERPNext site on 2026-10-14 (New 848, Junk 371,
   Nurture 125, Qualified 85, Contacted 83, Unqualified 35, Converted 25). 94% have only a mobile
   number. No CRM Task or follow-up existed, two owners (Anjana, Dhanish) are disabled users, and
@@ -14,11 +14,10 @@ The CRM screens are in tbocloud/crm, `docs/tbo-smart-leads.md`.
 
 ## 1. Switches
 
-All in **TBO Smart Settings**, edited in the CRM at **Settings → TBO → TBO smart leads**
-(System Managers). Each is off until the owner turns it on; on a site without the CRM app
-(tbo-smart.tbocloud.in) every switch reads as off and nothing is set up
-(`tbo_smart.smart_leads.switch` uses `tbo_smart.finance.crm_installed`, the lesson of
-tbo_smart#14).
+All in **TBO Smart Settings** (System Managers; the desk form, or `api/smart_leads_settings.py`).
+Each is off until the owner turns it on; on a site without ERPNext every switch reads as off and
+nothing is set up (`tbo_smart.smart_leads.switch` uses `tbo_smart.sales.erpnext_installed`, the
+lesson of tbo_smart#14).
 
 | Field | Label | Default | What it switches on |
 | --- | --- | --- | --- |
@@ -90,35 +89,33 @@ check); Call today size 5-30; the ladder days go up; no negative numbers; triage
 
 ## 3. Data
 
-### 3.1 Fields (created on install and every migrate, CRM sites only: `smart_leads/setup.py`)
+### 3.1 Fields (created on install and every migrate, ERPNext sites only: `smart_leads/setup.py`)
 
-CRM Lead's own **`lead_score`** (Int) and **`lead_temperature`** (Select Cold / Warm / Hot) are
-reused for the score and the band. **Decision:** upstream Frappe CRM writes them only from its
-automation engine (`crm/automation/scoring.py`, additive `adjust_lead_score`), which needs Frappe
-v16 and does not run on tboindia (v15). If the site moves to v16 and someone builds scoring
-automations, the nightly score would overwrite their adjustments: turn one of them off.
-
-| CRM Lead field | Type | Purpose |
+| Lead field | Type | Purpose |
 | --- | --- | --- |
+| `tbo_score` | Int, read-only | The score, 0-100 (Frappe CRM's `lead_score`; the facts still call it `lead_score`) |
+| `tbo_temperature` | Select Cold / Warm / Hot, read-only | The band (CRM's `lead_temperature`) |
 | `tbo_score_reason` | Small Text, read-only | One line: why the lead has its score |
 | `tbo_scored_at` | Datetime, hidden | When it was last written |
 | `tbo_ai_adjust`, `tbo_ai_reason`, `tbo_ai_hash` | hidden | The last AI read and what it read (content hash) |
 | `tbo_ai_brief`, `tbo_ai_brief_hash`, `tbo_ai_brief_at` | hidden | The cached three-line brief |
 
 Scores are written with `frappe.db.set_value(..., update_modified=False)`: no Version row, no
-`modified` bump, no CRM `on_update` (SLA, assignment).
+`modified` bump, no `on_update`.
 
-**Follow-ups are CRM Tasks.** **Decision:** a CRM Task with the finance workflow's
-`tbo_task_type` = **"Sales follow-up"** (Phase 2's field, reused; `setup_smart_leads` also
-creates the finance fields), not a `tbo_next_follow_up` field on the lead. The CRM Tasks page,
-the lead's Tasks tab, the mobile app's follow-ups (`get_my_follow_ups`) and CRM's own reminders
-already use CRM Tasks; a second date field would disagree with them. The next follow-up is the
-lead's earliest open task with a due date, whatever its type. Escalation reuses the task's
-`tbo_escalation_level`.
+**Follow-ups are ToDos.** **Decision:** an open ToDo on the lead with the finance workflow's
+`tbo_task_type` = **"Sales follow-up"** (`setup_smart_leads` also creates the finance fields on
+ToDo), dated by its `date` (a day; the CRM task's time of day is gone), for its `allocated_to`.
+ERPNext's Lead form lists open ToDos under Activities, and a ToDo assigns the lead to its person.
+The next follow-up is the lead's earliest open ToDo with a date, whatever its type. Escalation
+reuses the ToDo's `tbo_escalation_level`.
 
 ### 3.2 The migration note (`smart_leads/migration.py`)
 
-Each migrated lead has an FCRM Note titled "Migrated from tboindia-old <id>". The parser reads
+Each migrated lead has a note "Migrated from tboindia-old <id>": since the cutover a Comment
+whose text starts with "Migrated from tboindia-old" (the CRM note's title becomes its first
+paragraph unless the content already starts with it: `migration.note_html`,
+`is_migration_note`). The parser reads
 "Label: value" lines, "Label - value" lines and two-cell table rows, with or without HTML, and
 knows these labels: status (also "lead status", "original status"), source ("original
 source", "lead source"), owner ("original owner", "lead owner"), created ("created on old
@@ -133,10 +130,10 @@ counted as a touch, and its title keeps it out of the "notes since" the AI reads
 ### 3.3 Facts (`smart_leads/facts.py`)
 
 `LeadFacts(names)` loads, in a fixed number of queries: the lead fields, the migration notes,
-notes and calls since, open tasks (earliest first), done tasks, status changes **after the
-first log row** (the first row is the lead's insert, for the migrated leads the 2026-10-14
-import), emails (Communication) and comments. **Last touch** = the newest call, note, done
-follow-up, status change, email or comment. **Created** = the migration note's created date,
+notes (Comments) and calls (call Events, their description the call's note) since, open ToDos
+(earliest first), done ToDos, stage changes **after the first stage log row** (the first row is
+the lead's insert, for the migrated leads the CRM's first row) and emails (Communication with
+medium Email). **Last touch** = the newest call, note, done follow-up, stage change or email. **Created** = the migration note's created date,
 else the lead's creation. Scoring, Call today, the follow-up rules, the brief and the triage all
 read these facts.
 
@@ -147,8 +144,8 @@ read these facts.
 | Part | Points |
 | --- | --- |
 | Status | The pipeline statuses, further along scoring higher: New Lead 10, Contacted 18, Follow-up Required 16, Positive / Interested 22, On Hold 4, Meeting Scheduled 24, First / Second / Third Meeting Completed 26 / 28 / 30, Proposal Sent 32, Negotiation 34 (`lead-pipeline.md` §2) |
-| Status changed in the last 30 days | +8 forward, −3 back to an earlier status (CRM Lead Status position) |
-| Source's conversion rate here | up to +12, against the best source (sources with 10+ leads; converted = `converted` or Closed – Won, where the migrated Converted leads went) |
+| Stage changed in the last 30 days | +8 forward, −3 back to an earlier stage (pipeline order) |
+| Source's conversion rate here | up to +12, against the best source (sources with 10+ leads; converted = the lead has a deal or is Closed – Won, where the migrated Converted leads went) |
 | Project type's conversion rate (migration note) | up to +6, the same way |
 | Last touch | ≤3 days +15, ≤7 +10, ≤14 +6, ≤30 +3 |
 | Age (original created date) | ≤7 days +12, ≤30 +8, ≤90 +4, ≤365 +1 |
@@ -157,8 +154,7 @@ read these facts.
 | Follow-up overdue | +5 |
 | No phone and no email | −20 |
 
-Closed leads (Closed – Won, Closed – Lost, or converted) score 0, Cold, "Closed (Closed –
-Lost)"; the open statuses are `OPEN_STATUSES` in `tbo_smart/lead_pipeline/statuses.py`, the one
+Closed leads (Closed – Won, Closed – Lost) score 0, Cold, "Closed (Closed – Lost)"; the open statuses are `OPEN_STATUSES` in `tbo_smart/lead_pipeline/statuses.py`, the one
 list scoring, Call today, the follow-up engine and the triage read. Bands: **Hot ≥ 55, Warm ≥ 30, Cold** below. The reason line is the status,
 then the parts that moved the score most, e.g. "Contacted · was Interested before the migration
 · Website leads convert 9% · last touch 6 days ago". Conversion rates are cached 6 hours and
@@ -175,14 +171,16 @@ skipped and retried the next night. Every lead of a batch that got an answer cou
 lead is read, and billed, again only after it changes. The reason line then starts with the AI's reason.
 
 **When scores change:** daily (`scheduler_events.daily`, `score_all`), and as a background job
-(deduplicated per lead) when a lead's status, owner or conversion changes, or a note, call or
-task is added on it. The on-change score uses the cached AI adjustment; the AI itself runs only
+(deduplicated per lead) when a lead's stage or owner changes, or a note, call or task is added
+on it (Lead `on_update`, Comment and Event `after_insert`, ToDo `on_update`); not during an
+import (the cutover). The on-change score uses the cached AI adjustment; the AI itself runs only
 at night, so cost stays capped.
 
 ### 4.3 Call today (`smart_leads/call_today.py`)
 
 Built live from the facts for one person: their open leads that the session user may read
-(`frappe.get_list`, so CRM's own permissions and hierarchy apply), in this order:
+(`frappe.get_list`, so the sales rules and hierarchy apply: `tbo_smart.sales.permissions`), in
+this order:
 
 1. follow-up overdue, oldest first;
 2. follow-up due today;
@@ -197,19 +195,18 @@ live score reorders those). `more` is counted from the cheap queries. Each row:
 score, band, reason, why it is listed, phone, `+91`-normalised E.164, `tel:` and `wa.me` links,
 email, last touch (when, what, days) and the follow-up.
 
-**Who sees whose list:** your own; your sales team's (CRM Sales Hierarchy) if you lead one;
+**Who sees whose list:** your own; your sales team's (TBO Sales Hierarchy) if you lead one;
 anyone's with crm_scope all (System Manager, a Sales Manager outside the hierarchy) or as a
 sales head (`is_sales_head`: System Manager, Sales Manager, Sales & Marketing Head role or the
 "Head - Sales & Marketing" user). Anything else is a PermissionError.
 
-**Phone normalisation** (`smart_leads/utils.normalise_phone`, mirrored in the CRM): digits only;
+**Phone normalisation** (`smart_leads/utils.normalise_phone`): digits only;
 `+` or `00` starts an international number kept as it is; otherwise a trunk 0 before 10 digits
 is dropped and 10 digits get **+91**; 8-15 digits or nothing.
 
 ### 4.4 Dashboard
 
-`crm_dashboard_providers` / `crm_dashboard_layout` add two number cards
-(`smart_leads/dashboard.py`): **Call today** (rows plus `more` for the dashboard's user, else me;
+Two number cards (`smart_leads/dashboard.py`, served by `tbo_smart.api.dashboard.get_cards`): **Call today** (rows plus `more` for the dashboard's user, else me;
 while scoring is on) and **Overdue lead follow-ups** (the person's open tasks on open leads due
 before today; while follow-ups are on, lower is better). Both take the dashboard's user only when
 the session user may open that person's list (`check_person`); otherwise the card is left out.
@@ -236,7 +233,7 @@ the same object as the web page; fixture `docs/fixtures/crm.get_call_today.json`
 | Level | From | Adds |
 | --- | --- | --- |
 | L0 | day 1 | the assignee |
-| L1 | `lead_ladder_l1_days` (2) | the owner's BDM: their manager in the CRM Sales Hierarchy |
+| L1 | `lead_ladder_l1_days` (2) | the owner's BDM: their manager in the TBO Sales Hierarchy |
 | L2 | `lead_ladder_l2_days` (4) | the sales head: "Head - Sales & Marketing" (Phase 2 setting), else every user with the Sales & Marketing Head role |
 | L3 | `lead_ladder_l3_days` (7) | every user with `lead_manager_role` (Sales Manager) |
 
@@ -253,7 +250,7 @@ the same object as the web page; fixture `docs/fixtures/crm.get_call_today.json`
 - **Disabled owners** (Anjana, Dhanish) are never told. Their leads go to
   `lead_fallback_owner` when set; otherwise nobody is reminded and the leads are listed under
   **Call today → Needs owner** for the sales head (`get_needs_owner`), who can reassign them
-  (`reassign_leads`; CRM shares and assigns them as on any owner change). The sales head's
+  (`reassign_leads`, a plain change of `lead_owner` under their permissions). The sales head's
   digest says how many need an owner. **Decision:** the engine never changes `lead_owner` by
   itself.
 
@@ -265,7 +262,8 @@ the same object as the web page; fixture `docs/fixtures/crm.get_call_today.json`
   follow-up moves). Once per level.
 - **Daily digest, 09:30 site time** (cron `30 9 * * *`, working days): each person gets one
   message with Overdue (with its level), Due today, Re-engage and No follow-up, eight lines per
-  group, best score first, and a link to Call today. With the lead pipeline on, it also lists the
+  group, best score first, and a link to Call today (TBO Smart Settings → Lead page URL with
+  `?view=call_today`, the hub's page; blank: the desk). With the lead pipeline on, it also lists the
   person's **meetings today** and **MOM pending** (`lead-pipeline.md` §5.4), and a BDE with only
   meetings gets it too. **Decision:** "due today" reminders are the
   digest itself, not one notification per lead: with 848 New leads, per-lead notifications would
@@ -296,8 +294,8 @@ on, a provider set up), recorded as a **TBO Lead Triage** with **TBO Lead Triage
    usage log rows). **Nothing on any lead changes.**
 2. **Apply** (`apply_triage`, Ready runs only; the run row is locked first, so a double tap or
    two managers can't create the follow-ups twice): the dates are planned again from the next
-   working day, then one "Sales follow-up" CRM Task per Call again lead ("Call again: <reason>",
-   10:00, assigned to its person). Leads closed meanwhile are skipped.
+   working day, then one "Sales follow-up" ToDo per Call again lead ("Call again: <reason>",
+   for its person). Leads closed meanwhile are skipped.
 A run left Queued or Running for 2 hours (its job died) is marked Failed when someone starts a
 new preview.
 3. **Suggest close** leads are only listed. A person ticks the ones they agree with and confirms
@@ -311,29 +309,29 @@ skips the leads already triaged.
 ## 6. AI call notes, brief and WhatsApp (`smart_leads/notes.py`)
 
 - **Note box** (lead page and Call today → Log call): the user types rough words (English,
-  Malayalam or Manglish; the CRM offers dictation where the browser has it). **Draft with AI**
+  Malayalam or Manglish; the screen may offer dictation where the browser has it). **Draft with AI**
   (`draft_note`) returns a clean English note, call or note, the suggested next status (one of
-  the CRM Lead Statuses, else the current one) and a next follow-up date (tomorrow to 90 days,
+  the 13 pipeline stages, else the current one) and a next follow-up date (tomorrow to 90 days,
   else none) with a reason. **Nothing is written.** The user edits and confirms (`save_note`):
-  an FCRM Note, or a CRM Call Log with its note (a call by someone with no mobile number on
-  their profile is saved as a note "Call: …"); a call closes their own follow-ups on the lead
-  due by now; the status change (Closed – Lost gets lost reason "Other" with the note); and
-  the next follow-up as a "Sales follow-up" task assigned to them. **Save as written** works
+  a note (Comment), or a call (a completed call Event with the words as its description); a
+  call closes their own follow-ups on the lead due by today; the stage change (Closed – Lost
+  gets lost reason "Other" with the note); and the next follow-up as a "Sales follow-up" ToDo
+  assigned to them. **Save as written** works
   without the AI, and the box works with AI notes off (it then just saves).
 - **Lead brief:** three lines (who and what they want; what happened; what to do next) from the
   migration note, notes, calls and status changes, cached on the lead with the content hash.
-  `get_lead_insight` returns it with `stale` when the lead changed since; the CRM then asks for a
-  new one (`refresh_brief`, POST); a Refresh button does the same.
+  `get_lead_insight` returns it with `stale` when the lead changed since; the screen then asks for
+  a new one (`refresh_brief`, POST); a Refresh button does the same.
 - **WhatsApp draft** (`draft_whatsapp(lead, language)`, `en` or `ml`): 2-4 sentences from the
   lead's context, signed with the user's first name; returns the message, the `+91` number and
-  the `https://wa.me/<digits>?text=…` link. The CRM shows the draft for editing before it opens
-  WhatsApp. A lead with no usable number is refused.
+  the `https://wa.me/<digits>?text=…` link. The screen shows the draft for editing before it
+  opens WhatsApp. A lead with no usable number is refused.
 
 ## 7. API (`tbo_smart.api.smart_leads`)
 
 | Method | Verb | Needs | Returns / does |
 | --- | --- | --- | --- |
-| `get_access` | GET | – | `{enabled, scoring, follow_ups, notes, triage, ai_ready, is_sales_head, can_manage, call_today_size}`; `{enabled: false}` without the CRM app or for a user without CRM access |
+| `get_access` | GET | – | `{enabled, scoring, follow_ups, notes, triage, ai_ready, is_sales_head, can_manage, call_today_size}`; `{enabled: false}` without ERPNext or for a user without a sales role |
 | `get_call_today(user?)` | GET | scoring | §4.3 |
 | `get_people` | GET | scoring | Whose list I may open: `[{user, full_name, image}]` |
 | `get_follow_up_summary(user?)` | GET | follow-ups | `{overdue, due_today, re_engage, no_follow_up, escalated}` for the person's own leads that I may read (`frappe.get_list`) |
@@ -342,14 +340,14 @@ skips the leads already triaged.
 | `get_lead_insight(lead)` | GET | read on the lead | Score, band, reason (scoring on), next follow-up, phone links, brief (notes on) |
 | `refresh_brief(lead)` | POST | notes, write (it writes the cached brief) | The new brief; read-only users still see the cached one |
 | `draft_note(lead, text)` | POST | notes, read | The proposal (§6) |
-| `save_note(lead, text, kind, status?, follow_up_on?, follow_up_reason?)` | POST | read (write for a status) | `{lead, kind, note, call?, status?, task?}` |
+| `save_note(lead, text, kind, status?, follow_up_on?, follow_up_reason?)` | POST | read (write for a status) | `{lead, kind, note? (the Comment) or call? (the Event), status?, task?}` |
 | `draft_whatsapp(lead, language)` | POST | notes, read | `{message, phone, url}` |
 | `set_follow_up(lead, due, title?)` | POST | read | A Sales follow-up task for me |
 | `set_status(lead, status, notes_text?)` | POST | write | `{status}` |
 | `start_triage` / `get_triage(run?)` / `apply_triage(run)` / `close_triage_leads(run, leads, status)` | POST / GET / POST / POST | triage, Sales Manager or System Manager | §5.6 |
 
-Every write is a POST, and every lead is checked with `frappe.has_permission` (CRM's own rules
-and hierarchy) before anything is read or written.
+Every write is a POST, and every lead is checked with `frappe.has_permission` (the sales rules
+and hierarchy, `tbo_smart.sales.permissions`) before anything is read or written.
 
 ## 8. Tests
 
@@ -366,16 +364,17 @@ ladder level, leave cover, half days, disabled owners with and without a fallbac
 and reassignment, escalation notices once per level, Teams then email, the daily job once and
 only when on, the summary); working days; the triage (preview buckets, never closing, apply,
 capacity, invented reasons, managers only); notes (draft without writing, guard and bad dates,
-confirmed call with status and follow-up, a call without my number, someone else's lead, the
-brief cache, WhatsApp with +91, AI off); and the no-CRM guard.
+confirmed call (an Event) with stage and follow-up, a call without my number still a call,
+someone else's lead, the brief cache, WhatsApp with +91, AI off); and the no-ERPNext guard.
 
-`before_tests` lifts Frappe's 60-new-users-an-hour sign-up throttle for the test run: CRM inserts
-commit, so test users stay, and the suite now creates more than 60 on a fresh site.
+`make_user` lifts Frappe's 60-new-users-an-hour sign-up throttle for the test run: some tests
+commit, so test users stay, and the suite creates more than 60 on a fresh site.
 
 ## 9. What the owner does after deploying
 
-1. Deploy tbocloud/crm, then tbo_smart; `bench migrate` (fields, doctypes, the defaults patch).
-2. CRM → **Settings → TBO → TBO smart leads** (System Manager):
+1. Deploy tbo_smart; `bench migrate` (fields, doctypes, the defaults patch), and the cutover
+   (`erpnext-lead-cutover.md` §5).
+2. Desk → **TBO Smart Settings** (System Manager):
    1. **OpenAI:** check the model is the exact model ID in the OpenAI dashboard (default
       `gpt-5.6-luna`), **Add** the API key, enter the input and output price per 1M tokens,
       **Save**, then **Test connection**.
@@ -402,6 +401,10 @@ commit, so test users stay, and the suite now creates more than 60 on a fresh si
 - Teams delivery needs the Power Automate workflow; there is no channel post here.
 
 ## Changelog
+
+- **v1.2 (2026-10-16):** on ERPNext's Lead (`erpnext-lead-cutover.md`): scores in `tbo_score` /
+  `tbo_temperature`, follow-ups ToDos, notes Comments, calls Events, stage changes from the
+  stage log; the dashboard cards behind `api/dashboard.py`; links to the hub's lead page.
 
 - **v1.1 (2026-10-16):** the lead pipeline statuses (`lead-pipeline.md`): status points, the
   open statuses and the triage's Closed – Lost; the morning digest adds meetings today and

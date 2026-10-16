@@ -10,7 +10,8 @@ from frappe import _
 from frappe.utils import add_days, getdate, now_datetime, strip_html
 
 from tbo_smart import ai
-from tbo_smart.api.mobile.crm import add_call, add_follow_up_task, add_note, close_due_follow_ups
+from tbo_smart.lead_pipeline.statuses import STATUS_NAMES, status_type
+from tbo_smart.sales.activities import add_call, add_follow_up_task, add_note, close_due_follow_ups
 from tbo_smart.smart_leads import FOLLOW_UP_TYPE
 from tbo_smart.smart_leads.facts import LeadFacts
 from tbo_smart.smart_leads.utils import normalise_phone, whatsapp_link
@@ -21,10 +22,6 @@ BRIEF_LINES = 3
 WHATSAPP_CHARS = 700
 LANGUAGES = {"en": "English", "ml": "Malayalam (in Malayalam script)"}
 KINDS = ("call", "note")
-
-
-def lead_statuses() -> list[dict]:
-	return frappe.get_all("CRM Lead Status", fields=["name", "type"], order_by="position asc")
 
 
 # ---------- the note box ----------
@@ -38,13 +35,13 @@ def draft_note(lead: str, text: str) -> dict:
 		frappe.throw(_("Write what happened first."))
 	lead_facts = LeadFacts([lead])
 	facts = lead_facts.facts(lead)
-	statuses = [status.name for status in lead_statuses()]
+	statuses = list(STATUS_NAMES)
 	today = getdate()
 	answer = ai.call_ai(
 		NOTE_PROMPT.format(statuses=", ".join(statuses)),
 		frappe.as_json({"today": str(today), "rough_notes": text, "lead": facts}),
 		"Lead note",
-		("CRM Lead", lead),
+		("Lead", lead),
 	)["response"]
 	known = lead_facts.known_numbers(lead, text, str(today))
 	warnings = []
@@ -90,39 +87,31 @@ def save_note(
 	follow_up_on: str | None = None,
 	follow_up_reason: str | None = None,
 ) -> dict:
-	"""Write what the user confirmed: an FCRM Note, or a CRM Call Log with its note (a call
-	logged by someone with no mobile number on their profile is saved as a note "Call: …");
-	a call closes my follow-ups on the lead that are due by now; the status change; and the next
-	follow-up as a "Sales follow-up" CRM Task assigned to me."""
+	"""Write what the user confirmed: a note (Comment), or a call (a completed call Event with
+	the words as its description) that closes my follow-ups on the lead due by today; the stage
+	change; and the next follow-up as a "Sales follow-up" ToDo assigned to me."""
 	text = (text or "").strip()[:MAX_INPUT_CHARS]
 	if not text:
 		frappe.throw(_("The note is empty."))
 	if kind not in KINDS:
 		frappe.throw(_("kind must be call or note."))
-	frappe.has_permission("CRM Lead", "read", lead, throw=True)
+	frappe.has_permission("Lead", "read", lead, throw=True)
 	result = {"lead": lead, "kind": kind}
 	if kind == "call":
-		try:
-			call = add_call("CRM Lead", lead, text)
-			result.update({"call": call.name, "note": call.note})
-		except frappe.ValidationError:
-			# no mobile number on the profile or the lead: keep the words, say it was a call
-			result.update(
-				{"note": add_note("CRM Lead", lead, _("Call: {0}").format(text)).name, "kind": "note"}
-			)
-		close_due_follow_ups("CRM Lead", lead)
+		result["call"] = add_call("Lead", lead, text).name
+		close_due_follow_ups("Lead", lead)
 	else:
-		result["note"] = add_note("CRM Lead", lead, text).name
-	if status and status != frappe.db.get_value("CRM Lead", lead, "status"):
+		result["note"] = add_note("Lead", lead, text).name
+	if status and status != frappe.db.get_value("Lead", lead, "tbo_stage"):
 		result["status"] = set_lead_status(lead, status, text)
 	if follow_up_on:
 		day = getdate(follow_up_on)
 		if day < getdate():
 			frappe.throw(_("The next follow-up can't be in the past."))
 		task = add_follow_up_task(
-			"CRM Lead",
+			"Lead",
 			lead,
-			f"{day} 10:00:00",
+			day,
 			title=(follow_up_reason or "").strip()[:140] or None,
 			task_type=FOLLOW_UP_TYPE,
 		)
@@ -131,18 +120,18 @@ def save_note(
 
 
 def set_lead_status(lead: str, status: str, notes: str | None = None) -> str:
-	"""Change a lead's status as the session user. A Lost-type status (Closed – Lost) needs
-	CRM's lost reason: "Other" with the notes, unless the lead already has one."""
-	if not frappe.db.exists("CRM Lead Status", status):
-		frappe.throw(_("{0} is not a lead status.").format(status))
-	doc = frappe.get_doc("CRM Lead", lead)
+	"""Change a lead's stage as the session user. A Lost-type stage (Closed – Lost) needs a lost
+	reason: "Other" with the notes, unless the lead already has one."""
+	if status not in STATUS_NAMES:
+		frappe.throw(_("{0} is not a lead stage.").format(status))
+	doc = frappe.get_doc("Lead", lead)
 	doc.check_permission("write")
-	doc.status = status
-	if frappe.get_cached_value("CRM Lead Status", status, "type") == "Lost" and not doc.lost_reason:
-		doc.lost_reason = "Other"
-		doc.lost_notes = strip_html(notes or "").strip()[:500] or _("Closed from TBO smart leads")
+	doc.tbo_stage = status
+	if status_type(status) == "Lost" and not doc.tbo_lost_reason:
+		doc.tbo_lost_reason = "Other"
+		doc.tbo_lost_notes = strip_html(notes or "").strip()[:500] or _("Closed from TBO smart leads")
 	doc.save()
-	return doc.status
+	return doc.tbo_stage
 
 
 NOTE_PROMPT = """You turn a salesperson's rough notes about a lead into a clean CRM note for TBO
@@ -185,7 +174,7 @@ def refresh_brief(lead: str) -> dict:
 		BRIEF_PROMPT,
 		frappe.as_json({"today": str(getdate()), "lead": facts.facts(lead)}),
 		"Lead brief",
-		("CRM Lead", lead),
+		("Lead", lead),
 	)["response"]
 	known = facts.known_numbers(lead, str(getdate()))
 	raw = answer.get("lines") if isinstance(answer.get("lines"), list) else []
@@ -193,7 +182,7 @@ def refresh_brief(lead: str) -> dict:
 	if not lines:
 		frappe.throw(_("The AI couldn't write a brief from this lead's history. Try again later."))
 	frappe.db.set_value(
-		"CRM Lead",
+		"Lead",
 		lead,
 		{
 			"tbo_ai_brief": "\n".join(line[:220] for line in lines),
@@ -226,7 +215,7 @@ def draft_whatsapp(lead: str, language: str = "en") -> dict:
 		frappe.throw(_("Language must be en or ml."))
 	lead_facts = LeadFacts([lead])
 	facts = lead_facts.facts(lead)
-	doc = frappe.db.get_value("CRM Lead", lead, ["mobile_no", "phone"], as_dict=True)
+	doc = frappe.db.get_value("Lead", lead, ["mobile_no", "phone"], as_dict=True)
 	phone = next((number for number in (doc.mobile_no, doc.phone) if normalise_phone(number)), None)
 	if not phone:
 		frappe.throw(_("This lead has no usable mobile number."))
@@ -235,7 +224,7 @@ def draft_whatsapp(lead: str, language: str = "en") -> dict:
 		WHATSAPP_PROMPT.format(language=LANGUAGES[language]),
 		frappe.as_json({"today": str(getdate()), "from": sender, "lead": facts}),
 		"WhatsApp draft",
-		("CRM Lead", lead),
+		("Lead", lead),
 	)["response"]
 	text = ai.guarded(answer.get("message"), lead_facts.known_numbers(lead, sender, str(getdate())))
 	if not text:

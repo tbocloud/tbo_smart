@@ -1,4 +1,4 @@
-"""The CRM's Pipeline page (docs/lead-pipeline.md §11). Needs TBO Smart Settings → Pipeline
+"""The Pipeline page (docs/lead-pipeline.md §11). Needs TBO Smart Settings → Pipeline
 dashboard; each person sees their own leads, a team lead their team, managers everyone."""
 
 import frappe
@@ -8,7 +8,7 @@ from tbo_smart.lead_pipeline.dashboard import build_dashboard, dashboard_enabled
 
 @frappe.whitelist()
 def get_access() -> dict:
-	return {"enabled": dashboard_enabled() and bool(frappe.has_permission("CRM Lead", "read"))}
+	return {"enabled": dashboard_enabled() and bool(frappe.has_permission("Lead", "read"))}
 
 
 @frappe.whitelist()

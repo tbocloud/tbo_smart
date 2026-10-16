@@ -10,27 +10,25 @@ from tbo_smart.api import quotation_adjustment as adjustment_api
 from tbo_smart.api.finance import deal as deal_api
 from tbo_smart.api.finance import quotation as quotation_api
 from tbo_smart.api.finance import report as report_api
-from tbo_smart.finance import access
-from tbo_smart.finance.backfill import DealLinkBackfill
 from tbo_smart.finance.documents import FinanceDocument, QuotationApprovalPending
 from tbo_smart.finance.stage import recompute_all, update_stage
 from tbo_smart.quotation_control import AdjustmentApprovalRequired
+from tbo_smart.sales import permissions
 from tbo_smart.test_utils import (
 	configure_quotation_approval,
-	delete_crm_records,
-	enable_erpnext_crm,
+	delete_sales_records,
 	enable_finance_workflow,
 	get_versions,
-	make_crm_deal,
-	make_crm_lead,
-	make_crm_organization,
-	make_crm_product,
+	make_customer,
+	make_deal,
 	make_deal_quotation,
 	make_finance_deal,
 	make_finance_item,
 	make_invoice_from_order,
+	make_lead,
 	make_manual_order,
 	make_order_from_quotation,
+	make_organization,
 	make_receipt,
 	make_user,
 	reset_finance_settings,
@@ -49,7 +47,6 @@ class FinanceTestCase(FrappeTestCase):
 	def setUpClass(cls):
 		super().setUpClass()
 		frappe.set_user("Administrator")
-		enable_erpnext_crm()
 		make_user(BDE, ["Sales User", "Business Development Executive"])
 		make_user(OTHER_BDE, ["Sales User", "Business Development Executive"])
 		make_user(BDM, ["Sales User", "Business Development Manager"])
@@ -58,7 +55,7 @@ class FinanceTestCase(FrappeTestCase):
 
 	def setUp(self):
 		frappe.set_user("Administrator")
-		delete_crm_records(OWNERS)
+		delete_sales_records(OWNERS)
 		configure_quotation_approval(enabled=0)
 		enable_finance_workflow()
 		self.addCleanup(reset_finance_settings)
@@ -70,14 +67,14 @@ class TestDealLinks(FinanceTestCase):
 		deal = make_finance_deal(BDE)
 		quotation = make_deal_quotation(deal)
 		order = make_order_from_quotation(quotation.name, keep_deal=False)
-		self.assertEqual(order.crm_deal, deal)
+		self.assertEqual(order.opportunity, deal)
 		invoice = make_invoice_from_order(order.name, keep_deal=False)
-		self.assertEqual(invoice.crm_deal, deal)
-		self.assertEqual(make_receipt("Sales Invoice", invoice.name).crm_deal, deal)
+		self.assertEqual(invoice.opportunity, deal)
+		self.assertEqual(make_receipt("Sales Invoice", invoice.name).opportunity, deal)
 		self.assertEqual(
 			make_receipt(
 				"Sales Order", make_order_from_quotation(make_deal_quotation(deal).name).name, 100
-			).crm_deal,
+			).opportunity,
 			deal,
 		)
 
@@ -97,9 +94,9 @@ class TestDealLinks(FinanceTestCase):
 				"allocated_amount": 0,
 			},
 		)
-		entry.crm_deal = invoices[0].crm_deal
+		entry.opportunity = invoices[0].opportunity
 		FinanceDocument(entry).validate()
-		self.assertFalse(entry.crm_deal)
+		self.assertFalse(entry.opportunity)
 
 	def test_payment_without_references_keeps_a_typed_deal(self):
 		deal = make_finance_deal(BDE)
@@ -107,9 +104,9 @@ class TestDealLinks(FinanceTestCase):
 			"Sales Order", make_order_from_quotation(make_deal_quotation(deal).name).name, 100, submit=False
 		)
 		entry.set("references", [])
-		entry.crm_deal = deal
+		entry.opportunity = deal
 		FinanceDocument(entry).validate()
-		self.assertEqual(entry.crm_deal, deal)
+		self.assertEqual(entry.opportunity, deal)
 
 	def test_switched_off_leaves_links_alone(self):
 		deal = make_finance_deal(BDE)
@@ -117,45 +114,15 @@ class TestDealLinks(FinanceTestCase):
 		frappe.db.set_single_value("TBO Smart Settings", "enable_finance_workflow", 0)
 		order = make_manual_order(quotation.name)
 		order.insert(ignore_permissions=True)
-		self.assertFalse(order.crm_deal)
+		self.assertFalse(order.opportunity)
 		enable_finance_workflow()
 		order.save(ignore_permissions=True)
-		self.assertEqual(order.crm_deal, deal)
-
-	def test_backfill_links_chains_and_lists_the_rest(self):
-		deal = make_finance_deal(BDE)
-		order = make_order_from_quotation(make_deal_quotation(deal).name)
-		invoice = make_invoice_from_order(order.name)
-		entry = make_receipt("Sales Invoice", invoice.name)
-		orphan = make_invoice_from_order(
-			make_order_from_quotation(make_deal_quotation(make_finance_deal(BDE)).name).name
-		)
-		frappe.db.set_value("Sales Invoice Item", {"parent": orphan.name}, "sales_order", None)
-		for doctype, name in (
-			("Sales Order", order.name),
-			("Sales Invoice", invoice.name),
-			("Payment Entry", entry.name),
-			("Sales Invoice", orphan.name),
-		):
-			frappe.db.set_value(doctype, name, "crm_deal", None)
-
-		result = DealLinkBackfill().run()
-
-		for doctype, name in (
-			("Sales Order", order.name),
-			("Sales Invoice", invoice.name),
-			("Payment Entry", entry.name),
-		):
-			self.assertEqual(frappe.db.get_value(doctype, name, "crm_deal"), deal)
-		self.assertIn(orphan.name, result["Sales Invoice"]["unresolved"])
-		again = DealLinkBackfill().run()
-		self.assertEqual(again["Sales Order"]["linked"], 0)
-		self.assertEqual(again["Payment Entry"]["linked"], 0)
+		self.assertEqual(order.opportunity, deal)
 
 
 class TestStage(FinanceTestCase):
 	def stage(self, deal):
-		return frappe.db.get_value("CRM Deal", deal, "tbo_stage")
+		return frappe.db.get_value("Opportunity", deal, "tbo_finance_stage")
 
 	def test_stage_follows_the_documents(self):
 		deal = make_finance_deal(BDE)
@@ -172,7 +139,9 @@ class TestStage(FinanceTestCase):
 		last.cancel()
 		self.assertEqual(self.stage(deal), "Collecting")
 		stages = [
-			change["tbo_stage"][1] for change in get_versions("CRM Deal", deal) if "tbo_stage" in change
+			change["tbo_finance_stage"][1]
+			for change in get_versions("Opportunity", deal)
+			if "tbo_finance_stage" in change
 		]
 		self.assertEqual(
 			stages, ["Onboarding", "Quotation", "Invoiced", "Collecting", "Collected", "Collecting"]
@@ -219,42 +188,29 @@ class TestStage(FinanceTestCase):
 		frappe.set_user("Administrator")
 		recompute_all()
 		self.assertEqual(self.stage(deal), "Closed")
-		versions = get_versions("CRM Deal", deal)
+		versions = get_versions("Opportunity", deal)
 		self.assertTrue(any("tbo_onboarding_complete" in change for change in versions))
 		self.assertTrue(any("tbo_closed" in change for change in versions))
 		comments = frappe.get_all(
-			"Comment", filters={"reference_doctype": "CRM Deal", "reference_name": deal}, pluck="content"
+			"Comment", filters={"reference_doctype": "Opportunity", "reference_name": deal}, pluck="content"
 		)
 		self.assertIn("Finance closed.", comments)
 
-	def test_new_deal_gets_the_crm_company(self):
-		deal = make_crm_deal(BDE)
-		self.assertEqual(frappe.db.get_value("CRM Deal", deal, "tbo_company"), erpnext.get_default_company())
+	def test_new_deal_gets_the_default_company(self):
+		deal = make_deal(BDE, company=None)
+		self.assertEqual(frappe.db.get_value("Opportunity", deal, "company"), erpnext.get_default_company())
 
 
 class TestQuotationApi(FinanceTestCase):
 	def test_dialog_prefills_from_the_deal(self):
-		product = make_crm_product(make_finance_item())
-		deal = make_finance_deal(
-			BDE,
-			products=[
-				{
-					"product_code": product,
-					"product_name": product,
-					"qty": 3,
-					"rate": 250,
-					"discount_percentage": 4,
-				}
-			],
-		)
+		deal = make_finance_deal(BDE, items=[{"item_code": make_finance_item(), "qty": 3, "rate": 250}])
 		frappe.set_user(BDE)
 		form = quotation_api.get_quotation_form(deal)
 		self.assertEqual(form["company"], erpnext.get_default_company())
 		self.assertEqual(form["party"]["quotation_to"], "Customer")
 		[item] = form["items"]
 		self.assertEqual(
-			(item["item_code"], item["qty"], item["price_list_rate"], item["discount_percentage"]),
-			(make_finance_item(), 3, 250, 4),
+			(item["item_code"], item["qty"], item["price_list_rate"]), (make_finance_item(), 3, 250)
 		)
 
 	def test_save_edit_and_submit_a_draft(self):
@@ -276,7 +232,7 @@ class TestQuotationApi(FinanceTestCase):
 		}
 		saved = quotation_api.save_quotation(deal, values)
 		doc = frappe.get_doc("Quotation", saved["name"])
-		self.assertEqual((doc.crm_deal, doc.docstatus, doc.tbo_commission_rate), (deal, 0, 2))
+		self.assertEqual((doc.opportunity, doc.docstatus, doc.tbo_commission_rate), (deal, 0, 2))
 		self.assertEqual((doc.items[0].rate, doc.net_total), (450, 900))
 		values["items"][0]["qty"] = 4
 		self.assertEqual(quotation_api.save_quotation(deal, values, saved["name"])["net_total"], 1800)
@@ -284,17 +240,15 @@ class TestQuotationApi(FinanceTestCase):
 		with self.assertRaises(frappe.ValidationError):
 			quotation_api.save_quotation(deal, values, saved["name"])
 
-	def test_quotation_made_out_to_the_deal_is_editable(self):
-		deal = make_finance_deal(BDE)
+	def test_a_deal_without_a_customer_quotes_to_its_lead(self):
+		lead = make_lead(BDE, "Quote Lead", company_name=f"Lead Org {frappe.generate_hash(length=6)}")
+		deal = make_deal(BDE, opportunity_from="Lead", party_name=lead)
 		frappe.set_user(BDE)
 		saved = quotation_api.save_quotation(
 			deal, {"items": [{"item_code": make_finance_item(), "qty": 1, "price_list_rate": 10}]}
 		)
-		frappe.set_user("Administrator")
-		frappe.db.set_value(
-			"Quotation", saved["name"], {"crm_deal": None, "quotation_to": "CRM Deal", "party_name": deal}
-		)
-		frappe.set_user(BDE)
+		self.assertEqual((saved["party"]["quotation_to"], saved["party"]["party_name"]), ("Lead", lead))
+		self.assertEqual(frappe.db.get_value("Quotation", saved["name"], "opportunity"), deal)
 		self.assertEqual(quotation_api.get_quotation_form(deal, saved["name"])["name"], saved["name"])
 
 	def test_refuses_other_deals_and_bad_input(self):
@@ -312,12 +266,6 @@ class TestQuotationApi(FinanceTestCase):
 			quotation_api.save_quotation(deal, {"items": []})
 		with self.assertRaises(frappe.ValidationError):
 			quotation_api.save_quotation(deal, {"items": [{"item_code": make_finance_item(), "qty": 0}]})
-
-	def test_desk_action_hidden_while_switched_on(self):
-		frappe.set_user(BDE)
-		self.assertFalse(quotation_api.can_create_desk_quotations())
-		frappe.db.set_single_value("TBO Smart Settings", "enable_finance_workflow", 0)
-		self.assertTrue(quotation_api.can_create_desk_quotations())
 
 
 class TestApprovalGuard(FinanceTestCase):
@@ -387,17 +335,17 @@ class TestFinanceTabAccess(FinanceTestCase):
 		with self.assertRaises(frappe.PermissionError):
 			deal_api.get_deal_finance(deal)
 
-	def test_accounts_need_crm_access(self):
+	def test_accounts_need_the_deal_access_setting(self):
 		deal = self.make_invoiced_deal(BDE)
 		frappe.set_user(ACCOUNTS)
 		with self.assertRaises(frappe.PermissionError):
 			deal_api.get_deal_finance(deal)
-		self.assertFalse(access.has_crm_app_access())
+		self.assertFalse(permissions.unrestricted(ACCOUNTS, "Opportunity", "read"))
 		enable_finance_workflow(finance_crm_access=1)
-		self.assertTrue(access.has_crm_app_access())
-		self.assertTrue(access.has_unrestricted_crm_access(ACCOUNTS, "CRM Deal", "read"))
-		self.assertFalse(access.has_unrestricted_crm_access(ACCOUNTS, "CRM Deal", "write"))
-		self.assertFalse(access.has_unrestricted_crm_access(BDE, "CRM Deal", "read"))
+		self.assertTrue(permissions.unrestricted(ACCOUNTS, "Opportunity", "read"))
+		self.assertFalse(permissions.unrestricted(ACCOUNTS, "Opportunity", "write"))
+		self.assertFalse(permissions.unrestricted(ACCOUNTS, "Lead", "read"))
+		self.assertFalse(permissions.unrestricted(BDE, "Opportunity", "read"))
 		self.assertEqual(deal_api.get_deal_finance(deal)["deal"], deal)
 
 	def test_amounts_hidden_from_bde_when_setting_off(self):
@@ -424,23 +372,21 @@ class TestFinanceTabAccess(FinanceTestCase):
 			report_api.get_bde_conversion()
 
 	def test_settings_grant_and_revoke_crm_read(self):
-		frappe.db.delete("Custom DocPerm", {"parent": "CRM Organization", "role": "Accounts User"})
+		frappe.db.delete("Custom DocPerm", {"parent": "Prospect", "role": "Accounts User"})
 		settings = frappe.get_single("TBO Smart Settings")
 		settings.update(
 			{"enable_finance_workflow": 1, "finance_crm_access": 1, "finance_crm_roles": "Accounts User\n"}
 		)
 		settings.save(ignore_permissions=True)
-		row = {"parent": "CRM Organization", "role": "Accounts User", "read": 1}
+		row = {"parent": "Prospect", "role": "Accounts User", "read": 1}
 		self.assertTrue(frappe.db.exists("Custom DocPerm", row))
 		settings.reload()
 		settings.finance_crm_access = 0
 		settings.save(ignore_permissions=True)
 		self.assertFalse(frappe.db.exists("Custom DocPerm", row))
 		# an existing row without read is widened, then put back
-		add_permission("CRM Organization", "Accounts User", 0, "write")
-		row_name = frappe.db.get_value(
-			"Custom DocPerm", {"parent": "CRM Organization", "role": "Accounts User"}
-		)
+		add_permission("Prospect", "Accounts User", 0, "write")
+		row_name = frappe.db.get_value("Custom DocPerm", {"parent": "Prospect", "role": "Accounts User"})
 		frappe.db.set_value("Custom DocPerm", row_name, {"read": 0, "if_owner": 1})
 		settings.reload()
 		settings.finance_crm_access = 1
@@ -458,13 +404,12 @@ class TestFinanceTabAccess(FinanceTestCase):
 
 class TestBdeConversion(FinanceTestCase):
 	def test_counts_per_bde_and_filters(self):
-		organization = make_crm_organization(f"TBO Report {frappe.generate_hash(length=6)}")
+		organization = make_organization(f"TBO Report {frappe.generate_hash(length=6)}")
 		for owner, leads, deals in ((BDE, 3, 2), (OTHER_BDE, 2, 1)):
-			names = [make_crm_lead(owner, organization=organization) for _i in range(leads)]
+			names = [make_lead(owner, company_name=organization) for _i in range(leads)]
 			for lead in names[:deals]:
-				make_finance_deal(owner, lead=lead, organization=organization)
-		won = make_finance_deal(BDE, organization=organization, deal_value=5000)
-		frappe.db.set_value("CRM Deal", won, {"status": "Won", "closed_date": nowdate()})
+				make_deal(owner, opportunity_from="Lead", party_name=lead)
+		won = make_deal(BDE, "Won", 5000, opportunity_from="Customer", party_name=make_customer(organization))
 		make_deal_quotation(won)
 		make_deal_quotation(won, submit=False)
 
@@ -490,29 +435,25 @@ class TestBdeConversion(FinanceTestCase):
 			report_api.get_bde_conversion()
 
 
-class TestWithoutCrm(FrappeTestCase):
-	"""tbo_smart is also installed on sites without the CRM app (tbo-smart.tbocloud.in): there
-	migrate must not try to create fields that link to CRM Deal, and every phase stays off."""
+class TestWithoutERPNext(FrappeTestCase):
+	"""tbo_smart must migrate on a site without ERPNext: no fields on its doctypes, and every
+	phase stays off."""
 
-	def test_setup_and_backfill_skip_without_crm(self):
+	def test_setup_skips_without_erpnext(self):
 		from tbo_smart.finance import setup as finance_setup
-		from tbo_smart.patches.v1 import backfill_finance_deal_links
 
 		with (
-			patch("frappe.get_installed_apps", return_value=["frappe", "erpnext", "hrms", "tbo_smart"]),
+			patch("frappe.get_installed_apps", return_value=["frappe", "tbo_smart"]),
 			patch.object(finance_setup, "create_custom_fields") as create_fields,
-			patch.object(backfill_finance_deal_links, "run") as backfill,
 			patch.object(finance_setup, "set_allocation_start_date") as allocation_start,
 		):
 			finance_setup.setup_finance()
-			backfill_finance_deal_links.execute()
 
 		# Phase 4's Bank Transaction fields are part of these finance fields
 		create_fields.assert_not_called()
-		backfill.assert_not_called()
 		allocation_start.assert_not_called()
 
-	def test_finance_off_without_crm(self):
+	def test_finance_off_without_erpnext(self):
 		from tbo_smart.finance import (
 			allocation_enabled,
 			dashboard_enabled,
@@ -531,7 +472,7 @@ class TestWithoutCrm(FrappeTestCase):
 				"enable_finance_dashboard": 1,
 			},
 		)
-		with patch("frappe.get_installed_apps", return_value=["frappe", "erpnext", "tbo_smart"]):
+		with patch("frappe.get_installed_apps", return_value=["frappe", "tbo_smart"]):
 			self.assertFalse(finance_enabled())
 			self.assertFalse(allocation_enabled())
 			self.assertFalse(reconciliation_enabled())

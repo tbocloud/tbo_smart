@@ -1,9 +1,9 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import add_days, now_datetime, nowdate
+from frappe.utils import add_days, getdate, now_datetime, nowdate
 
 from tbo_smart.api.mobile import crm
-from tbo_smart.test_utils import make_crm_deal, make_crm_lead, make_user
+from tbo_smart.test_utils import make_deal, make_lead, make_user
 
 SELLER = "crm.seller@tbosmart.test"
 OTHER_SELLER = "crm.other@tbosmart.test"
@@ -16,10 +16,8 @@ class TestMobileCRM(FrappeTestCase):
 		make_user(OTHER_SELLER, ["Sales User"])
 		make_user(NON_SALES, ["Employee"])
 		frappe.db.set_value("User", SELLER, "mobile_no", "+91 98470 00001")
-		self.lead = make_crm_lead(
-			SELLER, "Faisal", organization="Al Noor Trading", mobile_no="+971 50 418 2276"
-		)
-		self.other_lead = make_crm_lead(OTHER_SELLER, "Deepa")
+		self.lead = make_lead(SELLER, "Faisal", company_name="Al Noor Trading", mobile_no="+971 50 418 2276")
+		self.other_lead = make_lead(OTHER_SELLER, "Deepa")
 		frappe.set_user(SELLER)
 
 	def tearDown(self):
@@ -49,7 +47,7 @@ class TestMobileCRM(FrappeTestCase):
 		self.assertEqual(timeline["activities"][0]["kind"], "call")
 		self.assertEqual(timeline["activities"][0]["text"], "Intro call, wants a demo")
 		self.assertEqual(len(timeline["tasks"]), 1)
-		self.assertEqual(crm.get_lead(self.lead)["next_follow_up"].date().isoformat(), follow_up)
+		self.assertEqual(str(getdate(crm.get_lead(self.lead)["next_follow_up"])), follow_up)
 
 	def test_meeting_closes_due_follow_ups_and_shows_in_my_list(self):
 		crm.add_follow_up("lead", self.lead, str(now_datetime()))
@@ -74,7 +72,7 @@ class TestMobileCRM(FrappeTestCase):
 
 	def test_deals_by_stage_and_organization_shapes(self):
 		frappe.set_user("Administrator")
-		deal = make_crm_deal(SELLER, status="Negotiation", deal_value=940000)
+		deal = make_deal(SELLER, status="Negotiation", deal_value=940000)
 		frappe.set_user(SELLER)
 		deals = crm.get_deals(stage="Negotiation")["data"]
 		self.assertIn(deal, [row["name"] for row in deals])

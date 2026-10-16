@@ -1,6 +1,6 @@
 """The lead follow-up engine (docs/smart-leads.md §5).
 
-A follow-up is an open **CRM Task** on the lead (the finance workflow's `tbo_task_type` =
+A follow-up is an open **ToDo** on the lead (the finance workflow's `tbo_task_type` =
 "Sales follow-up" for the ones this feature creates). The earliest open task with a due date is
 the lead's next follow-up. Rules, for open leads (every status but Closed – Won and Closed – Lost):
 
@@ -12,7 +12,7 @@ the lead's next follow-up. Rules, for open leads (every status but Closed – Wo
 | Overdue | the next follow-up's day has passed | the escalation ladder |
 
 Ladder (working days overdue, each level adds people): L0 the assignee; L1 (`lead_ladder_l1_days`)
-plus the owner's BDM (their manager in the CRM sales hierarchy); L2 (`lead_ladder_l2_days`) plus
+plus the owner's BDM (their manager in the sales hierarchy); L2 (`lead_ladder_l2_days`) plus
 the Sales & Marketing Head (TBO Smart Settings → Head - Sales & Marketing, else the role's
 users); L3 (`lead_ladder_l3_days`) plus the users with `lead_manager_role`.
 
@@ -28,6 +28,8 @@ from frappe import _
 from frappe.utils import cint, escape_html, formatdate, getdate, today
 
 from tbo_smart.lead_pipeline.meetings import meeting_digest_lines, meeting_people
+from tbo_smart.sales import lead_url
+from tbo_smart.sales.hierarchy import managers_of
 from tbo_smart.smart_leads import OPEN_STATUSES, SALES_HEAD_ROLE, follow_ups_enabled, setting
 from tbo_smart.smart_leads.facts import LeadFacts
 from tbo_smart.smart_leads.notify import deliver, notify
@@ -82,10 +84,10 @@ class FollowUpRun:
 		self.needs_owner: list[str] = []
 
 	def evaluate(self) -> list[FollowUp]:
-		filters = {"status": ("in", OPEN_STATUSES), "converted": 0}
+		filters = {"tbo_stage": ("in", OPEN_STATUSES)}
 		if self.leads is not None:
 			filters["name"] = ("in", self.leads or [""])
-		names = frappe.get_all("CRM Lead", filters=filters, pluck="name", limit_page_length=0)
+		names = frappe.get_all("Lead", filters=filters, pluck="name", limit_page_length=0)
 		self.facts = LeadFacts(names, self.today)
 		owners = {self.facts.lead(name).lead_owner for name in self.facts.names}
 		assignees = {task.assigned_to for tasks in self.facts.follow_ups.values() for task in tasks}
@@ -184,21 +186,10 @@ class FollowUpRun:
 	# ---------- who ----------
 
 	def load_managers(self, owners: set) -> dict:
-		"""{owner: their manager in the CRM sales hierarchy} (the BDM), enabled only."""
-		Node = frappe.qb.DocType("CRM Sales Hierarchy")
-		Parent = frappe.qb.DocType("CRM Sales Hierarchy").as_("parent_node")
-		owners = [owner for owner in owners if owner]
-		if not owners:
-			return {}
-		rows = (
-			frappe.qb.from_(Node)
-			.join(Parent)
-			.on(Parent.name == Node.reports_to)
-			.select(Node.user, Parent.user.as_("manager"))
-			.where(Node.user.isin(owners))
-		).run(as_dict=True)
-		active = enabled_users({row.manager for row in rows})
-		return {row.user: row.manager for row in rows if row.manager in active}
+		"""{owner: their manager in the sales hierarchy} (the BDM), enabled only."""
+		managers = managers_of(owners)
+		active = enabled_users(set(managers.values()))
+		return {user: manager for user, manager in managers.items() if manager in active}
 
 	def load_sales_heads(self) -> list[str]:
 		head = setting("escalation_sales_head")
@@ -235,7 +226,7 @@ def notify_escalations(run: FollowUpRun) -> int:
 	stored = (
 		dict(
 			frappe.get_all(
-				"CRM Task",
+				"ToDo",
 				filters={"name": ("in", [item.task for item in run.items if item.task])},
 				fields=["name", "tbo_escalation_level"],
 				as_list=True,
@@ -250,7 +241,7 @@ def notify_escalations(run: FollowUpRun) -> int:
 		before = cint(stored.get(item.task))
 		if item.level == before:
 			continue
-		frappe.db.set_value("CRM Task", item.task, "tbo_escalation_level", item.level, update_modified=False)
+		frappe.db.set_value("ToDo", item.task, "tbo_escalation_level", item.level, update_modified=False)
 		if item.level < before:
 			continue
 		climbed += 1
@@ -259,7 +250,7 @@ def notify_escalations(run: FollowUpRun) -> int:
 		)
 		if item.cover_note:
 			subject += f" ({item.cover_note})"
-		notify(item.recipients, subject, "CRM Lead", item.lead)
+		notify(item.recipients, subject, "Lead", item.lead)
 	return climbed
 
 
@@ -344,7 +335,7 @@ def build_digest(run: FollowUpRun, user: str) -> dict | None:
 
 def digest_html(subject: str, sections: list, needs_owner: int, meetings: list | None = None) -> str:
 	"""A plain, readable email: neutral grays, the one accent only on the button."""
-	link = frappe.utils.get_url("/crm/call-today")
+	link = lead_url(view="call_today")
 	body = [
 		f'<p style="font:600 16px/1.4 sans-serif;color:#1f2329;margin:0 0 16px">{escape_html(subject)}</p>'
 	]
@@ -383,7 +374,7 @@ def digest_html(subject: str, sections: list, needs_owner: int, meetings: list |
 
 
 def digest_line(item: FollowUp) -> str:
-	link = frappe.utils.get_url("/crm/leads/" + item.lead)
+	link = lead_url(item.lead)
 	return f'<li><a href="{link}" style="color:#1f2329">{escape_html(item_line(item))}</a></li>'
 
 
@@ -403,7 +394,12 @@ def send_digests(run: FollowUpRun, only: str | None = None) -> dict:
 		if not digest:
 			continue
 		sent[user] = deliver(
-			user, digest["subject"], digest["text"], digest["html"], "/call-today", _("Open Call today")
+			user,
+			digest["subject"],
+			digest["text"],
+			digest["html"],
+			lead_url(view="call_today"),
+			_("Open Call today"),
 		)
 		notify(
 			[user],

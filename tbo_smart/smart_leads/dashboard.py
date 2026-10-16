@@ -1,5 +1,4 @@
-"""Smart lead cards on the CRM dashboard (docs/smart-leads.md §4.4), through the CRM fork's
-`crm_dashboard_providers` / `crm_dashboard_layout` hooks.
+"""Smart lead cards of the sales dashboard (docs/smart-leads.md §4.4, tbo_smart.api.dashboard).
 
 | Card | Switch | Value |
 | --- | --- | --- |
@@ -15,7 +14,8 @@ from frappe import _
 from frappe.query_builder.functions import Count
 from frappe.utils import getdate
 
-from tbo_smart.smart_leads import CLOSED_TASK_STATUSES, OPEN_STATUSES, follow_ups_enabled, scoring_enabled
+from tbo_smart.sales.activities import OPEN
+from tbo_smart.smart_leads import OPEN_STATUSES, follow_ups_enabled, scoring_enabled
 from tbo_smart.smart_leads.call_today import build_call_today, check_person
 
 
@@ -40,19 +40,18 @@ def get_tbo_lead_follow_ups_overdue(from_date=None, to_date=None, user=None) -> 
 		user = check_person(user)
 	except frappe.PermissionError:
 		return None
-	Task = frappe.qb.DocType("CRM Task")
-	Lead = frappe.qb.DocType("CRM Lead")
+	ToDo = frappe.qb.DocType("ToDo")
+	Lead = frappe.qb.DocType("Lead")
 	count = (
-		frappe.qb.from_(Task)
+		frappe.qb.from_(ToDo)
 		.join(Lead)
-		.on((Task.reference_doctype == "CRM Lead") & (Task.reference_docname == Lead.name))
-		.select(Count(Task.name))
+		.on((ToDo.reference_type == "Lead") & (ToDo.reference_name == Lead.name))
+		.select(Count(ToDo.name))
 		.where(
-			(Task.assigned_to == user)
-			& Task.status.notin(CLOSED_TASK_STATUSES)
-			& (Task.due_date < getdate())
-			& Lead.status.isin(OPEN_STATUSES)
-			& (Lead.converted == 0)
+			(ToDo.allocated_to == user)
+			& (ToDo.status == OPEN)
+			& (ToDo.date < getdate())
+			& Lead.tbo_stage.isin(OPEN_STATUSES)
 		)
 	).run()[0][0]
 	return {
@@ -64,7 +63,7 @@ def get_tbo_lead_follow_ups_overdue(from_date=None, to_date=None, user=None) -> 
 
 
 def get_cards(from_date, to_date, user=None) -> list[dict]:
-	"""crm_dashboard_layout hook: the smart lead cards that are switched on."""
+	"""The smart lead cards that are switched on (tbo_smart.api.dashboard)."""
 	cards = []
 	for name in ("tbo_call_today", "tbo_lead_follow_ups_overdue"):
 		data = globals()[f"get_{name}"](from_date, to_date, user)

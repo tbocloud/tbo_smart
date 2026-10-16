@@ -1,10 +1,9 @@
 """Lead scoring: a deterministic base score, an optional AI adjustment, Hot / Warm / Cold
 (docs/smart-leads.md §4).
 
-The score goes into CRM Lead's own `lead_score` (0-100) and the band into its
-`lead_temperature` (Cold / Warm / Hot), with a one-line reason in `tbo_score_reason`. Upstream
-Frappe CRM only writes those two fields from its automation engine, which needs Frappe v16;
-tboindia runs v15, so nothing else writes them there.
+The score goes into the Lead's `tbo_score` (0-100) and the band into its `tbo_temperature`
+(Cold / Warm / Hot), with a one-line reason in `tbo_score_reason`. The lead facts read them
+back as `lead_score` and `lead_temperature`, the names they had on Frappe CRM's lead.
 """
 
 import frappe
@@ -23,9 +22,11 @@ from tbo_smart.lead_pipeline.statuses import (
 	POSITIVE,
 	PROPOSAL_SENT,
 	SECOND_MEETING,
+	STATUS_NAMES,
 	THIRD_MEETING,
 	WON_STATUSES,
 )
+from tbo_smart.sales.opportunity import leads_with_opportunity
 from tbo_smart.smart_leads import OPEN_STATUSES, ai_scoring_enabled, scoring_enabled, setting
 from tbo_smart.smart_leads.facts import LeadFacts
 from tbo_smart.smart_leads.migration import get_migration_notes, original_status_points, priority_points
@@ -61,6 +62,8 @@ RATES_CACHE_KEY = "tbo_smart:lead_conversion_rates"
 RATES_CACHE_SECONDS = 6 * 60 * 60
 AI_BATCH = 10
 SCORE_FIELDS = ("lead_score", "lead_temperature", "tbo_score_reason")
+# the Lead's own fields for the facts' names
+STORED_AS = {"lead_score": "tbo_score", "lead_temperature": "tbo_temperature"}
 
 
 def band(score: int) -> str:
@@ -88,11 +91,12 @@ def conversion_rates() -> dict:
 
 
 def compute_conversion_rates() -> dict:
-	leads = frappe.get_all("CRM Lead", fields=["name", "source", "status", "converted"], limit_page_length=0)
+	leads = frappe.get_all("Lead", fields=["name", "source", "tbo_stage as status"], limit_page_length=0)
 	notes = get_migration_notes([lead.name for lead in leads])
+	converted = leads_with_opportunity([lead.name for lead in leads])
 	totals: dict[str, dict[str, list[int]]] = {"source": {}, "project_type": {}}
 	for lead in leads:
-		won = int(bool(lead.converted) or lead.status in WON_STATUSES)
+		won = int(lead.name in converted or lead.status in WON_STATUSES)
 		for kind, value in (
 			("source", lead.source),
 			("project_type", notes.get(lead.name, {}).get("project_type")),
@@ -125,7 +129,7 @@ def base_score(facts: LeadFacts, name: str, rates: dict, status_positions: dict)
 	before the migration, an overdue follow-up and whether it can be contacted at all."""
 	lead = facts.lead(name)
 	if not facts.is_open(name):
-		return 0, [_("Closed ({0})").format(lead.status if not lead.converted else _("converted"))]
+		return 0, [_("Closed ({0})").format(lead.status)]
 	original = facts.migration.get(name, {})
 	parts: list[tuple[int, str]] = [(STATUS_POINTS.get(lead.status, 10), lead.status)]
 
@@ -189,7 +193,7 @@ def reason_line(reasons: list[str], limit: int = 4) -> str:
 
 
 def status_positions() -> dict:
-	return dict(frappe.get_all("CRM Lead Status", fields=["name", "position"], as_list=True))
+	return {name: position for position, name in enumerate(STATUS_NAMES, start=1)}
 
 
 # ---------- writing ----------
@@ -231,8 +235,9 @@ def score_leads(names: list[str], use_ai: bool = False, ai_limit: int = 0) -> di
 		score, temperature, reason = lead_score(facts, name, rates, positions)
 		values.update({"lead_score": score, "lead_temperature": temperature, "tbo_score_reason": reason})
 		if any(values[field] != current[field] for field in SCORE_FIELDS) or name in ai_results:
+			stored = {STORED_AS.get(field, field): value for field, value in values.items()}
 			frappe.db.set_value(
-				"CRM Lead", name, {**values, "tbo_scored_at": now_datetime()}, update_modified=False
+				"Lead", name, {**stored, "tbo_scored_at": now_datetime()}, update_modified=False
 			)
 			written += 1
 	return {"scored": written, "ai": sum(1 for _adjust, reason in ai_results.values() if reason)}
@@ -289,12 +294,13 @@ Write the reason in plain English. Never write a number, count or date that is n
 
 def rescore_lead(lead: str) -> None:
 	"""Background job: the lead or its activity changed."""
-	if scoring_enabled() and frappe.db.exists("CRM Lead", lead):
+	if scoring_enabled() and frappe.db.exists("Lead", lead):
 		score_leads([lead])
 
 
 def queue_rescore(lead: str | None) -> None:
-	if lead and scoring_enabled():
+	# an import (the CRM cutover) waits for the nightly score
+	if lead and scoring_enabled() and not frappe.flags.in_import:
 		frappe.enqueue(
 			"tbo_smart.smart_leads.scoring.rescore_lead",
 			lead=lead,
@@ -307,19 +313,22 @@ def queue_rescore(lead: str | None) -> None:
 
 
 def lead_changed(doc, method=None) -> None:
-	"""doc_events: CRM Lead on_update."""
-	if (
-		doc.has_value_changed("status")
-		or doc.has_value_changed("lead_owner")
-		or doc.has_value_changed("converted")
-	):
+	"""doc_events: Lead on_update."""
+	if doc.has_value_changed("tbo_stage") or doc.has_value_changed("lead_owner"):
 		queue_rescore(doc.name)
 
 
 def activity_changed(doc, method=None) -> None:
-	"""doc_events: FCRM Note after_insert, CRM Call Log after_insert, CRM Task on_update."""
-	if doc.get("reference_doctype") == "CRM Lead":
-		queue_rescore(doc.get("reference_docname"))
+	"""doc_events: Comment after_insert, Event after_insert, ToDo on_update: a note, a call or
+	a follow-up on a lead."""
+	if doc.doctype == "Comment" and doc.reference_doctype == "Lead" and doc.comment_type == "Comment":
+		queue_rescore(doc.reference_name)
+	elif doc.doctype == "ToDo" and doc.reference_type == "Lead":
+		queue_rescore(doc.reference_name)
+	elif doc.doctype == "Event":
+		for row in doc.get("event_participants") or []:
+			if row.reference_doctype == "Lead":
+				queue_rescore(row.reference_docname)
 
 
 def score_all() -> None:
@@ -327,8 +336,8 @@ def score_all() -> None:
 	if not scoring_enabled():
 		return
 	names = frappe.get_all(
-		"CRM Lead",
-		filters={"status": ("in", OPEN_STATUSES), "converted": 0},
+		"Lead",
+		filters={"tbo_stage": ("in", OPEN_STATUSES)},
 		pluck="name",
 		order_by="modified desc",
 		limit_page_length=0,

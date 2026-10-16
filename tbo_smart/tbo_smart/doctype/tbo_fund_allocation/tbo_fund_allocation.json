@@ -101,10 +101,10 @@
    "in_standard_filter": 1
   },
   {
-   "fieldname": "crm_deal",
+   "fieldname": "opportunity",
    "fieldtype": "Link",
-   "label": "CRM Deal",
-   "options": "CRM Deal"
+   "label": "Deal",
+   "options": "Opportunity"
   },
   {
    "fieldname": "currency",
@@ -231,7 +231,7 @@
   "column_break_1",
   "company",
   "customer",
-  "crm_deal",
+  "opportunity",
   "currency",
   "status",
   "amounts_section",

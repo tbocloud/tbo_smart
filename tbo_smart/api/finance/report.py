@@ -3,11 +3,11 @@
 
 Each column counts its own records in the date range, as the plan's metric table defines them:
 
-- leads: CRM Leads created in the range, by lead owner;
-- deals: CRM Deals created from a lead in the range, by deal owner;
+- leads: Leads created in the range, by lead owner;
+- deals: Opportunities made from a lead in the range, by deal owner;
 - quotations: submitted Quotations of a deal, by quotation date, by the deal's owner;
-- won: deals in a Won stage closed in the range, with their value in the CRM base currency
-  (deal_value x exchange_rate, as Frappe CRM's dashboard counts it).
+- won: deals in a Won-type stage closed in the range, with their value in the company currency
+  (`base_opportunity_amount`).
 
 Who appears follows the caller's CRM scope (tbo_smart.api.mobile.capabilities): a salesperson
 sees their own row, a manager in the sales hierarchy sees their team, a Sales Manager outside
@@ -22,10 +22,12 @@ from frappe.utils import add_days, flt, get_first_day, getdate, today
 from pypika.terms import EmptyCriterion
 
 from tbo_smart.api.mobile.capabilities import get_capabilities, scope_users
-from tbo_smart.api.mobile.crm import deal_value, get_crm_currency, owned_by
+from tbo_smart.api.mobile.crm import deal_value, owned_by
 from tbo_smart.api.mobile.utils import get_full_names, percent
 from tbo_smart.finance import finance_enabled, get_default_company
 from tbo_smart.finance.access import is_finance_user
+from tbo_smart.sales import default_currency
+from tbo_smart.sales.opportunity import stages_of_types
 
 MAX_RANGE_DAYS = 731
 
@@ -37,9 +39,9 @@ def get_bde_conversion(
 	organization: str | None = None,
 	company: str | None = None,
 ) -> dict:
-	"""Rows per salesperson and a total row. `organization` is a CRM Organization (the client);
-	`company` the invoicing company (a deal's `tbo_company`, or the CRM default company when
-	blank; a quotation's company). Leads have no company, so `company` does not filter them."""
+	"""Rows per salesperson and a total row. `organization` is the client's name (a lead's
+	company name, a deal's customer name); `company` the invoicing company (a deal's or a
+	quotation's company). Leads have no company, so `company` does not filter them."""
 	if not finance_enabled():
 		frappe.throw(_("The finance workflow is not switched on."), frappe.ValidationError)
 	owners = get_report_owners()
@@ -73,7 +75,7 @@ def get_bde_conversion(
 	return {
 		"from_date": from_date,
 		"to_date": to_date,
-		"currency": get_crm_currency(),
+		"currency": default_currency(),
 		"rows": rows,
 		"total": finish(total),
 	}
@@ -85,7 +87,7 @@ def get_report_owners() -> list[str] | None:
 		return None
 	capabilities = get_capabilities()
 	if not capabilities.crm:
-		frappe.throw(_("Only CRM users can see the BDE conversion report."), frappe.PermissionError)
+		frappe.throw(_("Only sales users can see the BDE conversion report."), frappe.PermissionError)
 	scope = capabilities.crm_scopes[-1]
 	return scope_users(scope)
 
@@ -112,21 +114,19 @@ def in_window(field, window) -> object:
 
 
 def deal_company(Deal):
-	"""A deal's invoicing company, the CRM default when the deal has none."""
-	return (
-		Case().when(IfNull(Deal.tbo_company, "") == "", get_default_company() or "").else_(Deal.tbo_company)
-	)
+	"""A deal's invoicing company, the default one when the deal has none."""
+	return Case().when(IfNull(Deal.company, "") == "", get_default_company() or "").else_(Deal.company)
 
 
 def count_leads(window, owners, organization):
-	Lead = frappe.qb.DocType("CRM Lead")
+	Lead = frappe.qb.DocType("Lead")
 	return (
 		frappe.qb.from_(Lead)
 		.select(Lead.lead_owner, Count(Lead.name))
 		.where(
 			in_window(Lead.creation, window)
 			& owned_by(Lead.lead_owner, owners)
-			& ((Lead.organization == organization) if organization else EmptyCriterion())
+			& ((Lead.company_name == organization) if organization else EmptyCriterion())
 		)
 		.groupby(Lead.lead_owner)
 	).run()
@@ -134,58 +134,54 @@ def count_leads(window, owners, organization):
 
 def deal_filters(Deal, owners, organization, company):
 	return (
-		owned_by(Deal.deal_owner, owners)
-		& ((Deal.organization == organization) if organization else EmptyCriterion())
+		owned_by(Deal.opportunity_owner, owners)
+		& ((Deal.customer_name == organization) if organization else EmptyCriterion())
 		& ((deal_company(Deal) == company) if company else EmptyCriterion())
 	)
 
 
 def count_deals(window, owners, organization, company):
-	Deal = frappe.qb.DocType("CRM Deal")
+	Deal = frappe.qb.DocType("Opportunity")
 	return (
 		frappe.qb.from_(Deal)
-		.select(Deal.deal_owner, Count(Deal.name))
+		.select(Deal.opportunity_owner, Count(Deal.name))
 		.where(
 			in_window(Deal.creation, window)
-			& Deal.lead.isnotnull()
-			& (Deal.lead != "")
+			& Deal.tbo_lead.isnotnull()
 			& deal_filters(Deal, owners, organization, company)
 		)
-		.groupby(Deal.deal_owner)
+		.groupby(Deal.opportunity_owner)
 	).run()
 
 
 def count_quotations(window, owners, organization, company):
-	Deal = frappe.qb.DocType("CRM Deal")
+	Deal = frappe.qb.DocType("Opportunity")
 	Quotation = frappe.qb.DocType("Quotation")
 	return (
 		frappe.qb.from_(Quotation)
 		.join(Deal)
-		.on(Quotation.crm_deal == Deal.name)
-		.select(Deal.deal_owner, Count(Quotation.name))
+		.on(Quotation.opportunity == Deal.name)
+		.select(Deal.opportunity_owner, Count(Quotation.name))
 		.where(
 			(Quotation.docstatus == 1)
 			& in_window(Quotation.transaction_date, window)
-			& owned_by(Deal.deal_owner, owners)
-			& ((Deal.organization == organization) if organization else EmptyCriterion())
+			& owned_by(Deal.opportunity_owner, owners)
+			& ((Deal.customer_name == organization) if organization else EmptyCriterion())
 			& ((Quotation.company == company) if company else EmptyCriterion())
 		)
-		.groupby(Deal.deal_owner)
+		.groupby(Deal.opportunity_owner)
 	).run()
 
 
 def count_won(window, owners, organization, company):
-	Deal = frappe.qb.DocType("CRM Deal")
-	Status = frappe.qb.DocType("CRM Deal Status")
+	Deal = frappe.qb.DocType("Opportunity")
 	return (
 		frappe.qb.from_(Deal)
-		.join(Status)
-		.on(Deal.status == Status.name)
-		.select(Deal.deal_owner, Count(Deal.name), Sum(deal_value(Deal)))
+		.select(Deal.opportunity_owner, Count(Deal.name), Sum(deal_value(Deal)))
 		.where(
-			(Status.type == "Won")
-			& in_window(Deal.closed_date, window)
+			Deal.sales_stage.isin(stages_of_types(("Won",)) or [""])
+			& in_window(Deal.tbo_closed_on, window)
 			& deal_filters(Deal, owners, organization, company)
 		)
-		.groupby(Deal.deal_owner)
+		.groupby(Deal.opportunity_owner)
 	).run()

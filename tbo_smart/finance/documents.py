@@ -1,6 +1,6 @@
 """validate hooks on Sales Order, Sales Invoice and Payment Entry (finance workflow Phase 1).
 
-- Deal link (G1): fill `crm_deal` from the document chain when it is missing (Sales Order,
+- Deal link (G1): fill `opportunity` from the document chain when it is missing (Sales Order,
   Sales Invoice); on a Payment Entry it always follows the references.
 - Pending-approval guard: a Sales Order or Sales Invoice whose source quotation still waits
   for a discount/commission approval, or lost its approval, is refused. The state comes from
@@ -45,9 +45,9 @@ class FinanceDocument:
 		if self.doc.doctype == "Payment Entry":
 			# with references the deal always follows them; without any, a typed deal stays
 			if has_order_or_invoice_reference(self.doc):
-				self.doc.crm_deal = RESOLVERS["Payment Entry"](self.doc)
-		elif not self.doc.get("crm_deal"):
-			self.doc.crm_deal = RESOLVERS[self.doc.doctype](self.doc)
+				self.doc.opportunity = RESOLVERS["Payment Entry"](self.doc)
+		elif not self.doc.get("opportunity"):
+			self.doc.opportunity = RESOLVERS[self.doc.doctype](self.doc)
 
 	def block_pending_approval(self):
 		if self.doc.get("is_return"):

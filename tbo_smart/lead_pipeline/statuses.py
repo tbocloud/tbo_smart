@@ -1,12 +1,10 @@
-"""The lead statuses of TBO's pipeline (docs/lead-pipeline.md §2).
+"""The lead stages of TBO's pipeline (docs/lead-pipeline.md §2).
 
-They are ordinary CRM Lead Status records, so CRM's own status menu, kanban, filters and Status
-Change Log work with them. `ensure_statuses` creates the missing ones on install and every
-migrate; an admin may still recolour or reorder them. The code refers to them by name, here
-only.
+A lead's stage is its `tbo_stage` (a Select of these names, in this order); ERPNext's own
+`status` is left to ERPNext. Each stage has a type (Open, Ongoing, On Hold, Won, Lost, as
+Frappe CRM's lead statuses had) and a colour for the screens. The code refers to them by name,
+here only.
 """
-
-import frappe
 
 NEW_LEAD = "New Lead"
 CONTACTED = "Contacted"
@@ -22,7 +20,7 @@ ON_HOLD = "On Hold"
 CLOSED_WON = "Closed – Won"
 CLOSED_LOST = "Closed – Lost"
 
-# (name, CRM status type, colour), in pipeline order; the position is the order here
+# (name, type, colour), in pipeline order
 STATUSES = (
 	(NEW_LEAD, "Open", "gray"),
 	(CONTACTED, "Ongoing", "blue"),
@@ -66,29 +64,17 @@ PROGRESS = {
 }
 
 
-def ensure_statuses() -> list[str]:
-	"""Create the pipeline statuses that are missing (never touches existing ones, which an
-	admin may have recoloured or moved). Returns the names created."""
-	created = []
-	for position, (name, kind, color) in enumerate(STATUSES, start=1):
-		if frappe.db.exists("CRM Lead Status", name):
-			continue
-		frappe.get_doc(
-			{
-				"doctype": "CRM Lead Status",
-				"lead_status": name,
-				"type": kind,
-				"color": color,
-				"position": position,
-			}
-		).insert(ignore_permissions=True)
-		created.append(name)
-	return created
+STATUS_TYPES = {name: kind for name, kind, _color in STATUSES}
 
 
 def status_type(status: str | None) -> str | None:
-	return frappe.get_cached_value("CRM Lead Status", status, "type") if status else None
+	return STATUS_TYPES.get(status) if status else None
 
 
 def is_closed(status: str | None) -> bool:
 	return status_type(status) in ("Won", "Lost")
+
+
+def stage_options() -> list[dict]:
+	"""The stages for the screens: [{name, label, type, color}], in pipeline order."""
+	return [{"name": name, "label": name, "type": kind, "color": color} for name, kind, color in STATUSES]

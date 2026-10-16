@@ -8,10 +8,9 @@ from tbo_smart.api.finance import exceptions as exceptions_api
 from tbo_smart.api.finance import receivables as receivables_api
 from tbo_smart.finance.digest import build_digest, send_digest
 from tbo_smart.finance.reminders import ReminderRun, due_step, run_reminders
-from tbo_smart.finance.setup import COLLECTIONS_VIEW, EMAIL_TEMPLATES
+from tbo_smart.finance.setup import EMAIL_TEMPLATES
 from tbo_smart.test_utils import (
-	delete_crm_records,
-	enable_erpnext_crm,
+	delete_sales_records,
 	enable_finance_receivables,
 	get_collection_task,
 	get_terms,
@@ -38,7 +37,6 @@ class ReceivablesTestCase(FrappeTestCase):
 	def setUpClass(cls):
 		super().setUpClass()
 		frappe.set_user("Administrator")
-		enable_erpnext_crm()
 		make_user(BDE, ["Sales User"])
 		make_user(OTHER_BDE, ["Sales User"])
 		make_user(ACCOUNTS, ["Accounts User"])
@@ -50,7 +48,7 @@ class ReceivablesTestCase(FrappeTestCase):
 
 	def setUp(self):
 		frappe.set_user("Administrator")
-		delete_crm_records((BDE, OTHER_BDE))
+		delete_sales_records((BDE, OTHER_BDE))
 		reset_finance_settings()
 		enable_finance_receivables(
 			accounts_lead=ACCOUNTS, escalation_sales_head=HEAD, escalation_finance_manager=FINANCE_MANAGER
@@ -98,12 +96,12 @@ class TestReminderRun(ReceivablesTestCase):
 		self.assertEqual([row["step"] for row in self.run_for(today.name)], ["D0"])
 		task = get_collection_task(today.name)
 		self.assertEqual(
-			(task.assigned_to, task.tbo_escalation_level, task.reference_docname), (ACCOUNTS, 1, deal)
+			(task.allocated_to, task.tbo_escalation_level, task.reference_name), (ACCOUNTS, 1, deal)
 		)
 
 	def test_escalation_ladder(self):
 		deal = make_finance_deal(BDE)
-		frappe.db.set_value("CRM Deal", deal, "tbo_accounts_owner", APPROVER)
+		frappe.db.set_value("Opportunity", deal, "tbo_accounts_owner", APPROVER)
 		late = make_deal_invoice(deal, due_in=-8)
 		self.assertEqual([row["step"] for row in self.run_for(late.name)], ["D+7"])
 		self.assertEqual(get_collection_task(late.name).tbo_escalation_level, 2)
@@ -173,7 +171,7 @@ class TestReminderRun(ReceivablesTestCase):
 		self.assertTrue(
 			frappe.db.exists(
 				"Communication Link",
-				{"parent": communication[0].name, "link_doctype": "CRM Deal", "link_name": deal},
+				{"parent": communication[0].name, "link_doctype": "Opportunity", "link_name": deal},
 			)
 		)
 
@@ -253,7 +251,7 @@ class TestReceivablesApi(ReceivablesTestCase):
 		make_deal_invoice(other, rate=400, due_in=-100)
 		frappe.set_user(BDE)
 		data = receivables_api.get_receivables()
-		self.assertEqual({row["crm_deal"] for row in data["rows"]}, {deal})
+		self.assertEqual({row["opportunity"] for row in data["rows"]}, {deal})
 		[total] = data["totals"]
 		self.assertEqual(
 			total["buckets"], {"not_due": 100, "0_30": 200, "31_60": 300, "61_90": 0, "90_plus": 0}
@@ -264,7 +262,7 @@ class TestReceivablesApi(ReceivablesTestCase):
 		result = receivables_api.add_collection_follow_up(
 			overdue["invoice"], add_days(nowdate(), 2), "Promised by the CFO", add_days(nowdate(), 4), 200
 		)
-		task = frappe.get_doc("CRM Task", result["task"])
+		task = frappe.get_doc("ToDo", result["task"])
 		self.assertEqual((task.tbo_task_type, float(task.tbo_promised_amount)), ("Collection", 200))
 		self.assertIn("Promised by the CFO", task.description)
 		row = next(
@@ -274,14 +272,14 @@ class TestReceivablesApi(ReceivablesTestCase):
 
 		frappe.set_user(ACCOUNTS)
 		self.assertEqual(
-			len({row["crm_deal"] for row in receivables_api.get_receivables()["rows"]} & {deal, other}), 2
+			len({row["opportunity"] for row in receivables_api.get_receivables()["rows"]} & {deal, other}), 2
 		)
 		with self.assertRaises(frappe.PermissionError):
 			frappe.set_user(BDE)
 			receivables_api.set_accounts_owner(deal, ACCOUNTS)
 		frappe.set_user(ACCOUNTS)
 		receivables_api.set_accounts_owner(deal, ACCOUNTS)
-		self.assertEqual(frappe.db.get_value("CRM Deal", deal, "tbo_accounts_owner"), ACCOUNTS)
+		self.assertEqual(frappe.db.get_value("Opportunity", deal, "tbo_accounts_owner"), ACCOUNTS)
 
 	def test_hidden_amounts_and_switch(self):
 		enable_finance_receivables(finance_bde_can_see_amounts=0)
@@ -312,13 +310,8 @@ class TestDigestAndSetup(ReceivablesTestCase):
 			self.assertTrue(frappe.db.exists("Email Template", template))
 		self.assertTrue(
 			frappe.db.exists(
-				"Property Setter", {"doc_type": "CRM Task", "property": "track_changes", "value": "1"}
+				"Property Setter", {"doc_type": "ToDo", "property": "track_changes", "value": "1"}
 			)
-		)
-		settings = frappe.get_single("TBO Smart Settings")
-		settings.save(ignore_permissions=True)
-		self.assertTrue(
-			frappe.db.exists("CRM View Settings", {"dt": "CRM Task", "label": COLLECTIONS_VIEW, "public": 1})
 		)
 
 

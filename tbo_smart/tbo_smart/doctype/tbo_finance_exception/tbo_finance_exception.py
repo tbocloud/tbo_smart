@@ -46,7 +46,7 @@ LOCKED_FIELDS = (
 	"payment_schedule",
 	"company",
 	"customer",
-	"crm_deal",
+	"opportunity",
 	"currency",
 	"expected_amount",
 	"actual_amount",
@@ -72,7 +72,7 @@ class TBOFinanceException(Document):
 		approved_on: DF.Datetime | None
 		category: DF.Literal["Receivable", "Allocation", "Transfer", "Bank Reconciliation"]
 		company: DF.Link | None
-		crm_deal: DF.Link | None
+		opportunity: DF.Link | None
 		currency: DF.Link | None
 		customer: DF.Link | None
 		decision_remarks: DF.SmallText | None
@@ -309,11 +309,11 @@ class TBOFinanceException(Document):
 		return f"{text} {remarks}".strip() if remarks else text
 
 	def notify_deal(self):
-		if self.crm_deal:
-			publish_deal_update([self.crm_deal])
+		if self.opportunity:
+			publish_deal_update([self.opportunity])
 			if reconciliation_enabled():
 				# Phase 4: an open exception puts the deal On Exception
-				update_stage(self.crm_deal)
+				update_stage(self.opportunity)
 
 
 def is_approver(user: str | None = None) -> bool:

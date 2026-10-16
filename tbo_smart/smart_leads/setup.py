@@ -1,21 +1,41 @@
-"""Custom fields of the smart lead features, created on install and every migrate
-(docs/smart-leads.md §3.1). Nothing on a site without the CRM app."""
+"""Custom fields of the smart lead features on ERPNext's Lead, created on install and every
+migrate (docs/smart-leads.md §3.1). Nothing on a site without ERPNext."""
 
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
-from tbo_smart.finance import crm_installed
 from tbo_smart.finance.setup import create_finance_fields
+from tbo_smart.sales import erpnext_installed
 
 
 def get_lead_fields() -> dict:
 	hidden = {"hidden": 1, "read_only": 1, "no_copy": 1}
 	return {
-		"CRM Lead": [
+		"Lead": [
+			{
+				"fieldname": "tbo_score",
+				"fieldtype": "Int",
+				"label": "Score",
+				"insert_after": "tbo_lost_notes",
+				"read_only": 1,
+				"no_copy": 1,
+				"in_list_view": 1,
+				"description": "0-100, from TBO smart leads.",
+			},
+			{
+				"fieldname": "tbo_temperature",
+				"fieldtype": "Select",
+				"options": "\nCold\nWarm\nHot",
+				"label": "Temperature",
+				"insert_after": "tbo_score",
+				"read_only": 1,
+				"no_copy": 1,
+				"in_standard_filter": 1,
+			},
 			{
 				"fieldname": "tbo_score_reason",
 				"fieldtype": "Small Text",
 				"label": "Score reason",
-				"insert_after": "lead_temperature",
+				"insert_after": "tbo_temperature",
 				"read_only": 1,
 				"no_copy": 1,
 				"description": "Why the lead has its score, from TBO smart leads.",
@@ -74,9 +94,9 @@ def get_lead_fields() -> dict:
 
 
 def setup_smart_leads() -> None:
-	"""The lead fields, plus the CRM Task fields from the finance workflow (tbo_task_type
+	"""The lead fields, plus the ToDo fields from the finance workflow (tbo_task_type
 	"Sales follow-up", tbo_escalation_level), which the follow-up engine reuses."""
-	if not crm_installed():
+	if not erpnext_installed():
 		return
 	create_finance_fields()
 	create_custom_fields(get_lead_fields(), ignore_validate=True)

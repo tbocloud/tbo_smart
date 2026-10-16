@@ -10,8 +10,8 @@ from tbo_smart.finance.digest import allocation_digest
 from tbo_smart.finance.exceptions import raise_exception
 from tbo_smart.finance.transfers import flag_pending_transfers
 from tbo_smart.test_utils import (
-	delete_crm_records,
-	enable_erpnext_crm,
+	deal_customer,
+	delete_sales_records,
 	enable_fund_allocation,
 	get_allocation,
 	get_vat_account,
@@ -35,7 +35,6 @@ class AllocationTestCase(FrappeTestCase):
 	def setUpClass(cls):
 		super().setUpClass()
 		frappe.set_user("Administrator")
-		enable_erpnext_crm()
 		make_partner_company()
 		get_vat_account()
 		make_user(BDE, ["Sales User"])
@@ -43,7 +42,7 @@ class AllocationTestCase(FrappeTestCase):
 
 	def setUp(self):
 		frappe.set_user("Administrator")
-		delete_crm_records((BDE,))
+		delete_sales_records((BDE,))
 		reset_finance_settings()
 		enable_fund_allocation()
 		self.addCleanup(reset_finance_settings)
@@ -68,7 +67,7 @@ class TestAllocationFormula(AllocationTestCase):
 		self.assertEqual(flt(closing.paid_amount), 40250)
 		self.assertEqual(self.shares(advance, partial, closing), [15000, 17500, 17500])
 		self.assertTrue(get_allocation(closing.name).lines[0].is_closing_receipt)
-		self.assertEqual(get_allocation(advance.name).crm_deal, deal)
+		self.assertEqual(get_allocation(advance.name).opportunity, deal)
 
 	def test_example_b_rounding(self):
 		deal = make_finance_deal(BDE)
@@ -102,13 +101,13 @@ class TestAllocationFormula(AllocationTestCase):
 		make_vat_order(deal, 1000)
 		entry = make_receipt(
 			"Sales Order",
-			frappe.get_all("Sales Order", {"crm_deal": deal}, pluck="name")[0],
+			frappe.get_all("Sales Order", {"opportunity": deal}, pluck="name")[0],
 			1150,
 			submit=False,
 		)
 		entry.set("references", [])
 		entry.unallocated_amount = 1150
-		entry.crm_deal = deal
+		entry.opportunity = deal
 		entry.submit()
 		[line] = get_allocation(entry.name).lines
 		self.assertEqual(
@@ -194,7 +193,7 @@ class TestReversals(AllocationTestCase):
 				"received_amount": amount,
 				"source_exchange_rate": 1,
 				"target_exchange_rate": 1,
-				"crm_deal": deal,
+				"opportunity": deal,
 			}
 		)
 		entry.insert(ignore_permissions=True)
@@ -203,7 +202,7 @@ class TestReversals(AllocationTestCase):
 
 	def test_receipt_by_journal_entry_raises_an_exception(self):
 		deal = make_finance_deal(BDE)
-		customer = frappe.db.get_value("CRM Deal", deal, "erpnext_customer")
+		customer = deal_customer(deal)
 		from erpnext.accounts.party import get_party_account
 
 		entry = frappe.get_doc(
@@ -367,7 +366,7 @@ class TestAllocationAccess(AllocationTestCase):
 		name = raise_exception(
 			category="Transfer",
 			exception_type="Short transfer",
-			crm_deal=deal,
+			opportunity=deal,
 			company=self.company,
 			reason="India received less than was sent.",
 		)

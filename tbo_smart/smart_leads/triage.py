@@ -8,19 +8,19 @@ An admin action in two steps, recorded as a **TBO Lead Triage**:
    with a reason (number-guarded). Call again leads get a planned date: from the next working
    day on, at most `triage_daily_capacity` follow-ups per person per day, counting the ones
    they already have. Nothing on any lead changes.
-2. **Apply**: a "Sales follow-up" CRM Task for every Call again lead, dated again from the next
+2. **Apply**: a "Sales follow-up" ToDo for every Call again lead, dated again from the next
    working day. Suggest close leads are only listed; a person closes each one they agree with
    (`close_leads`). **The triage never closes a lead.**
 """
 
 import frappe
 from frappe import _
-from frappe.query_builder.functions import Count, Date, Sum
+from frappe.query_builder.functions import Count, Sum
 from frappe.utils import add_days, add_to_date, cint, flt, getdate, now_datetime
 
 from tbo_smart import ai
-from tbo_smart.api.mobile.crm import add_follow_up_task
 from tbo_smart.lead_pipeline.statuses import CLOSED_LOST, NEW_LEAD
+from tbo_smart.sales.activities import OPEN, add_follow_up_task
 from tbo_smart.smart_leads import FOLLOW_UP_TYPE, OPEN_STATUSES, setting
 from tbo_smart.smart_leads.facts import LeadFacts
 from tbo_smart.smart_leads.notes import set_lead_status
@@ -80,8 +80,8 @@ def start() -> str:
 def candidates(limit: int) -> list[str]:
 	"""Open leads with no open follow-up, New or untouched for the stale days, best score
 	first, not triaged in the last 30 days."""
-	Lead = frappe.qb.DocType("CRM Lead")
-	Task = frappe.qb.DocType("CRM Task")
+	Lead = frappe.qb.DocType("Lead")
+	ToDo = frappe.qb.DocType("ToDo")
 	Row = frappe.qb.DocType("TBO Lead Triage Row")
 	Run = frappe.qb.DocType(DOCTYPE)
 	recent = (
@@ -94,24 +94,15 @@ def candidates(limit: int) -> list[str]:
 		)
 	)
 	planned = (
-		frappe.qb.from_(Task)
-		.select(Task.reference_docname)
-		.where(
-			(Task.reference_doctype == "CRM Lead")
-			& Task.status.notin(("Done", "Canceled"))
-			& Task.due_date.isnotnull()
-		)
+		frappe.qb.from_(ToDo)
+		.select(ToDo.reference_name)
+		.where((ToDo.reference_type == "Lead") & (ToDo.status == OPEN) & ToDo.date.isnotnull())
 	)
 	names = (
 		frappe.qb.from_(Lead)
 		.select(Lead.name)
-		.where(
-			Lead.status.isin(OPEN_STATUSES)
-			& (Lead.converted == 0)
-			& Lead.name.notin(planned)
-			& Lead.name.notin(recent)
-		)
-		.orderby(Lead.lead_score, order=frappe.qb.desc)
+		.where(Lead.tbo_stage.isin(OPEN_STATUSES) & Lead.name.notin(planned) & Lead.name.notin(recent))
+		.orderby(Lead.tbo_score, order=frappe.qb.desc)
 		.orderby(Lead.creation, order=frappe.qb.desc)
 	).run(pluck=True)
 	facts = LeadFacts(names)
@@ -225,17 +216,12 @@ def existing_load(people: set, from_date) -> dict:
 	"""{(user, date): open tasks due that day} from `from_date` on."""
 	if not people:
 		return {}
-	Task = frappe.qb.DocType("CRM Task")
-	day = Date(Task.due_date)
+	ToDo = frappe.qb.DocType("ToDo")
 	rows = (
-		frappe.qb.from_(Task)
-		.select(Task.assigned_to, day.as_("day"), Count(Task.name))
-		.where(
-			Task.assigned_to.isin(list(people))
-			& Task.status.notin(("Done", "Canceled"))
-			& (Task.due_date >= from_date)
-		)
-		.groupby(Task.assigned_to, day)
+		frappe.qb.from_(ToDo)
+		.select(ToDo.allocated_to, ToDo.date, Count(ToDo.name))
+		.where(ToDo.allocated_to.isin(list(people)) & (ToDo.status == OPEN) & (ToDo.date >= from_date))
+		.groupby(ToDo.allocated_to, ToDo.date)
 	).run()
 	return {(user, getdate(on)): count for user, on, count in rows}
 
@@ -262,12 +248,12 @@ def apply(run: str) -> dict:
 	for row in doc.rows:
 		if row.bucket != CALL_AGAIN or not row.assign_to or row.task or not row.follow_up_on:
 			continue
-		if frappe.db.get_value("CRM Lead", row.lead, "status") not in OPEN_STATUSES:
+		if frappe.db.get_value("Lead", row.lead, "tbo_stage") not in OPEN_STATUSES:
 			continue
 		task = add_follow_up_task(
-			"CRM Lead",
+			"Lead",
 			row.lead,
-			f"{row.follow_up_on} 10:00:00",
+			row.follow_up_on,
 			title=_("Call again: {0}").format(row.reason)[:140],
 			assigned_to=row.assign_to,
 			description=row.reason,

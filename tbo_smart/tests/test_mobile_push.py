@@ -57,7 +57,7 @@ class TestMobilePush(FrappeTestCase):
 		make_mobile_device(PHONE_OWNER, TOKEN)
 		disable_mobile_push()
 		with patch("frappe.enqueue") as enqueue:
-			push.enqueue_push(PHONE_OWNER, "Hi", "", "CRM Deal", "CRM-DEAL-1")
+			push.enqueue_push(PHONE_OWNER, "Hi", "", "Opportunity", "CRM-DEAL-1")
 		enqueue.assert_not_called()
 
 	def test_notification_log_enqueues_a_push_when_on(self):
@@ -70,7 +70,7 @@ class TestMobilePush(FrappeTestCase):
 					"for_user": PHONE_OWNER,
 					"type": "Alert",
 					"subject": "<b>New deal</b> assigned",
-					"document_type": "CRM Deal",
+					"document_type": "Opportunity",
 					"document_name": "CRM-DEAL-1",
 				}
 			).insert(ignore_permissions=True)
@@ -86,11 +86,11 @@ class TestMobilePush(FrappeTestCase):
 			"data": [{"status": "error", "details": {"error": "DeviceNotRegistered"}}]
 		}
 		with patch("tbo_smart.push.requests.post", return_value=response) as post:
-			push.send_push(PHONE_OWNER, "Hi", "Body", "CRM Deal", "CRM-DEAL-1")
+			push.send_push(PHONE_OWNER, "Hi", "Body", "Opportunity", "CRM-DEAL-1")
 		message = post.call_args.kwargs["json"][0]
 		self.assertEqual(
 			message["data"],
-			{"site": "ess", "doctype": "CRM Deal", "name": "CRM-DEAL-1", "route": "/crm/deal/CRM-DEAL-1"},
+			{"site": "ess", "doctype": "Opportunity", "name": "CRM-DEAL-1", "route": "/crm/deal/CRM-DEAL-1"},
 		)
 		self.assertFalse(frappe.db.exists("TBO Mobile Device", {"expo_push_token": TOKEN}))
 

@@ -1,8 +1,8 @@
-"""The CRM's smart lead screens: Call today, the lead panel, follow-ups and the triage
-(docs/smart-leads.md §7; the CRM side is tbocloud/crm docs/tbo-smart-leads.md).
+"""The smart lead screens: Call today, the lead panel, follow-ups and the triage
+(docs/smart-leads.md §7).
 
-Every method checks its feature's switch and Frappe CRM's own permissions: lists use
-frappe.get_list, and a lead is read or written only when the session user may.
+Every method checks its feature's switch and the sales permissions (tbo_smart.sales.permissions):
+lists use frappe.get_list, and a lead is read or written only when the session user may.
 """
 
 import json
@@ -12,9 +12,10 @@ from frappe import _
 
 from tbo_smart import ai
 from tbo_smart.api.mobile.capabilities import get_capabilities
-from tbo_smart.api.mobile.crm import add_follow_up_task, get_crm_users
+from tbo_smart.api.mobile.crm import get_crm_users
 from tbo_smart.api.mobile.utils import get_full_names
-from tbo_smart.finance import crm_installed
+from tbo_smart.sales import erpnext_installed
+from tbo_smart.sales.activities import add_follow_up_task, task_title
 from tbo_smart.smart_leads import (
 	FOLLOW_UP_TYPE,
 	OPEN_STATUSES,
@@ -42,7 +43,7 @@ def require(enabled: bool, message: str) -> None:
 
 
 def require_lead(lead: str, ptype: str = "read") -> None:
-	frappe.has_permission("CRM Lead", ptype, lead, throw=True)
+	frappe.has_permission("Lead", ptype, lead, throw=True)
 
 
 def can_triage() -> bool:
@@ -59,8 +60,8 @@ def parse_list(value) -> list:
 @frappe.whitelist()
 def get_access() -> dict:
 	"""Which smart lead features are on and what the session user may do (nothing for a user
-	without CRM access)."""
-	if not crm_installed() or not get_capabilities().crm:
+	without sales access)."""
+	if not erpnext_installed() or not get_capabilities().crm:
 		return {"enabled": False}
 	scoring, follow_ups, lead_notes, lead_triage = (
 		scoring_enabled(),
@@ -93,7 +94,7 @@ def get_call_today(user: str | None = None) -> dict:
 
 @frappe.whitelist()
 def get_people() -> list[dict]:
-	"""Whose Call today list I may open: everyone in the CRM, or my sales team."""
+	"""Whose Call today list I may open: every sales user, or my sales team."""
 	require(scoring_enabled(), _("Lead scoring is switched off in TBO Smart Settings."))
 	return get_crm_users(viewable_people())
 
@@ -106,10 +107,10 @@ def get_follow_up_summary(user: str | None = None) -> dict:
 	people = viewable_people()
 	if people is not None and user not in people:
 		frappe.throw(_("You can only see your own or your team's follow-ups."), frappe.PermissionError)
-	# only the leads I may read under CRM's rules
+	# only the leads I may read under the sales rules
 	visible = frappe.get_list(
-		"CRM Lead",
-		filters={"lead_owner": user, "status": ("in", OPEN_STATUSES), "converted": 0},
+		"Lead",
+		filters={"lead_owner": user, "tbo_stage": ("in", OPEN_STATUSES)},
 		pluck="name",
 		limit_page_length=0,
 	)
@@ -128,18 +129,18 @@ def get_needs_owner() -> list[dict]:
 	if not is_sales_head():
 		frappe.throw(_("Only the sales head sees the leads that need an owner."), frappe.PermissionError)
 	leads = frappe.get_list(
-		"CRM Lead",
-		filters={"status": ("in", OPEN_STATUSES), "converted": 0},
+		"Lead",
+		filters={"tbo_stage": ("in", OPEN_STATUSES)},
 		fields=[
 			"name",
 			"lead_name",
-			"organization",
-			"status",
+			"company_name as organization",
+			"tbo_stage as status",
 			"lead_owner",
-			"lead_score",
-			"lead_temperature",
+			"tbo_score as lead_score",
+			"tbo_temperature as lead_temperature",
 		],
-		order_by="lead_score desc, creation desc",
+		order_by="tbo_score desc, creation desc",
 		limit_page_length=0,
 	)
 	active = enabled_users({lead.lead_owner for lead in leads})
@@ -162,14 +163,14 @@ def get_needs_owner() -> list[dict]:
 
 @frappe.whitelist(methods=["POST"])
 def reassign_leads(leads: str | list, user: str) -> dict:
-	"""Give leads to an active CRM user (sales heads only); CRM shares and assigns them."""
+	"""Give leads to an active sales user (sales heads only)."""
 	if not is_sales_head():
 		frappe.throw(_("Only the sales head can reassign leads."), frappe.PermissionError)
 	if not get_crm_users([user]):
-		frappe.throw(_("{0} is not an active CRM user.").format(user))
+		frappe.throw(_("{0} is not an active sales user.").format(user))
 	moved = []
 	for lead in parse_list(leads):
-		doc = frappe.get_doc("CRM Lead", lead)
+		doc = frappe.get_doc("Lead", lead)
 		doc.check_permission("write")
 		doc.lead_owner = user
 		doc.save()
@@ -252,17 +253,17 @@ def draft_whatsapp(lead: str, language: str = "en") -> dict:
 
 @frappe.whitelist(methods=["POST"])
 def set_follow_up(lead: str, due: str, title: str | None = None) -> dict:
-	"""A "Sales follow-up" CRM Task on the lead, assigned to me."""
+	"""A "Sales follow-up" ToDo on the lead, assigned to me."""
 	require_lead(lead)
 	if frappe.utils.getdate(due) < frappe.utils.getdate():
 		frappe.throw(_("The next follow-up can't be in the past."))
-	task = add_follow_up_task("CRM Lead", lead, due, title=title, task_type=FOLLOW_UP_TYPE)
-	return {"task": task.name, "due": task.due_date, "title": task.title}
+	task = add_follow_up_task("Lead", lead, due, title=title, task_type=FOLLOW_UP_TYPE)
+	return {"task": task.name, "due": task.date, "title": task_title(task.description)}
 
 
 @frappe.whitelist(methods=["POST"])
 def set_status(lead: str, status: str, notes_text: str | None = None) -> dict:
-	"""Change the status under my permissions; Closed – Lost gets CRM's lost reason."""
+	"""Change the stage under my permissions; Closed – Lost gets a lost reason."""
 	require_lead(lead, "write")
 	return {"status": notes.set_lead_status(lead, status, notes_text)}
 
@@ -281,7 +282,7 @@ def start_triage() -> dict:
 	"""Queue a preview; nothing on any lead changes."""
 	require_triage()
 	if not ai.ai_ready():
-		frappe.throw(_("Add an AI provider key in CRM Settings → TBO smart leads first."))
+		frappe.throw(_("Add an AI provider key in TBO Smart Settings first."))
 	return get_triage(triage.start())
 
 

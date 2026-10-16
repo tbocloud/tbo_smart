@@ -18,10 +18,10 @@
    "in_list_view": 1
   },
   {
-   "fieldname": "crm_deal",
+   "fieldname": "opportunity",
    "fieldtype": "Link",
-   "label": "CRM Deal",
-   "options": "CRM Deal"
+   "label": "Deal",
+   "options": "Opportunity"
   },
   {
    "fieldname": "currency",
@@ -86,7 +86,7 @@
  "field_order": [
   "reference_doctype",
   "reference_name",
-  "crm_deal",
+  "opportunity",
   "currency",
   "gross_amount",
   "net_ratio",

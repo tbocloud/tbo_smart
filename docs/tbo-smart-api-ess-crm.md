@@ -1,13 +1,15 @@
-# TBO Smart API: ESS, CRM and manager (tboindia side), v1.8
+# TBO Smart API: ESS, CRM and manager (tboindia side), v1.9
 
 This is the contract for the TBO Smart mobile app's **tboindia.tbocloud.in** half: HR
-self-service (HRMS), CRM (Frappe CRM) and the manager views. The hub (TBO Support) has its
+self-service (HRMS), CRM (ERPNext's Lead, Opportunity and Prospect since v1.9; Frappe CRM
+before) and the manager views. The hub (TBO Support) has its
 own contract in `tbocloud/helpdesk`.
 
 - **Code:** `tbo_smart/api/mobile/{auth,capabilities,ess,crm,meeting,manager,quotation,device}.py` and `tbo_smart/push.py`.
 - **Fixtures:** `docs/fixtures/<module>.<method>.json`. Each one is the full HTTP body that
   Frappe returns (`{"message": ...}`).
-- **Status:** v1.8, 2026-10-16. Any change gets a version note in the changelog at the end of
+- **Status:** v1.9, 2026-10-16. v1.9 keeps every method and JSON shape; only what stands behind
+  them changed (`docs/erpnext-lead-cutover.md`, changelog). Any change gets a version note in the changelog at the end of
   this file.
 
 ## 1. Conventions
@@ -422,9 +424,9 @@ ERP takes effect on the next request.
 | `team_today` | `ess` and at least one **active direct report** (`Employee.reports_to`). | `manager.get_team_today` |
 | `team_insights` | `team_today`, or the **HR Manager** role. | `manager.get_team_insights` |
 | `team_scope` | `company` for an HR Manager (every active employee of their company; every company if they have no Employee), `direct_reports` for other managers, else `null`. Never includes the caller. | `manager.get_team_insights` |
-| `crm` | **Sales User**, **Sales Manager** or **System Manager**: the roles Frappe CRM itself lets into the CRM app (`crm.api.check_app_permission`). | every `crm.*` method |
-| `crm_manager` | `crm` and **Sales Manager** or **System Manager**, as CRM's dashboard decides "manager". | – |
-| `crm_scope` | The widest CRM visibility, the rule in `crm.permissions.org_hierarchy`: `all` for System Manager; with **FCRM Settings → Sales hierarchy** on and the user in it, `team` if anyone is below them, else `own` (this limits even a Sales Manager); a Sales Manager outside the hierarchy `all`; everyone else `own`. `null` without `crm`. | `crm.get_leads`, `get_deals`, `get_my_follow_ups`, `get_sales_insights` |
+| `crm` | **Sales User**, **Sales Manager** or **System Manager**. | every `crm.*` method |
+| `crm_manager` | `crm` and **Sales Manager** or **System Manager**. | – |
+| `crm_scope` | The widest sales visibility, the rule in `tbo_smart.sales.permissions`: `all` for System Manager; with **TBO Smart Settings → Sales hierarchy** on and the user in the **TBO Sales Hierarchy**, `team` if anyone is below them, else `own` (this limits even a Sales Manager); a Sales Manager outside the hierarchy `all`; everyone else `own`. `null` without `crm`. | `crm.get_leads`, `get_deals`, `get_my_follow_ups`, `get_sales_insights` |
 | `crm_scopes` | The `scope` values the user may pass, narrowest first: `own` → `["mine"]`; `team` → `["mine", "team"]`; `all` → `["mine", "team", "all"]`, without `team` when they have no sales team. Show a switcher only when there is more than one. | same |
 | `sales_insights` | `crm_manager`. | `crm.get_sales_insights`, `manager.get_sales_snapshot` |
 | `approve_quotations` | A quotation approval level that requests can wait at: the user's highest level role ranks above the lowest level (BDM, Sales & Marketing Head, Director, CEO with the default levels; never a BDE or someone with no level). The same rule as `is_approver` in `get_adjustment_limits` ([quotation-discount-control.md](quotation-discount-control.md) §2). | `quotation.get_approvals(tab="waiting")`, `quotation.decide` |
@@ -433,18 +435,17 @@ ERP takes effect on the next request.
 
 | `scope` | Leads and deals (`get_leads`, `get_deals`) | Follow-ups (`get_my_follow_ups`) | Sales insights |
 | --- | --- | --- | --- |
-| `mine` | Owned by me. At my widest scope (staff always), no extra filter: CRM's own rule already gives "owned by me or assigned to me". | Assigned to me (the default) | `deal_owner` / `lead_owner` = me |
-| `team` | Owner in my CRM sales team (me and everyone below me). At my widest scope, CRM's rule (owned by or assigned to the team). | Assigned to my sales team | owner in my sales team |
-| `all` | No owner filter: everything CRM lets me read. | Any open task I can read | no owner filter |
+| `mine` | Owned by me. At my widest scope (staff always), no extra filter: the sales rule already gives "owned by me or assigned to me". | Assigned to me (the default) | `opportunity_owner` / `lead_owner` = me |
+| `team` | Owner in my sales team (me and everyone below me). At my widest scope, the sales rule (owned by or assigned to the team). | Assigned to my sales team | owner in my sales team |
+| `all` | No owner filter: everything the sales rule lets me read. | Any open task on a lead or deal | no owner filter |
 
 - `get_leads` and `get_deals` default to the widest scope, which is exactly the v1
   behaviour. `get_my_follow_ups` defaults to `mine`.
 - A scope that is not in `crm_scopes` is refused with `PermissionError`
   (`fixtures/error.scope.json`). Staff are therefore always `mine`.
-- Lists still go through `frappe.get_list`, so CRM's permission rules apply on top of the
-  scope: a scope can only narrow what CRM shows, never widen it.
-- Sales insights read aggregates with query-builder queries, as CRM's dashboard does, and
-  filter on the owner, as the dashboard filters a Sales User to their own records.
+- Lists still go through `frappe.get_list`, so the sales permission rule applies on top of the
+  scope: a scope can only narrow what it shows, never widen it.
+- Sales insights read aggregates with query-builder queries and filter on the owner.
 
 Fixtures: `capabilities.get_my_capabilities.json` (a sales head who manages a team) and
 `ess.get_me.json` (a developer who is also a Sales User).
@@ -570,8 +571,12 @@ page calls), so the app and the CRM never disagree. The rules, levels and status
 
 ## 6. CRM: `tbo_smart.api.mobile.crm`
 
-Every method needs the `crm` capability (§4). Lists use `frappe.get_list`, so Frappe CRM's
-own rules decide visibility, and `scope` (§4.1) narrows it:
+Every method needs the `crm` capability (§4). Since v1.9 the records are ERPNext's: a lead is a
+**Lead** (its stage `tbo_stage`), a deal an **Opportunity** (its stage the Sales Stage), an
+organization a **Prospect**, a task a **ToDo**, a note a **Comment** and a call or logged
+activity an **Event** (`docs/erpnext-lead-cutover.md` §2). The names, methods and JSON are as
+before. Lists use `frappe.get_list`, so the sales rule (`tbo_smart.sales.permissions`) decides
+visibility, and `scope` (§4.1) narrows it:
 
 - a **Sales User** sees the leads and deals they own or that are assigned to them;
 - the **sales hierarchy** extends that to their team when it is on;
@@ -595,48 +600,44 @@ Writes are normal inserts and saves under the session user.
 | `get_organizations` | GET | `search?`, `page`, `page_length` | page of Organization |
 | `get_organization` | GET | `name` | Organization plus `contacts[]` and `deals[]` |
 | `get_call_today` | GET | `user?` (a teammate, within my team or crm_scope all) | Call today (§6.3); needs TBO Smart Settings → Lead scoring on, else a ValidationError |
-| `get_my_follow_ups` | GET | `scope?` (§4.1, default `mine`) | `[FollowUp]`: open CRM Tasks due today or overdue, oldest first, with `assigned_to` and `assigned_to_name` |
+| `get_my_follow_ups` | GET | `scope?` (§4.1, default `mine`) | `[FollowUp]`: open tasks on leads and deals due today or overdue, oldest first, with `assigned_to` and `assigned_to_name` |
 | `get_sales_insights` | GET | `period` (`week`/`month`/`quarter`/`year`, default `month`), `scope?` (§4.1, default widest), `stalled_days?` (default 14, 1–365) | Sales insights (§6.1); needs `sales_insights` |
 | `log_activity` | POST | `doctype` (`lead`/`deal`), `name`, `kind` (`call`/`note`/`meeting`/`email`/`whatsapp`), `text`, `next_follow_up?`, `phone?` | the record's `{notes, tasks, activities}` |
 | `add_follow_up` | POST | `doctype`, `name`, `due`, `title?` | `{id, subject, due, status}` |
-| `set_task_done` | POST | `name` (CRM Task), `done` (bool) | `{id, status, done}` |
+| `set_task_done` | POST | `name` (the task's `id`), `done` (bool) | `{id, status, done}` |
 
-- **Reuse:**
-  - `convert_lead` uses CRM's `convert_to_deal`, after a write-permission check and an
-    existing-deal check.
-  - Timelines use CRM's `get_linked_notes` and `get_linked_tasks`.
-  - Meeting, email and WhatsApp entries use CRM's `crm.api.comment.add_comment`.
-- **`log_activity`** maps each kind to CRM's own records:
-  - `call` → a **CRM Call Log** (Manual, Outgoing, Completed) with an FCRM Note holding the text.
-    - CRM requires both numbers. `to` is `phone`, or else the record's mobile.
-    - `from` is the caller's **User → Mobile No** (or else Employee → Cell Number).
-    - If either is missing, it fails with a clear message.
-  - `note` → **FCRM Note**.
-  - `meeting` / `email` / `whatsapp` → a CRM **comment** `Meeting: …`. Frappe CRM has no
-    doctype for these, and they come back as `kind: "comment"`.
-  - A `call` or `meeting` marks my open tasks on that record that are due by now as **Done**,
+- **Records behind the methods (v1.9):**
+  - `convert_lead` makes the deal with ERPNext's own Lead → Opportunity mapper
+    (`lead_pipeline.won.convert_lead`), after a write-permission check; a lead with a deal
+    returns it. With the pipeline off it also closes the lead as Closed – Won.
+  - Task `status` keeps Frappe CRM's names: an open ToDo is `"Todo"`, a closed one `"Done"`, a
+    cancelled one `"Canceled"`. A task's `due` is a **date** (a ToDo has no time of day);
+    `overdue` means its day has passed.
+- **`log_activity`** maps each kind to ERPNext's records:
+  - `call` → a completed **Event** (category Call) with the text as its description, "Call to
+    <phone>" (`phone`, else the record's mobile). No numbers are required any more.
+  - `note` → a **Comment** on the record.
+  - `meeting` / `email` / `whatsapp` → an **Event** (Meeting, Sent/Received Email, Other)
+    "Meeting: …"; they come back as `kind: "comment"`, as before.
+  - A `call` or `meeting` marks my open tasks on that record that are due by today as **Done**,
     because the follow-up was answered.
-  - `next_follow_up` (a date or datetime) adds a **CRM Task** assigned to me.
-- **`move_deal_stage` with a Lost-type stage:**
-  - a reason equal to a **CRM Lost Reason** is used as is;
-  - free text is saved as `lost_reason = "Other"` with the text in `lost_notes`, which is what
-    CRM validation requires.
-  - The response's `lost_reason` shows the notes when set.
-- **Activities** are calls, notes not attached to a call, and comments, merged newest first.
+  - `next_follow_up` (a date) adds a **ToDo** assigned to me.
+- **`move_deal_stage`** sets the deal's Sales Stage (and its probability when the stage has
+  one). A Lost-type stage needs a reason: one that is an **Opportunity Lost Reason** is used as
+  is; free text is saved as "Other" with the text as the detailed reason. The response's
+  `lost_reason` shows the text when set.
+- **Activities** are calls, notes and logged meetings / emails / WhatsApp, merged newest first.
   - For a deal converted from a lead, the lead's own history is **not** merged in (v1).
-- **Organizations** are **CRM Organizations**.
-  - **ERPNext Customer link:** Frappe CRM links a Customer to a **Deal**
-    (`CRM Deal.erpnext_customer` / `Customer.crm_deal`) when the ERPNext integration creates
-    it, which happens on a won deal. So `erpnext_customers` lists the customers on the
-    organization's deals that you can read. There is no direct Organization → Customer link
-    in CRM.
+- **Organizations** are **Prospects**.
+  - **ERPNext Customer link:** `erpnext_customers` lists the Customers made from the
+    organization (`Customer.prospect_name`) and those of its deals you can read (the deal's
+    `tbo_customer`, its Customer party, or the Customer made from its lead).
   - **AMC / support hours are not included.** No AMC data exists on tboindia (ERPNext has no
     AMC doctype and none is installed locally). The AMC hours live on the hub. The app
     should take them from the hub's customer API.
   - **Customer health is not included** either. It has no source on tboindia.
-- **Follow-ups** are CRM Tasks assigned to the scope's people (me by default), a status
-  other than Done or Canceled, and `due_date` ≤ end of today. `kind` is always `"task"`,
-  since CRM tasks have no call/meeting type.
+- **Follow-ups** are open ToDos on leads and deals, assigned to the scope's people (me by
+  default), due by today. `kind` is always `"task"`.
 
 ### 6.2 Lead capture (v1.3)
 
@@ -659,15 +660,15 @@ then `create_lead`. Fixtures: `crm.check_duplicates.json`, `crm.create_lead.json
 
 | `kind` | DocType | phone | email | organization | `status` |
 | --- | --- | --- | --- | --- | --- |
-| `lead` | CRM Lead, not converted (a converted lead is found through its deal) | `mobile_no`, `phone` | `email` | `organization` | lead status |
-| `deal` | CRM Deal and its contacts (`CRM Contacts` rows) | deal `mobile_no`, `phone`; contact rows `mobile_no`, `phone` | deal `email`; contact rows `email` | `organization` | deal stage |
-| `organization` | CRM Organization | – | – | `organization_name` | `null` |
-| `contact` | Contact | `phone_nos[].phone`, `mobile_no`, `phone` | `email_ids[].email_id`, `email_id` | – | contact status |
+| `lead` | Lead without a deal (a converted lead is found through its deal) | `mobile_no`, `phone` | `email_id` | `company_name` | lead stage |
+| `deal` | Opportunity | `contact_mobile`, `phone`, `whatsapp` | `contact_email` | `customer_name` | deal stage |
+| `organization` | Prospect | – | – | `company_name` | `null` |
+| `contact` | Contact, except those ERPNext made for a lead (the lead is the match, and its Contact would show a hidden lead's person) | `phone_nos[].phone`, `mobile_no`, `phone` | `email_ids[].email_id`, `email_id` | – | contact status |
 | `customer` | ERPNext Customer | – | – | `customer_name` | `Active` / `Disabled` |
 
 - At most **10** matches in all, newest first within each kind.
 - **Permissions.** One `frappe.get_list` per doctype finds which matches the caller may read,
-  so CRM's rules (owner, assignment, sales hierarchy, shares) apply.
+  so the sales rules (owner, assignment, sales hierarchy) apply.
   - Readable: full details.
   - Not readable: `name: null`, `title: "Someone on the team already has this <kind>"`,
     `status: null`, `can_open: false`. Only `owner_name` and `match_on` are shown.
@@ -680,22 +681,23 @@ then `create_lead`. Fixtures: `crm.check_duplicates.json`, `crm.create_lead.json
     screen. Readable contacts and customers show their details, but `can_open` is false.
 
 **`create_lead`, new optional params.** Everything is checked **before** the insert, because
-Frappe CRM's lead insert commits; a refused request leaves no lead.
+a refused request leaves no lead. ERPNext also refuses a second lead with the same email unless
+CRM Settings allow duplicates (the cutover turns that on when the CRM had duplicates).
 
 | Param | Behaviour |
 | --- | --- |
 | `force` (bool, default false) | Runs the same duplicate check on `mobile_no`, `email` and `organization`. Matches and no `force`: HTTP **409**, `exc_type: "DuplicateLead"`, `matches: [Match]` at the top level of the body, nothing created. With `force`: the lead is created with a note `Created despite possible duplicate of lead CRM-LEAD-… (Faisal); a lead owned by Deepa`. Hidden matches are named only by kind and owner there too. |
-| `assign_to` (user email) | Allowed when `crm_scopes` has `all` (any CRM user), or has `team` and the assignee is in my sales team (`get_sales_team`). Otherwise `PermissionError`. The assignee must be an **enabled system user with a CRM role** (Sales User, Sales Manager or System Manager), else `ValidationError`. My own email is always allowed and changes nothing. The lead stays **owned by me**; the assignee is added with Frappe's `assign_to.add`, the call CRM's own Assign To dialog makes, so it shows under Assigned To in CRM, the assignee can read the lead, and CRM and Frappe notify them. |
-| `follow_up_on` (date or datetime) | A **CRM Task** "Follow up with {lead name}", Todo, due then (a bare date means 00:00), assigned to the assignee if `assign_to` was given, else to me. It shows as the lead's `next_follow_up`. |
-| `follow_up_note` (str) | The task's description, and also an FCRM Note on the lead. Without `follow_up_on` it is just the note. |
-| `source_channel` | `card_scan`, `contacts`, `whatsapp_share` or `manual`; anything else is a `ValidationError`. Always stored as an FCRM Note `Captured in TBO Smart: Business card scan (card_scan)` (labels: Business card scan, Phone contacts, WhatsApp share, Typed in). For reports, filter FCRM Note titles starting with `Captured in TBO Smart:`; the code is in brackets. CRM Lead has no source-detail field. If `source` is not sent, the lead's **Source** is set only when a CRM Lead Source already exists with one of these names (never created): `card_scan` → Business Card, Card Scan, Visiting Card; `contacts` → Phone Contacts, Phone Contact, Contacts; `whatsapp_share` → WhatsApp, WhatsApp Share; `manual` → none. |
+| `assign_to` (user email) | Allowed when `crm_scopes` has `all` (any CRM user), or has `team` and the assignee is in my sales team (`get_sales_team`). Otherwise `PermissionError`. The assignee must be an **enabled system user with a CRM role** (Sales User, Sales Manager or System Manager), else `ValidationError`. My own email is always allowed and changes nothing. The lead stays **owned by me**; the assignee is added with Frappe's `assign_to.add` (the desk's Assign To), so the assignee can read the lead and Frappe notifies them. |
+| `follow_up_on` (date or datetime) | A **ToDo** "Follow up with {lead name}", open, due that day, assigned to the assignee if `assign_to` was given, else to me. It shows as the lead's `next_follow_up`. |
+| `follow_up_note` (str) | Below the task's title in its description, and also a note on the lead. Without `follow_up_on` it is just the note. |
+| `source_channel` | `card_scan`, `contacts`, `whatsapp_share` or `manual`; anything else is a `ValidationError`. Always stored as a note `Captured in TBO Smart: Business card scan (card_scan)` (labels: Business card scan, Phone contacts, WhatsApp share, Typed in). For reports, filter Comments on Leads starting with `Captured in TBO Smart:`; the code is in brackets. If `source` is not sent, the lead's **Source** is set only when a Lead Source already exists with one of these names (never created): `card_scan` → Business Card, Card Scan, Visiting Card; `contacts` → Phone Contacts, Phone Contact, Contacts; `whatsapp_share` → WhatsApp, WhatsApp Share; `manual` → none. |
 | `card_image` (base64 JPEG) | At most **2 MB** decoded; a `data:image/jpeg;base64,` prefix and line breaks are allowed. Not base64, too large or not a JPEG: `ValidationError`. Saved through HRMS `upload_base64_file` (as for expense receipts) as a **private** File `<lead>-card.jpg` attached to the lead, auto-rotated by its EXIF tag. |
 
 The order of notes on a new lead: `note`, `follow_up_note`, the capture note, then the
 duplicate note.
 
 **`get_assignable_users()`**, needs `crm`: `{data: [{user, full_name, image}]}`, ordered by
-name. Enabled system users with a CRM role: everyone for `crm_scopes` with `all`; me and my
+name. Enabled system users with a sales role: everyone for `crm_scopes` with `all`; me and my
 sales team for `team`; an **empty list** for staff (`own`). Show the "Assign to" picker only
 when it is not empty.
 
@@ -704,7 +706,7 @@ when it is not empty.
 ### 6.3 Call today (v1.7)
 
 `get_call_today(user=None)` returns today's list of leads to call for me (or a teammate), the
-same as the CRM's `/crm/call-today` page (`docs/smart-leads.md` §4.3). Fixture:
+same list as the hub's Call today view (`docs/smart-leads.md` §4.3). Fixture:
 `docs/fixtures/crm.get_call_today.json`.
 
 ```
@@ -718,7 +720,7 @@ CallTodayRow = {id, lead_name, organization, status, source, score (0-100), band
 - Order: overdue follow-ups (oldest first), due today, then leads with no follow-up and no touch
   today by score. Leads with a follow-up on a later day are not listed. `size` rows (12 by
   default), `more` = how many did not fit.
-- Visibility follows CRM's own rules (`frappe.get_list`); `user` other than me is refused with
+- Visibility follows the sales rules (`frappe.get_list`); `user` other than me is refused with
   403 unless they are in my sales team, or I have crm_scope `all` or am a sales head.
 - `phone_e164`, `tel` and `whatsapp` are null when the lead has no usable number. A number
   with + or 00 keeps its country code; a local 10-digit number gets +91 (the default).
@@ -727,9 +729,9 @@ CallTodayRow = {id, lead_name, organization, status, source, score (0-100), band
 
 ### 6.4 Meetings and minutes (v1.8): `tbo_smart.api.mobile.meeting`
 
-The lead pipeline's meetings (`docs/lead-pipeline.md` §5), the same as the CRM's lead Meetings
+The lead pipeline's meetings (`docs/lead-pipeline.md` §5), the same as the lead's Meetings
 tab. Every method needs `crm` and TBO Smart Settings → Lead pipeline (else 417), and checks the
-lead under CRM's own rules (read for reads, write for writes). Fixtures:
+lead under the sales rules (read for reads, write for writes). Fixtures:
 `meeting.get_meetings.json`, `meeting.submit_mom.json`.
 
 | Method | Verb | Params | Returns |
@@ -752,34 +754,32 @@ Meeting = {name, stage, stage_label ("1st meeting" … "Additional meeting 1"), 
   Required, Rescheduled, Cancelled. MOM Pending is set by the server once the meeting has ended
   without minutes; show it in red with an icon.
 - Push: MOM pending, escalations and the reminder before a meeting are Notification Logs on the
-  CRM Lead (open the lead).
+  Lead (open the lead).
 
 ### 6.1 Sales insights (`get_sales_insights`)
 
 Read-only aggregates for the scope. Fixture: `crm.get_sales_insights.json`.
 
-- **Value** is `deal_value × exchange_rate` in the FCRM base currency (`currency`), Frappe
-  CRM's dashboard formula. **Weighted** is value × probability ÷ 100.
+- **Value** is the deal's amount in the default company's currency (`currency`; the
+  Opportunity's `base_opportunity_amount`). **Weighted** is value × probability ÷ 100.
 - **Period** and **previous** work as in team insights (§5.1). Deltas are current minus
   previous (percentage points for rates).
-- **`pipeline`**: every open stage (type not Won or Lost) in CRM order, also empty ones:
-  `count`, `value`, `weighted`, `avg_age_days` (days since the deal was created) and
-  `avg_days_in_stage` (days since it entered its current stage, from CRM's status change
-  log). Totals at the top.
-- **`won` / `lost`**: deals closed in the period, `count` and `value` with deltas.
-  - Won counts by `closed_date`, as CRM's dashboard does.
-  - CRM keeps no date for a loss, so a lost deal closes on the day it entered its Lost stage
-    (status change log), else on its last edit.
+- **`pipeline`**: every open Sales Stage (type not Won or Lost) in pipeline order
+  (`tbo_position`), also empty ones: `count`, `value`, `weighted`, `avg_age_days` (days since
+  the deal was created) and `avg_days_in_stage` (days since it entered its current stage, from
+  its stage log). Totals at the top.
+- **`won` / `lost`**: deals closed in the period, `count` and `value` with deltas. A deal
+  closes on the day it entered its Won or Lost stage (`tbo_closed_on`), else on its last edit.
   - `win_rate` = won ÷ (won + lost) × 100 by count.
 - **`stalled`**: open deals with **no activity for `stalled_days`**: not edited, and no call
-  log, note, task change or comment on them since then. `count`, `value`, and the 10
+  or logged activity (Event), note (Comment) or task change (ToDo) on them since then. `count`, `value`, and the 10
   biggest with `idle_since` (last edit).
-- **`leads_funnel`**: leads created in the period (`new`); `qualified` = a Won-type CRM Lead
-  Status (defaults: Qualified, Converted) or converted; `converted` = became a deal. With
+- **`leads_funnel`**: leads created in the period (`new`); `qualified` = Closed – Won or
+  converted; `converted` = became a deal. With
   percentages of `new` and deltas.
-- **`activity`**: per person in the scope, `calls` (CRM Call Logs: the receiver for
-  incoming, the caller otherwise), `notes` (FCRM Notes written) and `tasks_done` (CRM Tasks
-  set to Done in the period, by assignee). Most active first.
+- **`activity`**: per person in the scope, `calls` (call Events they logged), `notes`
+  (Comments they wrote on leads and deals) and `tasks_done` (ToDos on leads and deals closed in
+  the period, by assignee). Most active first.
 - **`trend`**: 8 periods, oldest first: `won_value`, `won_count` and `new_leads`.
 - **`closing`**: the 10 biggest open deals expected to close in the **whole current period**.
 - Computed with a fixed set of grouped queries (no per-deal or per-person queries), and cached for **5 minutes** per
@@ -824,16 +824,16 @@ Read-only aggregates for the scope. Fixture: `crm.get_sales_insights.json`.
 | Expense Claim (to the approver) | `/team/approvals?kind=expense` |
 | Salary Slip | `/hr/salary` |
 | Employee Checkin, Attendance | `/hr/attendance` |
-| CRM Lead | `/crm/lead/<name>` |
-| CRM Deal | `/crm/deal/<name>` |
-| CRM Organization | `/crm/org/<name>` |
+| Lead | `/crm/lead/<name>` |
+| Opportunity | `/crm/deal/<name>` |
+| Prospect | `/crm/org/<name>` |
 | TBO Quotation Adjustment (requests, forwards and decisions) | `/quotations/<name>` |
 | Anything else | `/alerts` |
 
 ## 8. Roles and permissions to check on tboindia before launch
 
-1. **HRMS and CRM are installed.** `tbo_smart` declares
-   `required_apps = ["erpnext", "hrms", "crm"]`. Confirm with
+1. **ERPNext and HRMS are installed.** `tbo_smart` declares `required_apps = ["erpnext", "hrms"]`
+   (Frappe CRM is not needed since v1.9). Confirm with
    `/api/method/frappe.utils.change_log.get_versions`.
 2. **Employee ↔ User.** Every staff user needs an **active Employee** with `user_id` set.
    - Keep **Create User Permission** ticked on each Employee.
@@ -878,13 +878,13 @@ Read-only aggregates for the scope. Fixture: `crm.get_sales_insights.json`.
    - Add a **Workflow** on Employee Advance if approvers should be able to reject.
 8. **CRM.**
    - Sales staff need **Sales User**; heads need **Sales Manager** for sales insights.
-   - Turn on **FCRM Settings → Sales hierarchy** if team leads should see their team's deals.
-     Inside the hierarchy a Sales Manager is limited to their subtree (`crm_scope = team`);
-     outside it they see everything (`all`).
-   - Win rates count lost deals by the day they entered a Lost stage, so move deals to Lost
-     in CRM (with a reason) rather than leaving them open.
-   - Set **FCRM Settings → Currency** for the snapshot.
-   - Fill in **User → Mobile No** for anyone who logs calls.
+   - Turn on **TBO Smart Settings → Sales hierarchy** (and fill the **TBO Sales Hierarchy**) if
+     team leads should see their team's leads and deals. Inside the hierarchy a Sales Manager
+     is limited to their subtree (`crm_scope = team`); outside it they see everything (`all`).
+   - Win rates count lost deals by the day they entered a Lost-type Sales Stage
+     (`tbo_closed_on`), so move deals to a Lost stage (with a reason) rather than leaving them
+     open.
+   - Amounts are in the default company's currency.
 9. **OAuth Client** as in §2.1. Restrict **Allowed Roles** to `Employee`.
 10. **Push.** Tick **TBO Smart Settings → Mobile push** only when the app build with Expo
    push ships. The workers (`short` queue) must be running.
@@ -910,16 +910,16 @@ Read-only aggregates for the scope. Fixture: `crm.get_sales_insights.json`.
 | 15 | `TeamAttendance.id` is a short id (`"najath"`) | `id` = user email, plus `employee` and names | **App**: join on email with the hub |
 | 16 | `Approval` has `title`/`detail` preformatted ("Casual Leave · 26–28 Oct") | `title` = leave or expense type, `detail` = reason. Structured `from_date`, `to_date`, `days`, `half_day`, `amount`, `employee`. `submitted` is a datetime | **App** formats |
 | 17 | `decideHrApproval(id, approve)` | `decide_approval(kind, name, approve, reason)`, with a reason required to reject | **App**: add a reason sheet for rejections |
-| 18 | `DealStage` is a fixed union (`Demo`, `Proposal`, …) | Stages are the site's **CRM Deal Status** names (defaults `Demo/Making`, `Proposal/Quotation`, `Ready to Close`, …) plus `stage_type` | **App**: load `get_options().deal_stages`; use `stage_type` for Won and Lost |
-| 19 | `LeadStatus` union | Site's CRM Lead Status names (defaults add `Nurture`, `Junk`) | **App**: load from `get_options` |
-| 20 | `Deal.title` | CRM Deal has no title. `title` = organization, else contact, else name | – (documented) |
+| 18 | `DealStage` is a fixed union (`Demo`, `Proposal`, …) | Stages are the site's **Sales Stage** names (the CRM's deal stages after the cutover) plus `stage_type` | **App**: load `get_options().deal_stages`; use `stage_type` for Won and Lost |
+| 19 | `LeadStatus` union | The 13 pipeline stages (`lead-pipeline.md` §2) | **App**: load from `get_options` |
+| 20 | `Deal.title` | `title` = organization (customer name), else contact, else name | – (documented) |
 | 21 | `Deal.tasks[].done`; `toggleDealTask` | `tasks[]` have `status` and `done`; use `set_task_done(name, done)` | **App** |
-| 22 | `Lead.whatsapp`, `Lead.territory` free text | No WhatsApp field. `territory` is a CRM Territory link | **App**: use `phone` for WhatsApp |
+| 22 | `Lead.whatsapp`, `Lead.territory` free text | Not returned (ERPNext's Lead has `whatsapp_no`, not exposed here). `territory` is a Territory link | **App**: use `phone` for WhatsApp |
 | 23 | `CrmActivity.kind` includes `email`/`meeting`/`whatsapp`/`stage` | Returns `call`, `note`, `comment` (meeting/email/WhatsApp are comments with a `Meeting:`-style prefix). Stage changes are in `stage_history` | **App**: widen the type to `comment` |
 | 24 | `logActivity(ref, {kind, text, nextFollowUp})` | `log_activity(doctype, name, kind, text, next_follow_up, phone)`. Returns the timeline | **App** (rename) |
-| 25 | `setLeadFollowUp(name, date)` | `add_follow_up(doctype, name, due, title?)` creates a CRM Task | **App** |
+| 25 | `setLeadFollowUp(name, date)` | `add_follow_up(doctype, name, due, title?)` creates a ToDo | **App** |
 | 26 | `FollowUp.kind` is `call`/`meeting`; `owner` | `kind` is always `task`. Adds `status`, `priority`, `overdue`; no `owner` (always me) | **App** |
-| 27 | `Organization` = ERPNext Customer with `health`, `health_reason`, `amc`, `contacts` | CRM Organization with `erpnext_customers[]`, `open_deals`, `contacts[]` and `deals[]` (detail). **No `health` or `amc`** (§6) | **App**: drop health; take AMC from the hub |
+| 27 | `Organization` = ERPNext Customer with `health`, `health_reason`, `amc`, `contacts` | Prospect with `erpnext_customers[]`, `open_deals`, `contacts[]` and `deals[]` (detail). **No `health` or `amc`** (§6) | **App**: drop health; take AMC from the hub |
 | 28 | `SalesSnapshot` camelCase (`byStage`, `wonThisMonth`, `closingThisWeek: Deal[]`) | snake_case (`by_stage`, `won_this_month`, `closing_this_week` with slim rows), plus `currency` | **App** |
 | 29 | ESS `getNotifications` / `markNotificationsRead` | Not part of this backend. The push payload carries the route. A notification list for tboindia is a follow-up. | **Backend** (v1.1) if the app keeps an ESS notification list |
 | 30 | Screens shown by role or a "Preview as" switch | `get_me().capabilities` (or `capabilities.get_my_capabilities` without an Employee) decides every screen, and `crm_scopes` decides the Mine / Team / All switcher | **App** |
@@ -945,7 +945,7 @@ The tests are in `tbo_smart/tests/test_mobile_{ess,advance,crm,lead_capture,mana
 - **Manager:** endpoints refuse non-managers and non-approvers; only the named approver can
   decide.
 - **Meetings** (`test_lead_pipeline.py`): the `get_meetings` shape against its fixture, status rules, MOM submit and `set_lead_status` with a lost reason.
-- **CRM:** visibility follows CRM rules. Call today (`test_smart_leads.py`): order, team permission, the off switch and the shape against `docs/fixtures/crm.get_call_today.json`.
+- **CRM:** visibility follows the sales rules (`test_sales.py`). Call today (`test_smart_leads.py`): order, team permission, the off switch and the shape against `docs/fixtures/crm.get_call_today.json`.
 - **Lead capture** (`test_mobile_lead_capture.py`): phone formats (`+971 50…`, `050…`,
   `00971`, spaces and brackets), email and organization case, matches across leads,
   organizations, contacts and customers; hidden matches without details; 409 without
@@ -977,11 +977,17 @@ The tests are in `tbo_smart/tests/test_mobile_{ess,advance,crm,lead_capture,mana
   refused; a disabled user's existing token is rejected by Frappe's Bearer check; and
   disabling a User revokes their tokens.
 
-They need a site with **erpnext, hrms and crm** installed and `allow_tests` on:
+They need a site with **erpnext and hrms** installed and `allow_tests` on:
 `bench --site <site> run-tests --app tbo_smart`. CI (`.github/workflows/ci.yml`) installs
-those apps on Frappe version-15.
+those apps on Frappe version-15, and a second job adds the crm app for the cutover's tests.
 
 ## Changelog
+
+- **v1.9 (2026-10-16):** the CRM methods run on ERPNext's Lead, Opportunity, Prospect, ToDo,
+  Comment and Event (`erpnext-lead-cutover.md`) with the same names and JSON. Differences: a
+  task's `due` is a date; a call no longer needs phone numbers; the duplicate check leaves out
+  the Contacts ERPNext makes for leads; deal stages are Sales Stages; push routes by Lead,
+  Opportunity and Prospect.
 
 - **v1 (2026-10-10):** first contract. ESS, manager, CRM, devices and Expo push.
 - **v1.1 (2026-10-11):** capabilities from real roles (§4) in `get_me` and
