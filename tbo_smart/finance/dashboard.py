@@ -271,7 +271,7 @@ def get_tbo_conversion(from_date, to_date, user=None) -> dict:
 		.where(
 			(Deal.creation >= window[0])
 			& (Deal.creation < window[1])
-			& (Deal.opportunity_from == "Lead")
+			& Deal.tbo_lead.isnotnull()
 			& owned(Deal, user)
 		)
 	).run()[0][0]

@@ -3,14 +3,15 @@
 A deal's stage is its `sales_stage` (Sales Stage). Each Sales Stage carries the custom
 `tbo_stage_type` (Open, Ongoing, On Hold, Won, Lost; blank reads as Ongoing), `tbo_probability`
 and `tbo_position`, as Frappe CRM's CRM Deal Status did. A deal made from a lead is
-`opportunity_from = "Lead"` with the lead as `party_name`; its client is `tbo_customer`, else the
+`opportunity_from = "Lead"` with the lead as `party_name`, and keeps the lead in `tbo_lead` once
+ERPNext moves it to the Customer made from the lead; its client is `tbo_customer`, else the
 Customer ERPNext made from the lead (`Customer.lead_name`) or the deal's own Customer party.
 """
 
 import frappe
 from frappe.utils import flt, getdate, today
 
-from tbo_smart.sales import DEAL, LEAD
+from tbo_smart.sales import DEAL, LEAD_LINK
 from tbo_smart.sales.stages import record_change
 
 STAGE = "Sales Stage"
@@ -65,26 +66,20 @@ def ensure_default_stages() -> None:
 
 def lead_opportunity(lead: str) -> str | None:
 	"""The lead's deal: the first Opportunity made from it."""
-	return frappe.db.get_value(
-		DEAL, {"opportunity_from": LEAD, "party_name": lead}, "name", order_by="creation asc"
-	)
+	return frappe.db.get_value(DEAL, {LEAD_LINK: lead}, "name", order_by="creation asc")
 
 
 def leads_with_opportunity(leads) -> set[str]:
 	leads = [lead for lead in set(leads or ()) if lead]
 	if not leads:
 		return set()
-	return set(
-		frappe.get_all(
-			DEAL, filters={"opportunity_from": LEAD, "party_name": ("in", leads)}, pluck="party_name"
-		)
-	)
+	return set(frappe.get_all(DEAL, filters={LEAD_LINK: ("in", leads)}, pluck=LEAD_LINK))
 
 
 def converted_leads_query():
 	"""Subquery of the leads that have a deal."""
 	Deal = frappe.qb.DocType(DEAL)
-	return frappe.qb.from_(Deal).select(Deal.party_name).where(Deal.opportunity_from == LEAD)
+	return frappe.qb.from_(Deal).select(Deal[LEAD_LINK]).where(Deal[LEAD_LINK].isnotnull())
 
 
 def customer_of(deal) -> str | None:

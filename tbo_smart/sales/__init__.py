@@ -19,11 +19,21 @@ DEAL = "Opportunity"
 ORGANIZATION = "Prospect"
 SALES_DOCTYPES = (LEAD, DEAL)
 SETTINGS = "TBO Smart Settings"
+# the lead a deal or quotation was made from; ERPNext (v15.123+) moves both to the Customer it
+# makes from the lead, so their party alone no longer says which lead they belong to
+LEAD_LINK = "tbo_lead"
 
 
 def erpnext_installed() -> bool:
 	"""Lead and Opportunity are ERPNext's; without it there is nothing to set up or read."""
 	return "erpnext" in frappe.get_installed_apps()
+
+
+def remember_lead(doc, method=None) -> None:
+	"""doc_events: Opportunity and Quotation validate. While made out to a lead, `tbo_lead` is it."""
+	party_type = doc.get("opportunity_from") if doc.doctype == DEAL else doc.get("quotation_to")
+	if party_type == LEAD and doc.get("party_name"):
+		doc.set(LEAD_LINK, doc.party_name)
 
 
 def owner_field(doctype: str) -> str:

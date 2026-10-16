@@ -360,7 +360,7 @@ class TestDealAtWon(LeadPipelineTestCase):
 		self.assertRaises(frappe.ValidationError, mobile_crm.convert_lead, lead)
 		mobile_crm.set_lead_status(lead, CLOSED_WON)
 		frappe.set_user("Administrator")
-		from_lead = {"opportunity_from": "Lead", "party_name": lead}
+		from_lead = {"tbo_lead": lead}
 		deal = frappe.db.get_value(
 			"Opportunity", from_lead, ["name", "sales_stage", "opportunity_owner"], as_dict=True
 		)

@@ -976,7 +976,7 @@ def delete_lead_deals(leads: list[str] | tuple) -> None:
 	"""Delete the deals made from these leads, with their child rows."""
 	deals = frappe.get_all(
 		"Opportunity",
-		filters={"opportunity_from": "Lead", "party_name": ("in", list(leads) or [""])},
+		filters={"tbo_lead": ("in", list(leads) or [""])},
 		pluck="name",
 	)
 	if deals:
@@ -1076,9 +1076,7 @@ def delete_lead_quotations(leads: list[str] | tuple) -> None:
 	"""Cancel and delete the quotations and sales orders of these leads, and commit."""
 	if not leads:
 		return
-	quotations = frappe.get_all(
-		"Quotation", filters={"quotation_to": "Lead", "party_name": ("in", list(leads))}, pluck="name"
-	)
+	quotations = frappe.get_all("Quotation", filters={"tbo_lead": ("in", list(leads))}, pluck="name")
 	if not quotations:
 		return
 	for order in frappe.get_all(

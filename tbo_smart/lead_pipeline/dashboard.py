@@ -319,7 +319,7 @@ class PipelineDashboard:
 		quotes = (
 			frappe.qb.from_(Quotation)
 			.join(Lead)
-			.on((Quotation.quotation_to == "Lead") & (Lead.name == Quotation.party_name))
+			.on(Lead.name == Quotation.tbo_lead)
 			.select(
 				Lead.lead_owner,
 				Sum(Case().when(self.in_range(Quotation.transaction_date), 1).else_(0)).as_("quotations"),
@@ -365,11 +365,7 @@ class PipelineDashboard:
 		waiting for the client now; and the value of the active ones (the latest revision of
 		each, approved or with the client and still valid): the revenue potential."""
 		Quotation, Lead = self.Quotation, self.Lead
-		base = (
-			frappe.qb.from_(Quotation)
-			.join(Lead)
-			.on((Quotation.quotation_to == "Lead") & (Lead.name == Quotation.party_name))
-		)
+		base = frappe.qb.from_(Quotation).join(Lead).on(Lead.name == Quotation.tbo_lead)
 		rows = (
 			base.select(
 				Quotation.tbo_quote_status,

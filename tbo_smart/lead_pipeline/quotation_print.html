@@ -1,7 +1,7 @@
 {%- set company = frappe.get_doc("Company", doc.company) -%}
 {%- set address_name = doc.get("company_address") or frappe.db.get_value("Dynamic Link", {"link_doctype": "Company", "link_name": doc.company, "parenttype": "Address"}, "parent") -%}
 {%- set address = frappe.db.get_value("Address", address_name, ["address_line1", "address_line2", "city", "state", "pincode", "phone", "email_id"], as_dict=True) if address_name else None -%}
-{%- set lead = frappe.db.get_value("Lead", doc.party_name, ["lead_name", "company_name", "email_id", "mobile_no"], as_dict=True) if doc.quotation_to == "Lead" else None -%}
+{%- set lead = frappe.db.get_value("Lead", doc.tbo_lead, ["lead_name", "company_name", "email_id", "mobile_no"], as_dict=True) if doc.tbo_lead else None -%}
 {%- set package = frappe.db.get_value("TBO Quotation Package", doc.tbo_package, ["package_name", "project_duration"], as_dict=True) if doc.get("tbo_package") else None -%}
 <style>
 	.tbo-q { font-family: "Inter", "Helvetica Neue", Arial, sans-serif; color: #1f2329; font-size: 12px; line-height: 1.5; }

@@ -21,6 +21,7 @@ from tbo_smart.finance.stage import write_tracked
 from tbo_smart.lead_pipeline import quotations_enabled, setting
 from tbo_smart.lead_pipeline.statuses import CLOSED_LOST, CLOSED_WON, NEGOTIATION, PROPOSAL_SENT
 from tbo_smart.lead_pipeline.transitions import advance_lead
+from tbo_smart.sales import LEAD_LINK
 from tbo_smart.sales.activities import add_follow_up_task
 from tbo_smart.sales.opportunity import customer_of
 from tbo_smart.sales.stages import set_lead_stage
@@ -49,28 +50,26 @@ DEFAULT_FOLLOW_UP_DAYS = 3
 
 
 def lead_of(doc) -> str | None:
-	"""The lead a quotation belongs to: the Lead it is made out to, or the lead its deal was made
-	from (a won lead's quotation may be made out to the client's Customer)."""
+	"""The lead a quotation belongs to: the one it was made for (`tbo_lead`), or the lead its deal
+	was made from (a won lead's quotation may be made out to the client's Customer)."""
 	if doc.get("quotation_to") == "Lead":
 		return doc.get("party_name")
+	if doc.get(LEAD_LINK):
+		return doc.get(LEAD_LINK)
 	if doc.get("opportunity"):
-		deal = frappe.db.get_value(
-			"Opportunity", doc.opportunity, ["opportunity_from", "party_name"], as_dict=True
-		)
-		if deal and deal.opportunity_from == "Lead":
-			return deal.party_name
+		return frappe.db.get_value("Opportunity", doc.opportunity, LEAD_LINK)
 	return None
 
 
 def lead_quotations(lead: str, fields: list, filters: dict | None = None) -> list:
-	"""The lead's quotations: made out to it, or linked to its deal."""
+	"""The lead's quotations: made for it, or linked to its deal."""
 	from tbo_smart.sales.opportunity import lead_opportunity
 
 	deal = lead_opportunity(lead)
-	or_filters = {"party_name": lead}
+	or_filters = {LEAD_LINK: lead}
 	if deal:
 		or_filters["opportunity"] = deal
-	rows = frappe.get_all(
+	return frappe.get_all(
 		"Quotation",
 		filters={"docstatus": ("!=", 2), **(filters or {})},
 		or_filters=or_filters,
@@ -78,8 +77,6 @@ def lead_quotations(lead: str, fields: list, filters: dict | None = None) -> lis
 		order_by="creation desc",
 		limit_page_length=0,
 	)
-	# a Customer of the same name as the lead is not the lead
-	return [row for row in rows if row.quotation_to == "Lead" or (deal and row.get("opportunity") == deal)]
 
 
 def is_lead_quotation(doc) -> bool:
@@ -384,7 +381,7 @@ def relink_to_deal(lead: str, deal: str) -> list[str]:
 	`opportunity`), so the deal's Finance lists them."""
 	names = frappe.get_all(
 		"Quotation",
-		filters={"quotation_to": "Lead", "party_name": lead, "docstatus": ("!=", 2)},
+		filters={LEAD_LINK: lead, "docstatus": ("!=", 2)},
 		fields=["name", "opportunity"],
 		limit_page_length=0,
 	)

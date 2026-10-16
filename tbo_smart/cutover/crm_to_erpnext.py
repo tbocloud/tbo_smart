@@ -701,7 +701,8 @@ class Cutover:
 
 	def relink_quotations(self) -> None:
 		"""Quotation To CRM Lead → Lead; CRM Deal → the deal's Customer, else its party; the deal
-		(Frappe CRM's `crm_deal`, or the deal as party) → ERPNext's `opportunity`."""
+		(Frappe CRM's `crm_deal`, or the deal as party) → ERPNext's `opportunity`; the lead →
+		`tbo_lead`."""
 		Quotation = table("Quotation")
 		columns = set(frappe.db.get_table_columns("Quotation"))
 		fields = [Quotation.name, Quotation.quotation_to, Quotation.party_name, Quotation.opportunity]
@@ -718,11 +719,16 @@ class Cutover:
 			if deal and not row.opportunity:
 				values["opportunity"] = deal
 			if row.quotation_to == "CRM Lead" and self.lead_names.get(row.party_name):
-				values.update(quotation_to="Lead", party_name=self.lead_names[row.party_name])
+				lead = self.lead_names[row.party_name]
+				values.update(quotation_to="Lead", party_name=lead, tbo_lead=lead)
 			elif row.quotation_to == "CRM Deal" and deal:
 				opportunity = frappe.db.get_value(
-					"Opportunity", deal, ["tbo_customer", "opportunity_from", "party_name"], as_dict=True
+					"Opportunity",
+					deal,
+					["tbo_customer", "opportunity_from", "party_name", "tbo_lead"],
+					as_dict=True,
 				)
+				values["tbo_lead"] = opportunity.tbo_lead
 				if opportunity.tbo_customer:
 					values.update(quotation_to="Customer", party_name=opportunity.tbo_customer)
 				else:

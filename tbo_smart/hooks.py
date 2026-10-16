@@ -154,7 +154,7 @@ doc_events = {
 		"after_insert": "tbo_smart.checkin.employee_checkin.after_insert",
 	},
 	"Quotation": {
-		"validate": "tbo_smart.quotation_control.validate",
+		"validate": ["tbo_smart.sales.remember_lead", "tbo_smart.quotation_control.validate"],
 		"on_update": [
 			"tbo_smart.quotation_control.on_update",
 			"tbo_smart.finance.stage.stage_changed",
@@ -172,7 +172,7 @@ doc_events = {
 	# The deal: its stage history, won/lost day and ERPNext's Lost status (docs/erpnext-lead-cutover.md)
 	"Opportunity": {
 		"before_insert": "tbo_smart.finance.stage.default_company",
-		"validate": "tbo_smart.sales.opportunity.validate_opportunity",
+		"validate": ["tbo_smart.sales.remember_lead", "tbo_smart.sales.opportunity.validate_opportunity"],
 	},
 	"Sales Order": {
 		"validate": "tbo_smart.finance.documents.validate",

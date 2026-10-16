@@ -6,7 +6,7 @@ import frappe
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
 from tbo_smart.lead_pipeline.statuses import NEW_LEAD, STATUS_NAMES
-from tbo_smart.sales import erpnext_installed
+from tbo_smart.sales import DEAL, LEAD, LEAD_LINK, erpnext_installed
 from tbo_smart.sales.opportunity import STAGE_TYPES, ensure_default_stages
 from tbo_smart.sales.stages import OTHER_REASON
 
@@ -94,11 +94,21 @@ def get_pipeline_fields() -> dict:
 		],
 		"Opportunity": [
 			{
+				"fieldname": "tbo_lead",
+				"fieldtype": "Link",
+				"options": "Lead",
+				"label": "Lead",
+				"insert_after": "party_name",
+				"read_only": 1,
+				"search_index": 1,
+				"description": "The lead it was made from, also once it is made out to the lead's Customer.",
+			},
+			{
 				"fieldname": "tbo_customer",
 				"fieldtype": "Link",
 				"options": "Customer",
 				"label": "ERPNext customer",
-				"insert_after": "party_name",
+				"insert_after": "tbo_lead",
 				"read_only": 1,
 				"no_copy": 1,
 				"description": "The client's Customer, once there is one.",
@@ -167,11 +177,21 @@ def get_pipeline_fields() -> dict:
 				"collapsible": 1,
 			},
 			{
+				"fieldname": "tbo_lead",
+				"fieldtype": "Link",
+				"options": "Lead",
+				"label": "Lead",
+				"insert_after": "tbo_lead_section",
+				"read_only": 1,
+				"search_index": 1,
+				"description": "The lead it was made for, also once it is made out to the lead's Customer.",
+			},
+			{
 				"fieldname": "tbo_lead_meeting",
 				"fieldtype": "Link",
 				"options": "TBO Lead Meeting",
 				"label": "From meeting",
-				"insert_after": "tbo_lead_section",
+				"insert_after": "tbo_lead",
 				"read_only": 1,
 			},
 			{
@@ -239,10 +259,22 @@ def setup_lead_pipeline() -> None:
 	if not erpnext_installed():
 		return
 	create_custom_fields(get_pipeline_fields(), ignore_validate=True)
+	link_lead_records()
 	ensure_default_stages()
 	ensure_other_reason()
 	ensure_hub_role()
 	sync_print_format()
+
+
+def link_lead_records() -> None:
+	"""Deals and quotations still made out to a lead that predate `tbo_lead` get it."""
+	for doctype, party_type in ((DEAL, "opportunity_from"), ("Quotation", "quotation_to")):
+		table = frappe.qb.DocType(doctype)
+		(
+			frappe.qb.update(table)
+			.set(table[LEAD_LINK], table.party_name)
+			.where((table[party_type] == LEAD) & table[LEAD_LINK].isnull())
+		).run()
 
 
 def ensure_hub_role() -> None:

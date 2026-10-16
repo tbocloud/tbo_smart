@@ -1,4 +1,4 @@
-# From Frappe CRM to ERPNext's Lead and Opportunity (living spec, v1.0)
+# From Frappe CRM to ERPNext's Lead and Opportunity (living spec, v1.1)
 
 **Status:** built 2026-10-16. The owner decided that Frappe CRM is uninstalled from
 india.teambackoffice.com (tboindia) and ERPNext's own **Lead** (and **Opportunity** for deals)
@@ -30,6 +30,7 @@ switch: what replaced each Frappe CRM piece, the cutover command, and the owner'
 | E8 | Quotations of a lead are made out to the **Lead** (`quotation_to = "Lead"`), the deal's to its Customer or Lead, and carry ERPNext's own **`opportunity`** link. | Native Quotation parties; ERPNext creates the Customer from the Lead when the Sales Order is made. |
 | E9 | The CRM UI's hooks (app access, the overrides of CRM's Convert and Create Quotation) are removed with the CRM. The APIs behind the CRM's TBO screens stay, ported, for the hub and the app; the CRM dashboard's TBO cards are `tbo_smart.api.dashboard.get_cards`. | They had no caller without the CRM app. |
 | E10 | The deal link on Sales Order, Sales Invoice, Payment Entry and tbo_smart's own records is a field named **`opportunity`**, like Quotation's own. | ERPNext's mappers copy a same-named field from the quotation to the order and the invoice, as they copied `crm_deal`. |
+| E11 | A deal and a quotation keep **the lead they were made from in `tbo_lead`** (set on save while made out to the lead; backfilled on migrate). Every "the lead's deal / quotations" lookup uses it, never the party. | ERPNext v15.123+ moves a lead's Opportunities and Quotations to the Customer it makes from the lead (`Customer.update_lead_status`), so after the first Sales Order the party no longer names the lead. |
 
 ## 2. Inventory: every Frappe CRM dependency and its replacement
 
@@ -233,3 +234,5 @@ Frappe CRM.
 
 - **v1.0 (2026-10-16):** the inventory, the port to Lead / Opportunity, the hub API and the
   cutover command.
+- **v1.1 (2026-10-16):** `tbo_lead` on Opportunity and Quotation (E11), for ERPNext v15.123's
+  move of a lead's records to its Customer.

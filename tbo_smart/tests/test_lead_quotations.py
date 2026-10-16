@@ -198,9 +198,7 @@ class TestStatuses(LeadQuotationTestCase):
 		self.assertEqual(frappe.db.get_value("Lead", self.lead, "tbo_stage"), NEGOTIATION)
 		self.assertRaises(frappe.ValidationError, api.set_quote_status, name, q.VIEWED)
 		api.set_quote_status(name, q.ACCEPTED)
-		deal = frappe.db.get_value(
-			"Opportunity", {"opportunity_from": "Lead", "party_name": self.lead}, "name"
-		)
+		deal = frappe.db.get_value("Opportunity", {"tbo_lead": self.lead}, "name")
 		self.assertTrue(deal)
 		self.assertEqual(frappe.db.get_value("Lead", self.lead, "tbo_stage"), CLOSED_WON)
 		self.assertEqual(
@@ -313,14 +311,21 @@ class TestRevisionsAndOrders(LeadQuotationTestCase):
 		frappe.set_user(BDE)
 		order = api.make_sales_order(name)["sales_order"]
 		frappe.set_user("Administrator")
-		deal = frappe.db.get_value(
-			"Opportunity", {"opportunity_from": "Lead", "party_name": self.lead}, "name"
-		)
+		deal = frappe.db.get_value("Opportunity", {"tbo_lead": self.lead}, "name")
 		customer, opportunity = frappe.db.get_value("Sales Order", order, ["customer", "opportunity"])
 		# ERPNext made the Customer from the lead; the deal knows it
 		self.assertEqual(frappe.db.get_value("Customer", customer, "lead_name"), self.lead)
 		self.assertEqual(opportunity, deal)
 		self.assertEqual(frappe.db.get_value("Opportunity", deal, "tbo_customer"), customer)
+		# ERPNext (v15.123+) moves the lead's deal and quotations to the Customer it made; they
+		# stay the lead's
+		for doctype, party_type in (("Opportunity", "opportunity_from"), ("Quotation", "quotation_to")):
+			frappe.db.set_value(
+				doctype, {"tbo_lead": self.lead}, {party_type: "Customer", "party_name": customer}
+			)
+		listed = api.get_lead_quotations(self.lead)
+		self.assertEqual(listed["deal"], deal)
+		self.assertEqual([row["name"] for row in listed["quotations"]], [name])
 
 	def test_print_format_renders(self):
 		frappe.set_user(BDE)

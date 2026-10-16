@@ -147,7 +147,7 @@ def count_deals(window, owners, organization, company):
 		.select(Deal.opportunity_owner, Count(Deal.name))
 		.where(
 			in_window(Deal.creation, window)
-			& (Deal.opportunity_from == "Lead")
+			& Deal.tbo_lead.isnotnull()
 			& deal_filters(Deal, owners, organization, company)
 		)
 		.groupby(Deal.opportunity_owner)
