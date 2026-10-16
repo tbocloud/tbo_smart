@@ -55,7 +55,7 @@ Lead = {name, lead_name, first_name, last_name, company_name, email_id, mobile_n
   whatsapp_no, job_title, website, source, territory, industry, segment, tbo_stage,
   status (ERPNext's own, read only), lead_owner, owner_name, tbo_score, tbo_temperature
   (Hot / Warm / Cold), tbo_score_reason, tbo_lost_reason, tbo_lost_notes, creation, modified,
-  deal (the Opportunity once won | null), can_write}
+  next_follow_up (date | null), deal (the Opportunity once won | null), can_write}
 
 Item = {kind: "note" | "call" | "activity" | "meeting" | "stage" | "quotation", at, who (user | null),
   who_name, text, ref (the record's name)}
@@ -90,6 +90,7 @@ Quotation = {name, docstatus, tbo_quote_status, transaction_date, valid_till, cu
 | `segment` | `tbo_segment` |
 | `lead_owner` | another sales user: only within the acting user's reach (anyone for a Sales Manager outside the hierarchy, their team for a team lead, nobody for a salesperson); 403 otherwise |
 | `note` | `create_lead` only: the lead's first note |
+| `next_follow_up` | `YYYY-MM-DD`: a Sales follow-up ToDo for the lead owner that day, unless one is already open for it; an empty value adds nothing (it never closes one) |
 
 - `create_lead` needs a name or a company. ERPNext checks the email (unique unless CRM Settings
   allow duplicates, and never the owner's own).

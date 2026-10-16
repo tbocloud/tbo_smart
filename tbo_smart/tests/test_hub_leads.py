@@ -131,6 +131,22 @@ class TestHubLeads(FrappeTestCase):
 		self.assertRaises(frappe.PermissionError, hub.add_note, self.theirs, "Not mine", acting_user=BDE)
 		self.assertEqual(frappe.session.user, HUB)
 
+	def test_a_follow_up_date_from_the_hub_schedules_one(self):
+		due = add_days(today(), 3)
+		created = hub.create_lead({"lead_name": "Hub Follow Up", "next_follow_up": due}, acting_user=BDE)
+		name = created["lead"]["name"]
+		self.assertEqual(str(created["lead"]["next_follow_up"]), due)
+		task = {"reference_type": "Lead", "reference_name": name, "status": "Open"}
+		self.assertEqual(
+			frappe.db.get_value("ToDo", task, ["allocated_to", "tbo_task_type"]), (BDE, "Sales follow-up")
+		)
+		# saving the same date again adds nothing; an earlier one comes first
+		hub.update_lead(name, {"next_follow_up": due}, acting_user=BDE)
+		self.assertEqual(frappe.db.count("ToDo", task), 1)
+		sooner = add_days(today(), 1)
+		updated = hub.update_lead(name, {"next_follow_up": sooner}, acting_user=BDE)
+		self.assertEqual(str(updated["lead"]["next_follow_up"]), sooner)
+
 	def test_owner_and_fields_are_checked(self):
 		self.assertRaises(
 			frappe.PermissionError,
