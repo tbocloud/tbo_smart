@@ -2,7 +2,7 @@
 
 A follow-up is an open **CRM Task** on the lead (the finance workflow's `tbo_task_type` =
 "Sales follow-up" for the ones this feature creates). The earliest open task with a due date is
-the lead's next follow-up. Rules, for open leads (New, Contacted, Nurture, Qualified):
+the lead's next follow-up. Rules, for open leads (every status but Closed – Won and Closed – Lost):
 
 | Rule | When | Who |
 | --- | --- | --- |
@@ -27,6 +27,7 @@ import frappe
 from frappe import _
 from frappe.utils import cint, escape_html, formatdate, getdate, today
 
+from tbo_smart.lead_pipeline.meetings import meeting_digest_lines, meeting_people
 from tbo_smart.smart_leads import OPEN_STATUSES, SALES_HEAD_ROLE, follow_ups_enabled, setting
 from tbo_smart.smart_leads.facts import LeadFacts
 from tbo_smart.smart_leads.notify import deliver, notify
@@ -297,14 +298,23 @@ def build_digest(run: FollowUpRun, user: str) -> dict | None:
 	"""{subject, text, html, counts} of the person's digest, or None when there is nothing."""
 	groups = run.for_person(user)
 	needs_owner = len(run.needs_owner) if user in run.sales_heads or user in run.top_managers else 0
-	if not any(groups.values()) and not needs_owner:
+	# the lead pipeline's meetings today and pending minutes (docs/lead-pipeline.md §5.4)
+	meetings = meeting_digest_lines(user, run.today)
+	if not any(groups.values()) and not needs_owner and not meetings:
 		return None
-	counts = digest_counts(groups)
+	counts = " · ".join(
+		part
+		for part in [digest_counts(groups)] + [f"{len(lines)} {title.lower()}" for title, lines in meetings]
+		if part
+	)
 	if needs_owner:
 		owners = _("{0} need an owner").format(needs_owner)
 		counts = f"{counts} · {owners}" if counts else owners
 	subject = _("Lead follow-ups for {0}: {1}").format(formatdate(run.today, "d MMM"), counts)
 	text_lines = [f"**{subject}**"]
+	for title, lines in meetings:
+		text_lines.append(f"\n**{title} ({len(lines)})**")
+		text_lines += [f"- {line}" for line in lines]
 	sections = []
 	for rule in DIGEST_ORDER:
 		items = groups[rule]
@@ -328,16 +338,24 @@ def build_digest(run: FollowUpRun, user: str) -> dict | None:
 		"subject": subject,
 		"counts": counts,
 		"text": "\n".join(text_lines),
-		"html": digest_html(subject, sections, needs_owner),
+		"html": digest_html(subject, sections, needs_owner, meetings),
 	}
 
 
-def digest_html(subject: str, sections: list, needs_owner: int) -> str:
+def digest_html(subject: str, sections: list, needs_owner: int, meetings: list | None = None) -> str:
 	"""A plain, readable email: neutral grays, the one accent only on the button."""
 	link = frappe.utils.get_url("/crm/call-today")
 	body = [
 		f'<p style="font:600 16px/1.4 sans-serif;color:#1f2329;margin:0 0 16px">{escape_html(subject)}</p>'
 	]
+	for title, lines in meetings or []:
+		body.append(
+			f'<p style="font:600 13px/1.4 sans-serif;color:#1f2329;margin:16px 0 6px">'
+			f"{escape_html(title)} ({len(lines)})</p>"
+		)
+		body.append('<ul style="margin:0;padding-left:18px;font:13px/1.6 sans-serif;color:#3d434b">')
+		body += [f"<li>{escape_html(line)}</li>" for line in lines]
+		body.append("</ul>")
 	for rule, items, shown, more in sections:
 		body.append(
 			f'<p style="font:600 13px/1.4 sans-serif;color:#1f2329;margin:16px 0 6px">'
@@ -371,7 +389,11 @@ def digest_line(item: FollowUp) -> str:
 
 def send_digests(run: FollowUpRun, only: str | None = None) -> dict:
 	"""Each person's digest by Teams (else email), plus one in-app summary. {user: channel}."""
-	people = {only} if only else run.people() | (set(run.sales_heads) if run.needs_owner else set())
+	people = (
+		{only}
+		if only
+		else run.people() | (set(run.sales_heads) if run.needs_owner else set()) | meeting_people(run.today)
+	)
 	people -= set(run.away)
 	sent = {}
 	for user in sorted(people):

@@ -262,7 +262,7 @@ def set_follow_up(lead: str, due: str, title: str | None = None) -> dict:
 
 @frappe.whitelist(methods=["POST"])
 def set_status(lead: str, status: str, notes_text: str | None = None) -> dict:
-	"""Change the status under my permissions; Junk and Unqualified get CRM's lost reason."""
+	"""Change the status under my permissions; Closed – Lost gets CRM's lost reason."""
 	require_lead(lead, "write")
 	return {"status": notes.set_lead_status(lead, status, notes_text)}
 

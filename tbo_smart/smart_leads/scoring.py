@@ -12,13 +12,40 @@ from frappe import _
 from frappe.utils import cint, date_diff, getdate, now_datetime
 
 from tbo_smart import ai
+from tbo_smart.lead_pipeline.statuses import (
+	CONTACTED,
+	FIRST_MEETING,
+	FOLLOW_UP_REQUIRED,
+	MEETING_SCHEDULED,
+	NEGOTIATION,
+	NEW_LEAD,
+	ON_HOLD,
+	POSITIVE,
+	PROPOSAL_SENT,
+	SECOND_MEETING,
+	THIRD_MEETING,
+	WON_STATUSES,
+)
 from tbo_smart.smart_leads import OPEN_STATUSES, ai_scoring_enabled, scoring_enabled, setting
 from tbo_smart.smart_leads.facts import LeadFacts
 from tbo_smart.smart_leads.migration import get_migration_notes, original_status_points, priority_points
 
 HOT, WARM, COLD = "Hot", "Warm", "Cold"
 HOT_FROM, WARM_FROM = 55, 30
-STATUS_POINTS = {"Qualified": 30, "Contacted": 18, "Nurture": 12, "New": 10}
+# further along the pipeline scores higher (docs/lead-pipeline.md §2); On Hold is parked
+STATUS_POINTS = {
+	NEW_LEAD: 10,
+	CONTACTED: 18,
+	FOLLOW_UP_REQUIRED: 16,
+	POSITIVE: 22,
+	ON_HOLD: 4,
+	MEETING_SCHEDULED: 24,
+	FIRST_MEETING: 26,
+	SECOND_MEETING: 28,
+	THIRD_MEETING: 30,
+	PROPOSAL_SENT: 32,
+	NEGOTIATION: 34,
+}
 # fresh leads convert best; the migrated ones count from their original created date
 AGE_POINTS = ((7, 12), (30, 8), (90, 4), (365, 1))
 TOUCH_POINTS = ((3, 15), (7, 10), (14, 6), (30, 3))
@@ -51,7 +78,8 @@ def points_for(days: int | None, steps: tuple) -> int:
 
 def conversion_rates() -> dict:
 	"""{"source": {name: rate}, "project_type": {name: rate}}: share of leads converted to a
-	deal (or migrated as Converted), for values with at least MIN_SAMPLE leads. Cached 6 hours."""
+	deal (or Closed – Won, as the migrated Converted ones are), for values with at least
+	MIN_SAMPLE leads. Cached 6 hours."""
 	rates = frappe.cache.get_value(RATES_CACHE_KEY, expires=True)
 	if rates is None:
 		rates = compute_conversion_rates()
@@ -64,7 +92,7 @@ def compute_conversion_rates() -> dict:
 	notes = get_migration_notes([lead.name for lead in leads])
 	totals: dict[str, dict[str, list[int]]] = {"source": {}, "project_type": {}}
 	for lead in leads:
-		won = int(bool(lead.converted) or lead.status == "Converted")
+		won = int(bool(lead.converted) or lead.status in WON_STATUSES)
 		for kind, value in (
 			("source", lead.source),
 			("project_type", notes.get(lead.name, {}).get("project_type")),

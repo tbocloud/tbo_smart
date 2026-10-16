@@ -124,7 +124,7 @@ class TestScoring(SmartLeadsTestCase):
 	def test_status_history_and_migration_raise_the_score(self):
 		hot = make_crm_lead(BDE, "Hot Lead", mobile_no="9847000001")
 		change_lead_status(hot, "Contacted")
-		change_lead_status(hot, "Qualified")
+		change_lead_status(hot, "Proposal Sent")
 		make_migration_note(hot, status="Interested", priority="High")
 		cold = make_crm_lead(BDE, "Cold Lead", mobile_no="9847000002")
 		make_migration_note(cold, status="Do Not Contact", created="2025-01-02")
@@ -133,16 +133,16 @@ class TestScoring(SmartLeadsTestCase):
 		hot_score, cold_score = self.score(hot), self.score(cold)
 		self.assertEqual(hot_score.lead_temperature, "Hot")
 		self.assertGreaterEqual(hot_score.lead_score, scoring.HOT_FROM)
-		self.assertTrue(hot_score.tbo_score_reason.startswith("Qualified"))
+		self.assertTrue(hot_score.tbo_score_reason.startswith("Proposal Sent"))
 		self.assertIn("was Interested before the migration", hot_score.tbo_score_reason)
 		self.assertEqual((cold_score.lead_score, cold_score.lead_temperature), (0, "Cold"))
 
 	def test_closed_lead_scores_zero(self):
 		lead = make_crm_lead(BDE, "Junk Lead")
-		change_lead_status(lead, "Junk", lost_reason="Other", lost_notes="Spam")
+		change_lead_status(lead, "Closed – Lost", lost_reason="Other", lost_notes="Spam")
 		result = self.score(lead)
 		self.assertEqual((result.lead_score, result.lead_temperature), (0, "Cold"))
-		self.assertEqual(result.tbo_score_reason, "Closed (Junk)")
+		self.assertEqual(result.tbo_score_reason, "Closed (Closed – Lost)")
 
 	def test_source_conversion_rate_counts(self):
 		for source in ("SL Referral", "SL Cold Call"):
@@ -150,7 +150,7 @@ class TestScoring(SmartLeadsTestCase):
 				frappe.get_doc({"doctype": "CRM Lead Source", "source_name": source}).insert()
 		for index in range(10):
 			make_crm_lead(
-				BDE2, f"Ref {index}", source="SL Referral", status="Converted" if index < 5 else "New"
+				BDE2, f"Ref {index}", source="SL Referral", status="Closed – Won" if index < 5 else "New Lead"
 			)
 			make_crm_lead(BDE2, f"Cold {index}", source="SL Cold Call")
 		referral = make_crm_lead(BDE, "Referred", source="SL Referral", mobile_no="9847000003")
@@ -235,7 +235,7 @@ class TestCallToday(SmartLeadsTestCase):
 		touched = make_crm_lead(BDE, "Touched Today", mobile_no="9847000106")
 		make_lead_note(touched, "Spoke this morning")
 		junk = make_crm_lead(BDE, "Junk", mobile_no="9847000107")
-		change_lead_status(junk, "Junk", lost_reason="Other", lost_notes="Spam")
+		change_lead_status(junk, "Closed – Lost", lost_reason="Other", lost_notes="Spam")
 		other = make_crm_lead(BDE2, "Not Mine", mobile_no="9847000108")
 
 		frappe.set_user(BDE)
@@ -507,14 +507,14 @@ class TestTriage(SmartLeadsTestCase):
 			"CRM Task", {"reference_docname": call_again}, ["tbo_task_type", "assigned_to"], as_dict=True
 		)
 		self.assertEqual((task.tbo_task_type, task.assigned_to), ("Sales follow-up", BDE))
-		self.assertEqual(frappe.db.get_value("CRM Lead", closing, "status"), "New")
+		self.assertEqual(frappe.db.get_value("CRM Lead", closing, "status"), "New Lead")
 		self.assertFalse(frappe.db.exists("CRM Task", {"reference_docname": closing}))
 		self.assertRaises(frappe.ValidationError, api.apply_triage, run["name"])
 
-		closed = api.close_triage_leads(run["name"], json.dumps([closing]), "Junk")
+		closed = api.close_triage_leads(run["name"], json.dumps([closing]), "Closed – Lost")
 		self.assertEqual(closed["closed"], [closing])
 		self.assertEqual(
-			frappe.db.get_value("CRM Lead", closing, ["status", "lost_reason"]), ("Junk", "Other")
+			frappe.db.get_value("CRM Lead", closing, ["status", "lost_reason"]), ("Closed – Lost", "Other")
 		)
 
 	def test_dates_follow_capacity(self):
@@ -585,7 +585,7 @@ class TestNotes(SmartLeadsTestCase):
 		self.assertEqual(draft["note"], "wants licences for the team")
 		self.assertTrue(draft["warnings"])
 		self.assertIsNone(draft["follow_up_on"])
-		self.assertEqual(draft["next_status"], "New")
+		self.assertEqual(draft["next_status"], "New Lead")
 
 	def test_save_confirmed_call_with_status_and_follow_up(self):
 		frappe.set_user(BDE)
