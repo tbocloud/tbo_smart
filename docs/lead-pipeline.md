@@ -346,15 +346,15 @@ ERPNext's own masters wherever they fit (`presets.py`):
 They are managed in the CRM (**Settings → TBO → Lead pipeline → Quotation catalogue**): new and
 edited packages, and each service's rate. **Only the roles in "Roles that edit presets and
 prices"** (`quotation_preset_roles`, default Sales Manager and System Manager) may change them;
-the API refuses everyone else. A package name must be unique.
+the API refuses everyone else. A package name must be unique, also when one is renamed.
 
 ### 9.3 Status tracking (`tbo_quote_status`)
 
 | Status | Set by |
 | --- | --- |
 | Draft | A draft with nothing waiting |
-| Pending Approval | A draft with an open discount/commission request (reuses TBO Quotation Adjustment; kept in step on save, submit and every request or decision) |
-| Approved | A draft whose above-limit adjustment is granted, or a submitted one not sent yet |
+| Pending Approval | A draft with an open discount/commission request that is still needed (reuses TBO Quotation Adjustment; kept in step on save, submit and every request or decision). Once the discount is lowered within the limit it stops blocking. |
+| Approved | A draft whose above-limit adjustment was granted by an approver (not one applied within the person's own limit), or a submitted one not sent yet |
 | Sent to Client | **Mark sent** (below) |
 | Viewed / Acknowledged | By hand, from Sent |
 | Under Negotiation | By hand, from Sent, Viewed or Revision Required |
@@ -383,7 +383,8 @@ copy rather than ERPNext's amend: amend needs a cancelled document, and the earl
 stay valid and visible. Every version stays linked to the lead. **Revision history**
 (`get_revisions`) lists the family with, for each, what changed from the one before: grand total,
 discount %, lines added, removed and changed (qty, rate), terms changed, validity. Only the
-latest revision can be sent.
+latest revision can be sent (the API refuses an older one); the diff also flags a line whose
+description changed.
 
 ### 9.5 Won: the deal, re-linking and the Sales Order
 
@@ -392,7 +393,8 @@ latest revision can be sent.
   become *Quotation To* CRM Deal with the deal as party. The deal's Finance tab then lists them,
   and ERPNext finds the deal's customer.
 - **Convert to Sales Order** (`make_sales_order`): only an **Accepted** quotation of a won lead,
-  only for people who may create Sales Orders. Frappe CRM creates the deal's ERPNext customer when
+  only for people who may create Sales Orders. When the client's Customer was made for an earlier
+  deal (so its `crm_deal` names that deal), the order still gets it. Frappe CRM creates the deal's ERPNext customer when
   missing (ERPNext CRM Settings must be on, and ERPNext's CRM Settings → Frappe CRM data
   synchronization), then ERPNext's own mapper makes a **draft** Sales Order; the finance
   workflow's pending-approval guard runs on its validate.
