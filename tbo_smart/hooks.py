@@ -155,8 +155,16 @@ doc_events = {
 	},
 	"Quotation": {
 		"validate": "tbo_smart.quotation_control.validate",
-		"on_update": ["tbo_smart.quotation_control.on_update", "tbo_smart.finance.stage.stage_changed"],
-		"on_submit": ["tbo_smart.quotation_control.on_submit", "tbo_smart.finance.stage.stage_changed"],
+		"on_update": [
+			"tbo_smart.quotation_control.on_update",
+			"tbo_smart.finance.stage.stage_changed",
+			"tbo_smart.lead_pipeline.quotations.quotation_changed",
+		],
+		"on_submit": [
+			"tbo_smart.quotation_control.on_submit",
+			"tbo_smart.finance.stage.stage_changed",
+			"tbo_smart.lead_pipeline.quotations.quotation_changed",
+		],
 		"on_cancel": "tbo_smart.finance.stage.stage_changed",
 		"on_trash": "tbo_smart.finance.stage.stage_changed",
 	},
@@ -195,6 +203,8 @@ doc_events = {
 	"FCRM Note": {"after_insert": "tbo_smart.smart_leads.scoring.activity_changed"},
 	"CRM Call Log": {"after_insert": "tbo_smart.smart_leads.scoring.activity_changed"},
 	"CRM Task": {"on_update": "tbo_smart.smart_leads.scoring.activity_changed"},
+	# Lead quotations: an approval request or decision changes the quotation's draft state
+	"TBO Quotation Adjustment": {"on_update": "tbo_smart.lead_pipeline.quotations.adjustment_changed"},
 	"Bank Transaction": {
 		"before_insert": "tbo_smart.finance.reconciliation.line_before_insert",
 		"after_insert": "tbo_smart.finance.reconciliation.line_after_insert",
@@ -216,6 +226,7 @@ scheduler_events = {
 		"tbo_smart.finance.transfers.flag_pending_transfers",
 		"tbo_smart.finance.reconciliation.flag_unmatched_lines",
 		"tbo_smart.smart_leads.scoring.score_all",
+		"tbo_smart.lead_pipeline.quotations.expire_quotations",
 	],
 	"cron": {
 		# Phase 2 (receivables): digest at 08:00, reminders at 09:00, site time

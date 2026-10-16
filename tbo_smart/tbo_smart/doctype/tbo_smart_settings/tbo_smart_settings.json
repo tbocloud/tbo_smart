@@ -91,6 +91,15 @@
   "column_break_lead_pipeline",
   "meeting_reminder_minutes",
   "pipeline_retired_statuses",
+  "lead_quotations_section",
+  "enable_lead_quotations",
+  "quotation_validity_days",
+  "quotation_follow_up_days",
+  "column_break_lead_quotations",
+  "quotation_terms",
+  "quotation_payment_terms",
+  "quotation_print_format",
+  "quotation_preset_roles",
   "checkin_section",
   "enforce_checkin_radius",
   "checkin_locations",
@@ -663,6 +672,67 @@
    "read_only": 1
   },
   {
+   "fieldname": "lead_quotations_section",
+   "fieldtype": "Section Break",
+   "label": "Lead quotations"
+  },
+  {
+   "default": "0",
+   "description": "Quotations built on the lead from presets, with status tracking, revisions and a TBO PDF. Needs the lead pipeline.",
+   "fieldname": "enable_lead_quotations",
+   "fieldtype": "Check",
+   "label": "Quotations on the lead"
+  },
+  {
+   "default": "30",
+   "depends_on": "eval:doc.enable_lead_quotations",
+   "fieldname": "quotation_validity_days",
+   "fieldtype": "Int",
+   "label": "Quotation valid for (days)"
+  },
+  {
+   "default": "3",
+   "depends_on": "eval:doc.enable_lead_quotations",
+   "description": "After a quotation is sent, a follow-up task this many days later.",
+   "fieldname": "quotation_follow_up_days",
+   "fieldtype": "Int",
+   "label": "Follow up a sent quotation after (days)"
+  },
+  {
+   "fieldname": "column_break_lead_quotations",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:doc.enable_lead_quotations",
+   "fieldname": "quotation_terms",
+   "fieldtype": "Link",
+   "label": "Default terms and conditions",
+   "options": "Terms and Conditions"
+  },
+  {
+   "depends_on": "eval:doc.enable_lead_quotations",
+   "fieldname": "quotation_payment_terms",
+   "fieldtype": "Link",
+   "label": "Default payment terms",
+   "options": "Payment Terms Template"
+  },
+  {
+   "default": "TBO Quotation",
+   "depends_on": "eval:doc.enable_lead_quotations",
+   "fieldname": "quotation_print_format",
+   "fieldtype": "Link",
+   "label": "Quotation print format",
+   "options": "Print Format"
+  },
+  {
+   "default": "Sales Manager\nSystem Manager",
+   "depends_on": "eval:doc.enable_lead_quotations",
+   "description": "One role per line. Only these roles edit packages and service prices.",
+   "fieldname": "quotation_preset_roles",
+   "fieldtype": "Small Text",
+   "label": "Roles that edit presets and prices"
+  },
+  {
    "fieldname": "checkin_section",
    "fieldtype": "Section Break",
    "label": "Check-in location"
@@ -718,7 +788,7 @@
  "index_web_pages_for_search": 0,
  "issingle": 1,
  "links": [],
- "modified": "2026-10-16 09:00:00.000000",
+ "modified": "2026-10-16 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Smart Settings",

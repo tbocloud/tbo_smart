@@ -1,0 +1,135 @@
+{%- set company = frappe.get_doc("Company", doc.company) -%}
+{%- set address_name = doc.get("company_address") or frappe.db.get_value("Dynamic Link", {"link_doctype": "Company", "link_name": doc.company, "parenttype": "Address"}, "parent") -%}
+{%- set address = frappe.db.get_value("Address", address_name, ["address_line1", "address_line2", "city", "state", "pincode", "phone", "email_id"], as_dict=True) if address_name else None -%}
+{%- set lead = frappe.db.get_value("CRM Lead", doc.tbo_crm_lead, ["lead_name", "organization", "email", "mobile_no"], as_dict=True) if doc.get("tbo_crm_lead") else None -%}
+{%- set package = frappe.db.get_value("TBO Quotation Package", doc.tbo_package, ["package_name", "project_duration"], as_dict=True) if doc.get("tbo_package") else None -%}
+<style>
+	.tbo-q { font-family: "Inter", "Helvetica Neue", Arial, sans-serif; color: #1f2329; font-size: 12px; line-height: 1.5; }
+	/* tables, not flex: the PDF renderer (wkhtmltopdf) lays out tables reliably */
+	.tbo-q table.head { width: 100%; border-collapse: collapse; border-bottom: 2px solid #3a748d; }
+	.tbo-q table.head td { vertical-align: top; padding: 0 0 12px; }
+	.tbo-q .logo { max-height: 56px; max-width: 200px; }
+	.tbo-q .company { text-align: right; color: #3d434b; }
+	.tbo-q .company b { color: #1f2329; font-size: 14px; }
+	.tbo-q h1 { font-size: 20px; margin: 18px 0 4px; color: #1f2329; font-weight: 600; }
+	.tbo-q .muted { color: #6b717a; }
+	.tbo-q table.meta { width: 100%; border-collapse: collapse; margin: 12px 0 18px; }
+	.tbo-q table.meta td { vertical-align: top; padding: 0 24px 0 0; }
+	.tbo-q .label { display: block; color: #6b717a; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; }
+	.tbo-q table.lines { width: 100%; border-collapse: collapse; margin-top: 6px; }
+	.tbo-q table.lines th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: #6b717a; border-bottom: 1px solid #d4d8de; padding: 6px 4px; }
+	.tbo-q table.lines td { border-bottom: 1px solid #eceef1; padding: 8px 4px; vertical-align: top; }
+	.tbo-q .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+	.tbo-q .totals { width: 280px; margin-left: auto; margin-top: 12px; border-collapse: collapse; }
+	.tbo-q .totals td { padding: 4px; }
+	.tbo-q .totals .grand td { border-top: 2px solid #3a748d; font-weight: 600; font-size: 14px; padding-top: 8px; }
+	.tbo-q .section { margin-top: 20px; }
+	.tbo-q .section h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: #3a748d; margin: 0 0 6px; }
+</style>
+<div class="tbo-q">
+	<table class="head"><tr>
+		<td>
+			{%- if company.company_logo %}<img class="logo" src="{{ company.company_logo }}" alt="{{ company.company_name }}">{% else %}<b style="font-size:18px">{{ company.company_name }}</b>{% endif -%}
+		</td>
+		<td class="company">
+			{%- if company.company_logo %}<b>{{ company.company_name }}</b><br>{% endif %}
+			{%- if address %}
+			{{ address.address_line1 or "" }}{% if address.address_line2 %}, {{ address.address_line2 }}{% endif %}<br>
+			{{ address.city or "" }}{% if address.state %}, {{ address.state }}{% endif %} {{ address.pincode or "" }}<br>
+			{% if address.phone %}{{ address.phone }}{% endif %}{% if address.email_id %} · {{ address.email_id }}{% endif %}
+			{%- endif %}
+			{%- if company.tax_id %}<br>{{ _("GSTIN") }} {{ company.tax_id }}{% endif %}
+		</td>
+	</tr></table>
+
+	<h1>{{ _("Quotation") }} <span class="muted" style="font-weight:400">{{ doc.name }}{% if doc.get("tbo_revision_no") %} · {{ _("Revision {0}").format(doc.tbo_revision_no) }}{% endif %}</span></h1>
+
+	<table class="meta"><tr>
+		<td>
+			<div class="label">{{ _("For") }}</div>
+			<b>{{ doc.customer_name or (lead and (lead.organization or lead.lead_name)) or doc.party_name }}</b>
+			{%- if lead and lead.organization and lead.lead_name %}<br>{{ lead.lead_name }}{% endif %}
+			{%- if lead and lead.email %}<br>{{ lead.email }}{% endif %}
+			{%- if lead and lead.mobile_no %}<br>{{ lead.mobile_no }}{% endif %}
+		</td>
+		<td>
+			<div class="label">{{ _("Date") }}</div>
+			{{ frappe.utils.formatdate(doc.transaction_date) }}
+		</td>
+		<td>
+			<div class="label">{{ _("Valid till") }}</div>
+			{{ frappe.utils.formatdate(doc.valid_till) if doc.valid_till else "–" }}
+		</td>
+		{%- if package and package.project_duration %}
+		<td>
+			<div class="label">{{ _("Project duration") }}</div>
+			{{ package.project_duration }}
+		</td>
+		{%- endif %}
+	</tr></table>
+
+	<table class="lines">
+		<thead>
+			<tr>
+				<th style="width:4%">#</th>
+				<th>{{ _("Service") }}</th>
+				<th class="num" style="width:8%">{{ _("Qty") }}</th>
+				<th class="num" style="width:14%">{{ _("Rate") }}</th>
+				<th class="num" style="width:10%">{{ _("Discount") }}</th>
+				<th class="num" style="width:16%">{{ _("Amount") }}</th>
+			</tr>
+		</thead>
+		<tbody>
+			{%- for row in doc.items %}
+			<tr>
+				<td class="muted">{{ row.idx }}</td>
+				<td><b>{{ row.item_name }}</b>{% if row.description and (row.description | striptags) != row.item_name %}<br><span class="muted">{{ row.description }}</span>{% endif %}</td>
+				<td class="num">{{ row.get_formatted("qty") }}</td>
+				<td class="num">{{ row.get_formatted("price_list_rate") if row.price_list_rate else row.get_formatted("rate") }}</td>
+				<td class="num">{{ (row.discount_percentage | round(2)) ~ "%" if row.discount_percentage else "–" }}</td>
+				<td class="num">{{ row.get_formatted("amount") }}</td>
+			</tr>
+			{%- endfor %}
+		</tbody>
+	</table>
+
+	<table class="totals">
+		<tr><td>{{ _("Subtotal") }}</td><td class="num">{{ doc.get_formatted("total") }}</td></tr>
+		{%- if doc.discount_amount %}
+		<tr><td>{{ _("Discount") }}{% if doc.additional_discount_percentage %} ({{ doc.additional_discount_percentage | round(2) }}%){% endif %}</td><td class="num">−{{ doc.get_formatted("discount_amount") }}</td></tr>
+		{%- endif %}
+		{%- for tax in doc.taxes %}
+		<tr><td>{{ tax.description }}</td><td class="num">{{ tax.get_formatted("tax_amount") }}</td></tr>
+		{%- endfor %}
+		<tr class="grand"><td>{{ _("Grand total") }}</td><td class="num">{{ doc.get_formatted("grand_total") }}</td></tr>
+	</table>
+	{%- if doc.in_words %}<p class="muted" style="text-align:right">{{ doc.in_words }}</p>{% endif %}
+
+	{%- if doc.payment_schedule %}
+	<div class="section">
+		<h2>{{ _("Payment terms") }}</h2>
+		<table class="lines">
+			<thead><tr><th>{{ _("Term") }}</th><th class="num">{{ _("Share") }}</th><th class="num">{{ _("Due") }}</th><th class="num">{{ _("Amount") }}</th></tr></thead>
+			<tbody>
+				{%- for term in doc.payment_schedule %}
+				<tr>
+					<td>{{ term.description or term.payment_term or _("Payment") }}</td>
+					<td class="num">{{ term.invoice_portion | round(2) }}%</td>
+					<td class="num">{{ frappe.utils.formatdate(term.due_date) }}</td>
+					<td class="num">{{ term.get_formatted("payment_amount") }}</td>
+				</tr>
+				{%- endfor %}
+			</tbody>
+		</table>
+	</div>
+	{%- endif %}
+
+	{%- if doc.terms %}
+	<div class="section">
+		<h2>{{ _("Terms and conditions") }}</h2>
+		<div>{{ doc.terms }}</div>
+	</div>
+	{%- endif %}
+
+	<p class="muted section">{{ _("This quotation is valid till {0}.").format(frappe.utils.formatdate(doc.valid_till)) if doc.valid_till else "" }}</p>
+</div>

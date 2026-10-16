@@ -126,6 +126,10 @@ class TBOSmartSettings(Document):
 	def validate_pipeline_numbers(self):
 		if self.meeting_reminder_minutes and not 15 <= cint(self.meeting_reminder_minutes) <= 1440:
 			frappe.throw(_("The meeting reminder must be between 15 minutes and a day before."))
+		for fieldname in ("quotation_validity_days", "quotation_follow_up_days"):
+			if cint(self.get(fieldname)) < 0:
+				frappe.throw(_("{0} can't be negative.").format(_(self.meta.get_label(fieldname))))
+		self.quotation_preset_roles = self.clean_roles(self.quotation_preset_roles)
 
 	def forget_ai_failures(self):
 		"""A fixed key or model is tried at once, not after the 30-minute pause."""

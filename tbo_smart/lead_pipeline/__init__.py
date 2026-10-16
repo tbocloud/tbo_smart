@@ -27,6 +27,16 @@ def pipeline_enabled() -> bool:
 	return crm_installed() and bool(cint(setting("enable_lead_pipeline")))
 
 
+def quotations_enabled() -> bool:
+	"""TBO Smart Settings → Quotations on the lead (needs the lead pipeline on)."""
+	return pipeline_enabled() and bool(cint(setting("enable_lead_quotations")))
+
+
 def require_pipeline() -> None:
 	if not pipeline_enabled():
 		frappe.throw(frappe._("The lead pipeline is not switched on."), frappe.ValidationError)
+
+
+def require_quotations() -> None:
+	if not quotations_enabled():
+		frappe.throw(frappe._("Quotations on the lead are not switched on."), frappe.ValidationError)
