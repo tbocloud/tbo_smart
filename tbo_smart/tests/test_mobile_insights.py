@@ -113,7 +113,7 @@ class TestSalesInsights(FrappeTestCase):
 		cls.stalled = make_crm_deal(SELLER_MANAGER, "Negotiation", 2000)
 		age_document("CRM Deal", cls.stalled, 30)
 		cls.lead = make_crm_lead(SELLER_MANAGER, "Funnel One")
-		make_crm_lead(SELLER_MANAGER, "Funnel Two", status="Qualified")
+		make_crm_lead(SELLER_MANAGER, "Funnel Two", status="Closed – Won")
 
 	@classmethod
 	def tearDownClass(cls):

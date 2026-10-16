@@ -14,7 +14,6 @@ import frappe
 from crm.api.activities import get_linked_notes, get_linked_tasks
 from crm.api.comment import add_comment
 from crm.api.dashboard import TimestampDiff
-from crm.fcrm.doctype.crm_lead.crm_lead import convert_to_deal
 from frappe import _
 from frappe.desk.form.assign_to import add as add_assignment
 from frappe.query_builder import Case
@@ -53,6 +52,7 @@ from tbo_smart.api.mobile.utils import (
 	period_windows,
 	trend_index,
 )
+from tbo_smart.lead_pipeline.won import convert_to_deal
 from tbo_smart.smart_leads import scoring_enabled
 from tbo_smart.smart_leads.call_today import build_call_today
 
@@ -560,13 +560,26 @@ def describe_duplicates(matches: list[dict]) -> str:
 
 
 @frappe.whitelist(methods=["POST"])
-def set_lead_status(name: str, status: str) -> dict:
+def set_lead_status(name: str, status: str, lost_reason: str | None = None) -> dict:
+	"""Change a lead's status. A Lost-type status (Closed – Lost) needs a reason, as for deals."""
 	require_crm()
+	lead = apply_lead_status(name, status, lost_reason)
+	return {"name": lead.name, "status": lead.status, "lost_reason": lead.lost_notes or lead.lost_reason}
+
+
+def apply_lead_status(name: str, status: str, lost_reason: str | None = None):
+	"""Save a lead's new status under the session user's permissions; a Lost-type status needs a
+	reason (set_lost_reason). Returns the lead."""
 	lead = frappe.get_doc("CRM Lead", name)
 	lead.check_permission("write")
+	status_type = frappe.db.get_value("CRM Lead Status", status, "type")
+	if not status_type:
+		frappe.throw(_("{0} is not a lead status.").format(status))
 	lead.status = status
+	if status_type == "Lost":
+		set_lost_reason(lead, lost_reason, _("Give a reason for losing the lead."))
 	lead.save()
-	return {"name": lead.name, "status": lead.status}
+	return lead
 
 
 @frappe.whitelist(methods=["POST"])
@@ -578,6 +591,7 @@ def convert_lead(name: str) -> dict:
 	"""
 	require_crm()
 	frappe.has_permission("CRM Lead", "write", name, throw=True)
+	# with the lead pipeline on, only a Closed – Won lead gets its deal (docs/lead-pipeline.md §6)
 	deal = frappe.db.get_value("CRM Deal", {"lead": name}, "name") or convert_to_deal(lead=name)
 	return get_deal(deal)
 
@@ -674,15 +688,21 @@ def move_deal_stage(name: str, stage: str, lost_reason: str | None = None) -> di
 		frappe.throw(_("{0} is not a deal stage.").format(stage))
 	deal.status = stage
 	if stage_type == "Lost":
-		reason = (lost_reason or "").strip()
-		if not reason:
-			frappe.throw(_("Give a reason for losing the deal."))
-		if frappe.db.exists("CRM Lost Reason", reason):
-			deal.lost_reason, deal.lost_notes = reason, None
-		else:
-			deal.lost_reason, deal.lost_notes = "Other", reason
+		set_lost_reason(deal, lost_reason, _("Give a reason for losing the deal."))
 	deal.save()
 	return get_deal(deal.name)
+
+
+def set_lost_reason(doc, lost_reason: str | None, missing: str) -> None:
+	"""A reason that matches a CRM Lost Reason is used as is; free text is saved as lost reason
+	"Other" with the text in lost notes, which is what CRM asks for."""
+	reason = (lost_reason or "").strip()
+	if not reason:
+		frappe.throw(missing)
+	if frappe.db.exists("CRM Lost Reason", reason):
+		doc.lost_reason, doc.lost_notes = reason, None
+	else:
+		doc.lost_reason, doc.lost_notes = "Other", reason
 
 
 def serialize_deals(deals: list) -> list[dict]:

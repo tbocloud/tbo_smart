@@ -1,0 +1,52 @@
+{
+  "message": {
+    "lead": "CRM-LEAD-2026-00141",
+    "status": "Meeting Scheduled",
+    "status_type": "Ongoing",
+    "deal": null,
+    "can_write": true,
+    "ai": true,
+    "summary": {
+      "last_meeting_on": null,
+      "next_activity": {
+        "kind": "meeting",
+        "at": "2026-10-17 11:00:00",
+        "label": "1st meeting",
+        "meeting": "TBO-MTG-2026-00012"
+      },
+      "meetings_completed": 0,
+      "needs_follow_up": {
+        "flag": false,
+        "reasons": []
+      }
+    },
+    "meetings": [
+      {
+        "name": "TBO-MTG-2026-00012",
+        "stage": 1,
+        "stage_label": "1st meeting",
+        "status": "Scheduled",
+        "meeting_type": "Online",
+        "meeting_link": "https://teams.microsoft.com/l/meetup-join/19%3ameeting",
+        "location": null,
+        "scheduled_at": "2026-10-17 11:00:00",
+        "ends_at": "2026-10-17 12:00:00",
+        "duration_minutes": 60,
+        "participants": "Ajith (owner), Shahana K (TBO)",
+        "bde": "shahana@teambackoffice.com",
+        "bde_name": "Shahana K",
+        "summary": "",
+        "client_interest": null,
+        "next_follow_up_on": null,
+        "actions_open": 0,
+        "actions_total": 0,
+        "submitted_on": null,
+        "prepared_by_name": null,
+        "mom_pending_since": null,
+        "escalation_level": 0,
+        "follow_up_task": null,
+        "next_meeting": null
+      }
+    ]
+  }
+}

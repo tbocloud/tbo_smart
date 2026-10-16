@@ -20,6 +20,7 @@ from frappe.utils import add_days, add_to_date, cint, flt, getdate, now_datetime
 
 from tbo_smart import ai
 from tbo_smart.api.mobile.crm import add_follow_up_task
+from tbo_smart.lead_pipeline.statuses import CLOSED_LOST, NEW_LEAD
 from tbo_smart.smart_leads import FOLLOW_UP_TYPE, OPEN_STATUSES, setting
 from tbo_smart.smart_leads.facts import LeadFacts
 from tbo_smart.smart_leads.notes import set_lead_status
@@ -32,7 +33,7 @@ BATCH = 20
 MAX_LEADS = 1000
 RECENT_DAYS = 30
 STUCK_HOURS = 2
-CLOSE_STATUSES = ("Junk", "Unqualified")
+CLOSE_STATUSES = (CLOSED_LOST,)
 
 
 def max_leads() -> int:
@@ -118,7 +119,7 @@ def candidates(limit: int) -> list[str]:
 	keep = []
 	for name in facts.names:
 		days = facts.days_since_touch(name)
-		if facts.lead(name).status == "New" or days is None or days >= stale:
+		if facts.lead(name).status == NEW_LEAD or days is None or days >= stale:
 			keep.append(name)
 	order = {name: index for index, name in enumerate(names)}
 	return sorted(keep, key=order.get)[:limit]
@@ -282,7 +283,7 @@ def apply(run: str) -> dict:
 def close_leads(run: str, leads: list[str], status: str) -> dict:
 	"""A person confirms closing some Suggest close leads, under their own permissions."""
 	if status not in CLOSE_STATUSES:
-		frappe.throw(_("Close as Junk or Unqualified."))
+		frappe.throw(_("Close as {0}.").format(CLOSED_LOST))
 	frappe.db.get_value(DOCTYPE, run, "status", for_update=True)
 	doc = frappe.get_doc(DOCTYPE, run)
 	rows = {row.lead: row for row in doc.rows if row.bucket == SUGGEST_CLOSE}

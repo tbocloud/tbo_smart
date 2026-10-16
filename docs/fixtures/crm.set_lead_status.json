@@ -1,6 +1,7 @@
 {
   "message": {
     "name": "CRM-LEAD-2026-00141",
-    "status": "Contacted"
+    "status": "Contacted",
+    "lost_reason": null
   }
 }

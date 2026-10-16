@@ -131,7 +131,7 @@ def save_note(
 
 
 def set_lead_status(lead: str, status: str, notes: str | None = None) -> str:
-	"""Change a lead's status as the session user. A Lost-type status (Junk, Unqualified) needs
+	"""Change a lead's status as the session user. A Lost-type status (Closed – Lost) needs
 	CRM's lost reason: "Other" with the notes, unless the lead already has one."""
 	if not frappe.db.exists("CRM Lead Status", status):
 		frappe.throw(_("{0} is not a lead status.").format(status))

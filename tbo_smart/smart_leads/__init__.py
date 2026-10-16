@@ -17,10 +17,11 @@ from frappe.utils import cint
 
 from tbo_smart.finance import crm_installed
 
+# The statuses a salesperson still works on: every pipeline status but Closed – Won and Closed –
+# Lost (docs/lead-pipeline.md §2). Closed leads are never scored for calling, flagged or triaged.
+from tbo_smart.lead_pipeline.statuses import OPEN_STATUSES
+
 SETTINGS = "TBO Smart Settings"
-# The statuses a salesperson still works on (the owner's list). Leads in any other status
-# (Unqualified, Junk, Converted) are never scored for calling, flagged or triaged.
-OPEN_STATUSES = ("New", "Contacted", "Nurture", "Qualified")
 FOLLOW_UP_TYPE = "Sales follow-up"
 CLOSED_TASK_STATUSES = ("Done", "Canceled")
 # designation roles from the quotation approval feature (tbo_smart.install.QUOTATION_LEVELS)

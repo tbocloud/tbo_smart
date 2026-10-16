@@ -1,4 +1,4 @@
-# Smart leads: scoring, Call today, follow-ups and AI notes (living spec, v1.0)
+# Smart leads: scoring, Call today, follow-ups and AI notes (living spec, v1.1)
 
 **Status:** built 2026-10-15, every feature off by default. This file is the living spec: it
 describes what is built, and every change to the feature updates it in the same pull request.
@@ -146,9 +146,9 @@ read these facts.
 
 | Part | Points |
 | --- | --- |
-| Status | Qualified 30, Contacted 18, Nurture 12, New 10 |
+| Status | The pipeline statuses, further along scoring higher: New Lead 10, Contacted 18, Follow-up Required 16, Positive / Interested 22, On Hold 4, Meeting Scheduled 24, First / Second / Third Meeting Completed 26 / 28 / 30, Proposal Sent 32, Negotiation 34 (`lead-pipeline.md` §2) |
 | Status changed in the last 30 days | +8 forward, −3 back to an earlier status (CRM Lead Status position) |
-| Source's conversion rate here | up to +12, against the best source (sources with 10+ leads; converted = `converted` or status Converted) |
+| Source's conversion rate here | up to +12, against the best source (sources with 10+ leads; converted = `converted` or Closed – Won, where the migrated Converted leads went) |
 | Project type's conversion rate (migration note) | up to +6, the same way |
 | Last touch | ≤3 days +15, ≤7 +10, ≤14 +6, ≤30 +3 |
 | Age (original created date) | ≤7 days +12, ≤30 +8, ≤90 +4, ≤365 +1 |
@@ -157,8 +157,9 @@ read these facts.
 | Follow-up overdue | +5 |
 | No phone and no email | −20 |
 
-Closed leads (any status but New, Contacted, Nurture, Qualified, or converted) score 0, Cold,
-"Closed (Junk)". Bands: **Hot ≥ 55, Warm ≥ 30, Cold** below. The reason line is the status,
+Closed leads (Closed – Won, Closed – Lost, or converted) score 0, Cold, "Closed (Closed –
+Lost)"; the open statuses are `OPEN_STATUSES` in `tbo_smart/lead_pipeline/statuses.py`, the one
+list scoring, Call today, the follow-up engine and the triage read. Bands: **Hot ≥ 55, Warm ≥ 30, Cold** below. The reason line is the status,
 then the parts that moved the score most, e.g. "Contacted · was Interested before the migration
 · Website leads convert 9% · last touch 6 days ago". Conversion rates are cached 6 hours and
 recomputed at the start of the nightly run.
@@ -264,7 +265,9 @@ the same object as the web page; fixture `docs/fixtures/crm.get_call_today.json`
   follow-up moves). Once per level.
 - **Daily digest, 09:30 site time** (cron `30 9 * * *`, working days): each person gets one
   message with Overdue (with its level), Due today, Re-engage and No follow-up, eight lines per
-  group, best score first, and a link to Call today. **Decision:** "due today" reminders are the
+  group, best score first, and a link to Call today. With the lead pipeline on, it also lists the
+  person's **meetings today** and **MOM pending** (`lead-pipeline.md` §5.4), and a BDE with only
+  meetings gets it too. **Decision:** "due today" reminders are the
   digest itself, not one notification per lead: with 848 New leads, per-lead notifications would
   bury people.
   - **Teams** through the **Teams DM workflow URL** (TBO Smart Settings, Password): the same
@@ -298,7 +301,7 @@ on, a provider set up), recorded as a **TBO Lead Triage** with **TBO Lead Triage
 A run left Queued or Running for 2 hours (its job died) is marked Failed when someone starts a
 new preview.
 3. **Suggest close** leads are only listed. A person ticks the ones they agree with and confirms
-   **Close as Junk / Unqualified** (`close_triage_leads`): the status is saved under their own
+   **Close as Closed – Lost** (`close_triage_leads`): the status is saved under their own
    permissions with lost reason "Other" and the AI's reason in the lost notes. **The triage
    never closes a lead by itself.**
 
@@ -314,7 +317,7 @@ skips the leads already triaged.
   else none) with a reason. **Nothing is written.** The user edits and confirms (`save_note`):
   an FCRM Note, or a CRM Call Log with its note (a call by someone with no mobile number on
   their profile is saved as a note "Call: …"); a call closes their own follow-ups on the lead
-  due by now; the status change (Junk / Unqualified get lost reason "Other" with the note); and
+  due by now; the status change (Closed – Lost gets lost reason "Other" with the note); and
   the next follow-up as a "Sales follow-up" task assigned to them. **Save as written** works
   without the AI, and the box works with AI notes off (it then just saves).
 - **Lead brief:** three lines (who and what they want; what happened; what to do next) from the
@@ -400,5 +403,8 @@ commit, so test users stay, and the suite now creates more than 60 on a fresh si
 
 ## Changelog
 
+- **v1.1 (2026-10-16):** the lead pipeline statuses (`lead-pipeline.md`): status points, the
+  open statuses and the triage's Closed – Lost; the morning digest adds meetings today and
+  pending minutes while the pipeline is on.
 - **v1.0 (2026-10-15):** first build: AI providers, scoring and Call today, follow-ups with the
   ladder and digest, AI notes, brief and WhatsApp, the triage, mobile `get_call_today`.

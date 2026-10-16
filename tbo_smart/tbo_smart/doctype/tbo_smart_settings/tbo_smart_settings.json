@@ -86,6 +86,11 @@
   "enable_lead_triage",
   "triage_max_leads",
   "triage_daily_capacity",
+  "lead_pipeline_section",
+  "enable_lead_pipeline",
+  "column_break_lead_pipeline",
+  "meeting_reminder_minutes",
+  "pipeline_retired_statuses",
   "checkin_section",
   "enforce_checkin_radius",
   "checkin_locations",
@@ -626,6 +631,38 @@
    "label": "Triage: follow-ups per person per day"
   },
   {
+   "fieldname": "lead_pipeline_section",
+   "fieldtype": "Section Break",
+   "label": "Lead pipeline"
+  },
+  {
+   "default": "0",
+   "description": "Meetings and MOM on the lead, automatic lead statuses, and the deal created at Closed – Won.",
+   "fieldname": "enable_lead_pipeline",
+   "fieldtype": "Check",
+   "label": "Lead pipeline: meetings, MOM and automatic statuses"
+  },
+  {
+   "fieldname": "column_break_lead_pipeline",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "60",
+   "depends_on": "eval:doc.enable_lead_pipeline",
+   "description": "The BDE is reminded this many minutes before a meeting (15 to 1,440).",
+   "fieldname": "meeting_reminder_minutes",
+   "fieldtype": "Int",
+   "label": "Meeting reminder (minutes before)"
+  },
+  {
+   "description": "The old lead statuses retired by the pipeline migration, kept to undo it.",
+   "fieldname": "pipeline_retired_statuses",
+   "fieldtype": "Long Text",
+   "hidden": 1,
+   "label": "Retired lead statuses",
+   "read_only": 1
+  },
+  {
    "fieldname": "checkin_section",
    "fieldtype": "Section Break",
    "label": "Check-in location"
@@ -681,7 +718,7 @@
  "index_web_pages_for_search": 0,
  "issingle": 1,
  "links": [],
- "modified": "2026-10-15 10:00:00.000000",
+ "modified": "2026-10-16 09:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Smart Settings",

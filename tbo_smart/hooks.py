@@ -185,7 +185,13 @@ doc_events = {
 	},
 	"Journal Entry": {"on_submit": "tbo_smart.finance.allocation.journal_submitted"},
 	# Smart leads (docs/smart-leads.md): re-score a lead when it or its activity changes; no-op while off
-	"CRM Lead": {"on_update": "tbo_smart.smart_leads.scoring.lead_changed"},
+	# Lead pipeline (docs/lead-pipeline.md): the deal at Closed – Won; no-op while off
+	"CRM Lead": {
+		"on_update": [
+			"tbo_smart.smart_leads.scoring.lead_changed",
+			"tbo_smart.lead_pipeline.won.lead_updated",
+		]
+	},
 	"FCRM Note": {"after_insert": "tbo_smart.smart_leads.scoring.activity_changed"},
 	"CRM Call Log": {"after_insert": "tbo_smart.smart_leads.scoring.activity_changed"},
 	"CRM Task": {"on_update": "tbo_smart.smart_leads.scoring.activity_changed"},
@@ -201,6 +207,7 @@ after_migrate = [
 	"tbo_smart.finance.setup.after_migrate",
 	"tbo_smart.checkin.setup.setup_checkin_location",
 	"tbo_smart.smart_leads.setup.after_migrate",
+	"tbo_smart.lead_pipeline.setup.after_migrate",
 ]
 
 scheduler_events = {
@@ -215,20 +222,28 @@ scheduler_events = {
 		"0 8 * * *": ["tbo_smart.finance.digest.send_digest"],
 		"0 9 * * *": ["tbo_smart.finance.reminders.run_reminders"],
 		# Smart leads: escalation notices and the follow-up digest at 09:30, site time
-		"30 9 * * *": ["tbo_smart.smart_leads.follow_ups.run_follow_ups"],
+		"30 9 * * *": [
+			"tbo_smart.smart_leads.follow_ups.run_follow_ups",
+			"tbo_smart.lead_pipeline.meetings.run_meeting_morning",
+		],
+		# Lead pipeline: meetings in progress, MOM pending and reminders
+		"*/15 * * * *": ["tbo_smart.lead_pipeline.meetings.run_meeting_clock"],
 	},
 }
 
 permission_query_conditions = {
 	"TBO Finance Exception": "tbo_smart.finance.access.exception_query_conditions",
+	"TBO Lead Meeting": "tbo_smart.lead_pipeline.meetings.get_permission_query_conditions",
 }
 
 has_permission = {
 	"TBO Finance Exception": "tbo_smart.finance.access.has_exception_permission",
+	"TBO Lead Meeting": "tbo_smart.lead_pipeline.meetings.has_permission",
 }
 
 override_whitelisted_methods = {
-	"crm.fcrm.doctype.erpnext_crm_settings.erpnext_crm_settings.can_create_quotations": "tbo_smart.api.finance.quotation.can_create_desk_quotations"
+	"crm.fcrm.doctype.erpnext_crm_settings.erpnext_crm_settings.can_create_quotations": "tbo_smart.api.finance.quotation.can_create_desk_quotations",
+	"crm.fcrm.doctype.crm_lead.crm_lead.convert_to_deal": "tbo_smart.lead_pipeline.won.convert_to_deal",
 }
 
 # Frappe CRM fork extension points (tbocloud/crm docs/tbo-finance.md)

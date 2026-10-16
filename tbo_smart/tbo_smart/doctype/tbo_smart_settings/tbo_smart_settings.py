@@ -77,6 +77,7 @@ class TBOSmartSettings(Document):
 		self.validate_ai_urls()
 		self.validate_teams_url()
 		self.validate_smart_lead_numbers()
+		self.validate_pipeline_numbers()
 
 	def on_update(self):
 		self.grant_finance_crm_read()
@@ -121,6 +122,10 @@ class TBOSmartSettings(Document):
 				frappe.throw(_("{0} can't be negative.").format(_(self.meta.get_label(fieldname))))
 		if cint(self.triage_max_leads) > 1000:
 			frappe.throw(_("The triage takes at most 1,000 leads per run."))
+
+	def validate_pipeline_numbers(self):
+		if self.meeting_reminder_minutes and not 15 <= cint(self.meeting_reminder_minutes) <= 1440:
+			frappe.throw(_("The meeting reminder must be between 15 minutes and a day before."))
 
 	def forget_ai_failures(self):
 		"""A fixed key or model is tried at once, not after the 30-minute pause."""
