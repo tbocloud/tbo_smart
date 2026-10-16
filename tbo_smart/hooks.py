@@ -260,8 +260,16 @@ override_whitelisted_methods = {
 # Frappe CRM fork extension points (tbocloud/crm docs/tbo-finance.md)
 crm_app_permission = ["tbo_smart.finance.access.has_crm_app_access"]
 crm_unrestricted_access = ["tbo_smart.finance.access.has_unrestricted_crm_access"]
-crm_dashboard_providers = ["tbo_smart.finance.dashboard", "tbo_smart.smart_leads.dashboard"]
-crm_dashboard_layout = ["tbo_smart.finance.dashboard.get_cards", "tbo_smart.smart_leads.dashboard.get_cards"]
+crm_dashboard_providers = [
+	"tbo_smart.finance.dashboard",
+	"tbo_smart.smart_leads.dashboard",
+	"tbo_smart.lead_pipeline.dashboard",
+]
+crm_dashboard_layout = [
+	"tbo_smart.finance.dashboard.get_cards",
+	"tbo_smart.smart_leads.dashboard.get_cards",
+	"tbo_smart.lead_pipeline.dashboard.get_cards",
+]
 
 # doc_events = {
 # 	"*": {
