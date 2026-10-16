@@ -1,4 +1,4 @@
-"""Bank-line verification queue in the CRM (docs/crm-finance-workflow.md §5.3, Phase 4).
+"""Bank-line verification queue (docs/crm-finance-workflow.md §5.3, Phase 4).
 
 Matching stays in ERPNext's Bank Reconciliation Tool (Q10). The CRM lists what is matched but
 not yet verified, and lets a second person verify it.

@@ -18,7 +18,7 @@
   "column_break_2",
   "company",
   "customer",
-  "crm_deal",
+  "opportunity",
   "amounts_section",
   "currency",
   "expected_amount",
@@ -133,10 +133,10 @@
    "in_standard_filter": 1
   },
   {
-   "fieldname": "crm_deal",
+   "fieldname": "opportunity",
    "fieldtype": "Link",
-   "label": "CRM Deal",
-   "options": "CRM Deal"
+   "label": "Deal",
+   "options": "Opportunity"
   },
   {
    "fieldname": "amounts_section",

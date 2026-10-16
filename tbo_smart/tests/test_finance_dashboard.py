@@ -4,13 +4,12 @@ from frappe.utils import get_first_day, get_last_day, nowdate
 
 from tbo_smart.finance import dashboard
 from tbo_smart.test_utils import (
-	delete_crm_records,
-	enable_erpnext_crm,
+	delete_sales_records,
 	enable_finance_workflow,
 	get_dashboard_cards,
-	make_crm_lead,
 	make_deal_invoice,
 	make_finance_deal,
+	make_lead,
 	make_receipt,
 	make_user,
 	reset_finance_settings,
@@ -26,14 +25,13 @@ class TestFinanceDashboard(FrappeTestCase):
 	def setUpClass(cls):
 		super().setUpClass()
 		frappe.set_user("Administrator")
-		enable_erpnext_crm()
 		make_user(BDE, ["Sales User"])
 		make_user(OTHER_BDE, ["Sales User"])
 		make_user(ACCOUNTS, ["Accounts User", "Accounts Manager"])
 
 	def setUp(self):
 		frappe.set_user("Administrator")
-		delete_crm_records((BDE, OTHER_BDE))
+		delete_sales_records((BDE, OTHER_BDE))
 		reset_finance_settings()
 		enable_finance_workflow(enable_finance_dashboard=1, enable_fund_allocation=1, enable_reconciliation=1)
 		self.addCleanup(reset_finance_settings)
@@ -47,7 +45,7 @@ class TestFinanceDashboard(FrappeTestCase):
 		make_deal_invoice(other, rate=900)
 		make_receipt("Sales Invoice", invoice.name, 200)
 		make_deal_invoice(own, rate=50, due_in=-3)
-		make_crm_lead(BDE)
+		make_lead(BDE)
 		frappe.set_user(BDE)
 		cards = get_dashboard_cards(self.window, BDE)
 		self.assertEqual(cards["tbo_invoiced"]["value"], 750)
@@ -62,9 +60,9 @@ class TestFinanceDashboard(FrappeTestCase):
 		make_deal_invoice(deal, rate=300)
 		before = get_dashboard_cards(self.window)["tbo_invoiced"]["value"]
 		plain = make_deal_invoice(deal, rate=1000, submit=False)
-		plain.crm_deal = None
+		plain.opportunity = None
 		plain.submit()
-		self.assertFalse(frappe.db.get_value("Sales Invoice", plain.name, "crm_deal"))
+		self.assertFalse(frappe.db.get_value("Sales Invoice", plain.name, "opportunity"))
 		self.assertEqual(get_dashboard_cards(self.window)["tbo_invoiced"]["value"], before)
 
 	def test_accounts_see_finance_cards(self):

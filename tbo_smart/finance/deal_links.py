@@ -1,7 +1,7 @@
-"""Which CRM Deal a Sales Order, Sales Invoice or Payment Entry belongs to (gap G1).
+"""Which deal (Opportunity) a Sales Order, Sales Invoice or Payment Entry belongs to (gap G1).
 
 The deal is read along the document chain: quotation → sales order → sales invoice, and the
-payment's references for a payment entry. ERPNext's mappers already copy `crm_deal` from a
+payment's references for a payment entry. ERPNext's mappers already copy `opportunity` from a
 quotation or order onto the next document (same fieldname); these resolvers fill it when it
 is missing, for example on a document typed by hand that still references its source.
 """
@@ -10,44 +10,22 @@ import frappe
 
 
 def deals_of_quotations(names) -> dict[str, str]:
-	"""{quotation: deal} for quotations with Frappe CRM's crm_deal, or a CRM Deal as the party."""
-	names = list({name for name in names if name})
-	if not names:
-		return {}
-	Quotation = frappe.qb.DocType("Quotation")
-	rows = (
-		frappe.qb.from_(Quotation)
-		.select(Quotation.name, Quotation.crm_deal, Quotation.quotation_to, Quotation.party_name)
-		.where(Quotation.name.isin(names))
-	).run(as_dict=True)
-	deals = {}
-	for row in rows:
-		deal = row.crm_deal or (row.party_name if row.quotation_to == "CRM Deal" else None)
-		if deal:
-			deals[row.name] = deal
-	return existing_deals(deals)
+	"""{quotation: deal} for quotations linked to a deal (ERPNext's `opportunity`)."""
+	return deals_of("Quotation", names)
 
 
 def deals_of(doctype: str, names) -> dict[str, str]:
-	"""{name: crm_deal} for Sales Orders or Sales Invoices that carry a deal."""
+	"""{name: opportunity} for Quotations, Sales Orders or Sales Invoices that carry a deal."""
 	names = list({name for name in names if name})
 	if not names:
 		return {}
 	Table = frappe.qb.DocType(doctype)
 	rows = (
 		frappe.qb.from_(Table)
-		.select(Table.name, Table.crm_deal)
-		.where(Table.name.isin(names) & Table.crm_deal.isnotnull() & (Table.crm_deal != ""))
+		.select(Table.name, Table.opportunity)
+		.where(Table.name.isin(names) & Table.opportunity.isnotnull() & (Table.opportunity != ""))
 	).run()
 	return dict(rows)
-
-
-def existing_deals(deals: dict[str, str]) -> dict[str, str]:
-	"""Drop mappings to deals that no longer exist (Quotation.crm_deal is a Data field)."""
-	if not deals:
-		return {}
-	found = set(frappe.get_all("CRM Deal", filters={"name": ("in", list(set(deals.values())))}, pluck="name"))
-	return {key: deal for key, deal in deals.items() if deal in found}
 
 
 def single(deals) -> str | None:

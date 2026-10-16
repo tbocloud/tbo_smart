@@ -23,7 +23,7 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Lead",
-   "options": "CRM Lead"
+   "options": "Lead"
   },
   {
    "fieldname": "lead_name",
@@ -75,7 +75,7 @@
    "fieldname": "task",
    "fieldtype": "Link",
    "label": "Follow-up task",
-   "options": "CRM Task"
+   "options": "ToDo"
   },
   {
    "fieldname": "closed_as",

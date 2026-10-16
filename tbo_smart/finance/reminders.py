@@ -29,6 +29,8 @@ from frappe.utils import cint, date_diff, fmt_money, formatdate, getdate, today
 
 from tbo_smart.finance import get_setting, receivables_enabled
 from tbo_smart.finance.setup import DUNNING_TYPES
+from tbo_smart.sales.activities import CLOSED_TASK_STATUSES, OPEN
+from tbo_smart.sales.hierarchy import managers_of
 
 # (step, days past due, escalation level), in order
 STEPS = (("D-3", -3, 0), ("D0", 0, 1), ("D+7", 7, 2), ("D+15", 15, 3), ("D+30", 30, 4))
@@ -43,7 +45,6 @@ CLIENT_TEMPLATES = {
 	WEEKLY: "TBO Payment Reminder",
 }
 DUNNING_STEPS = {"D+15": "Reminder 2", "D+30": "Final Notice"}
-OPEN_TASK = ("Done", "Canceled")
 
 
 def due_step(days_past_due: int, last: str | None, last_on, on_date) -> str | None:
@@ -77,7 +78,7 @@ class ReminderRun:
 	def run(self) -> list[dict]:
 		rows = self.load_rows()
 		exceptions = load_exceptions({row.invoice for row in rows}, self.today)
-		deals = load_deals({row.crm_deal for row in rows if row.crm_deal})
+		deals = load_deals({row.opportunity for row in rows if row.opportunity})
 		for row in rows:
 			due = exceptions.extended.get(row.name) or exceptions.extended.get(row.invoice) or row.due_date
 			if (
@@ -96,7 +97,7 @@ class ReminderRun:
 			savepoint = f"tbo_reminder_{frappe.generate_hash(length=8)}"
 			frappe.db.savepoint(savepoint)
 			try:
-				self.apply(row, step, getdate(due), deals.get(row.crm_deal))
+				self.apply(row, step, getdate(due), deals.get(row.opportunity))
 			except Exception:
 				frappe.db.rollback(save_point=savepoint)
 				frappe.log_error(title=_("TBO reminders: {0} failed for {1}").format(step, row.invoice))
@@ -122,7 +123,7 @@ class ReminderRun:
 				Invoice.company,
 				Invoice.currency,
 				Invoice.contact_email,
-				Invoice.crm_deal,
+				Invoice.opportunity,
 			)
 			.where(
 				(Invoice.docstatus == 1)
@@ -196,7 +197,7 @@ class ReminderRun:
 		)
 		communication = frappe.get_doc("Communication", sent["name"])
 		if deal:
-			communication.add_link("CRM Deal", deal.name)
+			communication.add_link("Opportunity", deal.name)
 			communication.save(ignore_permissions=True)
 		communication.send_email(
 			print_format=frappe.get_meta("Sales Invoice").default_print_format or "Standard"
@@ -204,31 +205,34 @@ class ReminderRun:
 
 	def upsert_task(self, row, owner: str, level: int, deal) -> None:
 		name = frappe.db.get_value(
-			"CRM Task",
+			"ToDo",
 			{
 				"tbo_sales_invoice": row.invoice,
 				"tbo_task_type": "Collection",
-				"status": ("not in", OPEN_TASK),
+				"status": ("not in", CLOSED_TASK_STATUSES),
 			},
 		)
-		task = frappe.get_doc("CRM Task", name) if name else frappe.new_doc("CRM Task")
+		task = frappe.get_doc("ToDo", name) if name else frappe.new_doc("ToDo")
 		task.update(
 			{
-				"title": _("Collect {0} ({1})").format(row.invoice, row.customer_name),
 				"tbo_task_type": "Collection",
 				"tbo_sales_invoice": row.invoice,
 				"tbo_escalation_level": max(level, cint(task.get("tbo_escalation_level"))),
-				"due_date": self.today,
+				"date": self.today,
 				"priority": "High" if level >= 2 else "Medium",
 			}
 		)
 		if not name:
+			# the description's first line is the task's title; remarks are added below it
 			task.update(
 				{
-					"assigned_to": owner,
-					"status": "Todo",
-					"reference_doctype": "CRM Deal" if deal else None,
-					"reference_docname": deal.name if deal else None,
+					"description": frappe.utils.escape_html(
+						_("Collect {0} ({1})").format(row.invoice, row.customer_name)
+					),
+					"allocated_to": owner,
+					"status": OPEN,
+					"reference_type": "Opportunity" if deal else "Sales Invoice",
+					"reference_name": deal.name if deal else row.invoice,
 				}
 			)
 		task.flags.ignore_permissions = True
@@ -307,19 +311,18 @@ def load_deals(names: set) -> dict:
 	if not names:
 		return {}
 	rows = frappe.get_all(
-		"CRM Deal",
+		"Opportunity",
 		filters={"name": ("in", list(names))},
-		fields=["name", "deal_owner", "tbo_accounts_owner"],
+		fields=["name", "opportunity_owner as deal_owner", "tbo_accounts_owner"],
 	)
 	return {row.name: row for row in rows}
 
 
 def get_sales_manager(deal) -> str | None:
-	"""The deal owner's manager in the CRM sales hierarchy, if any (the BDM)."""
+	"""The deal owner's manager in the sales hierarchy, if any (the BDM)."""
 	if not deal or not deal.deal_owner:
 		return None
-	parent = frappe.db.get_value("CRM Sales Hierarchy", {"user": deal.deal_owner}, "reports_to")
-	return frappe.db.get_value("CRM Sales Hierarchy", parent, "user") if parent else None
+	return managers_of([deal.deal_owner]).get(deal.deal_owner)
 
 
 def ensure_dunning_type(company: str, kind: str) -> str:

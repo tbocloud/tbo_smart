@@ -8,24 +8,24 @@ from frappe.utils import add_days, getdate, nowdate
 from tbo_smart.api import lead_pipeline as api
 from tbo_smart.api.mobile import crm as mobile_crm
 from tbo_smart.api.mobile import meeting as mobile_meeting
-from tbo_smart.lead_pipeline import meetings, status_migration
+from tbo_smart.lead_pipeline import meetings
 from tbo_smart.lead_pipeline.statuses import (
 	CLOSED_LOST,
 	CLOSED_WON,
-	CONTACTED,
 	FIRST_MEETING,
 	MEETING_SCHEDULED,
 	NEGOTIATION,
 	NEW_LEAD,
 	POSITIVE,
-	PROPOSAL_SENT,
 	SECOND_MEETING,
 	STATUS_NAMES,
-	ensure_statuses,
+	STATUS_TYPES,
+	stage_options,
 )
 from tbo_smart.lead_pipeline.transitions import moves_forward
+from tbo_smart.sales.opportunity import stage_type
 from tbo_smart.test_utils import (
-	change_lead_status,
+	change_lead_stage,
 	configure_ai_providers,
 	delete_lead_deals,
 	delete_lead_meetings,
@@ -39,16 +39,13 @@ from tbo_smart.test_utils import (
 	get_all_keys,
 	get_fixture,
 	hours_from_now,
-	make_crm_lead,
+	make_lead,
 	make_lead_meeting,
-	make_migration_note,
-	make_old_lead_status,
 	make_sales_hierarchy_node,
 	make_user,
 	mock_ai,
 	move_meeting,
 	openai_answer,
-	set_lead_values,
 	set_smart_lead_settings,
 )
 
@@ -75,7 +72,7 @@ class LeadPipelineTestCase(FrappeTestCase):
 		ensure_company_holiday_list()
 		enable_sales_hierarchy()
 		for user in (BDE, BDM):
-			frappe.db.delete("CRM Sales Hierarchy", {"user": user})
+			frappe.db.delete("TBO Sales Hierarchy", {"user": user})
 		make_sales_hierarchy_node(BDE, make_sales_hierarchy_node(BDM))
 		frappe.db.commit()  # nosemgrep
 
@@ -92,7 +89,7 @@ class LeadPipelineTestCase(FrappeTestCase):
 
 	@classmethod
 	def clean(cls):
-		leads = frappe.get_all("CRM Lead", filters={"lead_owner": ("in", OWNERS)}, pluck="name")
+		leads = frappe.get_all("Lead", filters={"lead_owner": ("in", OWNERS)}, pluck="name")
 		delete_lead_meetings(leads)
 		delete_lead_deals(leads)
 		delete_smart_lead_records(OWNERS)
@@ -109,23 +106,30 @@ class LeadPipelineTestCase(FrappeTestCase):
 
 class TestStatuses(LeadPipelineTestCase):
 	def test_pipeline_statuses_and_types(self):
-		statuses = frappe.get_all("CRM Lead Status", fields=["name", "type"], order_by="position asc")
-		names = [row.name for row in statuses]
-		self.assertEqual([name for name in names if name in STATUS_NAMES], list(STATUS_NAMES))
-		types = {row.name: row.type for row in statuses}
-		self.assertEqual((types[NEW_LEAD], types[CLOSED_WON], types[CLOSED_LOST]), ("Open", "Won", "Lost"))
-		# a new lead starts on New Lead (the only Open status)
-		self.assertEqual(frappe.db.get_value("CRM Lead", make_crm_lead(BDE, "Fresh"), "status"), NEW_LEAD)
+		self.assertEqual([row["name"] for row in stage_options()], list(STATUS_NAMES))
+		self.assertEqual(
+			(STATUS_TYPES[NEW_LEAD], STATUS_TYPES[CLOSED_WON], STATUS_TYPES[CLOSED_LOST]),
+			("Open", "Won", "Lost"),
+		)
+		# the stage is a Select of the pipeline, a new lead starts on New Lead; ERPNext keeps its own status
+		field = frappe.get_meta("Lead").get_field("tbo_stage")
+		self.assertEqual(field.options.split("\n"), list(STATUS_NAMES))
+		lead = make_lead(BDE, "Fresh")
+		self.assertEqual(frappe.db.get_value("Lead", lead, "tbo_stage"), NEW_LEAD)
+		self.assertEqual(frappe.db.get_value("Lead", lead, "status"), "Lead")
+		# the insert is the stage log's first row
+		log = frappe.get_all("TBO Stage Change", filters={"parent": lead}, pluck="stage")
+		self.assertEqual(log, [NEW_LEAD])
 
 	def test_lost_reason_required(self):
-		lead = make_crm_lead(BDE, "Lost One")
-		self.assertRaises(frappe.ValidationError, change_lead_status, lead, CLOSED_LOST)
+		lead = make_lead(BDE, "Lost One")
+		self.assertRaises(frappe.ValidationError, change_lead_stage, lead, CLOSED_LOST)
 		frappe.set_user(BDE)
 		self.assertRaises(frappe.ValidationError, mobile_crm.set_lead_status, lead, CLOSED_LOST)
 		result = mobile_crm.set_lead_status(lead, CLOSED_LOST, "Budget went elsewhere")
 		self.assertEqual(result["lost_reason"], "Budget went elsewhere")
 		self.assertEqual(
-			frappe.db.get_value("CRM Lead", lead, ["status", "lost_reason"]), (CLOSED_LOST, "Other")
+			frappe.db.get_value("Lead", lead, ["tbo_stage", "tbo_lost_reason"]), (CLOSED_LOST, "Other")
 		)
 
 	def test_moves_only_forward(self):
@@ -137,116 +141,11 @@ class TestStatuses(LeadPipelineTestCase):
 		self.assertTrue(moves_forward(NEGOTIATION, CLOSED_WON))
 
 
-class TestStatusMigration(LeadPipelineTestCase):
-	OLD = (
-		("New", "Open"),
-		("Nurture", "Ongoing"),
-		("Qualified", "Won"),
-		("Unqualified", "Lost"),
-		("Junk", "Lost"),
-		("Converted", "Won"),
-	)
-
-	def setUp(self):
-		super().setUp()
-		self.retired = frappe.db.get_single_value("TBO Smart Settings", status_migration.RETIRED_FIELD)
-		for name, kind in self.OLD:
-			make_old_lead_status(name, kind)
-
-	def tearDown(self):
-		self.clean()
-		for name, _kind in self.OLD:
-			frappe.delete_doc_if_exists("CRM Lead Status", name, force=True)
-		frappe.db.set_single_value("TBO Smart Settings", status_migration.RETIRED_FIELD, self.retired)
-		frappe.db.commit()  # nosemgrep
-		super().tearDown()
-
-	def old_lead(self, name: str, status: str, original: str | None = None, **values) -> str:
-		lead = make_crm_lead(BDE, name)
-		set_lead_values(lead, status=status, **values)
-		if original:
-			make_migration_note(lead, status=original)
-		return lead
-
-	def test_mapping_table(self):
-		cases = {
-			("New", None, False): NEW_LEAD,
-			("Contacted", "Open", False): CONTACTED,
-			("Contacted", "Meeting Fixed", False): FIRST_MEETING,
-			("Contacted", "Demo Given", False): FIRST_MEETING,
-			("Nurture", None, False): POSITIVE,
-			("Qualified", "Quotation", False): PROPOSAL_SENT,
-			("Qualified", "Interested", False): POSITIVE,
-			("Unqualified", None, False): CLOSED_LOST,
-			("Junk", None, False): CLOSED_LOST,
-			("Converted", None, False): CLOSED_WON,
-			("Qualified", "Quotation", True): CLOSED_WON,
-			(NEGOTIATION, None, False): None,
-		}
-		for (status, original, converted), expected in cases.items():
-			self.assertEqual(status_migration.new_status(status, original, converted), expected, status)
-
-	def test_migrates_once_keeps_the_old_status_and_reverts(self):
-		leads = {
-			"new": self.old_lead("Old New", "New"),
-			"demo": self.old_lead("Old Demo", "Contacted", "Demo"),
-			"quote": self.old_lead("Old Quote", "Qualified", "Quotation"),
-			"junk": self.old_lead("Old Junk", "Junk"),
-			"lost": self.old_lead(
-				"Old Unqualified", "Unqualified", lost_reason="Other", lost_notes="No budget"
-			),
-			"won": self.old_lead("Old Converted", "Converted"),
-		}
-		counts = status_migration.execute()
-		self.assertEqual(counts[("Contacted", FIRST_MEETING)], 1)
-		self.assertEqual(counts[("Qualified", PROPOSAL_SENT)], 1)
-		got = {
-			key: frappe.db.get_value(
-				"CRM Lead",
-				lead,
-				["status", "tbo_pre_pipeline_status", "lost_reason", "lost_notes"],
-				as_dict=True,
-			)
-			for key, lead in leads.items()
-		}
-		self.assertEqual(got["new"].status, NEW_LEAD)
-		self.assertEqual(
-			(got["demo"].status, got["demo"].tbo_pre_pipeline_status), (FIRST_MEETING, "Contacted")
-		)
-		self.assertEqual(got["quote"].status, PROPOSAL_SENT)
-		self.assertEqual((got["junk"].status, got["junk"].lost_reason), (CLOSED_LOST, "Other"))
-		self.assertEqual(got["lost"].lost_notes, "No budget")
-		self.assertEqual(got["won"].status, CLOSED_WON)
-		# no deal for the historical won leads
-		self.assertFalse(frappe.db.exists("CRM Deal", {"lead": leads["won"]}))
-		# the old statuses are retired, their definitions kept
-		self.assertFalse(frappe.db.exists("CRM Lead Status", "Junk"))
-		kept = json.loads(frappe.db.get_single_value("TBO Smart Settings", status_migration.RETIRED_FIELD))
-		self.assertIn("Junk", {row["name"] for row in kept})
-
-		# idempotent: a second run moves nothing, even a mapped lead someone set back by hand
-		set_lead_values(leads["demo"], status=CONTACTED)
-		self.assertEqual(sum(status_migration.execute().values()), 0)
-		self.assertEqual(frappe.db.get_value("CRM Lead", leads["demo"], "status"), CONTACTED)
-
-		# revert puts back every lead still on the status it was given (the site's other leads
-		# too, so they are mapped again after); the one set back by hand is kept for a person
-		reverted = status_migration.revert()
-		self.assertIn(leads["demo"], reverted["kept"])
-		self.assertGreaterEqual(reverted["restored"], len(leads) - 1)
-		self.assertEqual(frappe.db.get_value("CRM Lead", leads["junk"], "status"), "Junk")
-		self.assertTrue(frappe.db.exists("CRM Lead Status", "Junk"))
-		self.assertTrue(frappe.db.exists("CRM Lead Status", CONTACTED))
-		ensure_statuses()
-		status_migration.execute()
-		self.assertEqual(frappe.db.get_value("CRM Lead", leads["junk"], "status"), CLOSED_LOST)
-
-
 class TestMeetings(LeadPipelineTestCase):
 	def test_stage_numbering_and_lead_moves(self):
-		lead = make_crm_lead(BDE, "Meet Me")
+		lead = make_lead(BDE, "Meet Me")
 		first = make_lead_meeting(lead)
-		self.assertEqual(frappe.db.get_value("CRM Lead", lead, "status"), MEETING_SCHEDULED)
+		self.assertEqual(frappe.db.get_value("Lead", lead, "tbo_stage"), MEETING_SCHEDULED)
 		cancelled = make_lead_meeting(lead)
 		frappe.set_user(BDE)
 		api.set_meeting_status(cancelled, meetings.CANCELLED)
@@ -262,20 +161,20 @@ class TestMeetings(LeadPipelineTestCase):
 		self.assertEqual(frappe.db.get_value("TBO Lead Meeting", first, "bde"), BDE)
 
 	def test_manual_status_is_not_pulled_back(self):
-		lead = make_crm_lead(BDE, "Negotiating")
-		change_lead_status(lead, NEGOTIATION)
+		lead = make_lead(BDE, "Negotiating")
+		change_lead_stage(lead, NEGOTIATION)
 		make_lead_meeting(lead)
-		self.assertEqual(frappe.db.get_value("CRM Lead", lead, "status"), NEGOTIATION)
+		self.assertEqual(frappe.db.get_value("Lead", lead, "tbo_stage"), NEGOTIATION)
 
 	def test_switch_off_moves_nothing(self):
 		disable_lead_pipeline()
-		lead = make_crm_lead(BDE, "Quiet")
+		lead = make_lead(BDE, "Quiet")
 		make_lead_meeting(lead)
-		self.assertEqual(frappe.db.get_value("CRM Lead", lead, "status"), NEW_LEAD)
+		self.assertEqual(frappe.db.get_value("Lead", lead, "tbo_stage"), NEW_LEAD)
 		self.assertRaises(frappe.ValidationError, api.get_lead_pipeline, lead)
 
 	def test_clock_in_progress_mom_pending_and_reminder(self):
-		lead = make_crm_lead(BDE, "Clockwork")
+		lead = make_lead(BDE, "Clockwork")
 		soon = make_lead_meeting(lead, hours_from_now(0.5))
 		now_on = make_lead_meeting(lead, hours_from_now(2))
 		move_meeting(now_on, hours_from_now(-0.25))
@@ -297,7 +196,7 @@ class TestMeetings(LeadPipelineTestCase):
 			self.assertEqual(deliver.call_count, 1)
 
 	def test_submit_mom_moves_lead_creates_follow_up_and_next_meeting(self):
-		lead = make_crm_lead(BDE, "Minutes")
+		lead = make_lead(BDE, "Minutes")
 		meeting = make_lead_meeting(lead)
 		move_meeting(meeting, hours_from_now(-2))
 		follow_up = add_days(nowdate(), 3)
@@ -327,12 +226,12 @@ class TestMeetings(LeadPipelineTestCase):
 		)
 		self.assertEqual(result["status"], meetings.MOM_SUBMITTED)
 		self.assertEqual(result["actions_total"], 1)
-		self.assertEqual(frappe.db.get_value("CRM Lead", lead, "status"), FIRST_MEETING)
+		self.assertEqual(frappe.db.get_value("Lead", lead, "tbo_stage"), FIRST_MEETING)
 		task = frappe.db.get_value(
-			"CRM Task", result["follow_up_task"], ["tbo_task_type", "assigned_to", "due_date"], as_dict=True
+			"ToDo", result["follow_up_task"], ["tbo_task_type", "allocated_to", "date"], as_dict=True
 		)
 		self.assertEqual(
-			(task.tbo_task_type, task.assigned_to, getdate(task.due_date)),
+			(task.tbo_task_type, task.allocated_to, getdate(task.date)),
 			("Sales follow-up", BDE, getdate(follow_up)),
 		)
 		next_meeting = frappe.db.get_value("TBO Lead Meeting", meeting, "next_meeting")
@@ -346,7 +245,7 @@ class TestMeetings(LeadPipelineTestCase):
 		self.assertFalse(summary["needs_follow_up"]["flag"])
 
 	def test_mom_can_close_the_lead_with_a_reason(self):
-		lead = make_crm_lead(BDE, "Not now")
+		lead = make_lead(BDE, "Not now")
 		meeting = make_lead_meeting(lead)
 		move_meeting(meeting, hours_from_now(-2))
 		frappe.set_user(BDE)
@@ -359,10 +258,10 @@ class TestMeetings(LeadPipelineTestCase):
 			CLOSED_LOST,
 		)
 		api.save_mom(meeting, {"discussion_points": "Went with another vendor"}, 1, CLOSED_LOST, "Price")
-		self.assertEqual(frappe.db.get_value("CRM Lead", lead, "status"), CLOSED_LOST)
+		self.assertEqual(frappe.db.get_value("Lead", lead, "tbo_stage"), CLOSED_LOST)
 
 	def test_needs_follow_up_flag(self):
-		lead = make_crm_lead(BDE, "Waiting")
+		lead = make_lead(BDE, "Waiting")
 		meeting = make_lead_meeting(lead)
 		move_meeting(meeting, hours_from_now(-3))
 		with patch("tbo_smart.lead_pipeline.meetings.notify"):
@@ -372,7 +271,7 @@ class TestMeetings(LeadPipelineTestCase):
 		self.assertIn("MOM pending for the 1st meeting", flag["reasons"])
 
 	def test_mom_pending_escalates_bde_bdm_head_once_per_level(self):
-		lead = make_crm_lead(BDE, "Late Minutes")
+		lead = make_lead(BDE, "Late Minutes")
 		meeting = make_lead_meeting(lead)
 		move_meeting(meeting, hours_from_now(-3))
 		with patch("tbo_smart.lead_pipeline.meetings.notify"):
@@ -396,7 +295,7 @@ class TestMeetings(LeadPipelineTestCase):
 		self.assertEqual(escalate(at_head), [{BDE, BDM, HEAD}])
 
 	def test_permissions(self):
-		lead = make_crm_lead(BDE, "Mine")
+		lead = make_lead(BDE, "Mine")
 		meeting = make_lead_meeting(lead)
 		frappe.set_user(BDE2)
 		self.assertRaises(frappe.PermissionError, api.get_lead_pipeline, lead)
@@ -407,13 +306,13 @@ class TestMeetings(LeadPipelineTestCase):
 		self.assertRaises(frappe.PermissionError, frappe.delete_doc, "TBO Lead Meeting", meeting)
 
 	def test_link_must_be_https(self):
-		lead = make_crm_lead(BDE, "Linky")
+		lead = make_lead(BDE, "Linky")
 		self.assertRaises(frappe.ValidationError, make_lead_meeting, lead, meeting_link="meet.google.com/x")
 
 	def test_ai_draft_proposes_and_guards_numbers(self):
 		configure_ai_providers()
 		set_smart_lead_settings(enable_lead_notes=1)
-		lead = make_crm_lead(BDE, "Drafty")
+		lead = make_lead(BDE, "Drafty")
 		meeting = make_lead_meeting(lead)
 		move_meeting(meeting, hours_from_now(-2))
 		follow_up = add_days(nowdate(), 4)
@@ -441,7 +340,7 @@ class TestMeetings(LeadPipelineTestCase):
 		self.assertFalse(frappe.db.get_value("TBO Lead Meeting", meeting, "discussion_points"))
 
 	def test_mobile_shapes(self):
-		lead = make_crm_lead(BDE, "On the phone")
+		lead = make_lead(BDE, "On the phone")
 		frappe.set_user(BDE)
 		scheduled = mobile_meeting.schedule(
 			lead, str(hours_from_now(5)), "Online", "https://teams.microsoft.com/l/meetup-join/x"
@@ -456,33 +355,43 @@ class TestMeetings(LeadPipelineTestCase):
 
 class TestDealAtWon(LeadPipelineTestCase):
 	def test_won_creates_the_deal_once(self):
-		lead = make_crm_lead(BDE, "Winner", organization="Winner Traders", mobile_no="9847000301")
+		lead = make_lead(BDE, "Winner", company_name="Winner Traders", mobile_no="9847000301")
 		frappe.set_user(BDE)
 		self.assertRaises(frappe.ValidationError, mobile_crm.convert_lead, lead)
 		mobile_crm.set_lead_status(lead, CLOSED_WON)
 		frappe.set_user("Administrator")
-		deal = frappe.db.get_value("CRM Deal", {"lead": lead}, ["name", "status", "deal_owner"], as_dict=True)
+		from_lead = {"opportunity_from": "Lead", "party_name": lead}
+		deal = frappe.db.get_value(
+			"Opportunity", from_lead, ["name", "sales_stage", "opportunity_owner"], as_dict=True
+		)
 		self.assertTrue(deal)
-		self.assertEqual(frappe.db.get_value("CRM Deal Status", deal.status, "type"), "Won")
-		self.assertEqual(deal.deal_owner, BDE)
-		self.assertEqual(frappe.db.get_value("CRM Lead", lead, ["status", "converted"]), (CLOSED_WON, 1))
+		self.assertEqual(stage_type(deal.sales_stage), "Won")
+		self.assertEqual(deal.opportunity_owner, BDE)
+		self.assertEqual(frappe.db.get_value("Lead", lead, "tbo_stage"), CLOSED_WON)
 		self.assertEqual(api.get_lead_pipeline(lead)["deal"], deal.name)
+		self.assertTrue(mobile_crm.get_lead(lead)["converted"])
 		# saving it again makes no second deal
-		change_lead_status(lead, CLOSED_WON, lead_name="Winner Again")
-		self.assertEqual(frappe.db.count("CRM Deal", {"lead": lead}), 1)
+		change_lead_stage(lead, CLOSED_WON, first_name="Winner Again")
+		self.assertEqual(frappe.db.count("Opportunity", from_lead), 1)
 
-	def test_switch_off_keeps_crm_conversion(self):
+	def test_switch_off_makes_no_deal_but_converting_by_hand_closes_the_lead(self):
 		disable_lead_pipeline()
-		lead = make_crm_lead(BDE, "Plain Won", organization="Plain Org")
-		change_lead_status(lead, CLOSED_WON)
-		self.assertFalse(frappe.db.exists("CRM Deal", {"lead": lead}))
+		lead = make_lead(BDE, "Plain Won", company_name="Plain Org")
+		change_lead_stage(lead, CLOSED_WON)
+		self.assertFalse(frappe.db.exists("Opportunity", {"party_name": lead}))
+		other = make_lead(BDE, "Converted By Hand", company_name="Hand Org")
+		frappe.set_user(BDE)
+		deal = mobile_crm.convert_lead(other)
+		frappe.set_user("Administrator")
+		self.assertEqual(frappe.db.get_value("Opportunity", deal["name"], "party_name"), other)
+		self.assertEqual(frappe.db.get_value("Lead", other, "tbo_stage"), CLOSED_WON)
 
 
-class TestWithoutCRM(LeadPipelineTestCase):
-	def test_no_crm_guard(self):
+class TestWithoutERPNext(LeadPipelineTestCase):
+	def test_no_erpnext_guard(self):
 		with (
-			patch("tbo_smart.lead_pipeline.crm_installed", return_value=False),
-			patch("tbo_smart.lead_pipeline.setup.crm_installed", return_value=False),
+			patch("tbo_smart.lead_pipeline.erpnext_installed", return_value=False),
+			patch("tbo_smart.lead_pipeline.setup.erpnext_installed", return_value=False),
 			patch("tbo_smart.lead_pipeline.setup.create_custom_fields") as create,
 		):
 			from tbo_smart.lead_pipeline import pipeline_enabled

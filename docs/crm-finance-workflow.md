@@ -1,4 +1,4 @@
-# CRM finance workflow: lead to reconciled cash (living spec, v0.8)
+# CRM finance workflow: lead to reconciled cash (living spec, v0.9)
 
 **Status:** Phases 1 to 5 built (owner approved start 2026-10-12; management sign-off and
 open questions pending). Every phase ships behind its own switch in TBO Smart Settings, off by
@@ -6,6 +6,16 @@ default, so a deploy changes nothing until the owner turns it on. This file is t
 spec: every change updates it in the same pull request, and it describes what is built, not
 what was first planned. §14 lists what each phase actually built, with its decisions and
 deviations from the plan.
+
+**v0.9 (2026-10-16): the deal is ERPNext's Opportunity.** Frappe CRM is uninstalled from tboindia
+(`erpnext-lead-cutover.md`). Read the plan sections (§1 to §13) as written for Frappe CRM; what is
+built (§3.1, §14) now runs on ERPNext's records: CRM Deal → **Opportunity** (`tbo_stage` →
+`tbo_finance_stage`, `tbo_company` → `company`, `erpnext_customer` → `tbo_customer`,
+`deal_owner` → `opportunity_owner`), `crm_deal` → **`opportunity`** on Quotation (ERPNext's own),
+Sales Order, Sales Invoice, Payment Entry and tbo_smart's records, CRM Task → **ToDo**, CRM
+Organization → **Prospect**, CRM Sales Hierarchy → **TBO Sales Hierarchy**. The CRM screens
+(§7) went with the CRM app; their APIs (`tbo_smart/api/finance/*.py`) remain for the hub, and
+the dashboard cards are `tbo_smart.api.dashboard.get_cards`.
 
 - **Owner:** Head of IT (TBO). **Approvers:** Management, Finance Manager.
 - **Date:** 2026-10-12.
@@ -161,37 +171,41 @@ every site gets the same fields. Every new doctype has `track_changes = 1`.
 
 | Doctype | Field | Type | Purpose / rule |
 | --- | --- | --- | --- |
-| CRM Deal | `tbo_company` | Link Company | Invoicing entity. Defaults to `ERPNext CRM Settings.erpnext_company`. Used for quotations (G2). |
-| CRM Deal | `tbo_stage` | Select (§2) | Post-sale stage, read-only, computed. |
-| CRM Deal | `tbo_accounts_owner` | Link User | Accounts person who owns collection; used for Accounts-wise performance. |
-| CRM Deal | `tbo_onboarding_complete` | Check, read-only | Set by BDE/Accounts through the Finance tab (API); logged. |
-| CRM Deal | `tbo_closed` | Check, read-only | **Built in Phase 1 (not in the v0.1 plan).** "Closed" is a person's decision, so it needs its own flag; the stage is Closed while it is set. |
-| CRM Deal | `tbo_project` | Link Project | Optional; filled from SO `project` when one exists. **Not built yet** (V13 unverified). |
-| Sales Order | `crm_deal` | Link CRM Deal, read-only | Set in `validate` from the item's quotation (G1). |
-| Sales Invoice | `crm_deal` | Link CRM Deal | Set in `validate` from SO or quotation. Required for `tbo_company` invoices from `allocation_start_date`, unless `tbo_no_deal_reason` is filled (**Phase 3**; Phase 1 only fills it). |
+| Opportunity | `company` (ERPNext's own) | Link Company | Invoicing entity. Defaults to TBO Smart Settings → Default sales company (the cutover copies ERPNext CRM Settings' company into it), else the site's default company. Used for quotations (G2). |
+| Opportunity | `tbo_finance_stage` | Select (§2) | Post-sale stage, read-only, computed. |
+| Opportunity | `tbo_accounts_owner` | Link User | Accounts person who owns collection; used for Accounts-wise performance. |
+| Opportunity | `tbo_onboarding_complete` | Check, read-only | Set by BDE/Accounts through the Finance view (API); logged. |
+| Opportunity | `tbo_closed` | Check, read-only | **Built in Phase 1 (not in the v0.1 plan).** "Closed" is a person's decision, so it needs its own flag; the stage is Closed while it is set. |
+| Opportunity | `tbo_project` | Link Project | Optional; filled from SO `project` when one exists. **Not built yet** (V13 unverified). |
+| Sales Order | `opportunity` | Link Opportunity, read-only | Set in `validate` from the item's quotation (G1). |
+| Sales Invoice | `opportunity` | Link Opportunity | Set in `validate` from SO or quotation. Required for `company` invoices from `allocation_start_date`, unless `tbo_no_deal_reason` is filled (**Phase 3**; Phase 1 only fills it). |
 | Sales Invoice | `tbo_no_deal_reason` | Small Text | Why an invoice has no deal (for example, a legacy contract). |
 | Sales Order, Sales Invoice | `validate` guard (no field) | – | Refuses to save when a source Quotation still has a pending discount/commission approval, read from the separate feature's state. If that feature already enforces this, the plan reuses its check instead of adding a second one. |
-| Payment Entry | `crm_deal` | Link CRM Deal, read-only | Set from references. If the references belong to different deals it is left blank and the allocation lines carry the deal per row. |
+| Payment Entry | `opportunity` | Link Opportunity, read-only | Set from references. If the references belong to different deals it is left blank and the allocation lines carry the deal per row. |
 | Payment Schedule (child) | `tbo_last_reminder` | Select (none, D-3, D0, D+7, D+15, D+30, Weekly) | Makes the reminder job idempotent. |
 | Payment Schedule (child) | `tbo_last_reminder_on` | Date | Same. |
-| CRM Task | `tbo_task_type` | Select (Sales follow-up, Collection, Onboarding) | Splits the collections list from sales tasks. Smart leads (`docs/smart-leads.md`) create their lead follow-ups as "Sales follow-up". |
-| CRM Task | `tbo_sales_invoice` | Link Sales Invoice | The invoice being chased. |
-| CRM Task | `tbo_promised_date`, `tbo_promised_amount` | Date, Currency | Promise to pay, from the follow-up remark. |
-| CRM Task | `tbo_escalation_level` | Int (0–4) | Set by the reminder job. |
+| ToDo | `tbo_task_type` | Select (Sales follow-up, Collection, Onboarding) | Splits the collections list from sales tasks. Smart leads (`docs/smart-leads.md`) create their lead follow-ups as "Sales follow-up". |
+| ToDo | `tbo_sales_invoice` | Link Sales Invoice | The invoice being chased. |
+| ToDo | `tbo_promised_date`, `tbo_promised_amount` | Date, Currency | Promise to pay, from the follow-up remark. |
+| ToDo | `tbo_escalation_level` | Int (0–4) | Set by the reminder job. |
 | Bank Transaction | `tbo_dedupe_key` | Data, indexed, read-only | Hash of bank account, date, amount, direction and normalised reference/description (§5.2). |
 | Bank Transaction | `tbo_possible_duplicate_of` | Link Bank Transaction | Set when the key already exists. |
 | Bank Transaction | `tbo_verification` | Select (Unverified, Verified) | §5.3. |
 | Bank Transaction | `tbo_verified_by`, `tbo_verified_on` | Link User, Datetime | Maker-checker. |
 
-`Quotation.crm_deal` and `Customer.crm_deal` already exist (Data, created by CRM) and are
-reused as they are.
+`Quotation.opportunity` is ERPNext's own link to the deal; the custom `opportunity` on Sales
+Order, Sales Invoice and Payment Entry has the same name, so ERPNext's mappers carry it along.
+Since v0.9 the deal is ERPNext's **Opportunity** (`erpnext-lead-cutover.md`): until then these
+fields were on Frappe CRM's CRM Deal (`tbo_stage`, `tbo_company`, `erpnext_customer`) and
+`crm_deal` on the documents; the cutover copies them.
 
-**Phase 1 created** the CRM Deal fields `tbo_company`, `tbo_stage`, `tbo_onboarding_complete`
-and `tbo_closed`, and `crm_deal` on Sales Order, Sales Invoice and Payment Entry
+**Phase 1 created** the Opportunity fields `tbo_finance_stage`, `tbo_onboarding_complete` and
+`tbo_closed`, and `opportunity` on Sales Order, Sales Invoice and Payment Entry
 (`tbo_smart/finance/setup.py`, run on install and by `after_migrate`). The other rows arrive
-with the phase that uses them.
+with the phase that uses them. The deal's ERPNext customer is `Opportunity.tbo_customer`, its
+Customer party, or the Customer ERPNext made from its lead (`sales.opportunity.customer_of`).
 
-Property setter: **CRM Task → Track Changes = 1**, so follow-up edits get Version history (G14).
+Property setter: **ToDo → Track Changes = 1**, so follow-up edits get Version history (G14).
 
 ### 3.2 Settings: extend `TBO Smart Settings` (no new settings doctype)
 
@@ -869,40 +883,37 @@ generated from §8 so the dashboard tooltips and the guide use the same wording.
 
 ## 14. Implementation status
 
-### 14.1 Phase 1: deal links, stage, Finance tab, quotation dialog, guard, BDE report (built)
+### 14.1 Phase 1: deal links, stage, Finance view, quotation dialog, guard, BDE report (built)
 
 Switch: **TBO Smart Settings → Finance workflow (Phase 1)** (`enable_finance_workflow`), off by
 default. While it is off every hook, job and API below does nothing (the APIs refuse with a
-ValidationError and the CRM shows the stock Quotations tab). Only the custom fields and the
-one-off backfill run regardless.
+ValidationError). Only the custom fields are created regardless.
 
 **Deal links (G1)** - `tbo_smart/finance/deal_links.py`, `tbo_smart/finance/documents.py`.
 
-- ERPNext's own mappers already copy `crm_deal` from a Quotation to the Sales Order and from
+- ERPNext's own mappers already copy `opportunity` from a Quotation to the Sales Order and from
   the Sales Order to the Sales Invoice (same fieldname, not `no_copy`). The `validate` hooks
   fill it when it is still blank: Sales Order from its items' quotations
-  (`prevdoc_docname` → `Quotation.crm_deal`, or the party when *Quotation To* is CRM Deal);
-  Sales Invoice from its items' sales orders, else those orders' quotations.
-- Payment Entry: `crm_deal` always follows the references. Every Sales Invoice / Sales Order
+  (`prevdoc_docname` → `Quotation.opportunity`); Sales Invoice from its items' sales orders,
+  else those orders' quotations.
+- Payment Entry: `opportunity` always follows the references. Every Sales Invoice / Sales Order
   reference must carry the same deal; otherwise it is blank. A receipt with no invoice or
   order reference (an advance booked on account) keeps a deal typed on it.
 - **Decision:** no guessing from the customer. A Sales Invoice made straight from a
   Quotation gets the deal from the mapper; one typed by hand with no source stays blank
   unless someone fills the (editable) field. Customer-based guessing would attach a repeat
   client's new invoice to an old deal.
-- **Backfill** - `tbo_smart/finance/backfill.py`, patch
-  `tbo_smart.patches.v1.backfill_finance_deal_links`. Runs once on migrate, whatever the
-  switch. Set-based queries per doctype; fills only blank values, so it is idempotent.
-  Documents it cannot resolve are skipped, counted on the console and listed by name in the
-  `tbo_smart.finance` site log for Accounts to link by hand.
+- **Backfill:** a one-off patch filled the old `crm_deal` on tboindia's documents (2026-10-12);
+  it was removed with the move to ERPNext's Opportunity, and the cutover copies `crm_deal` into
+  `opportunity`.
 
-**Company per deal (G2).** `CRM Deal.tbo_company` (Link Company). A new deal gets ERPNext CRM
-Settings' `erpnext_company` in `before_insert` (when that names a Company). Existing deals
-fall back to it at read time. The quotation dialog lets the user pick another company, so a
+**Company per deal (G2).** `Opportunity.company` (ERPNext's own). A new deal without one gets
+TBO Smart Settings → Default sales company, else the site's default company, in
+`before_insert`. The quotation dialog lets the user pick another company, so a
 deal can be quoted by KSA or India; Q2 is still open.
 
 **Post-sale stage** - `tbo_smart/finance/stage.py`, data from
-`tbo_smart/finance/deal_finance.py` (shared with the Finance tab, so the tab and the stage
+`tbo_smart/finance/deal_finance.py` (shared with the Finance view, so the tab and the stage
 always agree).
 
 | Stage | When (first match wins) |
@@ -912,7 +923,7 @@ always agree).
 | Collecting | Invoices exist and something was received (any receipt against the deal's orders or invoices, or an unallocated receipt carrying the deal), or a term is overdue |
 | Invoiced | Invoices exist, nothing received, nothing overdue |
 | Quotation | Onboarding is complete, or the deal has a quotation (draft or submitted) or a sales order |
-| Onboarding | The deal has an ERPNext customer |
+| Onboarding | The deal has an ERPNext customer (`tbo_customer`, a Customer party, or the Customer made from its lead) |
 | (blank) | Nothing post-sale yet |
 
 - Recomputed by `doc_events` on Quotation save/submit/cancel/delete and on submit/cancel of
@@ -920,9 +931,8 @@ always agree).
   touch), plus a daily job (`recompute_all`) over every deal with a stage, a customer, an
   onboarding tick or a linked document. A failing deal is logged and skipped.
 - **Decision:** the stage is written with `frappe.db.set_value` plus a **Version** row, not a
-  full deal save, so an invoice submit never re-runs Frappe CRM's deal `on_update` (customer
-  creation, automations). CRM Deal already has `track_changes` on, so the history is in the
-  usual Version list. A `tbo_deal_finance_update` realtime event tells open deal pages.
+  full deal save, so an invoice submit never re-runs the Opportunity's validation and hooks
+  (party, prospect, stage log). The history is in the usual Version list. A `tbo_deal_finance_update` realtime event tells open deal pages.
 - "Onboarding complete" (`set_onboarding_complete`) is for anyone who may edit the deal, or
   a finance user. "Close finance" (`set_finance_closed`) is for Accounts Manager or System
   Manager and only when the stage is Collected; Phase 4 adds the other closure conditions
@@ -930,24 +940,22 @@ always agree).
   role. Both write a Version and a timeline comment.
 - Settling, Reconciled and On Exception are in the field's options but not computed yet.
 
-**Quotation from the CRM (G3)** - `tbo_smart/api/finance/quotation.py`.
+**Quotation from the deal (G3)** - `tbo_smart/api/finance/quotation.py`.
 
 | Method | HTTP | Does |
 | --- | --- | --- |
-| `get_quotation_form(deal, quotation=None)` | GET | Dialog values: companies, the company's tax templates, and either a new quotation prefilled from the deal (items from `prefill_quotation_items`, party = the deal's Customer or the deal itself, company default tax template, valid till +1 month) or an existing quotation of this deal. |
+| `get_quotation_form(deal, quotation=None)` | GET | Dialog values: companies, the company's tax templates, and either a new quotation prefilled from the deal (items from the Opportunity's items, party = the deal's Customer, else its own party (the Lead or Prospect, from which ERPNext makes the Customer with the order), company default tax template, valid till +1 month) or an existing quotation of this deal. |
 | `get_item_price(item_code, company=None)` | GET | Name, UOM and the Selling Settings price list rate of a sales item. |
-| `save_quotation(deal, values, quotation=None)` | POST | Creates a draft Quotation (crm_deal, party, company, primary contact, organization address) or updates a draft of this deal: items (qty, list rate, discount %), additional discount %, commission % (`tbo_commission_rate`), valid till, taxes template and terms. Saved as the session user, so ERPNext's Quotation permissions and the discount/commission control apply as on the desk form. Returns the quotation and `needs_approval` (kinds above the user's limit). |
+| `save_quotation(deal, values, quotation=None)` | POST | Creates a draft Quotation (`opportunity`, party, company, the deal's contact and address) or updates a draft of this deal: items (qty, list rate, discount %), additional discount %, commission % (`tbo_commission_rate`), valid till, taxes template and terms. Saved as the session user, so ERPNext's Quotation permissions and the discount/commission control apply as on the desk form. Returns the quotation and `needs_approval` (kinds above the user's limit). |
 | `submit_quotation(deal, quotation)` | POST | Submits a draft of the deal; the discount/commission control refuses it while an approval is missing. |
-| `can_create_desk_quotations()` | GET | Overrides Frappe CRM's `can_create_quotations` (`override_whitelisted_methods`): False while the workflow is on, so the deal's desk "Create Quotation" action disappears; otherwise CRM's own answer. |
 
-A quotation belongs to the deal when its `crm_deal` is the deal or it is made out to the deal
-(*Quotation To* = CRM Deal), the same rule the Finance tab lists by. Editing in the CRM is
-limited to drafts and to the fields above; "Open in ERPNext" stays for
+A quotation belongs to the deal when its `opportunity` is the deal, the same rule the Finance
+view lists by. Editing through the dialog is limited to drafts and to the fields above; "Open in ERPNext" stays for
 anything else. **Deviation:** the plan only asked for drafts; Submit was added so a BDE never
 needs `/app` for a quotation within their limit.
 
 The same dialog serves the **lead's Quotations tab** (`lead-pipeline.md` §9): quotations made
-out to the CRM Lead before there is a deal. It also offers payment terms, a terms template, line
+out to the Lead before there is a deal. It also offers payment terms, a terms template, line
 descriptions and live totals (subtotal, discount, tax, grand total) on the deal. `form_choices`
 and `get_tax_rates` feed both.
 
@@ -962,73 +970,65 @@ Source quotations: Sales Order items' `prevdoc_docname`; Sales Invoice through i
 Sales Invoice made straight from a Quotation has no item link back; ERPNext only allows that
 from a submitted quotation, and submitting already needs the approval.
 
-**Finance tab data** - `tbo_smart/api/finance/deal.py`.
+**Finance view data** - `tbo_smart/api/finance/deal.py`.
 
 | Method | HTTP | Returns / does |
 | --- | --- | --- |
-| `get_finance_access()` | GET | `{enabled, is_finance_user, can_close, can_see_amounts}`; the CRM uses it to choose the tab and the sidebar entry. |
+| `get_finance_access()` | GET | `{enabled, is_finance_user, can_close, can_see_amounts}`; a screen uses it to choose what to show. |
 | `get_deal_finance(deal)` | GET | Stage and stage list, company, customer, onboarding/closed flags, what the user may do, quotations (status, docstatus, dates, total), sales orders (status, dates, total, advance), invoices (status, dates, grand/rounded total, outstanding, overdue, payment-term rows), payments (one row per Payment Entry: date, mode, reference, signed amount, currency), totals per currency (invoiced, received, outstanding, overdue) and open follow-up tasks. |
 | `set_onboarding_complete(deal, complete)` | POST | See the stage above. |
 | `set_finance_closed(deal, closed)` | POST | See the stage above. |
 
-Permissions (`tbo_smart/finance/access.py`): the deal must be readable under Frappe CRM's own
-rules (owner, assignee, hierarchy, Sales Manager), or the user holds a role from
-`finance_crm_roles` while `finance_crm_access` is on. ERPNext document permissions are not
-needed on purpose (plan §9, "R own (Finance tab)"): the documents are read after the deal
+Permissions (`tbo_smart/finance/access.py`): the deal must be readable under the sales rules
+(owner, assignee, hierarchy, Sales Manager: `tbo_smart.sales.permissions`), or the user holds a
+role from `finance_crm_roles` while `finance_crm_access` is on. ERPNext document permissions are not
+needed on purpose (plan §9, "R own (Finance view)"): the documents are read after the deal
 check. With `finance_bde_can_see_amounts` off, users without a manager, approver or accounts
 role get the documents with every invoice, order, term and payment amount set to null and no
 totals; quotation totals stay visible because the deal owner already sees quotations.
 
 **BDE conversion report** - `tbo_smart/api/finance/report.py`, `get_bde_conversion(from_date,
 to_date, organization, company)`. Per salesperson: leads created (by `lead_owner`), deals
-created from a lead (by `deal_owner`), conversion rate, submitted quotations (by quotation
-date, owner of the deal), won deals (Won-type status, `closed_date` in range) and won value
-(`deal_value × exchange_rate`, CRM's base currency, as CRM's dashboard counts it), plus a
-total row. Default range: this month; at most two years. Client = CRM Organization; company
-= the deal's `tbo_company` (CRM default when blank) or the quotation's company; leads have no
+created from a lead (by `opportunity_owner`), conversion rate, submitted quotations (by quotation
+date, owner of the deal), won deals (a Won-type Sales Stage, `tbo_closed_on` in range) and won
+value (in the company currency), plus a total row. Default range: this month; at most two
+years. Client = the lead's company name or the deal's customer name; company = the deal's
+`company` (the default when blank) or the quotation's company; leads have no
 company, so that filter leaves them alone. Scope follows the mobile API's CRM scope rule:
 own row, team (sales hierarchy) or everyone (Sales Manager outside the hierarchy, System
-Manager, finance roles). **Decision:** a TBO page (`/crm/bde-conversion`), not a CRM
-dashboard card: CRM's dashboard methods take only a date range and a user, with no client or
-entity filter, so the provider hook waits for Phase 5.
+Manager, finance roles). **Decision:** a page of its own, not a dashboard card (it has client
+and entity filters).
 
-**App access (G5).** The fork gains two hooks (tbocloud/crm `docs/tbo-finance.md`):
-`crm_app_permission` (admit more users to `/crm`) and `crm_unrestricted_access` (skip the
-sales hierarchy for a user, doctype and permission type). tbo_smart registers
-`has_crm_app_access` and `has_unrestricted_crm_access`: both are True only for the
-`finance_crm_roles` while the workflow and `finance_crm_access` are on, and the second only
-for CRM Deal reads. Saving TBO Smart Settings with access on adds a read Custom DocPerm on CRM
-Deal and CRM Organization for each of those roles (which also opens the FCRM module to them)
-and remembers what it did (hidden field `finance_crm_granted`): rows it added, and existing
+**App access (G5).** `tbo_smart.sales.permissions` lets the `finance_crm_roles` read every
+Opportunity, past the sales hierarchy, while the workflow and `finance_crm_access` ("Let finance
+roles read deals") are on; never for writes. Saving TBO Smart Settings with access on adds a
+read Custom DocPerm on Opportunity and Prospect for each of those roles and remembers what it did (hidden field `finance_crm_granted`): rows it added, and existing
 rows it widened (a row with no read, or read only if owner, gets full read; its original
 values are kept). Turning access off, or taking a role off the list, deletes the added rows
-and puts widened rows back. A pre-existing row that already gives full read is never touched. Deploy the CRM
-fork first: without its hooks, Accounts still read the Finance tab data through the API, but
-cannot open `/crm`.
+and puts widened rows back. A pre-existing row that already gives full read is never touched.
 
 **Tests** - `tbo_smart/tests/test_finance_workflow.py` (helpers in `tbo_smart/test_utils.py`):
 deal links through quotation → order → invoice → payment and a mixed-deal payment; hooks
-inactive while off; the backfill (linked, unresolved listed, idempotent); stage progression
+inactive while off; stage progression
 with its Version history, overdue → Collecting, onboarding and closing permissions and logs,
 the nightly job, the default company; the quotation API (prefill, save, edit, submit,
 refusals); the guard (pending request, draft above limit, quotation from before enforcement,
-switched off); Finance tab permissions (own vs other BDE, Accounts with and without CRM
-access, hidden amounts, switched off, Custom DocPerm and role validation); and the report
-numbers, filters and scope. The fork has tests for both hooks.
+switched off); Finance view permissions (own vs other BDE, Accounts with and without the deal
+access setting, hidden amounts, switched off, Custom DocPerm and role validation); and the
+report numbers, filters and scope.
 
 **Not in Phase 1 (plan §11 lists them under Phase 1):** "next follow-up" in the lead and deal
-lists (the Finance tab shows the deal's next follow-up), the onboarding checklist (a single
+lists (the Finance view shows the deal's next follow-up), the onboarding checklist (a single
 tick for now, Q12), `tbo_project` and `tbo_accounts_owner` (Phase 2).
 
 ### 14.2 What the owner switches on after deploying Phase 1
 
-1. Deploy tbocloud/crm first, then tbo_smart; `bench migrate` creates the fields and runs the
-   backfill (check the migrate output and the `tbo_smart.finance` log for unresolved
-   documents).
+1. Deploy tbo_smart; `bench migrate` creates the fields (and, once, the cutover copies the CRM
+   deals: `erpnext-lead-cutover.md`).
 2. TBO Smart Settings → Finance workflow: tick **Finance workflow (Phase 1)**.
 3. Optional: untick **BDE can see invoice/payment amounts** if management answers Q17 "no".
-4. Optional: tick **Let finance roles open the CRM** and check **Finance roles in the CRM**
-   (Accounts User and Accounts Manager by default), so Accounts can use the Finance tab.
+4. Optional: tick **Let finance roles read deals** and check **Finance roles that read deals**
+   (Accounts User and Accounts Manager by default), so Accounts can use the Finance view.
 5. For the guard to bite, the discount-control feature's **Enforce adjustment limits** must
    also be on (TBO Quotation Approval Settings).
 
@@ -1036,20 +1036,20 @@ tick for now, Q12), `tbo_project` and `tbo_accounts_owner` (Phase 2).
 
 Switch: **TBO Smart Settings → Receivables and reminders (Phase 2)**
 (`enable_finance_receivables`), off by default; it also needs Phase 1 on. While it is off the
-jobs do nothing, the APIs refuse with a ValidationError and the CRM hides the pages and
-actions. Fields, roles, Email Templates and the CRM Task property setter are created on
+jobs do nothing, the APIs refuse with a ValidationError and the screens hide the pages and
+actions. Fields, roles, Email Templates and the ToDo property setter are created on
 migrate either way (`tbo_smart.finance.setup.setup_finance`), and change nothing by
 themselves.
 
-**Created on migrate:** CRM Deal `tbo_accounts_owner`; Payment Schedule `tbo_last_reminder`
-and `tbo_last_reminder_on` (allow on submit, read-only); CRM Task `tbo_task_type`,
+**Created on migrate:** Opportunity `tbo_accounts_owner`; Payment Schedule `tbo_last_reminder`
+and `tbo_last_reminder_on` (allow on submit, read-only); ToDo `tbo_task_type`,
 `tbo_sales_invoice`, `tbo_promised_date`, `tbo_promised_amount` and `tbo_escalation_level`;
-property setter **CRM Task → track_changes = 1** (G14); roles **TBO Finance Approver** and
+property setter **ToDo → track_changes = 1** (G14); roles **TBO Finance Approver** and
 **TBO Management**; English Email Templates "TBO Payment Due Soon", "TBO Payment Due Today"
 and "TBO Payment Reminder" (Finance edits the wording there). Dunning Types "Reminder 2" and
 "Final Notice" are created per company, no fee and no interest, the first time the job needs
-one. Saving the settings with both switches on adds a public **Collections** view
-(collection tasks, due date first) to the CRM Tasks page.
+one. (The CRM's saved **Collections** view of collection tasks went with the CRM app: filter
+ToDos by `tbo_task_type` = Collection instead.)
 
 **Reminder job** - `tbo_smart/finance/reminders.py`, daily at 09:00 site time (cron
 `0 9 * * *`; the site's time zone stands in for Asia/Riyadh). It reads each open Payment
@@ -1059,9 +1059,9 @@ the latest step that is due, once per row:
 | Step | Client email (only with `send_client_reminders`) | Internal | Level |
 | --- | --- | --- | --- |
 | D-3 | "TBO Payment Due Soon" + invoice PDF | - | 0 |
-| D0 | "TBO Payment Due Today" | Collection CRM Task "Collect {invoice}" for the accounts owner, due today, linked to the deal | 1 |
+| D0 | "TBO Payment Due Today" | Collection ToDo "Collect {invoice}" for the accounts owner, due today, linked to the deal | 1 |
 | D+7 | "TBO Payment Reminder" | Task escalated (High); accounts owner and deal owner notified | 2 |
-| D+15 | - | **Draft** Dunning "Reminder 2" for Accounts to submit and send; sales head, accounts lead and the deal owner's manager (CRM sales hierarchy) notified | 3 |
+| D+15 | - | **Draft** Dunning "Reminder 2" for Accounts to submit and send; sales head, accounts lead and the deal owner's manager (TBO Sales Hierarchy) notified | 3 |
 | D+30 | - | **Draft** Dunning "Final Notice"; Finance Manager notified; in the digest | 4 |
 | Weekly after D+30 | "TBO Payment Reminder" only with `weekly_client_reminders` | Task re-dated to today; owners notified | 4 |
 
@@ -1077,13 +1077,13 @@ the latest step that is due, once per row:
 - Client emails go through Frappe's Communication (`make`), so each is on the invoice's
   timeline and linked to the deal's; CC the deal owner; sender = `reminder_sender` or the
   default account. A mail failure is logged and never stops the internal steps.
-- **Deviation:** the plan said D+7 "reassigns the task with the BDE added". CRM Task has a
+- **Deviation:** the plan said D+7 "reassigns the task with the BDE added". ToDo has a
   single assignee, so the task stays with the accounts owner and the BDE is notified instead.
 
 **Exceptions** - doctype **TBO Finance Exception** (§3.5, all fields; Phase 2 uses the
 Receivable category) and `tbo_smart/api/finance/exceptions.py`.
 
-| Request (Receivables page or Finance tab) | Requested action | Effect once approved |
+| Request (Receivables page or Finance view) | Requested action | Effect once approved |
 | --- | --- | --- |
 | Extension request | Extend due date (`new_due_date`, whole invoice or one term) | The job counts days from the new date and restarts the steps for that row. **The invoice is not changed**: ERPNext has no supported way to edit a submitted invoice's payment terms, so ageing in ERPNext's own reports keeps the booked date. |
 | Pause request / Client dispute | Pause reminders (`pause_until`) | The job skips the row (or invoice) until that date. |
@@ -1091,7 +1091,7 @@ Receivable category) and `tbo_smart/api/finance/exceptions.py`.
 
 - Status flow: Open → Pending Approval → Approved / Rejected, Rejected → Open, only through
   `decide_exception` (`request_approval`, `approve`, `reject`, `reopen`); editing the status
-  directly is refused. A request from the CRM goes straight to Pending Approval.
+  directly is refused. A request through the API goes straight to Pending Approval.
 - Maker-checker: only TBO Finance Approver (or System Manager) decides, and never the person
   who raised it or sent it for approval (`requested_by`). A rejection needs a reason. Once an
   exception leaves Open, everything the approver decides on (type, action, document, term,
@@ -1114,7 +1114,7 @@ Receivable category) and `tbo_smart/api/finance/exceptions.py`.
 
 | Method | HTTP | Returns / does |
 | --- | --- | --- |
-| `get_receivables(company, customer, deal_owner, accounts_owner)` | GET | Open invoices with ageing by each term's due date (not due, 1-30, 31-60, 61-90, 90+), overdue, days overdue, deal and accounts owner, escalation level, last reminder, promise to pay, open exceptions and terms; totals per client and per currency. Up to 2,000 invoices. |
+| `get_receivables(company, customer, opportunity_owner, accounts_owner)` | GET | Open invoices with ageing by each term's due date (not due, 1-30, 31-60, 61-90, 90+), overdue, days overdue, deal and accounts owner, escalation level, last reminder, promise to pay, open exceptions and terms; totals per client and per currency. Up to 2,000 invoices. |
 | `add_collection_follow_up(invoice, due_date, remark, promised_date, promised_amount)` | POST | Updates the invoice's open collection task (or creates one assigned to me): next date, promise to pay, and the remark appended with time and user. |
 | `set_accounts_owner(deal, user)` | POST | Accounts, finance and managers only. |
 
@@ -1133,7 +1133,7 @@ date) and counts only Receivable exceptions. `build_digest` returns the totals p
 how many exceptions are open or waiting; `send_digest` emails it to the digest recipients and
 notifies the Finance Manager in the app. Payable and pending transfers join with Phase 3.
 
-**Finance tab additions:** accounts owner (editable by accounts and managers), *Add
+**Finance view additions:** accounts owner (editable by accounts and managers), *Add
 follow-up* and *Request exception* on each open invoice, collection details (level, promise)
 on follow-ups, and an Exceptions section.
 
@@ -1150,7 +1150,7 @@ digest and the setup records.
 2. Set **Invoicing company** (TBO KSA), **KSA Accounts lead**, **Head - Sales & Marketing**,
    **Finance Manager** and **Daily digest recipients**.
 3. Give the Finance Manager the **TBO Finance Approver** role, and set each deal's accounts
-   owner (Finance tab) as Accounts takes them on.
+   owner (Finance view) as Accounts takes them on.
 4. When management agrees the wording (Q14): edit the three Email Templates, set
    **Reminder sender**, then tick **Send reminder emails to clients**.
 
@@ -1158,7 +1158,7 @@ digest and the setup records.
 
 Switch: **TBO Smart Settings → Allocation and transfers (Phase 3)** (`enable_fund_allocation`),
 off by default, and needs Phase 1 on. While it is off no allocation is made, the transfer
-APIs refuse, the pending-transfer job does nothing and the CRM hides the page. **Memo only
+APIs refuse, the pending-transfer job does nothing and the screens hide the page. **Memo only
 (Q1 option C):** nothing in Phase 3 posts to the GL.
 
 **Doctypes** (all `track_changes`): **TBO Fund Allocation** (submittable, `TBO-ALC-.YYYY.-`)
@@ -1210,7 +1210,7 @@ cancel, and Journal Entry submit.
 | `confirm_receipt(transfer, india_payment_entry)` | POST | Links India's receipt. |
 | `preview_allocations(from_date, to_date)` | GET | Q16 "backfill for reporting": what receipts before the start date would have allocated. Records and posts nothing. Uses the plain ratio for every receipt (no closing remainder), since an invoice paid in full today does not say which past receipt settled it. |
 
-All of them, and the Finance tab's new Allocation section (`get_deal_allocation`: the deal's
+All of them, and the Finance view's new Allocation section (`get_deal_allocation`: the deal's
 share, settled and pending), are for Accounts, Finance and Management only (risk R7); a
 salesperson gets a 403 and never sees the section. The same goes for exceptions of
 category Allocation and Transfer: their permission hooks hide them from everyone else, even
@@ -1227,7 +1227,7 @@ half-up rounding, receipts outside the allocation (start date, switch, other com
 unallocated money with the deal ratio, cancel before, after and after part of a transfer
 (reversal, exception, due from partner), refunds, Journal Entry receipts, FIFO transfer with India's
 confirmation and achieved rate, short transfer and over-settlement, a sending payment used once, the pending-transfer job,
-engine-only allocations, access (BDE refused, Accounts allowed, Finance tab section,
+engine-only allocations, access (BDE refused, Accounts allowed, Finance view section,
 allocation exceptions hidden), the reporting preview and settings validation.
 
 ### 14.6 What the owner switches on after deploying Phase 3
@@ -1235,8 +1235,9 @@ allocation exceptions hidden), the reporting preview and settings validation.
 1. Check **Invoicing company** (TBO KSA) and set **Partner company** (TBO India).
 2. Check **Allocation start date** (set to the deploy date) and **Partner share %** (50).
 3. Tick **Allocation and transfers (Phase 3)**.
-4. Accounts book each transfer as a Payment Entry (Pay) in ERPNext, then record it on the CRM's
-   **Allocations** page; India confirms there with its receipt.
+4. Accounts book each transfer as a Payment Entry (Pay) in ERPNext, then record it as a TBO Fund
+   Transfer (`api/finance/allocations.py`; the CRM's Allocations page went with the CRM app);
+   India confirms it with its receipt.
 
 ### 14.7 Phase 4: reconciliation and approvals (built)
 
@@ -1282,7 +1283,7 @@ still needs only Collected.
 any of Phases 2-4 is on, shows "first approval" progress, and gains a **Bank lines** tab:
 matched lines waiting for verification (with Verify for a second person) and unmatched lines
 with their age and duplicate flag (`get_bank_queue`, which reads through Bank Transaction
-permissions, so User Permissions on company apply). Finance tab: the stage strip shows
+permissions, so User Permissions on company apply). Finance view: the stage strip shows
 Settling and Reconciled, and Close follows the closable stage.
 
 **Tests** - `tbo_smart/tests/test_finance_reconciliation.py`: duplicates flagged not
@@ -1296,54 +1297,52 @@ closing, On Exception, and the bank queue refused to salespeople.
    line is an exception** (3).
 2. If management answers Q5 with a limit, set **Second approval above**.
 3. Accounts keep importing statements and matching in ERPNext; a second Accounts Manager or
-   TBO Finance Approver verifies on the CRM's Finance exceptions → Bank lines tab.
+   TBO Finance Approver verifies the bank lines (`api/finance/reconciliation.py`; the CRM's Bank
+   lines tab went with the CRM app).
 
-### 14.9 Phase 5: finance cards on the CRM dashboard (built)
+### 14.9 Phase 5: finance cards on the sales dashboard (built)
 
 Switch: **TBO Smart Settings → Finance dashboard (Phase 5)** (`enable_finance_dashboard`),
-off by default; needs Phase 1. Module `tbo_smart/finance/dashboard.py`, registered with the
-CRM fork's `crm_dashboard_providers` (charts resolvable by name) and `crm_dashboard_layout`
-(`get_cards`: the cards for the current user, placed below the CRM's own) hooks.
+off by default; needs Phase 1. Module `tbo_smart/finance/dashboard.py`; `get_cards` (the cards
+for the current user) is served with the smart lead and pipeline cards by
+`tbo_smart.api.dashboard.get_cards(from_date, to_date, user)` (the CRM dashboard hooks it was
+built for went with the CRM app).
 
 | Card | Who sees it | Definition (§8) |
 | --- | --- | --- |
-| Quotations | CRM users | Submitted quotations of deals, by quotation date in the range; delta against the previous period of the same length |
-| Invoiced | CRM users, with amounts | Σ base grand total of submitted invoices of CRM deals (not returns) posted in the range; delta |
-| Collected | CRM users, with amounts | Σ customer receipts of CRM deals in the range minus refunds (company currency); delta |
-| Outstanding | CRM users, with amounts | Σ outstanding on submitted invoices of CRM deals, today, in company currency |
-| Overdue | CRM users, with amounts | Σ company-currency outstanding (`base_outstanding`) on payment terms due before today |
-| Lead → deal | CRM users | Deals from a lead created in the range ÷ leads created in the range |
+| Quotations | Sales users | Submitted quotations of deals, by quotation date in the range; delta against the previous period of the same length |
+| Invoiced | Sales users, with amounts | Σ base grand total of submitted invoices of deals (not returns) posted in the range; delta |
+| Collected | Sales users, with amounts | Σ customer receipts of deals in the range minus refunds (company currency); delta |
+| Outstanding | Sales users, with amounts | Σ outstanding on submitted invoices of deals, today, in company currency |
+| Overdue | Sales users, with amounts | Σ company-currency outstanding (`base_outstanding`) on payment terms due before today |
+| Lead → deal | Sales users | Deals from a lead created in the range ÷ leads created in the range |
 | Payable to partner | Accounts, finance, management; Phase 3 on | Σ open share on allocations, the Allocations page's "pending" (money due back is not netted in) |
 | Transfers waiting | Same; Phase 3 on | Transfers Sent or Difference |
 | Bank lines to verify | Same; Phase 4 on | Reconciled lines not Verified |
 | Open exceptions | Same; any of Phases 2-4 on | Exceptions Open or Pending Approval |
 
-- **A BDE sees only their own deals' sales figures:** the CRM dashboard passes a plain Sales
+- **A BDE sees only their own deals' sales figures:** the sales dashboard passes a plain Sales
   User's own user, and every sales card then counts only deals they own. A manager can pick a
   user in the dashboard's filter; leaving it blank shows everyone.
-- Amount cards follow "BDE can see invoice/payment amounts" (Q17), also when called
-  directly through the CRM's `get_chart`. Every card is None while Phase 5 is off.
-- Amounts are in the invoicing company's currency (that company only), or the CRM default
+- Amount cards follow "BDE can see invoice/payment amounts" (Q17). Every card is None while
+  Phase 5 is off.
+- Amounts are in the invoicing company's currency (that company only), or the default sales
   company's when no invoicing company is set. The finance counts (transfers, bank lines,
-  exceptions) are for that company too. Sales cards count only documents linked to a CRM
-  deal, also in the everyone view (blank user).
+  exceptions) are for that company too. Sales cards count only documents linked to a deal, also
+  in the everyone view (blank user).
 - **Deviation:** the plan wanted client, employee and entity filters on every metric. The
-  CRM dashboard only filters by date range and user, so the cards use those; the Receivables
+  sales dashboard only filters by date range and user, so the cards use those; the Receivables
   and BDE conversion pages carry the client and company filters. The Allocation, Transfer and
   Reconciliation reports of §8 are the Allocations page and the Bank lines tab; the separate
   Script Reports and the Audit Log report are not built (follow-ups).
-- The fork also lets users the `crm_app_permission` hook admits (the finance roles) open the
-  dashboard.
-
 **Tests** - `tbo_smart/tests/test_finance_dashboard.py`: a BDE's cards count only their
 deals (invoiced, collected, outstanding, overdue) and carry no finance cards; Accounts get
-the finance cards; hidden amounts and the switch. The fork tests the hooks in
-`crm/tests/test_dashboard_providers.py`.
+the finance cards; hidden amounts and the switch.
 
 ### 14.10 What the owner switches on after deploying Phase 5
 
-1. Tick **Finance dashboard (Phase 5)**. The cards appear on `/crm/dashboard` for each user by
-   role; nothing needs to be added to the saved layout.
+1. Tick **Finance dashboard (Phase 5)**. `api/dashboard.get_cards` returns the cards for each
+   user by role.
 
 ---
 
@@ -1359,3 +1358,4 @@ the finance cards; hidden amounts and the switch. The fork tests the hooks in
 | 0.6 | 2026-10-13 | Phase 5 built: finance cards on the CRM dashboard by role (§14.9). |
 | 0.7 | 2026-10-16 | Stages 1 and 4 follow the lead pipeline (`lead-pipeline.md`): its statuses, and the deal made at Closed – Won. |
 | 0.8 | 2026-10-16 | The quotation dialog also serves the lead (lead-pipeline.md §9); payment terms, terms template and totals added. |
+| 0.9 | 2026-10-16 | The deal is ERPNext's Opportunity (`erpnext-lead-cutover.md`): §3.1 and §14 updated to the fields that are built (`opportunity`, `tbo_finance_stage`, `tbo_customer`, ToDo); the backfill patch, the CRM app hooks and the Collections view removed; the dashboard cards served by `api/dashboard.py`. |

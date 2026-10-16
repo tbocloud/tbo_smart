@@ -1,6 +1,5 @@
-"""The pipeline dashboard (docs/lead-pipeline.md §11): the Pipeline page's figures and the cards
-on the CRM dashboard, through the fork's `crm_dashboard_providers` / `crm_dashboard_layout`
-hooks.
+"""The pipeline dashboard (docs/lead-pipeline.md §11): the Pipeline page's figures and the
+pipeline cards of the sales dashboard (tbo_smart.api.dashboard).
 
 Everything is counted for a set of lead owners: a salesperson's own leads, a team lead's sales
 team, everyone for a Sales Manager outside the hierarchy or a System Manager (the mobile API's
@@ -34,7 +33,8 @@ from tbo_smart.lead_pipeline.statuses import (
 	STATUS_NAMES,
 	WON_STATUSES,
 )
-from tbo_smart.smart_leads import CLOSED_TASK_STATUSES
+from tbo_smart.sales.activities import OPEN
+from tbo_smart.sales.opportunity import converted_leads_query
 
 MAX_RANGE_DAYS = 731
 LIST_SIZE = 10
@@ -69,14 +69,14 @@ class PipelineDashboard:
 			frappe.throw(_("To date must be on or after from date."))
 		if (self.to_date - self.from_date).days > MAX_RANGE_DAYS:
 			frappe.throw(_("Choose a range of at most two years."))
-		if status and status not in STATUS_NAMES and not frappe.db.exists("CRM Lead Status", status):
-			frappe.throw(_("{0} is not a lead status.").format(status))
+		if status and status not in STATUS_NAMES:
+			frappe.throw(_("{0} is not a lead stage.").format(status))
 		self.end = add_days(self.to_date, 1)
 		self.owners = owners
 		self.source = source
 		self.status = status
 		self.now = now_datetime()
-		self.Lead = frappe.qb.DocType("CRM Lead")
+		self.Lead = frappe.qb.DocType("Lead")
 		self.Meeting = frappe.qb.DocType("TBO Lead Meeting")
 		self.Quotation = frappe.qb.DocType("Quotation")
 
@@ -114,7 +114,7 @@ class PipelineDashboard:
 		if self.source:
 			criterion &= Lead.source == self.source
 		if self.status:
-			criterion &= Lead.status == self.status
+			criterion &= Lead.tbo_stage == self.status
 		return criterion
 
 	def in_range(self, field):
@@ -128,30 +128,30 @@ class PipelineDashboard:
 		counts = dict(
 			(
 				frappe.qb.from_(Lead)
-				.select(Lead.status, Count(Lead.name))
+				.select(Lead.tbo_stage, Count(Lead.name))
 				.where(self.lead_criterion() & self.in_range(Lead.creation))
-				.groupby(Lead.status)
+				.groupby(Lead.tbo_stage)
 			).run()
 		)
 		order = list(STATUS_NAMES) + sorted(set(counts) - set(STATUS_NAMES))
 		return [{"status": status, "count": cint(counts.get(status))} for status in order]
 
 	def closed_rows(self, kind: str):
-		"""(lead, lost_reason) of the leads that entered a Won or Lost status in the range, from
-		CRM's Status Change Log (a row is a stretch in one status, from `from_date`)."""
-		Log = frappe.qb.DocType("CRM Status Change Log")
+		"""(lead, lost_reason) of the leads that entered a Won or Lost stage in the range, from
+		their stage log (a row is the stage entered and when)."""
+		Log = frappe.qb.DocType("TBO Stage Change")
 		Lead = self.Lead
 		statuses = WON_STATUSES if kind == "Won" else LOST_STATUSES
 		return (
 			frappe.qb.from_(Log)
 			.join(Lead)
 			.on(Lead.name == Log.parent)
-			.select(Lead.name, Lead.lost_reason, Lead.lead_owner)
+			.select(Lead.name, Lead.tbo_lost_reason.as_("lost_reason"), Lead.lead_owner)
 			.distinct()
 			.where(
-				(Log.parenttype == "CRM Lead")
-				& Log["from"].isin(statuses)
-				& self.in_range(Log.from_date)
+				(Log.parenttype == "Lead")
+				& Log.stage.isin(statuses)
+				& self.in_range(Log.changed_on)
 				& self.lead_criterion()
 			)
 		).run(as_dict=True)
@@ -179,7 +179,7 @@ class PipelineDashboard:
 				.where(
 					self.lead_criterion()
 					& self.in_range(Lead.creation)
-					& (Lead.status.isin(WON_STATUSES) | (Lead.converted == 1))
+					& (Lead.tbo_stage.isin(WON_STATUSES) | Lead.name.isin(converted_leads_query()))
 				)
 			).run()[0][0]
 		)
@@ -190,35 +190,39 @@ class PipelineDashboard:
 		Lead = self.Lead
 		criterion = (
 			self.lead_criterion()
-			& Lead.status.isin(OPEN_STATUSES)
-			& (Lead.converted == 0)
-			& ((Lead.lead_temperature == "Hot") | (Lead.status == POSITIVE))
+			& Lead.tbo_stage.isin(OPEN_STATUSES)
+			& ((Lead.tbo_temperature == "Hot") | (Lead.tbo_stage == POSITIVE))
 		)
 		count = (frappe.qb.from_(Lead).select(Count(Lead.name)).where(criterion)).run()[0][0]
 		rows = (
 			frappe.qb.from_(Lead)
 			.select(
-				Lead.name, Lead.lead_name, Lead.organization, Lead.status, Lead.lead_score, Lead.lead_owner
+				Lead.name,
+				Lead.lead_name,
+				Lead.company_name.as_("organization"),
+				Lead.tbo_stage.as_("status"),
+				Lead.tbo_score.as_("lead_score"),
+				Lead.lead_owner,
 			)
 			.where(criterion)
-			.orderby(IfNull(Lead.lead_score, 0), order=frappe.qb.desc)
+			.orderby(IfNull(Lead.tbo_score, 0), order=frappe.qb.desc)
 			.limit(LIST_SIZE)
 		).run(as_dict=True)
 		return {"count": cint(count), "rows": rows}
 
 	def overdue_follow_ups(self) -> int:
-		Task = frappe.qb.DocType("CRM Task")
+		ToDo = frappe.qb.DocType("ToDo")
 		Lead = self.Lead
 		return cint(
 			(
-				frappe.qb.from_(Task)
+				frappe.qb.from_(ToDo)
 				.join(Lead)
-				.on((Task.reference_doctype == "CRM Lead") & (Task.reference_docname == Lead.name))
-				.select(Count(Task.name))
+				.on((ToDo.reference_type == "Lead") & (ToDo.reference_name == Lead.name))
+				.select(Count(ToDo.name))
 				.where(
-					Task.status.notin(CLOSED_TASK_STATUSES)
-					& (Task.due_date < getdate())
-					& Lead.status.isin(OPEN_STATUSES)
+					(ToDo.status == OPEN)
+					& (ToDo.date < getdate())
+					& Lead.tbo_stage.isin(OPEN_STATUSES)
 					& self.lead_criterion()
 				)
 			).run()[0][0]
@@ -258,7 +262,7 @@ class PipelineDashboard:
 				Meeting.name,
 				Meeting.lead,
 				Lead.lead_name,
-				Lead.organization,
+				Lead.company_name.as_("organization"),
 				Meeting.stage_label,
 				Meeting.scheduled_at,
 				Meeting.meeting_type,
@@ -315,7 +319,7 @@ class PipelineDashboard:
 		quotes = (
 			frappe.qb.from_(Quotation)
 			.join(Lead)
-			.on(Lead.name == Quotation.tbo_crm_lead)
+			.on((Quotation.quotation_to == "Lead") & (Lead.name == Quotation.party_name))
 			.select(
 				Lead.lead_owner,
 				Sum(Case().when(self.in_range(Quotation.transaction_date), 1).else_(0)).as_("quotations"),
@@ -361,7 +365,11 @@ class PipelineDashboard:
 		waiting for the client now; and the value of the active ones (the latest revision of
 		each, approved or with the client and still valid): the revenue potential."""
 		Quotation, Lead = self.Quotation, self.Lead
-		base = frappe.qb.from_(Quotation).join(Lead).on(Lead.name == Quotation.tbo_crm_lead)
+		base = (
+			frappe.qb.from_(Quotation)
+			.join(Lead)
+			.on((Quotation.quotation_to == "Lead") & (Lead.name == Quotation.party_name))
+		)
 		rows = (
 			base.select(
 				Quotation.tbo_quote_status,
@@ -433,7 +441,7 @@ def people(owners: list[str] | None) -> list[dict]:
 	"""Whom the BDE filter offers: the scope's people, or every lead owner for an all scope."""
 	if owners is None:
 		owners = frappe.get_all(
-			"CRM Lead", filters={"lead_owner": ("is", "set")}, pluck="lead_owner", distinct=True
+			"Lead", filters={"lead_owner": ("is", "set")}, pluck="lead_owner", distinct=True
 		)
 	names = get_full_names(set(owners))
 	return sorted(
@@ -442,7 +450,7 @@ def people(owners: list[str] | None) -> list[dict]:
 	)
 
 
-# ---------- CRM dashboard cards (crm_dashboard_providers / crm_dashboard_layout) ----------
+# ---------- dashboard cards (tbo_smart.api.dashboard) ----------
 
 
 def card_dashboard(from_date, to_date, user) -> PipelineDashboard | None:
@@ -521,7 +529,7 @@ CARDS = (
 
 
 def get_cards(from_date, to_date, user=None) -> list[dict]:
-	"""crm_dashboard_layout hook: the pipeline cards that are switched on."""
+	"""The pipeline cards that are switched on (tbo_smart.api.dashboard)."""
 	cards = []
 	for name in CARDS:
 		data = globals()[f"get_{name}"](from_date, to_date, user)

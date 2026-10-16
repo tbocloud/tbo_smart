@@ -1,4 +1,4 @@
-"""The CRM Deal's post-sale stage, `tbo_stage` (docs/crm-finance-workflow.md §2).
+"""The deal's post-sale stage, Opportunity `tbo_finance_stage` (docs/crm-finance-workflow.md §2).
 
 Nobody types the stage. It is recomputed when a linked Quotation, Sales Order, Sales Invoice or
 Payment Entry is saved, submitted or cancelled, and nightly as a safety net. Only "Onboarding
@@ -23,7 +23,8 @@ from tbo_smart.finance import (
 	reconciliation_enabled,
 )
 from tbo_smart.finance.deal_finance import AMOUNT_TOLERANCE, DealFinance
-from tbo_smart.finance.deal_links import deals_of, deals_of_quotations
+from tbo_smart.finance.deal_links import deals_of
+from tbo_smart.sales.opportunity import customer_of
 
 
 def compute_stage(deal, finance: DealFinance) -> str:
@@ -41,7 +42,7 @@ def compute_stage(deal, finance: DealFinance) -> str:
 		return "Invoiced"
 	if cint(deal.get("tbo_onboarding_complete")) or finance.has_quotation_or_order():
 		return "Quotation"
-	if deal.get("erpnext_customer"):
+	if customer_of(deal):
 		return "Onboarding"
 	return ""
 
@@ -63,11 +64,11 @@ def closable_stage() -> str:
 
 
 def write_deal(deal, values: dict, comment: str | None = None) -> None:
-	"""Write fields on a CRM Deal without running its save hooks, and keep the history.
+	"""Write fields on a deal without running its save hooks, and keep the history.
 
-	A full save would re-run Frappe CRM's on_update (customer creation, automations) from an
-	accounting document's submit. So the values go straight to the row, and a Version row and
-	an optional timeline comment record who changed what."""
+	A full save would re-run the Opportunity's own validation and hooks (party, prospect, the
+	stage log) from an accounting document's submit. So the values go straight to the row, and a
+	Version row and an optional timeline comment record who changed what."""
 	write_tracked(deal, values, comment)
 	publish_deal_update([deal.name])
 
@@ -87,20 +88,18 @@ def write_tracked(doc, values: dict, comment: str | None = None) -> None:
 
 def update_stage(deal_name: str) -> str | None:
 	"""Recompute and store one deal's stage; returns it (None when the deal is gone)."""
-	if not frappe.db.exists("CRM Deal", deal_name):
+	if not frappe.db.exists("Opportunity", deal_name):
 		return None
-	deal = frappe.get_doc("CRM Deal", deal_name)
+	deal = frappe.get_doc("Opportunity", deal_name)
 	stage = compute_stage(deal, DealFinance(deal_name))
-	if stage != (deal.tbo_stage or ""):
-		write_deal(deal, {"tbo_stage": stage})
+	if stage != (deal.tbo_finance_stage or ""):
+		write_deal(deal, {"tbo_finance_stage": stage})
 	return stage
 
 
 def deals_of_document(doc) -> set[str]:
-	"""Deals a document touches: its own crm_deal, plus for a payment its references' deals."""
-	deals = {doc.get("crm_deal")}
-	if doc.doctype == "Quotation":
-		deals |= set(deals_of_quotations([doc.name]).values())
+	"""Deals a document touches: its own `opportunity`, plus for a payment its references' deals."""
+	deals = {doc.get("opportunity")}
 	if doc.doctype == "Payment Entry":
 		for doctype in ("Sales Invoice", "Sales Order"):
 			names = {
@@ -138,14 +137,15 @@ def recompute_all() -> None:
 
 
 def get_post_sale_deals() -> list[str]:
-	Deal = frappe.qb.DocType("CRM Deal")
+	Deal = frappe.qb.DocType("Opportunity")
 	deals = set(
 		(
 			frappe.qb.from_(Deal)
 			.select(Deal.name)
 			.where(
-				((Deal.tbo_stage.isnotnull()) & (Deal.tbo_stage != ""))
-				| ((Deal.erpnext_customer.isnotnull()) & (Deal.erpnext_customer != ""))
+				((Deal.tbo_finance_stage.isnotnull()) & (Deal.tbo_finance_stage != ""))
+				| ((Deal.tbo_customer.isnotnull()) & (Deal.tbo_customer != ""))
+				| (Deal.opportunity_from == "Customer")
 				| (Deal.tbo_onboarding_complete == 1)
 			)
 		).run(pluck=True)
@@ -155,9 +155,9 @@ def get_post_sale_deals() -> list[str]:
 		deals |= set(
 			(
 				frappe.qb.from_(Table)
-				.select(Table.crm_deal)
+				.select(Table.opportunity)
 				.distinct()
-				.where(Table.crm_deal.isnotnull() & (Table.crm_deal != "") & (Table.docstatus < 2))
+				.where(Table.opportunity.isnotnull() & (Table.opportunity != "") & (Table.docstatus < 2))
 			).run(pluck=True)
 		)
 	return sorted(deals)
@@ -168,7 +168,7 @@ def stage_changed(doc, method=None):
 
 
 def default_company(doc, method=None):
-	"""CRM Deal before_insert: the invoicing company defaults to ERPNext CRM Settings' company."""
+	"""Opportunity before_insert: the invoicing company defaults to the finance workflow's."""
 	DealDefaults(doc).set_company()
 
 
@@ -177,6 +177,6 @@ class DealDefaults:
 		self.doc = doc
 
 	def set_company(self):
-		if self.doc.get("tbo_company") or not finance_enabled():
+		if self.doc.get("company") or not finance_enabled():
 			return
-		self.doc.tbo_company = get_default_company()
+		self.doc.company = get_default_company()

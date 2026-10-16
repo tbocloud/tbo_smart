@@ -8,7 +8,7 @@ app_license = "mit"
 # Apps
 # ------------------
 
-required_apps = ["erpnext", "hrms", "crm"]
+required_apps = ["erpnext", "hrms"]
 
 # Each item in the list will be shown as an app in the apps page
 # add_to_apps_screen = [
@@ -169,7 +169,11 @@ doc_events = {
 		"on_trash": "tbo_smart.finance.stage.stage_changed",
 	},
 	# Finance workflow Phase 1 (docs/crm-finance-workflow.md); every hook no-ops while it is off
-	"CRM Deal": {"before_insert": "tbo_smart.finance.stage.default_company"},
+	# The deal: its stage history, won/lost day and ERPNext's Lost status (docs/erpnext-lead-cutover.md)
+	"Opportunity": {
+		"before_insert": "tbo_smart.finance.stage.default_company",
+		"validate": "tbo_smart.sales.opportunity.validate_opportunity",
+	},
 	"Sales Order": {
 		"validate": "tbo_smart.finance.documents.validate",
 		"on_submit": "tbo_smart.finance.stage.stage_changed",
@@ -192,17 +196,19 @@ doc_events = {
 		],
 	},
 	"Journal Entry": {"on_submit": "tbo_smart.finance.allocation.journal_submitted"},
+	# The lead's stage rules and history (docs/erpnext-lead-cutover.md)
 	# Smart leads (docs/smart-leads.md): re-score a lead when it or its activity changes; no-op while off
 	# Lead pipeline (docs/lead-pipeline.md): the deal at Closed – Won; no-op while off
-	"CRM Lead": {
+	"Lead": {
+		"validate": "tbo_smart.sales.stages.validate_lead",
 		"on_update": [
 			"tbo_smart.smart_leads.scoring.lead_changed",
 			"tbo_smart.lead_pipeline.won.lead_updated",
-		]
+		],
 	},
-	"FCRM Note": {"after_insert": "tbo_smart.smart_leads.scoring.activity_changed"},
-	"CRM Call Log": {"after_insert": "tbo_smart.smart_leads.scoring.activity_changed"},
-	"CRM Task": {"on_update": "tbo_smart.smart_leads.scoring.activity_changed"},
+	"Comment": {"after_insert": "tbo_smart.smart_leads.scoring.activity_changed"},
+	"Event": {"after_insert": "tbo_smart.smart_leads.scoring.activity_changed"},
+	"ToDo": {"on_update": "tbo_smart.smart_leads.scoring.activity_changed"},
 	# Lead quotations: an approval request or decision changes the quotation's draft state
 	"TBO Quotation Adjustment": {"on_update": "tbo_smart.lead_pipeline.quotations.adjustment_changed"},
 	"Bank Transaction": {
@@ -242,34 +248,20 @@ scheduler_events = {
 	},
 }
 
+# Leads and deals: owner, assignee and the sales hierarchy (docs/erpnext-lead-cutover.md §3)
 permission_query_conditions = {
+	"Lead": "tbo_smart.sales.permissions.get_lead_query_conditions",
+	"Opportunity": "tbo_smart.sales.permissions.get_opportunity_query_conditions",
 	"TBO Finance Exception": "tbo_smart.finance.access.exception_query_conditions",
 	"TBO Lead Meeting": "tbo_smart.lead_pipeline.meetings.get_permission_query_conditions",
 }
 
 has_permission = {
+	"Lead": "tbo_smart.sales.permissions.has_lead_permission",
+	"Opportunity": "tbo_smart.sales.permissions.has_opportunity_permission",
 	"TBO Finance Exception": "tbo_smart.finance.access.has_exception_permission",
 	"TBO Lead Meeting": "tbo_smart.lead_pipeline.meetings.has_permission",
 }
-
-override_whitelisted_methods = {
-	"crm.fcrm.doctype.erpnext_crm_settings.erpnext_crm_settings.can_create_quotations": "tbo_smart.api.finance.quotation.can_create_desk_quotations",
-	"crm.fcrm.doctype.crm_lead.crm_lead.convert_to_deal": "tbo_smart.lead_pipeline.won.convert_to_deal",
-}
-
-# Frappe CRM fork extension points (tbocloud/crm docs/tbo-finance.md)
-crm_app_permission = ["tbo_smart.finance.access.has_crm_app_access"]
-crm_unrestricted_access = ["tbo_smart.finance.access.has_unrestricted_crm_access"]
-crm_dashboard_providers = [
-	"tbo_smart.finance.dashboard",
-	"tbo_smart.smart_leads.dashboard",
-	"tbo_smart.lead_pipeline.dashboard",
-]
-crm_dashboard_layout = [
-	"tbo_smart.finance.dashboard.get_cards",
-	"tbo_smart.smart_leads.dashboard.get_cards",
-	"tbo_smart.lead_pipeline.dashboard.get_cards",
-]
 
 # doc_events = {
 # 	"*": {

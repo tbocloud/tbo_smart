@@ -1,4 +1,4 @@
-"""Smart leads for TBO's Frappe CRM (docs/smart-leads.md).
+"""Smart leads on ERPNext's Lead (docs/smart-leads.md).
 
 Four features, each behind its own switch in TBO Smart Settings, all off by default:
 
@@ -8,22 +8,20 @@ Four features, each behind its own switch in TBO Smart Settings, all off by defa
 - AI call notes, the lead brief and WhatsApp drafts (`enable_lead_notes`);
 - the one-time AI triage of stale leads (`enable_lead_triage`).
 
-Everything hangs off CRM Lead, so on a site without the CRM app (tbo-smart.tbocloud.in) every
-switch reads as off and nothing is set up.
+Everything hangs off ERPNext's Lead, so on a site without ERPNext every switch reads as off
+and nothing is set up.
 """
 
 import frappe
 from frappe.utils import cint
 
-from tbo_smart.finance import crm_installed
-
 # The statuses a salesperson still works on: every pipeline status but Closed – Won and Closed –
 # Lost (docs/lead-pipeline.md §2). Closed leads are never scored for calling, flagged or triaged.
 from tbo_smart.lead_pipeline.statuses import OPEN_STATUSES
+from tbo_smart.sales import erpnext_installed
 
 SETTINGS = "TBO Smart Settings"
 FOLLOW_UP_TYPE = "Sales follow-up"
-CLOSED_TASK_STATUSES = ("Done", "Canceled")
 # designation roles from the quotation approval feature (tbo_smart.install.QUOTATION_LEVELS)
 BDM_ROLE = "Business Development Manager"
 SALES_HEAD_ROLE = "Sales & Marketing Head"
@@ -34,7 +32,7 @@ def setting(fieldname: str):
 
 
 def switch(fieldname: str) -> bool:
-	return crm_installed() and bool(cint(setting(fieldname)))
+	return erpnext_installed() and bool(cint(setting(fieldname)))
 
 
 def scoring_enabled() -> bool:

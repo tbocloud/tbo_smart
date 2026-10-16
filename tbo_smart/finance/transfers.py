@@ -26,7 +26,7 @@ def get_open_allocations(company: str) -> list[dict]:
 			"payment_entry",
 			"posting_date",
 			"customer",
-			"crm_deal",
+			"opportunity",
 			"currency",
 			"share_amount",
 			"settled_amount",

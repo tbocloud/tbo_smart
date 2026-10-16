@@ -1,7 +1,7 @@
 """The daily Call today list per salesperson (docs/smart-leads.md §4.3).
 
 Built live from the same facts as the score, so it is always current: open leads owned by the
-person that the session user may read under Frappe CRM's own rules, in this order:
+person that the session user may read (tbo_smart.sales.permissions), in this order:
 
 1. follow-ups overdue, oldest first;
 2. follow-ups due today;
@@ -15,8 +15,9 @@ import frappe
 from frappe import _
 from frappe.utils import get_datetime, getdate
 
-from tbo_smart.api.mobile.capabilities import get_capabilities, get_sales_team
+from tbo_smart.api.mobile.capabilities import get_capabilities
 from tbo_smart.api.mobile.utils import get_full_names
+from tbo_smart.sales.hierarchy import get_sales_team
 from tbo_smart.smart_leads import OPEN_STATUSES, call_today_size, is_sales_head
 from tbo_smart.smart_leads.facts import LeadFacts, first_due
 from tbo_smart.smart_leads.scoring import conversion_rates, lead_score, status_positions
@@ -56,10 +57,10 @@ def build_call_today(user: str | None = None, size: int | None = None, today=Non
 	# cheap first: the person's open leads by last night's score and each one's earliest
 	# follow-up; the full facts are loaded only for the ones that can make the list
 	names = frappe.get_list(
-		"CRM Lead",
-		filters={"lead_owner": user, "status": ("in", OPEN_STATUSES), "converted": 0},
+		"Lead",
+		filters={"lead_owner": user, "tbo_stage": ("in", OPEN_STATUSES)},
 		pluck="name",
-		order_by="lead_score desc, creation desc",
+		order_by="tbo_score desc, creation desc",
 		limit_page_length=0,
 	)
 	due_by = first_due(names)

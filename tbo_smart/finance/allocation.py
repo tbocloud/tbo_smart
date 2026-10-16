@@ -98,7 +98,7 @@ class AllocationBuilder:
 		if unallocated > 0:
 			gross = unallocated * self.rate * self.charge_factor
 			ratio = self.deal_ratio()
-			rows.append(self.line("Unallocated", None, self.entry.get("crm_deal"), gross, ratio))
+			rows.append(self.line("Unallocated", None, self.entry.get("opportunity"), gross, ratio))
 		return rows
 
 	def document_line(self, doctype: str, name: str, gross: float) -> dict:
@@ -108,7 +108,7 @@ class AllocationBuilder:
 			[
 				"base_net_total",
 				"base_grand_total",
-				"crm_deal",
+				"opportunity",
 				"outstanding_amount" if doctype == "Sales Invoice" else "name",
 			],
 			as_dict=True,
@@ -122,7 +122,7 @@ class AllocationBuilder:
 		)
 		if closing:
 			return self.closing_line(name, doc, gross, ratio)
-		return self.line(doctype, name, doc.crm_deal, gross, ratio)
+		return self.line(doctype, name, doc.opportunity, gross, ratio)
 
 	def line(self, doctype: str, name: str | None, deal: str | None, gross: float, ratio: float) -> dict:
 		net = money(gross * ratio)
@@ -130,7 +130,7 @@ class AllocationBuilder:
 		return {
 			"reference_doctype": doctype,
 			"reference_name": name,
-			"crm_deal": deal,
+			"opportunity": deal,
 			"gross_amount": money(gross) * self.sign,
 			"net_ratio": round(ratio, 9),
 			"tax_amount": money(money(gross) - net) * self.sign,
@@ -147,7 +147,7 @@ class AllocationBuilder:
 		return {
 			"reference_doctype": "Sales Invoice",
 			"reference_name": invoice,
-			"crm_deal": doc.crm_deal,
+			"opportunity": doc.opportunity,
 			"gross_amount": money(gross),
 			"net_ratio": round(ratio, 9),
 			"tax_amount": money(money(gross) - net),
@@ -159,12 +159,12 @@ class AllocationBuilder:
 	def deal_ratio(self) -> float:
 		"""Net ratio for money not yet against a document: the deal's latest submitted order or
 		quotation, else 1 / (1 + default VAT)."""
-		deal = self.entry.get("crm_deal")
+		deal = self.entry.get("opportunity")
 		if deal:
 			for doctype in ("Sales Order", "Quotation"):
 				row = frappe.get_all(
 					doctype,
-					filters={"crm_deal": deal, "docstatus": 1},
+					filters={"opportunity": deal, "docstatus": 1},
 					fields=["base_net_total", "base_grand_total"],
 					order_by="creation desc",
 					limit=1,
@@ -258,7 +258,7 @@ def make_allocation(
 	kind: str = "Receipt",
 	reversal_of: str | None = None,
 ):
-	deals = {line["crm_deal"] for line in lines}
+	deals = {line["opportunity"] for line in lines}
 	doc = frappe.get_doc(
 		{
 			"doctype": DOCTYPE,
@@ -268,7 +268,7 @@ def make_allocation(
 			"posting_date": entry.posting_date,
 			"company": entry.company,
 			"customer": entry.party,
-			"crm_deal": deals.pop() if len(deals) == 1 else None,
+			"opportunity": deals.pop() if len(deals) == 1 else None,
 			"currency": frappe.get_cached_value("Company", entry.company, "default_currency"),
 			"allocation_percent": settings.percent,
 			"lines": lines,
@@ -349,7 +349,7 @@ class PaymentAllocation:
 			reference_name=reversal.name,
 			company=allocation.company,
 			customer=allocation.customer,
-			crm_deal=allocation.crm_deal,
+			opportunity=allocation.opportunity,
 			currency=allocation.currency,
 			expected_amount=0,
 			actual_amount=flt(allocation.settled_amount),
@@ -372,7 +372,7 @@ class PaymentAllocation:
 				for key in (
 					"reference_doctype",
 					"reference_name",
-					"crm_deal",
+					"opportunity",
 					"net_ratio",
 					"is_closing_receipt",
 				)

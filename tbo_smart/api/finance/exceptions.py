@@ -32,7 +32,7 @@ LIST_FIELDS = [
 	"reference_doctype",
 	"reference_name",
 	"customer",
-	"crm_deal",
+	"opportunity",
 	"company",
 	"currency",
 	"expected_amount",
@@ -88,7 +88,7 @@ def request_exception(
 			"payment_schedule": payment_schedule or None,
 			"company": row.company,
 			"customer": row.customer,
-			"crm_deal": row.crm_deal,
+			"opportunity": row.opportunity,
 			"currency": row.currency,
 			"expected_amount": flt(row.outstanding_amount),
 			"reason": reason,
@@ -105,13 +105,13 @@ def request_exception(
 
 @frappe.whitelist()
 def get_exceptions(
-	status: str | None = None, category: str | None = None, crm_deal: str | None = None
+	status: str | None = None, category: str | None = None, opportunity: str | None = None
 ) -> dict:
 	"""Exceptions the user may read (TBO Finance Exception permission rules), newest first,
 	with whether the user may decide each one."""
 	require_exceptions()
 	filters = {}
-	for field, value in (("status", status), ("category", category), ("crm_deal", crm_deal)):
+	for field, value in (("status", status), ("category", category), ("opportunity", opportunity)):
 		if value:
 			filters[field] = value
 	rows = frappe.get_list(

@@ -9,7 +9,6 @@ from frappe.utils import cint
 from tbo_smart.ai import reset_provider_state
 from tbo_smart.api.mobile.auth import GUID, parse_tenant_ids
 from tbo_smart.finance.access import sync_crm_read
-from tbo_smart.finance.setup import create_collections_view
 from tbo_smart.smart_leads.notify import teams_url_problem
 
 LADDER_FIELDS = ("lead_ladder_l1_days", "lead_ladder_l2_days", "lead_ladder_l3_days")
@@ -81,12 +80,11 @@ class TBOSmartSettings(Document):
 
 	def on_update(self):
 		self.grant_finance_crm_read()
-		self.create_collections_view()
 		self.forget_ai_failures()
 
 	def validate_ai_urls(self):
-		"""Keys go to these URLs, so only https."""
-		for fieldname in ("openai_base_url", "anthropic_base_url"):
+		"""Keys go to these URLs, so only https; the lead page URL goes into emails and Teams."""
+		for fieldname in ("openai_base_url", "anthropic_base_url", "lead_page_url"):
 			value = (self.get(fieldname) or "").strip().rstrip("/")
 			if value and not value.startswith("https://"):
 				frappe.throw(_("{0}: use an https:// URL.").format(_(self.meta.get_label(fieldname))))
@@ -184,15 +182,11 @@ class TBOSmartSettings(Document):
 			)
 
 	def grant_finance_crm_read(self):
-		"""Add the finance roles' CRM read rows, or remove the ones this setting added."""
+		"""Add the finance roles' deal read rows, or remove the ones this setting added."""
 		granted = sync_crm_read(frappe.parse_json(self.finance_crm_granted or "[]"))
 		value = frappe.as_json(granted) if granted else None
 		if value != (self.finance_crm_granted or None):
 			self.db_set("finance_crm_granted", value)
-
-	def create_collections_view(self):
-		if self.enable_finance_workflow and self.enable_finance_receivables:
-			create_collections_view()
 
 	def validate_allocation(self):
 		if not self.enable_fund_allocation:

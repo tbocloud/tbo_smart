@@ -1,12 +1,10 @@
 """Who may see what in the finance workflow (docs/crm-finance-workflow.md §9).
 
-- A deal's finance data is open to whoever may read the deal under Frappe CRM's own rules
-  (owner, assignee, sales hierarchy, Sales Manager), and to the finance roles in TBO Smart
-  Settings when "Let finance roles open the CRM" is on.
+- A deal's finance data is open to whoever may read the deal (Opportunity) under the sales
+  rules (owner, assignee, sales hierarchy, Sales Manager: tbo_smart.sales.permissions), and to
+  the finance roles in TBO Smart Settings when "Let finance roles read deals" is on.
 - Amounts on invoices and payments are hidden from plain salespeople only when "BDE can see
   invoice/payment amounts" is off (open question Q17).
-- `has_crm_app_access` and `has_unrestricted_crm_access` are the fork's `crm_app_permission`
-  and `crm_unrestricted_access` hooks (tbocloud/crm docs/tbo-finance.md).
 """
 
 import frappe
@@ -14,8 +12,8 @@ from frappe import _
 from frappe.permissions import add_permission
 from frappe.utils import cint
 
-from tbo_smart.api.mobile.capabilities import get_sales_team
 from tbo_smart.finance import exceptions_enabled, finance_enabled, get_crm_roles, get_setting
+from tbo_smart.sales.hierarchy import get_sales_team
 
 # Roles that always see amounts: managers, approvers and accounts.
 AMOUNT_ROLES = {
@@ -43,9 +41,9 @@ ALLOCATION_CATEGORIES = ("Allocation", "Transfer")
 ALLOCATION_EXCEPTIONS_HIDDEN = "`tabTBO Finance Exception`.category not in ('Allocation', 'Transfer')"
 # Phase 1 closes a deal's finance with these roles; Phase 4 adds TBO Finance Approver.
 CLOSE_ROLES = {"Accounts Manager", "System Manager"}
-# The finance roles only ever read deals through the fork's bypass.
-READ_PTYPES = {"read", "select", "print"}
-CRM_READ_DOCTYPES = ("CRM Deal", "CRM Organization")
+# The finance roles read every deal and organization (tbo_smart.sales.permissions lets them past
+# the sales hierarchy); the Custom DocPerm rows below give them the role permission to.
+CRM_READ_DOCTYPES = ("Opportunity", "Prospect")
 
 
 def finance_crm_access_on() -> bool:
@@ -53,7 +51,7 @@ def finance_crm_access_on() -> bool:
 
 
 def is_finance_user(user: str | None = None) -> bool:
-	"""The user holds one of the finance roles and finance roles may use the CRM."""
+	"""The user holds one of the finance roles and finance roles may read deals."""
 	user = user or frappe.session.user
 	if user == "Guest" or not finance_crm_access_on():
 		return False
@@ -61,21 +59,21 @@ def is_finance_user(user: str | None = None) -> bool:
 
 
 def can_read_deal(deal: str) -> bool:
-	return bool(frappe.has_permission("CRM Deal", "read", doc=deal)) or is_finance_user()
+	return bool(frappe.has_permission("Opportunity", "read", doc=deal)) or is_finance_user()
 
 
 def require_deal(deal: str) -> None:
 	"""Refuse unless the finance workflow is on, the deal exists and the user may read it."""
 	if not finance_enabled():
 		frappe.throw(_("The finance workflow is not switched on."), frappe.ValidationError)
-	if not isinstance(deal, str) or not frappe.db.exists("CRM Deal", deal):
+	if not isinstance(deal, str) or not frappe.db.exists("Opportunity", deal):
 		frappe.throw(_("Deal {0} not found.").format(deal), frappe.DoesNotExistError)
 	if not can_read_deal(deal):
 		frappe.throw(_("You cannot see this deal."), frappe.PermissionError)
 
 
 def can_write_deal(deal: str) -> bool:
-	return bool(frappe.has_permission("CRM Deal", "write", doc=deal))
+	return bool(frappe.has_permission("Opportunity", "write", doc=deal))
 
 
 def can_see_allocations(user: str | None = None) -> bool:
@@ -94,20 +92,9 @@ def can_close() -> bool:
 	return bool(set(frappe.get_roles()) & CLOSE_ROLES)
 
 
-def has_crm_app_access() -> bool:
-	"""crm_app_permission hook: finance roles may open /crm."""
-	return is_finance_user()
-
-
-def has_unrestricted_crm_access(user: str, doctype: str, ptype: str | None = None) -> bool:
-	"""crm_unrestricted_access hook: finance roles read every deal, past the sales hierarchy.
-	Never for writes, so an accounts user who is also a salesperson keeps CRM's write rules."""
-	return doctype == "CRM Deal" and (ptype or "read") in READ_PTYPES and is_finance_user(user)
-
-
 def sync_crm_read(granted: list) -> list:
-	"""Keep the finance roles' read access on CRM Deal and CRM Organization (Custom DocPerm,
-	which also opens the FCRM module to them) in line with the settings.
+	"""Keep the finance roles' read access on Opportunity and Prospect (Custom DocPerm) in line
+	with the settings.
 
 	`granted` lists what this setting did earlier: rows it added ({"name"}) and existing rows
 	it widened ({"name", "restore": original read/if_owner}). Entries no longer wanted, or all
@@ -200,8 +187,8 @@ def exception_query_conditions(user: str | None = None) -> str:
 		return "1=0"
 	escaped = ", ".join(frappe.db.escape(owner) for owner in owners)
 	scope = (
-		f"(`tabTBO Finance Exception`.owner = {frappe.db.escape(user)} or `tabTBO Finance Exception`.crm_deal in "
-		f"(select name from `tabCRM Deal` where deal_owner in ({escaped})))"
+		f"(`tabTBO Finance Exception`.owner = {frappe.db.escape(user)} or `tabTBO Finance Exception`.opportunity in "
+		f"(select name from `tabOpportunity` where opportunity_owner in ({escaped})))"
 	)
 	return f"{scope} and {hide_allocations}" if hide_allocations else scope
 
@@ -219,7 +206,7 @@ def has_exception_permission(doc, ptype: str | None = None, user: str | None = N
 	if not exceptions_enabled():
 		return False
 	if doc.owner == user or (
-		doc.crm_deal and frappe.db.get_value("CRM Deal", doc.crm_deal, "deal_owner") in owners
+		doc.opportunity and frappe.db.get_value("Opportunity", doc.opportunity, "opportunity_owner") in owners
 	):
 		return ptype in (None, "read", "select", "print", "email", "create") or doc.owner == user
 	return False

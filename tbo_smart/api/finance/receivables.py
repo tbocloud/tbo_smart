@@ -1,4 +1,4 @@
-"""Receivables page and collection follow-ups in the CRM (docs/crm-finance-workflow.md §7, Phase 2).
+"""Receivables page and collection follow-ups (docs/crm-finance-workflow.md §7, Phase 2).
 
 Outstanding and due dates come from the submitted Sales Invoices and their Payment Schedule
 rows (ERPNext keeps `outstanding_amount` and each term's `outstanding` in step with the
@@ -21,9 +21,9 @@ from tbo_smart.finance.access import (
 )
 from tbo_smart.finance.reminders import ORDER
 from tbo_smart.finance.stage import write_deal
+from tbo_smart.sales.activities import CLOSED_TASK_STATUSES, OPEN
 
 BUCKETS = (("not_due", None), ("0_30", 30), ("31_60", 60), ("61_90", 90), ("90_plus", None))
-OPEN_TASK = ("Done", "Canceled")
 MAX_ROWS = 2000
 
 
@@ -93,11 +93,11 @@ def get_receivables(
 
 def load_invoices(owners, company, customer, deal_owner, accounts_owner) -> list:
 	Invoice = frappe.qb.DocType("Sales Invoice")
-	Deal = frappe.qb.DocType("CRM Deal")
+	Deal = frappe.qb.DocType("Opportunity")
 	query = (
 		frappe.qb.from_(Invoice)
 		.left_join(Deal)
-		.on(Invoice.crm_deal == Deal.name)
+		.on(Invoice.opportunity == Deal.name)
 		.select(
 			Invoice.name,
 			Invoice.customer,
@@ -109,8 +109,8 @@ def load_invoices(owners, company, customer, deal_owner, accounts_owner) -> list
 			Invoice.grand_total,
 			Invoice.rounded_total,
 			Invoice.outstanding_amount,
-			Invoice.crm_deal,
-			Deal.deal_owner,
+			Invoice.opportunity,
+			Deal.opportunity_owner.as_("deal_owner"),
 			Deal.tbo_accounts_owner.as_("accounts_owner"),
 		)
 		.where((Invoice.docstatus == 1) & (Invoice.outstanding_amount > 0) & (Invoice.is_return == 0))
@@ -118,11 +118,11 @@ def load_invoices(owners, company, customer, deal_owner, accounts_owner) -> list
 		.limit(MAX_ROWS)
 	)
 	if owners is not None:
-		query = query.where(Deal.deal_owner.isin(owners or [""]))
+		query = query.where(Deal.opportunity_owner.isin(owners or [""]))
 	for field, value in (
 		(Invoice.company, company),
 		(Invoice.customer, customer),
-		(Deal.deal_owner, deal_owner),
+		(Deal.opportunity_owner, deal_owner),
 		(Deal.tbo_accounts_owner, accounts_owner),
 	):
 		if value:
@@ -158,17 +158,17 @@ def load_tasks(names: list[str]) -> dict:
 	if not names:
 		return {}
 	rows = frappe.get_all(
-		"CRM Task",
+		"ToDo",
 		filters={
 			"tbo_sales_invoice": ("in", names),
 			"tbo_task_type": "Collection",
-			"status": ("not in", OPEN_TASK),
+			"status": ("not in", CLOSED_TASK_STATUSES),
 		},
 		fields=[
 			"name",
 			"tbo_sales_invoice",
-			"assigned_to",
-			"due_date",
+			"allocated_to as assigned_to",
+			"date as due_date",
 			"tbo_promised_date",
 			"tbo_promised_amount",
 			"tbo_escalation_level",
@@ -235,7 +235,7 @@ def build_row(invoice, terms: list, task, exceptions: list, now, users: dict) ->
 		"days_overdue": max(
 			(date_diff(now, term.due_date) for term in terms if flt(term.outstanding) > 0), default=0
 		),
-		"crm_deal": invoice.crm_deal,
+		"opportunity": invoice.opportunity,
 		"deal_owner": invoice.deal_owner,
 		"deal_owner_name": users.get(invoice.deal_owner),
 		"accounts_owner": invoice.accounts_owner,
@@ -296,12 +296,14 @@ def get_invoice_in_scope(invoice: str) -> frappe._dict:
 	row = frappe.db.get_value(
 		"Sales Invoice",
 		{"name": invoice, "docstatus": 1},
-		["name", "customer", "customer_name", "company", "currency", "outstanding_amount", "crm_deal"],
+		["name", "customer", "customer_name", "company", "currency", "outstanding_amount", "opportunity"],
 		as_dict=True,
 	)
 	if not row:
 		frappe.throw(_("Invoice {0} not found.").format(invoice), frappe.DoesNotExistError)
-	row.deal_owner = frappe.db.get_value("CRM Deal", row.crm_deal, "deal_owner") if row.crm_deal else None
+	row.deal_owner = (
+		frappe.db.get_value("Opportunity", row.opportunity, "opportunity_owner") if row.opportunity else None
+	)
 	if owners is not None and row.deal_owner not in owners:
 		frappe.throw(_("You cannot see this invoice."), frappe.PermissionError)
 	return row
@@ -317,7 +319,7 @@ def add_collection_follow_up(
 ) -> dict:
 	"""Record a collection follow-up on an invoice: the next date, a remark and an optional
 	promise to pay. Updates the invoice's open collection task, or creates one assigned to me.
-	Versions keep each change (CRM Task has track_changes on)."""
+	Versions keep each change (ToDo has track_changes on)."""
 	row = get_invoice_in_scope(invoice)
 	if not due_date:
 		frappe.throw(_("Choose the next follow-up date."))
@@ -326,24 +328,30 @@ def add_collection_follow_up(
 	if promised_amount is not None and flt(promised_amount) < 0:
 		frappe.throw(_("The promised amount cannot be negative."))
 	name = frappe.db.get_value(
-		"CRM Task",
-		{"tbo_sales_invoice": invoice, "tbo_task_type": "Collection", "status": ("not in", OPEN_TASK)},
+		"ToDo",
+		{
+			"tbo_sales_invoice": invoice,
+			"tbo_task_type": "Collection",
+			"status": ("not in", CLOSED_TASK_STATUSES),
+		},
 	)
-	task = frappe.get_doc("CRM Task", name) if name else frappe.new_doc("CRM Task")
+	task = frappe.get_doc("ToDo", name) if name else frappe.new_doc("ToDo")
 	if not name:
 		task.update(
 			{
-				"title": _("Collect {0} ({1})").format(invoice, row.customer_name),
+				"description": frappe.utils.escape_html(
+					_("Collect {0} ({1})").format(invoice, row.customer_name)
+				),
 				"tbo_task_type": "Collection",
 				"tbo_sales_invoice": invoice,
-				"assigned_to": frappe.session.user,
-				"status": "Todo",
+				"allocated_to": frappe.session.user,
+				"status": OPEN,
 				"priority": "Medium",
-				"reference_doctype": "CRM Deal" if row.crm_deal else None,
-				"reference_docname": row.crm_deal,
+				"reference_type": "Opportunity" if row.opportunity else "Sales Invoice",
+				"reference_name": row.opportunity or invoice,
 			}
 		)
-	task.due_date = due_date
+	task.date = due_date
 	task.tbo_promised_date = promised_date or None
 	task.tbo_promised_amount = flt(promised_amount) if promised_amount not in (None, "") else None
 	if remark:
@@ -352,7 +360,7 @@ def add_collection_follow_up(
 		task.description = (task.description or "") + entry
 	task.flags.ignore_permissions = True
 	task.save()
-	return {"task": task.name, "due_date": task.due_date}
+	return {"task": task.name, "due_date": task.date}
 
 
 @frappe.whitelist(methods=["POST"])
@@ -362,9 +370,9 @@ def set_accounts_owner(deal: str, user: str | None = None) -> dict:
 		frappe.throw(_("Receivables are not switched on."), frappe.ValidationError)
 	if not (sees_all_receivables() or is_finance_user()):
 		frappe.throw(_("Only accounts and managers can set the accounts owner."), frappe.PermissionError)
-	if not frappe.db.exists("CRM Deal", deal):
+	if not frappe.db.exists("Opportunity", deal):
 		frappe.throw(_("Deal {0} not found.").format(deal), frappe.DoesNotExistError)
 	if user and not frappe.db.get_value("User", {"name": user, "enabled": 1}):
 		frappe.throw(_("User {0} is not an enabled user.").format(user))
-	write_deal(frappe.get_doc("CRM Deal", deal), {"tbo_accounts_owner": user or None})
+	write_deal(frappe.get_doc("Opportunity", deal), {"tbo_accounts_owner": user or None})
 	return {"accounts_owner": user or None}

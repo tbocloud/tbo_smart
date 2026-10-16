@@ -11,6 +11,7 @@ from frappe import _
 from frappe.model.workflow import get_workflow_name
 from frappe.utils import cint
 
+from tbo_smart.sales.hierarchy import get_sales_team, in_hierarchy
 from tbo_smart.tbo_smart.doctype.tbo_quotation_approval_settings.tbo_quotation_approval_settings import (
 	get_settings,
 )
@@ -149,15 +150,15 @@ def is_decision(action: str | None, next_state: str | None, words: tuple) -> boo
 
 
 def get_crm_scope(user: str, roles: set) -> str:
-	"""The widest CRM visibility, mirroring crm.permissions.org_hierarchy.
+	"""The widest sales visibility, mirroring tbo_smart.sales.permissions.
 
-	System Manager: all. With the sales hierarchy on and the user in it, CRM limits even a
-	Sales Manager to their subtree: team if anyone reports to them there, else own.
+	System Manager: all. With the sales hierarchy on and the user in it, even a Sales Manager
+	sees only their subtree: team if anyone reports to them there, else own.
 	A Sales Manager outside the hierarchy: all. Everyone else: own (owned or assigned).
 	"""
 	if user == "Administrator" or "System Manager" in roles:
 		return "all"
-	if in_sales_hierarchy(user):
+	if in_hierarchy(user):
 		return "team" if len(get_sales_team(user)) > 1 else "own"
 	return "all" if "Sales Manager" in roles else "own"
 
@@ -170,33 +171,6 @@ def allowed_crm_scopes(user: str, crm_scope: str | None) -> list[str]:
 	if crm_scope == "all" and len(get_sales_team(user)) <= 1:
 		scopes.remove("team")
 	return scopes
-
-
-def sales_hierarchy_enabled() -> bool:
-	"""FCRM Settings → Sales hierarchy; older Frappe CRM releases have no such setting."""
-	return frappe.get_meta("FCRM Settings").has_field("enable_sales_hierarchy") and bool(
-		cint(frappe.db.get_single_value("FCRM Settings", "enable_sales_hierarchy"))
-	)
-
-
-def in_sales_hierarchy(user: str) -> bool:
-	return sales_hierarchy_enabled() and bool(frappe.db.exists("CRM Sales Hierarchy", {"user": user}))
-
-
-def get_sales_team(user: str) -> list[str]:
-	"""The user and everyone below them in the CRM sales hierarchy (one nested-set query)."""
-	if not in_sales_hierarchy(user):
-		return [user]
-	Manager = frappe.qb.DocType("CRM Sales Hierarchy").as_("manager")
-	Member = frappe.qb.DocType("CRM Sales Hierarchy").as_("member")
-	members = (
-		frappe.qb.from_(Manager)
-		.join(Member)
-		.on((Member.lft >= Manager.lft) & (Member.lft <= Manager.rgt))
-		.select(Member.user)
-		.where(Manager.user == user)
-	).run(pluck=True)
-	return sorted({user, *members})
 
 
 def require(flag: str, message: str | None = None) -> frappe._dict:

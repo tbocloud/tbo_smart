@@ -277,9 +277,9 @@ def new_adjustment(doc, kind: str, percent: float, value: float):
 
 
 def get_deal(doc) -> str | None:
-	"""The CRM Deal behind the quotation (Frappe CRM's crm_deal field, or a deal as the party)."""
-	deal = doc.get("crm_deal") or (doc.party_name if doc.get("quotation_to") == "CRM Deal" else None)
-	return deal if deal and frappe.db.exists("CRM Deal", deal) else None
+	"""The deal behind the quotation (ERPNext's `opportunity`)."""
+	deal = doc.get("opportunity")
+	return deal if deal and frappe.db.exists("Opportunity", deal) else None
 
 
 # ---------- doc_events (Quotation) ----------

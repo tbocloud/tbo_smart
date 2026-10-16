@@ -1,9 +1,9 @@
-"""The lead pipeline in the CRM: the lead's summary, its meetings and their minutes
+"""The lead pipeline: the lead's summary, its meetings and their minutes
 (docs/lead-pipeline.md §7).
 
-Every method needs TBO Smart Settings → Lead pipeline, and checks the lead under Frappe CRM's
-own rules (owner, assignee, sales hierarchy, Sales Manager) before reading or writing. Writes
-are POST and run as the session user.
+Every method needs TBO Smart Settings → Lead pipeline, and checks the lead under the sales rules
+(owner, assignee, sales hierarchy, Sales Manager: tbo_smart.sales.permissions) before reading or
+writing. Writes are POST and run as the session user.
 """
 
 import frappe
@@ -11,7 +11,6 @@ from frappe import _
 from frappe.utils import cint, get_datetime, get_fullname, getdate, now_datetime
 
 from tbo_smart import ai
-from tbo_smart.api.mobile.crm import CLOSED_TASK_STATUSES, apply_lead_status
 from tbo_smart.lead_pipeline import meetings as m
 from tbo_smart.lead_pipeline import pipeline_enabled, require_pipeline
 from tbo_smart.lead_pipeline.mom import (
@@ -24,6 +23,9 @@ from tbo_smart.lead_pipeline.mom import (
 	draft_mom as ai_draft_mom,
 )
 from tbo_smart.lead_pipeline.statuses import NEW_LEAD, status_type
+from tbo_smart.sales.activities import OPEN, task_title
+from tbo_smart.sales.opportunity import lead_opportunity
+from tbo_smart.sales.stages import set_lead_stage
 from tbo_smart.smart_leads import notes_enabled
 
 SCHEDULE_FIELDS = (
@@ -44,7 +46,7 @@ def get_access() -> dict:
 	"""{enabled, ai}: whether the lead page shows the pipeline, and the AI MOM draft."""
 	if not pipeline_enabled():
 		return {"enabled": False, "ai": False}
-	readable = frappe.has_permission("CRM Lead", "read")
+	readable = frappe.has_permission("Lead", "read")
 	return {"enabled": bool(readable), "ai": bool(readable) and ai_available()}
 
 
@@ -60,7 +62,8 @@ def get_lead_pipeline(lead: str) -> dict:
 	"""The lead page's pipeline: status, the summary line (last meeting, next activity, meetings
 	completed, needs immediate follow-up), the meeting cards and the deal once Won."""
 	require_lead(lead, "read")
-	doc = frappe.db.get_value("CRM Lead", lead, ["name", "lead_name", "status", "converted"], as_dict=True)
+	doc = frappe.db.get_value("Lead", lead, ["name", "lead_name", "tbo_stage"], as_dict=True)
+	deal = lead_opportunity(lead)
 	rows = frappe.get_all(
 		m.DOCTYPE, filters={"lead": lead}, fields=["*"], order_by="stage asc, scheduled_at asc"
 	)
@@ -71,34 +74,33 @@ def get_lead_pipeline(lead: str) -> dict:
 	task = next_task(lead)
 	return {
 		"lead": lead,
-		"status": doc.status,
-		"status_type": status_type(doc.status),
-		"deal": frappe.db.get_value("CRM Deal", {"lead": lead}, "name"),
-		"can_write": bool(frappe.has_permission("CRM Lead", "write", lead)),
+		"status": doc.tbo_stage,
+		"status_type": status_type(doc.tbo_stage),
+		"deal": deal,
+		"can_write": bool(frappe.has_permission("Lead", "write", lead)),
 		"ai": ai_available(),
 		"summary": {
 			"last_meeting_on": max((row.scheduled_at for row in held), default=None),
 			"next_activity": next_activity(upcoming, task),
 			"meetings_completed": sum(row.status == m.MOM_SUBMITTED for row in rows),
-			"needs_follow_up": needs_follow_up(doc, rows, upcoming, task),
+			"needs_follow_up": needs_follow_up(doc, rows, upcoming, task, bool(deal)),
 		},
 		"meetings": cards,
 	}
 
 
 def next_task(lead: str):
-	return frappe.db.get_value(
-		"CRM Task",
-		{
-			"reference_doctype": "CRM Lead",
-			"reference_docname": lead,
-			"status": ("not in", CLOSED_TASK_STATUSES),
-			"due_date": ("is", "set"),
-		},
-		["name", "title", "due_date"],
+	"""The lead's earliest open task with a due day: {name, title, due_date}."""
+	task = frappe.db.get_value(
+		"ToDo",
+		{"reference_type": "Lead", "reference_name": lead, "status": OPEN, "date": ("is", "set")},
+		["name", "description", "date as due_date"],
 		as_dict=True,
-		order_by="due_date asc",
+		order_by="date asc",
 	)
+	if task:
+		task.title = task_title(task.pop("description"))
+	return task
 
 
 def next_activity(upcoming: list, task) -> dict | None:
@@ -114,7 +116,7 @@ def next_activity(upcoming: list, task) -> dict | None:
 	return min(options, key=lambda option: get_datetime(option["at"]), default=None)
 
 
-def needs_follow_up(lead, rows: list, upcoming: list, task) -> dict:
+def needs_follow_up(lead, rows: list, upcoming: list, task, converted: bool = False) -> dict:
 	"""{flag, reasons}: MOM pending, a meeting that asked for a follow-up, an overdue follow-up,
 	or an open lead past New Lead with nothing planned."""
 	reasons = [
@@ -127,8 +129,8 @@ def needs_follow_up(lead, rows: list, upcoming: list, task) -> dict:
 	]
 	if task and getdate(task.due_date) < getdate():
 		reasons.append(_("Follow-up overdue since {0}").format(frappe.utils.formatdate(task.due_date)))
-	open_lead = status_type(lead.status) not in ("Won", "Lost") and not lead.converted
-	if open_lead and lead.status != NEW_LEAD and not upcoming and not task:
+	open_lead = status_type(lead.tbo_stage) not in ("Won", "Lost") and not converted
+	if open_lead and lead.tbo_stage != NEW_LEAD and not upcoming and not task:
 		reasons.append(_("No next step planned"))
 	return {"flag": bool(reasons) and open_lead, "reasons": reasons if open_lead else []}
 
@@ -300,8 +302,8 @@ def save_mom(
 	if cint(submit):
 		if next_values:
 			doc.db_set("next_meeting", create_meeting(doc.lead, next_values).name)
-		if lead_status and lead_status != frappe.db.get_value("CRM Lead", doc.lead, "status"):
-			apply_lead_status(doc.lead, lead_status, lost_reason)
+		if lead_status and lead_status != frappe.db.get_value("Lead", doc.lead, "tbo_stage"):
+			set_lead_stage(doc.lead, lead_status, lost_reason)
 	return serialize_meeting(doc)
 
 
@@ -319,9 +321,9 @@ def draft_mom(meeting: str, notes: str) -> dict:
 
 def require_lead(lead: str, ptype: str) -> None:
 	require_pipeline()
-	if not isinstance(lead, str) or not frappe.db.exists("CRM Lead", lead):
+	if not isinstance(lead, str) or not frappe.db.exists("Lead", lead):
 		frappe.throw(_("Lead {0} not found.").format(lead), frappe.DoesNotExistError)
-	frappe.has_permission("CRM Lead", ptype, lead, throw=True)
+	frappe.has_permission("Lead", ptype, lead, throw=True)
 
 
 def get_meeting_doc(meeting: str, ptype: str):

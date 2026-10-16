@@ -10,8 +10,7 @@ from tbo_smart.finance.exceptions import raise_exception
 from tbo_smart.finance.reconciliation import flag_unmatched_lines
 from tbo_smart.finance.stage import update_stage
 from tbo_smart.test_utils import (
-	delete_crm_records,
-	enable_erpnext_crm,
+	delete_sales_records,
 	enable_reconciliation,
 	make_bank_line,
 	make_company_bank_account,
@@ -34,7 +33,6 @@ class ReconciliationTestCase(FrappeTestCase):
 	def setUpClass(cls):
 		super().setUpClass()
 		frappe.set_user("Administrator")
-		enable_erpnext_crm()
 		make_partner_company()
 		cls.bank_account = make_company_bank_account()
 		make_user(BDE, ["Sales User"])
@@ -44,7 +42,7 @@ class ReconciliationTestCase(FrappeTestCase):
 
 	def setUp(self):
 		frappe.set_user("Administrator")
-		delete_crm_records((BDE,))
+		delete_sales_records((BDE,))
 		reset_finance_settings()
 		enable_reconciliation()
 		self.addCleanup(reset_finance_settings)
@@ -227,7 +225,7 @@ class TestReconciledStage(ReconciliationTestCase):
 		frappe.set_user(BDE)
 		exceptions_api.request_exception(invoice.name, "Write-off request", "Goodwill")
 		frappe.set_user("Administrator")
-		self.assertEqual(frappe.db.get_value("CRM Deal", deal, "tbo_stage"), "On Exception")
+		self.assertEqual(frappe.db.get_value("Opportunity", deal, "tbo_finance_stage"), "On Exception")
 
 	def test_bank_queue_is_for_accounts_only(self):
 		frappe.set_user(BDE)

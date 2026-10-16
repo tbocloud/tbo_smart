@@ -3,13 +3,11 @@ in code on install and on every migrate so every site gets the same ones
 (docs/crm-finance-workflow.md §3.1). None of them changes behaviour while a phase is off.
 """
 
-import json
-
 import frappe
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 from frappe.custom.doctype.property_setter.property_setter import make_property_setter
 
-from tbo_smart.finance import crm_installed
+from tbo_smart.sales import erpnext_installed
 
 STAGES = (
 	"Onboarding",
@@ -27,7 +25,6 @@ STAGES = (
 REMINDER_STEPS = ("D-3", "D0", "D+7", "D+15", "D+30", "Weekly")
 TASK_TYPES = ("Sales follow-up", "Collection", "Onboarding")
 FINANCE_ROLES = ("TBO Finance Approver", "TBO Management")
-COLLECTIONS_VIEW = "Collections"
 # English reminder emails (open question Q14). Finance edits the wording in Email Template.
 EMAIL_TEMPLATES = {
 	"TBO Payment Due Soon": (
@@ -55,32 +52,34 @@ DUNNING_TYPES = {
 
 
 def get_finance_fields() -> dict:
-	deal_link = {"fieldname": "crm_deal", "fieldtype": "Link", "options": "CRM Deal", "label": "CRM Deal"}
+	# the same fieldname as Quotation's own `opportunity`, so ERPNext's mappers carry it from the
+	# quotation to the order and the invoice
+	deal_link = {"fieldname": "opportunity", "fieldtype": "Link", "options": "Opportunity", "label": "Deal"}
 	return {
-		"CRM Deal": [
+		"Opportunity": [
 			{
-				"fieldname": "tbo_company",
-				"fieldtype": "Link",
-				"options": "Company",
-				"label": "Invoicing company",
-				"insert_after": "erpnext_customer",
-				"description": "The company that quotes and invoices this deal. Defaults to ERPNext CRM Settings → ERPNext company.",
+				"fieldname": "tbo_finance_section",
+				"fieldtype": "Section Break",
+				"label": "TBO finance",
+				"insert_after": "tbo_closed_on",
+				"collapsible": 1,
 			},
 			{
-				"fieldname": "tbo_stage",
+				"fieldname": "tbo_finance_stage",
 				"fieldtype": "Select",
 				"options": "\n" + "\n".join(STAGES),
 				"label": "Post-sale stage",
-				"insert_after": "tbo_company",
+				"insert_after": "tbo_finance_section",
 				"read_only": 1,
 				"no_copy": 1,
+				"in_standard_filter": 1,
 				"description": "Computed from the deal's quotations, orders, invoices and payments.",
 			},
 			{
 				"fieldname": "tbo_onboarding_complete",
 				"fieldtype": "Check",
 				"label": "Onboarding complete",
-				"insert_after": "tbo_stage",
+				"insert_after": "tbo_finance_stage",
 				"read_only": 1,
 				"no_copy": 1,
 			},
@@ -183,7 +182,7 @@ def get_finance_fields() -> dict:
 				"no_copy": 1,
 			},
 		],
-		"CRM Task": [
+		"ToDo": [
 			{
 				"fieldname": "tbo_task_type",
 				"fieldtype": "Select",
@@ -191,6 +190,7 @@ def get_finance_fields() -> dict:
 				"label": "Task type",
 				"insert_after": "priority",
 				"in_standard_filter": 1,
+				"search_index": 1,
 			},
 			{
 				"fieldname": "tbo_sales_invoice",
@@ -233,15 +233,15 @@ def get_finance_fields() -> dict:
 
 
 def create_finance_fields() -> None:
-	if not crm_installed():
+	if not erpnext_installed():
 		return
 	create_custom_fields(get_finance_fields(), ignore_validate=True)
 
 
 def setup_finance() -> None:
 	"""Everything the finance workflow needs on a site; safe to run again. Nothing on a site
-	without the CRM app: the fields link to CRM Deal and CRM Task."""
-	if not crm_installed():
+	without ERPNext: the fields are on its Opportunity, orders, invoices and payments."""
+	if not erpnext_installed():
 		return
 	create_finance_fields()
 	create_finance_roles()
@@ -265,9 +265,9 @@ def create_finance_roles() -> None:
 
 
 def track_task_changes() -> None:
-	"""CRM Task edits (follow-up remarks, promise to pay) get Version history (gap G14)."""
+	"""ToDo edits (follow-up remarks, promise to pay) get Version history (gap G14)."""
 	make_property_setter(
-		"CRM Task", None, "track_changes", 1, "Check", for_doctype=True, validate_fields_for_doctype=False
+		"ToDo", None, "track_changes", 1, "Check", for_doctype=True, validate_fields_for_doctype=False
 	)
 
 
@@ -283,27 +283,6 @@ def create_email_templates() -> None:
 					"response_html": response,
 				}
 			).insert(ignore_permissions=True)
-
-
-def create_collections_view() -> None:
-	"""A public "Collections" list view on the CRM Tasks page: collection tasks only."""
-	filters = json.dumps({"tbo_task_type": "Collection"})
-	if frappe.db.exists("CRM View Settings", {"dt": "CRM Task", "label": COLLECTIONS_VIEW, "public": 1}):
-		return
-	frappe.get_doc(
-		{
-			"doctype": "CRM View Settings",
-			"label": COLLECTIONS_VIEW,
-			"dt": "CRM Task",
-			"type": "list",
-			"route_name": "Tasks",
-			"public": 1,
-			"icon": "wallet",
-			"filters": filters,
-			"order_by": "due_date asc",
-			"load_default_columns": 1,
-		}
-	).insert(ignore_permissions=True)
 
 
 def after_migrate() -> None:

@@ -1,4 +1,4 @@
-"""The CRM Deal's Finance tab (docs/crm-finance-workflow.md §7).
+"""A deal's Finance view (docs/crm-finance-workflow.md §7). The deal is an Opportunity.
 
 Every method acts as the session user. Access to a deal's finance data follows access to the
 deal itself (tbo_smart.finance.access); ERPNext document permissions are not required, so a
@@ -27,6 +27,8 @@ from tbo_smart.finance.access import (
 )
 from tbo_smart.finance.deal_finance import DealFinance
 from tbo_smart.finance.stage import closable_stage, compute_stage, update_stage, write_deal
+from tbo_smart.sales.activities import CLOSED_TASK_STATUSES, task_title
+from tbo_smart.sales.opportunity import customer_of
 from tbo_smart.tbo_smart.doctype.tbo_finance_exception.tbo_finance_exception import is_approver
 
 # Stages the tab shows in Phase 1, in order. Settling and Reconciled join with Phases 3 and 4.
@@ -53,8 +55,8 @@ TASK_LIMIT = 20
 
 @frappe.whitelist()
 def get_finance_access() -> dict:
-	"""What the CRM should show: the Finance tab and report only when the workflow is on, the
-	Receivables and Exceptions pages only when Phase 2 is on too."""
+	"""What the screens should show: the Finance view and report only when the workflow is on,
+	the Receivables and Exceptions pages only when Phase 2 is on too."""
 	enabled = finance_enabled()
 	receivables = enabled and receivables_enabled()
 	return {
@@ -72,10 +74,10 @@ def get_finance_access() -> dict:
 
 @frappe.whitelist()
 def get_deal_finance(deal: str) -> dict:
-	"""Everything the Finance tab shows for one deal. Amounts on orders, invoices and payments
+	"""Everything the Finance view shows for one deal. Amounts on orders, invoices and payments
 	are None when the viewer may not see them (setting "BDE can see invoice/payment amounts")."""
 	require_deal(deal)
-	doc = frappe.get_doc("CRM Deal", deal)
+	doc = frappe.get_doc("Opportunity", deal)
 	finance = DealFinance(deal)
 	show_amounts = can_see_amounts()
 	overdue = finance.overdue_by_invoice()
@@ -90,11 +92,11 @@ def get_deal_finance(deal: str) -> dict:
 	]
 	data = {
 		"deal": deal,
-		"stage": doc.tbo_stage or compute_stage(doc, finance),
+		"stage": doc.tbo_finance_stage or compute_stage(doc, finance),
 		"stages": SETTLING_STAGES if reconciliation_enabled() else PHASE_STAGES,
 		"closable_stage": closable_stage(),
-		"company": doc.get("tbo_company") or get_default_company(),
-		"customer": doc.get("erpnext_customer"),
+		"company": doc.get("company") or get_default_company(),
+		"customer": customer_of(doc),
 		"onboarding_complete": cint(doc.get("tbo_onboarding_complete")),
 		"closed": cint(doc.get("tbo_closed")),
 		"can_set_onboarding": can_write_deal(deal) or is_finance_user(),
@@ -134,39 +136,42 @@ def hide_amounts(data: dict) -> None:
 
 
 def get_follow_ups(deal: str) -> list[dict]:
-	"""Open CRM Tasks on the deal, earliest due first (the next follow-up is the first)."""
-	Task = frappe.qb.DocType("CRM Task")
-	return (
-		frappe.qb.from_(Task)
+	"""Open ToDos on the deal, earliest due first (the next follow-up is the first)."""
+	ToDo = frappe.qb.DocType("ToDo")
+	rows = (
+		frappe.qb.from_(ToDo)
 		.select(
-			Task.name,
-			Task.title,
-			Task.status,
-			Task.priority,
-			Task.due_date,
-			Task.assigned_to,
-			Task.tbo_task_type,
-			Task.tbo_sales_invoice,
-			Task.tbo_promised_date,
-			Task.tbo_promised_amount,
-			Task.tbo_escalation_level,
+			ToDo.name,
+			ToDo.description,
+			ToDo.status,
+			ToDo.priority,
+			ToDo.date.as_("due_date"),
+			ToDo.allocated_to.as_("assigned_to"),
+			ToDo.tbo_task_type,
+			ToDo.tbo_sales_invoice,
+			ToDo.tbo_promised_date,
+			ToDo.tbo_promised_amount,
+			ToDo.tbo_escalation_level,
 		)
 		.where(
-			(Task.reference_doctype == "CRM Deal")
-			& (Task.reference_docname == deal)
-			& Task.status.notin(["Done", "Canceled"])
+			(ToDo.reference_type == "Opportunity")
+			& (ToDo.reference_name == deal)
+			& ToDo.status.notin(CLOSED_TASK_STATUSES)
 		)
-		.orderby(Task.due_date.isnull())
-		.orderby(Task.due_date)
+		.orderby(ToDo.date.isnull())
+		.orderby(ToDo.date)
 		.limit(TASK_LIMIT)
 	).run(as_dict=True)
+	for row in rows:
+		row.title = task_title(row.pop("description"))
+	return rows
 
 
 def get_deal_exceptions(deal: str) -> list[dict]:
 	"""Open, waiting and approved exceptions on the deal (Phase 2)."""
 	return frappe.get_all(
 		"TBO Finance Exception",
-		filters={"crm_deal": deal, "status": ("in", ["Open", "Pending Approval", "Approved"])},
+		filters={"opportunity": deal, "status": ("in", ["Open", "Pending Approval", "Approved"])},
 		fields=[
 			"name",
 			"exception_type",
@@ -187,7 +192,7 @@ def set_onboarding_complete(deal: str, complete: int | bool = 1) -> dict:
 	require_deal(deal)
 	if not (can_write_deal(deal) or is_finance_user()):
 		frappe.throw(_("You cannot change this deal."), frappe.PermissionError)
-	doc = frappe.get_doc("CRM Deal", deal)
+	doc = frappe.get_doc("Opportunity", deal)
 	value = 1 if cint(complete) else 0
 	if cint(doc.tbo_onboarding_complete) != value:
 		write_deal(
@@ -205,10 +210,10 @@ def set_finance_closed(deal: str, closed: int | bool = 1) -> dict:
 	require_deal(deal)
 	if not can_close():
 		frappe.throw(_("Only Accounts Managers can close a deal's finance."), frappe.PermissionError)
-	doc = frappe.get_doc("CRM Deal", deal)
+	doc = frappe.get_doc("Opportunity", deal)
 	value = 1 if cint(closed) else 0
 	if cint(doc.tbo_closed) == value:
-		return {"closed": value, "stage": doc.tbo_stage}
+		return {"closed": value, "stage": doc.tbo_finance_stage}
 	if value and compute_stage(doc, DealFinance(deal)) != closable_stage():
 		frappe.throw(
 			_("A deal can be closed only when every invoice is collected.")

@@ -1,16 +1,17 @@
-# Lead pipeline: statuses, meetings, MOM and quotations on the lead (living spec, v1.2)
+# Lead pipeline: stages, meetings, MOM and quotations on the lead (living spec, v1.3)
 
-**Status:** Phases 1 to 3 built 2026-10-16: the pipeline statuses and their migration, meetings
-and minutes of meeting (MOM), automatic lead statuses, the deal at Closed – Won, and quotations
-on the lead (presets, builder, status tracking, revisions, the TBO PDF), and the pipeline
-dashboard. Everything but
-the status migration is behind a switch that is off by default. This file is the living spec:
-it describes what is built, and every change to the feature updates it in the same pull
-request. The CRM screens are in tbocloud/crm, `docs/tbo-lead-pipeline.md`.
+**Status:** Phases 1 to 3 built 2026-10-16: the pipeline stages, meetings and minutes of meeting
+(MOM), automatic lead stages, the deal at Closed – Won, quotations on the lead (presets,
+builder, status tracking, revisions, the TBO PDF), and the pipeline dashboard. v1.3 moved
+everything from Frappe CRM's CRM Lead to **ERPNext's own Lead** (and the deal to its
+**Opportunity**), `docs/erpnext-lead-cutover.md`. Everything is behind a switch that is off by
+default. This file is the living spec: it describes what is built, and every change to the
+feature updates it in the same pull request. The screens are the TBO Support hub's lead page
+(`docs/hub-leads-api.md`) and the TBO Smart app.
 
-- **Site:** india.teambackoffice.com (tboindia): Frappe v15, ERPNext, HRMS, the Frappe CRM fork
-  and tbo_smart. tbo-smart.tbocloud.in has no CRM: everything here reads as off there
-  (`tbo_smart.finance.crm_installed`).
+- **Site:** india.teambackoffice.com (tboindia): Frappe v15, ERPNext, HRMS and tbo_smart (Frappe
+  CRM until the cutover). Everything here reads as off on a site without ERPNext
+  (`tbo_smart.sales.erpnext_installed`).
 - **Related specs:** `smart-leads.md` (scores, Call today, follow-ups, AI notes; it reads the
   statuses defined here), `crm-finance-workflow.md` (the deal's Finance tab, quotations,
   Sales Order and invoices), `quotation-discount-control.md` (the BDE → CEO approvals),
@@ -18,7 +19,7 @@ request. The CRM screens are in tbocloud/crm, `docs/tbo-lead-pipeline.md`.
 
 | Phase | Scope | State |
 | --- | --- | --- |
-| 1 | Statuses, migration, meetings and MOM, automatic statuses, deal at Closed – Won, mobile | Built (this file) |
+| 1 | Stages, meetings and MOM, automatic stages, deal at Closed – Won, mobile | Built (this file) |
 | 2 | Quotations on the lead: presets, builder, status tracking, revisions, PDF (§9) | Built |
 | 3 | Pipeline dashboard (§11) | Built |
 
@@ -26,19 +27,20 @@ request. The CRM screens are in tbocloud/crm, `docs/tbo-lead-pipeline.md`.
 
 | # | Decision | Effect |
 | --- | --- | --- |
-| D1 | Everything happens on the CRM Lead. A CRM Deal is created automatically only at Closed – Won. | Meetings and MOM hang off the lead. Closed – Won runs Frappe CRM's own `convert_to_deal`; the deal-based finance workflow carries on from there. While the pipeline is on, nobody converts a lead by hand (§6). |
+| D1 | Everything happens on the lead. A deal is created automatically only at Closed – Won. | Meetings and MOM hang off the Lead. Closed – Won runs ERPNext's own Lead → Opportunity mapper; the deal-based finance workflow carries on from there. While the pipeline is on, nobody converts a lead by hand (§6). |
 | D2 | Meeting links are pasted by hand (Google Meet or Teams). No calendar integration. | `meeting_link` is a plain https URL. |
 
-## 2. Statuses
+## 2. Stages
 
-### 2.1 The statuses (`lead_pipeline/statuses.py`)
+### 2.1 The stages (`lead_pipeline/statuses.py`)
 
-Ordinary **CRM Lead Status** records, so CRM's status menu, kanban, filters and **CRM Status
-Change Log** (the status history) work with them unchanged. `ensure_statuses` creates the
-missing ones on install and every migrate and never edits existing ones, so an admin may
-recolour or reorder them in CRM Settings. The code names them in this one module.
+A lead's stage is the custom **`Lead.tbo_stage`**, a Select of these 13 names in this order
+(default New Lead). ERPNext's own `Lead.status` is left alone: ERPNext sets it itself (Lead,
+Opportunity, Quotation, Converted…). Each stage has a type, as Frappe CRM's lead statuses had,
+and a colour name for the screens (`stage_options()`, also the hub's `get_options`). The code
+names them in this one module.
 
-| # | Status | CRM type | Open for follow-ups and Call today | Scoring points |
+| # | Stage | Type | Open for follow-ups and Call today | Scoring points |
 | --- | --- | --- | --- | --- |
 | 1 | New Lead | Open | yes | 10 |
 | 2 | Contacted | Ongoing | yes | 18 |
@@ -54,12 +56,15 @@ recolour or reorder them in CRM Settings. The code names them in this one module
 | 12 | Closed – Won | Won | no | 0 (closed) |
 | 13 | Closed – Lost | Lost | no | 0 (closed) |
 
-- New Lead is the only Open-type status, so Frappe CRM gives it to every new lead.
-- **Lost reason:** Closed – Lost is Lost-type, so Frappe CRM's own validation requires
-  `lost_reason` (and `lost_notes` when the reason is "Other"), and the lead page asks for it.
-  The mobile `set_lead_status` and the MOM's lead status take a `lost_reason`: a CRM Lost
-  Reason is used as it is, free text becomes "Other" with the text in the notes (the same rule
-  as `move_deal_stage`, one helper `set_lost_reason`).
+- **Stage history:** every stage a lead enters is a row of its **`tbo_stage_log`** (TBO Stage
+  Change: `stage`, `previous_stage`, `changed_on`, `changed_by`; the insert is the first row),
+  written on validate by `tbo_smart.sales.stages`. Scores, the dashboard and the hub's timeline
+  read it.
+- **Lost reason:** a Closed – Lost lead must have `tbo_lost_reason` (an **Opportunity Lost
+  Reason**) and, for "Other", `tbo_lost_notes`, as Frappe CRM required (`sales.stages.LeadStage`).
+  The mobile `set_lead_status`, the MOM's lead stage and the hub's `set_stage` take a
+  `lost_reason`: a lost reason's name is used as it is, free text becomes "Other" with the text
+  in the notes (one helper, `sales.stages.set_lost_reason`, also for deals).
 - `OPEN_STATUSES` (everything but Closed – Won and Closed – Lost) is the single list smart leads
   use for scoring, Call today, the follow-up engine and the triage.
 
@@ -79,74 +84,35 @@ recolour or reorder them in CRM Settings. The code names them in this one module
 - The status is read under a row lock held until the save, so a status someone sets at the
   same moment is never overwritten by an older stage.
 - Each move is saved on the lead as a system change (`ignore_permissions`, since the person
-  submitting a MOM may not own the lead), so the Status Change Log and Version keep it, plus an
-  Info comment on the timeline: "Status set to First Meeting Completed: MOM of the 1st meeting
-  submitted".
+  submitting a MOM may not own the lead), so the stage log keeps it, plus an Info comment on the
+  timeline: "Status set to First Meeting Completed: MOM of the 1st meeting submitted".
 
-## 3. The status migration (deploy, whatever the switches say)
+## 3. The status migration (done)
 
-Patch `tbo_smart.patches.v1.migrate_lead_pipeline_statuses` → `lead_pipeline/status_migration.py`.
-It creates the statuses, puts them in order, then maps every lead that still has an old status
-and has not been mapped before:
-
-| Old status | New status |
-| --- | --- |
-| New | New Lead |
-| Contacted | Contacted; **First Meeting Completed** when the migration note's original status starts with "Meeting" or "Demo" |
-| Nurture | Positive / Interested |
-| Qualified | **Proposal Sent** when the original status was "Quotation", else Positive / Interested |
-| Unqualified, Junk | Closed – Lost; the lead's lost reason and notes are kept, and an empty one becomes "Other" with "Junk before the pipeline statuses" |
-| Converted, and any lead with `converted` = 1 | Closed – Won. **No deal is created** for these (the patch writes with `frappe.db.set_value`, so no hook runs) |
-
-- The original status comes from the lead's migration note through the smart leads parser
-  (`smart_leads/migration.py`, labels "Status" / "Lead Status" / "Original Status").
-- **Expected counts** for the 1,572 leads migrated on 2026-10-14 (New 848, Junk 371, Nurture 125,
-  Qualified 85, Contacted 83, Unqualified 35, Converted 25):
-
-  | Mapping | Leads |
-  | --- | --- |
-  | New → New Lead | 848 |
-  | Junk + Unqualified → Closed – Lost | 406 |
-  | Nurture → Positive / Interested | 125 |
-  | Qualified → Proposal Sent (original Quotation) / Positive / Interested | 85 in all; the split depends on each note's original status |
-  | Contacted → Contacted / First Meeting Completed (original Meeting… / Demo…) | 83 in all; split likewise |
-  | Converted → Closed – Won | 25 |
-
-  The split of the two mixed rows needs the live notes, which this build had no access to. The
-  patch prints the exact count per mapping in the migrate log ("Lead pipeline: 61 leads
-  Qualified → Positive / Interested").
-- **Idempotent:** every mapped lead keeps its old status in `tbo_pre_pipeline_status` (hidden),
-  and a lead that has it is never mapped again, even when someone later sets it back by hand.
-- **Retiring the old statuses:** CRM Lead Status has no "disabled" flag. Leaving New, Nurture,
-  Qualified, Unqualified, Junk and Converted would keep them in every status menu and kanban,
-  make Frappe CRM give new leads "New", and make its conversion set "Qualified". So each is
-  deleted once no lead uses it, and its definition (type, colour, position) is kept as JSON in
-  TBO Smart Settings → `pipeline_retired_statuses` (hidden). Contacted keeps its name.
-- **Undo:** `bench --site <site> execute tbo_smart.lead_pipeline.status_migration.revert`
-  recreates the retired statuses, puts each mapped lead back on its old status **while it still
-  has the status the migration gave it**, and deletes the pipeline statuses no lead uses.
-  Leads that moved on since (say, Closed – Won with a deal) are left alone and returned in
-  `kept` for a person to settle. Lost reasons it added stay. Deploy a tbo_smart without the
-  pipeline afterwards, or the next migrate creates the pipeline statuses again.
-- **New sites:** install creates the pipeline statuses next to Frappe CRM's defaults (the setup
-  wizard's CRM demo data still uses the defaults). Run the same `execute
-  tbo_smart.lead_pipeline.status_migration.execute` to retire them. Test sites do this in
-  `before_tests`, after the wizard.
-- Saved CRM views or kanban filters that name an old status are not rewritten.
+On 2026-10-16 a patch mapped the 1,572 migrated CRM Leads' old statuses (New, Contacted, Nurture,
+Qualified, Unqualified, Junk, Converted) onto these stages. It ran on Frappe CRM's records and
+was removed with the move to ERPNext's Lead; the cutover copies each lead's stage as the CRM
+has it (`erpnext-lead-cutover.md` §4).
 
 ## 4. Data and settings
 
-### 4.1 Fields (`lead_pipeline/setup.py`, CRM sites only)
+### 4.1 Fields (`lead_pipeline/setup.py`, ERPNext sites only)
 
 | Doctype | Field | Purpose |
 | --- | --- | --- |
-| CRM Lead | `tbo_pre_pipeline_status` (Data, hidden) | The status before the migration (§3) |
+| Lead | `tbo_stage` (Select), `tbo_stage_log` (TBO Stage Change), `tbo_lost_reason`, `tbo_lost_notes` | §2 |
+| Lead | `tbo_segment` (Select Retail, Small, Medium, Large, Premium) | The client's segment; Phase 2 adds a price list per segment |
+| Lead / Opportunity | `crm_lead_ref` / `crm_deal_ref` (hidden) | The Frappe CRM record a copy came from (`erpnext-lead-cutover.md`) |
+| Opportunity | `tbo_customer`, `tbo_next_step`, `tbo_closed_on` (won or lost on), `tbo_stage_log` | The deal (§6) |
+| Sales Stage | `tbo_stage_type` (Open, Ongoing, On Hold, Won, Lost), `tbo_probability`, `tbo_position` | The deal's stage; a Won and a Lost stage are created when none is typed so |
 | TBO Smart Settings | `enable_lead_pipeline` | The switch (§8) |
 | TBO Smart Settings | `meeting_reminder_minutes` (60, 15-1,440) | The reminder before a meeting |
-| TBO Smart Settings | `pipeline_retired_statuses` (hidden) | §3 |
 | TBO Smart Settings | `enable_lead_quotations`, `quotation_validity_days` (30), `quotation_follow_up_days` (3), `quotation_terms`, `quotation_payment_terms`, `quotation_print_format` (blank: TBO Quotation), `quotation_preset_roles` (Sales Manager, System Manager) | §9 |
 | TBO Smart Settings | `enable_pipeline_dashboard` | §11 |
-| Quotation | `tbo_crm_lead`, `tbo_lead_meeting`, `tbo_package`, `tbo_quote_status`, `tbo_quote_family`, `tbo_revision_no`, `tbo_is_latest`, `tbo_sent_via`, `tbo_sent_on` | §9.1 |
+| Quotation | `tbo_lead_meeting`, `tbo_package`, `tbo_quote_status`, `tbo_quote_family`, `tbo_revision_no`, `tbo_is_latest`, `tbo_sent_via`, `tbo_sent_on` | §9.1 |
+
+Masters: the Opportunity Lost Reason "Other" and the role **Hub Integration** are created on
+migrate.
 
 ### 4.2 TBO Lead Meeting (`TBO-MTG-YYYY-#####`, track changes)
 
@@ -155,15 +121,15 @@ and has not been mapped before:
 | Meeting | `lead`, `lead_name`, `stage` (number), `stage_label` ("1st meeting", "2nd meeting", "3rd meeting", then "Additional meeting N"), `status`, `bde` (default: the lead owner) |
 | Schedule | `meeting_type` (Online / Physical visit), `meeting_link` (https, Online only), `location` (Physical visit only), `scheduled_at`, `duration_minutes` (60; 5-720), `participants` |
 | MOM | `agenda`, `discussion_points`, `client_requirements`, `decisions`, `client_interest` (Positive / Neutral / Negative), `objections`, `quotation_feedback` |
-| Next steps | `action_items` (table **TBO Lead Meeting Action**: `item`, `responsible`, `due_date`, `done`), `next_follow_up_on`, `next_meeting_details`, `prepared_by`, `submitted_on`, `follow_up_task` (CRM Task), `next_meeting` |
+| Next steps | `action_items` (table **TBO Lead Meeting Action**: `item`, `responsible`, `due_date`, `done`), `next_follow_up_on`, `next_meeting_details`, `prepared_by`, `submitted_on`, `follow_up_task` (ToDo), `next_meeting` |
 | Tracking | `mom_pending_since`, `escalation_level` (0 BDE, 1 BDM, 2 sales head), `reminded_at` |
 
 Attachments are ordinary Frappe files attached to the meeting.
 
 **Permissions** (`has_permission`, `permission_query_conditions` hooks): a meeting is open to
-whoever may read its lead under Frappe CRM's own rules (owner, assignee, sales hierarchy,
-Sales Manager); changing it needs write on the lead. List queries are limited to the leads
-`frappe.get_list("CRM Lead")` returns for the user. **Only a System Manager deletes a
+whoever may read its Lead under the sales rules (owner, assignee, sales hierarchy, Sales
+Manager: `tbo_smart.sales.permissions`); changing it needs write on the lead. List queries are
+limited to the leads `frappe.get_list("Lead")` returns for the user. **Only a System Manager deletes a
 meeting**: previous meetings are never lost; one that doesn't happen is Cancelled.
 
 ## 5. Meetings and MOM (`lead_pipeline/meetings.py`, `lead_pipeline/mom.py`)
@@ -206,12 +172,11 @@ started. It then:
 
 1. sets MOM Submitted, `prepared_by`, `submitted_on`;
 2. moves the lead to Nth Meeting Completed (§2.2);
-3. creates the **"Sales follow-up" CRM Task** for `next_follow_up_on` (10:00, assigned to the
-   BDE, titled "Follow up after the 1st meeting"; the next meeting details are its
-   description), so the smart leads follow-up engine, Call today and the mobile follow-ups
-   pick it up;
+3. creates the **"Sales follow-up" ToDo** on the lead for `next_follow_up_on` (allocated to the
+   BDE, "Follow up after the 1st meeting", with the next meeting details below it), so the
+   smart leads follow-up engine, Call today and the mobile follow-ups pick it up;
 4. books the next meeting when its schedule was sent (`next_meeting`);
-5. sets the lead status chosen by hand, if any, after the automatic move.
+5. sets the lead stage chosen by hand, if any, after the automatic move.
 
 A draft MOM (`submit=0`) saves the fields without any of that.
 
@@ -219,9 +184,9 @@ A draft MOM (`submit=0`) saves the fields without any of that.
 
 - **MOM Pending escalation, like a follow-up:** working days since `mom_pending_since` on the
   smart leads ladder (`lead_ladder_l1_days` 2, `lead_ladder_l2_days` 4): level 1 adds the BDE's
-  BDM (CRM Sales Hierarchy), level 2 the sales head ("Head - Sales & Marketing", else the Sales
+  BDM (TBO Sales Hierarchy), level 2 the sales head ("Head - Sales & Marketing", else the Sales
   & Marketing Head role). One in-app notification per level; people on approved leave are left
-  out. The CRM card says who has been told.
+  out. The meeting card says who has been told (`escalation_level`).
 - **Today's meetings and pending minutes** go into the smart leads follow-up digest (Teams,
   else email, plus in-app) as "Meetings today" and "MOM pending" sections; a BDE with only
   meetings still gets it. With the follow-up digest off, the same sections go out as a
@@ -249,25 +214,24 @@ or (past New Lead) nothing planned at all.
 
 ## 6. The deal at Closed – Won (`lead_pipeline/won.py`)
 
-- CRM Lead `on_update`: when a lead turns Won-type with the switch on, Frappe CRM's own
-  `convert_to_deal` makes the deal (contact, organization, products, owner and assignees as
-  CRM maps them) in the **first Won-type CRM Deal Status**, so ERPNext CRM Settings' customer
-  creation and the finance workflow's Finance tab take over. A lead with a deal keeps it. The
-  lead stays Closed – Won (CRM's conversion would set "Qualified" when it exists) and gets a
-  comment "Deal CRM-DEAL-… created". A failure (say, no name for the contact) refuses the status
-  change with CRM's message.
-- **No manual conversion** while the switch is on: tbo_smart overrides the whitelisted
-  `crm.fcrm.doctype.crm_lead.crm_lead.convert_to_deal` (the lead page's Convert to Deal) and the
-  mobile `convert_lead` refuses a lead that isn't Closed – Won ("Set the lead to Closed – Won:
-  its deal is created then."); for a Won lead it returns its deal. Off, CRM's own conversion
-  runs unchanged.
-- The lead's quotations are re-linked to the deal here (§9.5).
+- Lead `on_update`: when a lead turns Won-type with the switch on, ERPNext's own Lead →
+  Opportunity mapper makes the deal (contact, address, owner and notes carried over;
+  `opportunity_from` Lead, the lead as party) in the **first Won-type Sales Stage**, and the
+  finance workflow's Finance view takes over. ERPNext moves the lead's open ToDos and Events to
+  the deal. A lead with a deal keeps it. The lead gets a comment "Deal CRM-OPP-… created". An
+  import (the CRM cutover) makes no deals: it copies them.
+- **No manual conversion** while the switch is on: the mobile `convert_lead`
+  (`won.convert_lead`) refuses a lead that isn't Closed – Won ("Set the lead to Closed – Won:
+  its deal is created then."); for a Won lead it returns its deal. Off, it makes the deal in the
+  first Open-type (else Ongoing) stage and closes the lead as Closed – Won, as Frappe CRM's
+  conversion closed it.
+- The lead's quotations are linked to the deal here (§9.5).
 
 ## 7. API (`tbo_smart.api.lead_pipeline`)
 
 | Method | Verb | Needs | Returns / does |
 | --- | --- | --- | --- |
-| `get_access` | GET | – | `{enabled, ai}`; off without the switch, the CRM app or CRM Lead read |
+| `get_access` | GET | – | `{enabled, ai}`; off without the switch, ERPNext or Lead read |
 | `get_lead_pipeline(lead)` | GET | read on the lead | `{lead, status, status_type, deal, can_write, ai, summary: {last_meeting_on, next_activity, meetings_completed, needs_follow_up: {flag, reasons}}, meetings: [card]}` |
 | `get_meeting(meeting)` | GET | read | The card plus the MOM fields, `action_items`, `attachments`, `can_write` |
 | `schedule_meeting(lead, values)` | POST | write on the lead | `values`: meeting_type, meeting_link, location, scheduled_at (future), duration_minutes, participants, agenda, bde (an active user) |
@@ -285,26 +249,26 @@ lead_status?, lost_reason?, next_meeting?)`. Fixtures `docs/fixtures/meeting.*.j
 
 ## 8. What the owner does after deploying
 
-1. Deploy tbocloud/crm first, then tbo_smart. `bench migrate` runs the status migration:
-   check the "Lead pipeline: N leads Old → New" lines in its output.
-2. Optional: open CRM → Settings → Lead Statuses to recolour or reorder the 13 statuses.
-3. CRM → **Settings → TBO → Lead pipeline** (System Manager): switch on **Lead pipeline:
-   meetings, MOM and automatic statuses**; set the reminder minutes (60 by default).
-4. For the AI MOM draft, the smart leads AI provider and **AI call notes** must be on
-   (Settings → TBO → TBO smart leads).
-5. For the BDM step of the MOM escalation, the CRM Sales Hierarchy must list the BDEs under
-   their BDM; the sales head is TBO Smart Settings → Head - Sales & Marketing.
-6. Tell the team: the Convert to Deal button is gone; set the lead to Closed – Won.
-7. **Quotations (Phase 2):** in ERPNext set up the masters the builder offers: sales **Items**
-   for TBO's services with an **Item Group** each, their rates (or set them in the CRM's catalogue),
-   the GST **Sales Taxes and Charges Template**, a **Payment Terms Template** and **Terms and
-   Conditions**. Then in CRM → Settings → TBO → Lead pipeline: switch on **Quotations on the
-   lead**, pick the default terms, payment terms and print format (TBO Quotation), the validity
-   and follow-up days and the roles that edit prices; Save; then add the **packages** in the
-   catalogue below. For Convert to Sales Order, ERPNext CRM Settings must be on with ERPNext's
-   CRM Settings → Frappe CRM data synchronization, and the default customer group a leaf group.
-8. **Pipeline dashboard (Phase 3):** switch on **Pipeline dashboard** on the same settings page.
-   The **Pipeline** page appears in the CRM sidebar and the four cards on the CRM dashboard.
+1. Deploy tbo_smart and run the cutover (`erpnext-lead-cutover.md` §5). `bench migrate`
+   creates the fields, the Won and Lost Sales Stages and the "Other" lost reason.
+2. Desk → **TBO Smart Settings** (System Manager) → Lead pipeline: switch on **Lead pipeline:
+   meetings, MOM and automatic statuses**; set the reminder minutes (60 by default). (The CRM's
+   settings pages went with the CRM app; the hub may show them later.)
+3. For the AI MOM draft, the smart leads AI provider and **AI call notes** must be on (same
+   settings).
+4. For the BDM step of the MOM escalation, the **TBO Sales Hierarchy** must list the BDEs under
+   their BDM (the cutover copies the CRM's); the sales head is TBO Smart Settings → Head - Sales
+   & Marketing.
+5. Tell the team: set the lead to Closed – Won to make its deal.
+6. **Quotations (Phase 2):** in ERPNext set up the masters the builder offers: sales **Items**
+   for TBO's services with an **Item Group** each, their rates, the GST **Sales Taxes and
+   Charges Template**, a **Payment Terms Template** and **Terms and Conditions**. Then switch on
+   **Quotations on the lead** in TBO Smart Settings, pick the default terms, payment terms and
+   print format (TBO Quotation), the validity and follow-up days and the roles that edit prices;
+   add the **packages** (TBO Quotation Package). For Convert to Sales Order the default customer
+   group must be a leaf group (ERPNext makes the Customer from the lead).
+7. **Pipeline dashboard (Phase 3):** switch on **Pipeline dashboard** in the same settings. The
+   hub shows the page (`api/lead_pipeline_dashboard.py`) and the cards (`api/dashboard.py`).
 
 **Roles:** no new roles. Sales User / Sales Manager work on meetings of the leads they may
 open; System Manager deletes meetings and edits the settings.
@@ -317,16 +281,16 @@ lead pipeline). Code: `lead_pipeline/quotations.py`, `lead_pipeline/presets.py`,
 
 ### 9.1 The quotation
 
-An ordinary ERPNext **Quotation**, made out to the lead: *Quotation To* = **CRM Lead** (added to
-the field's link filter next to Frappe CRM's CRM Deal), *Party* = the lead, `customer_name` = its
-organization (else its name), `tbo_crm_lead` = the lead and `crm_deal` empty. The discount comes
-off the **net total** (`apply_discount_on`), as the approval limits read it. Because it is a
+An ordinary ERPNext **Quotation**, made out to the lead: *Quotation To* = **Lead** (one of
+ERPNext's own parties), *Party* = the lead, `customer_name` = its company name (else its name),
+and ERPNext's own `opportunity` = the lead's deal once there is one. A quotation belongs to a lead
+when it is made out to it or linked to its deal (`quotations.lead_of`, `lead_quotations`). The
+discount comes off the **net total** (`apply_discount_on`), as the approval limits read it. Because it is a
 normal Quotation, ERPNext's permissions, taxes, payment schedule and the discount/commission
 control (`quotation-discount-control.md`) all apply.
 
 | Quotation field (custom) | Purpose |
 | --- | --- |
-| `tbo_crm_lead` | The lead it belongs to |
 | `tbo_lead_meeting` | The meeting it came from ("Create quotation" on a meeting card) |
 | `tbo_package` | The package used, for the PDF's project duration |
 | `tbo_quote_status` | §9.3 (allow on submit; history in Version and timeline comments) |
@@ -347,7 +311,8 @@ ERPNext's own masters wherever they fit (`presets.py`):
 | Terms and conditions | **Terms and Conditions** (default in settings; its text fills the quotation) |
 | Validity | `quotation_validity_days` (30), or a package's own |
 
-They are managed in the CRM (**Settings → TBO → Lead pipeline → Quotation catalogue**): new and
+They are managed through `api/lead_quotation.py` (`get_catalogue`, `save_package`,
+`set_service_rate`; the CRM's catalogue screen went with the CRM app) or in the desk: new and
 edited packages, and each service's rate. **Only the roles in "Roles that edit presets and
 prices"** (`quotation_preset_roles`, default Sales Manager and System Manager) may change them;
 the API refuses everyone else. A package name must be unique, also when one is renamed.
@@ -393,14 +358,15 @@ description changed.
 ### 9.5 Won: the deal, re-linking and the Sales Order
 
 - When the lead turns Closed – Won (by hand or through an accepted quotation), §6 creates the deal
-  and **re-links the lead's quotations**: `crm_deal` = the deal, and those made out to the lead
-  become *Quotation To* CRM Deal with the deal as party. The deal's Finance tab then lists them,
-  and ERPNext finds the deal's customer.
+  and **links the lead's quotations to it** (ERPNext's `opportunity`, where empty). They stay
+  made out to the Lead. The deal's Finance view then lists them.
 - **Convert to Sales Order** (`make_sales_order`): only an **Accepted** quotation of a won lead,
-  only for people who may create Sales Orders. When the client's Customer was made for an earlier
-  deal (so its `crm_deal` names that deal), the order still gets it. Frappe CRM creates the deal's ERPNext customer when
-  missing (ERPNext CRM Settings must be on, and ERPNext's CRM Settings → Frappe CRM data
-  synchronization), then ERPNext's own mapper makes a **draft** Sales Order; the finance
+  only for people who may create Sales Orders. ERPNext's own mapper makes a **draft** Sales Order
+  and, for a quotation made out to a Lead, the Customer from the lead (`Customer.lead_name`)
+  when it has none. When the deal already names the client's Customer (`tbo_customer`, e.g. one
+  an earlier deal made) and no Customer was made from this lead, the quotation is made out to
+  that Customer first, so no second Customer is made. The order carries the deal
+  (`opportunity`), and the deal records the order's Customer as `tbo_customer`. The finance
   workflow's pending-approval guard runs on its validate.
 
 ### 9.6 The PDF: print format "TBO Quotation"
@@ -436,7 +402,7 @@ lead pipeline). Code: `lead_pipeline/dashboard.py` (one `PipelineDashboard` clas
 query per figure), `api/lead_pipeline_dashboard.py`.
 
 **Who sees what:** the CRM scope rule of the mobile API (`capabilities.crm_scopes`): a
-salesperson their own leads, a team lead in the CRM Sales Hierarchy their team, a Sales Manager
+salesperson their own leads, a team lead in the TBO Sales Hierarchy their team, a Sales Manager
 outside the hierarchy and a System Manager everyone. Every figure counts only the leads of those
 owners. The BDE filter is refused for someone outside the scope.
 
@@ -445,21 +411,21 @@ status.
 
 | Figure | Definition |
 | --- | --- |
-| Leads by status | Leads created in the range, by their status now, in pipeline order (empty statuses too) |
+| Leads by status | Leads created in the range, by their stage now, in pipeline order (empty stages too) |
 | Meetings completed | MOM submitted in the range, split 1st / 2nd / 3rd / Additional |
 | Upcoming meetings | Scheduled or Rescheduled from now on (count and the next 10) |
 | MOM pending | Meetings MOM Pending now (count and 10) |
-| Overdue follow-ups | Open CRM Tasks on open leads due before today |
+| Overdue follow-ups | Open ToDos on open leads due before today |
 | High potential | Open leads that are Hot (smart-leads score) or Positive / Interested, best score first |
-| Won / lost, lost reasons | Leads that entered Closed – Won / Closed – Lost in the range (CRM Status Change Log), with the lost reasons |
+| Won / lost, lost reasons | Leads that entered Closed – Won / Closed – Lost in the range (their stage log), with the lost reasons |
 | Win rate | Won ÷ (won + lost) |
 | Conversion (Lead → won) | Leads created in the range that are won now ÷ leads created in the range |
 | By BDE | Meetings held, MOM submission rate (meetings due in the range that ended, with their MOM ÷ all of them), MOM pending now, quotations made and sent in the range, leads won |
 | Quotations | Lead quotations made in the range by status, count and value (company currency); pending approval and with the client now; accepted / rejected; **active value**: the latest revision of each quotation, Approved or with the client and still valid (the revenue potential) |
 
-**CRM dashboard cards** (`crm_dashboard_providers` / `crm_dashboard_layout`, placed below the CRM's
-own and the finance and smart-lead cards): **Meetings held**, **MOM pending** (lower is better),
-**Lead win rate** and **Active quotations** (with quotations on). They count the dashboard's
+**Dashboard cards** (`get_cards`, served with the finance and smart-lead cards by
+`tbo_smart.api.dashboard.get_cards(from_date?, to_date?, user?)`): **Meetings held**, **MOM
+pending** (lower is better), **Lead win rate** and **Active quotations** (with quotations on). They count the dashboard's
 user (a salesperson always gets themselves) when the session user may see that person, else
 nothing; their scope otherwise.
 
@@ -471,19 +437,18 @@ nothing; their scope otherwise.
 ## 12. Tests
 
 `tbo_smart/tests/test_lead_pipeline.py` (helpers in `tbo_smart/test_utils.py`; AI mocked at the
-HTTP level): the statuses and their types, New Lead as the default, lost reason required (CRM
-and the mobile API), forward-only moves; the migration table, a full run with migration notes
-(original Demo / Quotation), kept lost reasons, no deals for converted leads, retired statuses
-kept as JSON, idempotency (a lead set back by hand isn't moved again) and revert; meeting
+HTTP level): the stages and their types, the Select and New Lead as the default with ERPNext's
+own status left alone, the stage log's first row, lost reason required (the Lead and the mobile
+API), forward-only moves; meeting
 numbering with a cancelled meeting and Additional meetings, a manual status not pulled back, the
 switch off; the clock (in progress, MOM Pending with the BDE told, one reminder only); MOM submit
 moving the lead, creating the Sales follow-up and the next meeting, final once submitted;
 closing the lead from the MOM with a reason; the needs-follow-up flag; MOM escalation BDE → BDM →
 sales head once per level on working days; permissions (another BDE, list query, delete); the
 https link rule; the AI draft writing nothing and dropping a guessed number; the mobile shape
-against the fixture; the deal at Closed – Won (Won stage, owner, once only, manual conversion
-refused) and with the switch off; and the no-CRM guard. Smart leads, mobile and insights tests
-use the new status names.
+against the fixture; the deal at Closed – Won (an Opportunity from the lead in a Won-type stage,
+owner, once only, manual conversion refused) and with the switch off (no deal; converting by
+hand makes one and closes the lead); and the no-ERPNext guard.
 
 `tbo_smart/tests/test_pipeline_dashboard.py`: a BDE's own figures (status counts, won, lost,
 win rate, conversion, meetings, MOM pending, upcoming, overdue follow-ups, high potential, the
@@ -495,13 +460,20 @@ for the dashboard's user; the switch.
 discount (totals 70,000 → 63,000 + 11,340 = 74,340), party and package on the quotation; only
 preset roles edit rates and packages, duplicate package names; a quotation from a meeting;
 permissions and the switch; Sent → Negotiation → Accepted moving the lead to Closed – Won with the
-deal created and the quotation re-linked, Version rows; sending blocked while approval is pending
+deal created and the quotation linked to it (still made out to the Lead), Version rows; sending blocked while approval is pending
 and allowed once the BDM approves; Rejected needs a reason and can close the lead; expiry; WhatsApp
 link and email through ERPNext with the TBO format; the revision chain with its diff and latest
 flag; the PDF saved on the lead and the Sales Order from an accepted quotation (permissions, the
-deal's customer); the print format rendering.
+Customer ERPNext made from the lead, the deal on the order and the order's customer on the
+deal); the print format rendering.
 
 ## Changelog
+
+- **v1.3 (2026-10-16):** on ERPNext's Lead and Opportunity instead of Frappe CRM's records
+  (`erpnext-lead-cutover.md`): the stage is `Lead.tbo_stage` with its stage log, the deal an
+  Opportunity made by ERPNext's mapper, follow-ups ToDos, quotations made out to the Lead and
+  linked to the deal by `opportunity`; the status migration and the Convert override removed;
+  the dashboard cards behind `api/dashboard.py`.
 
 - **v1.2 (2026-10-16):** Phase 3: the Pipeline page and the pipeline cards on the CRM dashboard
   (§11).

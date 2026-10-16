@@ -1,4 +1,4 @@
-"""Allocations & Transfers page in the CRM (docs/crm-finance-workflow.md §7, Phase 3).
+"""Allocations & Transfers page (docs/crm-finance-workflow.md §7, Phase 3).
 
 Accounts, finance and management only (risk R7): salespeople never see India's share.
 """
@@ -56,7 +56,7 @@ def get_allocation_summary() -> dict:
 			"payment_entry",
 			"posting_date",
 			"customer",
-			"crm_deal",
+			"opportunity",
 			"currency",
 			"gross_amount",
 			"net_amount",
@@ -224,7 +224,7 @@ def get_deal_allocation(deal: str) -> dict | None:
 		.where(
 			(Allocation.docstatus == 1)
 			& (Allocation.company == get_setting("invoicing_company"))
-			& (Line.crm_deal == deal)
+			& (Line.opportunity == deal)
 			& (Allocation.status != "Reversed")
 		)
 	).run(as_dict=True)

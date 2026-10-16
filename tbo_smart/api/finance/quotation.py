@@ -1,26 +1,20 @@
-"""Quotations from the CRM deal (gap G3): the New quotation dialog and its essentials-only edit.
+"""Quotations from the deal (gap G3): the New quotation dialog and its essentials-only edit.
 
-The dialog replaces the desk link (`/app/quotation/new`). It saves a draft ERPNext Quotation as
-the session user, so ERPNext's own Quotation permissions and the discount/commission control
+The dialog saves a draft ERPNext Quotation as the session user, linked to the deal (ERPNext's
+`opportunity`), so ERPNext's own Quotation permissions and the discount/commission control
 (tbo_smart.quotation_control) apply exactly as on the desk form. Anything beyond items, qty,
 rate, discount, commission, validity, taxes and terms stays in ERPNext ("Open in ERPNext").
 """
 
 import frappe
-from crm.fcrm.doctype.erpnext_crm_settings import erpnext_crm_settings
-from crm.fcrm.doctype.erpnext_crm_settings.erpnext_crm_settings import (
-	get_local_customer,
-	get_organization_address,
-	get_primary_contact,
-	prefill_quotation_items,
-)
 from erpnext.controllers.accounts_controller import get_default_taxes_and_charges
 from frappe import _
 from frappe.utils import add_months, flt, getdate, today
 
-from tbo_smart.finance import finance_enabled, get_default_company
+from tbo_smart.finance import get_default_company
 from tbo_smart.finance.access import require_deal
 from tbo_smart.quotation_control import COMMISSION_FIELD, QuotationControl
+from tbo_smart.sales.opportunity import customer_of
 
 MAX_ITEMS = 100
 TAX_TEMPLATE = "Sales Taxes and Charges Template"
@@ -28,16 +22,20 @@ TAX_TEMPLATE = "Sales Taxes and Charges Template"
 
 @frappe.whitelist()
 def get_quotation_form(deal: str, quotation: str | None = None) -> dict:
-	"""Values for the dialog: a new quotation prefilled from the deal (items from its products,
-	company, party and contact), or an existing draft of this deal for editing."""
+	"""Values for the dialog: a new quotation prefilled from the deal (its items, company, party
+	and contact), or an existing draft of this deal for editing."""
 	require_deal(deal)
-	doc = frappe.get_doc("CRM Deal", deal)
-	company = doc.get("tbo_company") or get_default_company()
+	doc = frappe.get_doc("Opportunity", deal)
+	company = doc.get("company") or get_default_company()
 	choices = form_choices(company)
 	if quotation:
 		existing = get_editable_quotation(deal, quotation, "read")
 		return {**choices, **serialize_quotation(existing)}
-	items = prefill_quotation_items(deal)
+	items = [
+		{"item_code": row.item_code, "qty": flt(row.qty) or 1, "price_list_rate": flt(row.rate)}
+		for row in doc.items
+		if row.item_code
+	]
 	names = item_names([row["item_code"] for row in items])
 	return {
 		**choices,
@@ -93,7 +91,7 @@ def save_quotation(deal: str, values: dict | str, quotation: str | None = None) 
 	else:
 		if not frappe.has_permission("Quotation", "create"):
 			frappe.throw(_("You cannot create quotations."), frappe.PermissionError)
-		doc = new_quotation(frappe.get_doc("CRM Deal", deal), values.get("company"))
+		doc = new_quotation(frappe.get_doc("Opportunity", deal), values.get("company"))
 	apply_values(doc, values)
 	if doc.is_new():
 		doc.insert()
@@ -116,16 +114,6 @@ def submit_quotation(deal: str, quotation: str) -> dict:
 	doc = get_editable_quotation(deal, quotation, "submit")
 	doc.submit()
 	return serialize_quotation(doc)
-
-
-@frappe.whitelist()
-def can_create_desk_quotations() -> bool:
-	"""Override of Frappe CRM's can_create_quotations, which shows the deal's "Create Quotation"
-	action (a link to the desk form). With the finance workflow on, the Finance tab's New
-	quotation dialog replaces it, so the action is hidden."""
-	if finance_enabled():
-		return False
-	return erpnext_crm_settings.can_create_quotations()
 
 
 # ---------- helpers ----------
@@ -163,38 +151,38 @@ def get_editable_quotation(deal: str, quotation: str, ptype: str):
 
 
 def belongs_to_deal(doc, deal: str) -> bool:
-	"""Linked by Frappe CRM's crm_deal, or made out to the deal itself (as the Finance tab lists)."""
-	return doc.get("crm_deal") == deal or (doc.quotation_to == "CRM Deal" and doc.party_name == deal)
+	"""Linked to the deal by ERPNext's `opportunity` (as the Finance view lists)."""
+	return doc.get("opportunity") == deal
 
 
 def get_party(deal) -> dict:
-	"""The deal's ERPNext Customer when it has one, else the deal itself (as the CRM does)."""
-	customer = get_local_customer(deal.name)
+	"""The deal's ERPNext Customer when it has one, else the deal's own party (the lead or the
+	prospect), from which ERPNext makes the Customer with the Sales Order."""
+	customer = customer_of(deal)
 	if customer:
 		return {"quotation_to": "Customer", "party_name": customer, "label": customer}
 	return {
-		"quotation_to": "CRM Deal",
-		"party_name": deal.name,
-		"label": deal.get("organization") or deal.get("lead_name") or deal.name,
+		"quotation_to": deal.opportunity_from,
+		"party_name": deal.party_name,
+		"label": deal.get("customer_name") or deal.get("contact_display") or deal.party_name,
 	}
 
 
 def new_quotation(deal, company: str | None):
 	party = get_party(deal)
-	address = get_organization_address(deal.get("organization"))
 	doc = frappe.new_doc("Quotation")
 	doc.update(
 		{
 			"quotation_to": party["quotation_to"],
 			"party_name": party["party_name"],
-			"crm_deal": deal.name,
-			"company": company or deal.get("tbo_company") or get_default_company(),
+			"opportunity": deal.name,
+			"company": company or deal.get("company") or get_default_company(),
 			"transaction_date": today(),
-			"contact_person": get_primary_contact(deal.name),
-			"customer_address": address.get("name") if address else None,
+			"contact_person": deal.get("contact_person"),
+			"customer_address": deal.get("customer_address"),
 		}
 	)
-	if party["quotation_to"] == "CRM Deal":
+	if party["quotation_to"] != "Customer":
 		doc.customer_name = party["label"]
 	return doc
 
@@ -212,7 +200,7 @@ def parse_values(values) -> frappe._dict:
 	if not isinstance(items, list) or not items:
 		frappe.throw(_("Add at least one item."))
 	if len(items) > MAX_ITEMS:
-		frappe.throw(_("A quotation from the CRM can have at most {0} items.").format(MAX_ITEMS))
+		frappe.throw(_("A quotation from here can have at most {0} items.").format(MAX_ITEMS))
 	for idx, row in enumerate(items, start=1):
 		if not isinstance(row, dict) or not row.get("item_code"):
 			frappe.throw(_("Row {0}: choose an item.").format(idx))

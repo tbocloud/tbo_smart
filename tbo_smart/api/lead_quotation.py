@@ -1,10 +1,10 @@
-"""Quotations on the lead in the CRM (docs/lead-pipeline.md §9).
+"""Quotations on the lead (docs/lead-pipeline.md §9).
 
-The New quotation dialog of the deal's Finance tab is reused on the lead: the same values,
-validation and ERPNext Quotation, made out to the CRM Lead. Every method needs TBO Smart
-Settings → Lead pipeline and Quotations on the lead, and checks the lead under Frappe CRM's own
-rules; ERPNext's Quotation permissions and the discount/commission control apply on save and
-submit, which run as the session user.
+The deal's New quotation dialog is reused on the lead: the same values, validation and ERPNext
+Quotation, made out to the Lead. Every method needs TBO Smart Settings → Lead pipeline and
+Quotations on the lead, and checks the lead under the sales rules (tbo_smart.sales.permissions);
+ERPNext's Quotation permissions and the discount/commission control apply on save and submit,
+which run as the session user.
 """
 
 import frappe
@@ -24,6 +24,7 @@ from tbo_smart.lead_pipeline import presets as catalogue
 from tbo_smart.lead_pipeline import quotations as q
 from tbo_smart.lead_pipeline import quotations_enabled, require_quotations
 from tbo_smart.quotation_control import QuotationControl
+from tbo_smart.sales.opportunity import lead_opportunity
 from tbo_smart.smart_leads.utils import normalise_phone, whatsapp_link
 
 # "<quotation>--<time>.pdf": unique, so Frappe never appends its own suffix, and SAL-QTN-1's
@@ -65,13 +66,7 @@ def get_lead_quotations(lead: str) -> dict:
 	"""The lead's quotations, newest family first, latest revision flagged, with the deal once
 	the lead is won."""
 	require_lead(lead, "read")
-	rows = frappe.get_all(
-		"Quotation",
-		filters={"tbo_crm_lead": lead, "docstatus": ("!=", 2)},
-		fields=LIST_FIELDS,
-		order_by="creation desc",
-		limit_page_length=0,
-	)
+	rows = q.lead_quotations(lead, LIST_FIELDS)
 	states = q.draft_states([row.name for row in rows if row.docstatus == 0])
 	pdfs = lead_pdfs(lead)
 	for row in rows:
@@ -80,8 +75,8 @@ def get_lead_quotations(lead: str) -> dict:
 		row.pdf = next((url for name, url in pdfs if name.startswith(f"{row.name}{PDF_SEPARATOR}")), None)
 	return {
 		"lead": lead,
-		"deal": frappe.db.get_value("CRM Deal", {"lead": lead}, "name"),
-		"can_write": bool(frappe.has_permission("CRM Lead", "write", lead)),
+		"deal": lead_opportunity(lead),
+		"can_write": bool(frappe.has_permission("Lead", "write", lead)),
 		"quotations": rows,
 	}
 
@@ -95,7 +90,7 @@ def lead_pdfs(lead: str) -> list:
 	"<quotation>--<time>.pdf" (pdf_file_name), so it matches its own quotation only."""
 	return frappe.get_all(
 		"File",
-		filters={"attached_to_doctype": "CRM Lead", "attached_to_name": lead, "file_name": ("like", "%.pdf")},
+		filters={"attached_to_doctype": "Lead", "attached_to_name": lead, "file_name": ("like", "%.pdf")},
 		fields=["file_name", "file_url"],
 		order_by="creation desc",
 		as_list=True,
@@ -112,16 +107,16 @@ def get_quotation_form(lead: str, quotation: str | None = None, meeting: str | N
 		return {**form_choices(doc.company), "catalogue": catalogue.get_catalogue(), **serialize(doc)}
 	company = get_default_company() or frappe.defaults.get_user_default("Company")
 	terms = q.setting("quotation_terms")
-	lead_doc = frappe.db.get_value("CRM Lead", lead, ["lead_name", "organization"], as_dict=True)
+	lead_doc = frappe.db.get_value("Lead", lead, ["lead_name", "company_name"], as_dict=True)
 	return {
 		**form_choices(company),
 		"catalogue": catalogue.get_catalogue(),
 		"name": None,
 		"company": company,
 		"party": {
-			"quotation_to": "CRM Lead",
+			"quotation_to": "Lead",
 			"party_name": lead,
-			"label": lead_doc.organization or lead_doc.lead_name,
+			"label": lead_doc.company_name or lead_doc.lead_name,
 		},
 		"currency": frappe.get_cached_value("Company", company, "default_currency") if company else None,
 		"valid_till": add_days(today(), q.validity_days()),
@@ -174,15 +169,15 @@ def save_quotation(lead: str, values: dict | str, quotation: str | None = None) 
 
 
 def new_lead_quotation(lead: str, values) -> object:
-	label = frappe.db.get_value("CRM Lead", lead, ["organization", "lead_name"], as_dict=True)
+	label = frappe.db.get_value("Lead", lead, ["company_name", "lead_name"], as_dict=True)
 	doc = frappe.new_doc("Quotation")
 	meeting = values.get("meeting")
 	doc.update(
 		{
-			"quotation_to": "CRM Lead",
+			"quotation_to": "Lead",
 			"party_name": lead,
-			"customer_name": label.organization or label.lead_name,
-			"tbo_crm_lead": lead,
+			"customer_name": label.company_name or label.lead_name,
+			"opportunity": lead_opportunity(lead),
 			"tbo_lead_meeting": meeting
 			if meeting and frappe.db.exists("TBO Lead Meeting", {"name": meeting, "lead": lead})
 			else None,
@@ -200,7 +195,7 @@ def new_lead_quotation(lead: str, values) -> object:
 def serialize(doc) -> dict:
 	return {
 		**serialize_quotation(doc),
-		"lead": doc.tbo_crm_lead,
+		"lead": q.lead_of(doc),
 		"meeting": doc.get("tbo_lead_meeting"),
 		"package": doc.get("tbo_package"),
 		"quote_status": q.draft_status(doc) if doc.docstatus == 0 else doc.get("tbo_quote_status"),
@@ -227,11 +222,11 @@ def mark_sent(
 	and is refused while its approval is pending."""
 	doc = get_lead_quotation(quotation, None, "write")
 	lead = frappe.db.get_value(
-		"CRM Lead", doc.tbo_crm_lead, ["email", "mobile_no", "phone", "lead_name"], as_dict=True
+		"Lead", q.lead_of(doc), ["email_id", "mobile_no", "phone", "lead_name"], as_dict=True
 	)
 	text = (message or "").strip() or _("Please find our quotation {0} attached.").format(doc.name)
 	if via == "Email":
-		to = (recipients or lead.email or "").strip()
+		to = (recipients or lead.email_id or "").strip()
 		if not to:
 			frappe.throw(_("Give the email address to send it to."))
 	task = q.mark_sent(doc, via, cint(follow_up_days) if follow_up_days not in (None, "") else None)
@@ -305,8 +300,8 @@ def save_pdf(quotation: str) -> dict:
 		{
 			"doctype": "File",
 			"file_name": pdf_file_name(doc.name),
-			"attached_to_doctype": "CRM Lead",
-			"attached_to_name": doc.tbo_crm_lead,
+			"attached_to_doctype": "Lead",
+			"attached_to_name": q.lead_of(doc),
 			"is_private": 1,
 			"content": pdf,
 		}
@@ -350,9 +345,9 @@ def set_service_rate(item_code: str, rate: float | str) -> dict:
 
 def require_lead(lead: str, ptype: str) -> None:
 	require_quotations()
-	if not isinstance(lead, str) or not frappe.db.exists("CRM Lead", lead):
+	if not isinstance(lead, str) or not frappe.db.exists("Lead", lead):
 		frappe.throw(_("Lead {0} not found.").format(lead), frappe.DoesNotExistError)
-	frappe.has_permission("CRM Lead", ptype, lead, throw=True)
+	frappe.has_permission("Lead", ptype, lead, throw=True)
 
 
 def get_lead_quotation(quotation: str, lead: str | None, ptype: str):
@@ -361,11 +356,12 @@ def get_lead_quotation(quotation: str, lead: str | None, ptype: str):
 	if not isinstance(quotation, str) or not frappe.db.exists("Quotation", quotation):
 		frappe.throw(_("Quotation {0} not found.").format(quotation), frappe.DoesNotExistError)
 	doc = frappe.get_doc("Quotation", quotation)
-	if not doc.get("tbo_crm_lead") or (lead and doc.tbo_crm_lead != lead):
+	owner_lead = q.lead_of(doc)
+	if not owner_lead or (lead and owner_lead != lead):
 		frappe.throw(
 			_("Quotation {0} does not belong to this lead.").format(quotation), frappe.PermissionError
 		)
-	frappe.has_permission("CRM Lead", ptype, doc.tbo_crm_lead, throw=True)
+	frappe.has_permission("Lead", ptype, owner_lead, throw=True)
 	return doc
 
 

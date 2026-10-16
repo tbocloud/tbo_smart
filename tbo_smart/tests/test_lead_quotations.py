@@ -16,10 +16,9 @@ from tbo_smart.test_utils import (
 	delete_lead_quotations,
 	delete_smart_lead_records,
 	disable_lead_quotations,
-	enable_erpnext_crm,
 	enable_lead_quotations,
-	make_crm_lead,
 	make_gst_template,
+	make_lead,
 	make_lead_meeting,
 	make_pdf_bytes,
 	make_quotation_item,
@@ -45,9 +44,6 @@ class LeadQuotationTestCase(FrappeTestCase):
 		make_user(BDE, ["Sales User", "Business Development Executive"])
 		make_user(BDE2, ["Sales User", "Business Development Executive"])
 		make_user(BDM, ["Sales User", "Business Development Manager"])
-		enable_erpnext_crm()
-		# ERPNext's side of the CRM link, which makes the deal's customer
-		frappe.db.set_single_value("CRM Settings", "enable_frappe_crm_data_synchronization", 1)
 		set_leaf_customer_group()
 		make_quotation_item(SERVICE)
 		make_quotation_item(SUPPORT)
@@ -65,7 +61,7 @@ class LeadQuotationTestCase(FrappeTestCase):
 
 	@classmethod
 	def clean(cls):
-		leads = frappe.get_all("CRM Lead", filters={"lead_owner": ("in", OWNERS)}, pluck="name")
+		leads = frappe.get_all("Lead", filters={"lead_owner": ("in", OWNERS)}, pluck="name")
 		delete_lead_quotations(leads)
 		delete_lead_meetings(leads)
 		delete_lead_deals(leads)
@@ -79,11 +75,11 @@ class LeadQuotationTestCase(FrappeTestCase):
 		enable_lead_quotations()
 		configure_quotation_approval(enabled=0)
 		# a fresh organization each time: ERPNext reuses a Customer with the same name
-		self.lead = make_crm_lead(
+		self.lead = make_lead(
 			BDE,
 			"Quote Me",
-			organization=f"Quote Traders {frappe.generate_hash(length=6)}",
-			email="quote@traders.example",
+			company_name=f"Quote Traders {frappe.generate_hash(length=6)}",
+			email_id="quote@traders.example",
 		)
 
 	def tearDown(self):
@@ -121,7 +117,7 @@ class TestBuilder(LeadQuotationTestCase):
 		)
 		frappe.set_user(BDE)
 		form = api.get_quotation_form(self.lead)
-		self.assertEqual(form["party"]["quotation_to"], "CRM Lead")
+		self.assertEqual(form["party"]["quotation_to"], "Lead")
 		self.assertEqual(getdate(form["valid_till"]), getdate(add_days(nowdate(), 30)))
 		package = next(row for row in form["catalogue"]["packages"] if row["name"] == PACKAGE)
 		self.assertEqual(
@@ -151,10 +147,7 @@ class TestBuilder(LeadQuotationTestCase):
 		)
 		frappe.set_user(BDE)
 		doc = frappe.get_doc("Quotation", saved["name"])
-		self.assertEqual(
-			(doc.quotation_to, doc.party_name, doc.tbo_crm_lead, doc.tbo_package),
-			("CRM Lead", self.lead, self.lead, PACKAGE),
-		)
+		self.assertEqual((doc.quotation_to, doc.party_name, doc.tbo_package), ("Lead", self.lead, PACKAGE))
 		self.assertEqual(doc.items[0].description, "Setup and training")
 
 	def test_only_preset_roles_edit_prices_and_packages(self):
@@ -189,27 +182,30 @@ class TestStatuses(LeadQuotationTestCase):
 		name = self.sent()
 		doc = frappe.get_doc("Quotation", name)
 		self.assertEqual((doc.docstatus, doc.tbo_quote_status, doc.tbo_sent_via), (1, q.SENT, "Manual"))
-		self.assertEqual(frappe.db.get_value("CRM Lead", self.lead, "status"), PROPOSAL_SENT)
+		self.assertEqual(frappe.db.get_value("Lead", self.lead, "tbo_stage"), PROPOSAL_SENT)
 		task = frappe.db.get_value(
-			"CRM Task",
-			{"reference_docname": self.lead, "title": ("like", f"%{name}%")},
-			["due_date", "tbo_task_type"],
+			"ToDo",
+			{"reference_name": self.lead, "description": ("like", f"%{name}%")},
+			["date", "tbo_task_type", "allocated_to"],
 			as_dict=True,
 		)
 		self.assertEqual(
-			(getdate(task.due_date), task.tbo_task_type), (getdate(add_days(nowdate(), 3)), "Sales follow-up")
+			(getdate(task.date), task.tbo_task_type, task.allocated_to),
+			(getdate(add_days(nowdate(), 3)), "Sales follow-up", BDE),
 		)
 
 		api.set_quote_status(name, q.NEGOTIATING, "Wants 5% off")
-		self.assertEqual(frappe.db.get_value("CRM Lead", self.lead, "status"), NEGOTIATION)
+		self.assertEqual(frappe.db.get_value("Lead", self.lead, "tbo_stage"), NEGOTIATION)
 		self.assertRaises(frappe.ValidationError, api.set_quote_status, name, q.VIEWED)
 		api.set_quote_status(name, q.ACCEPTED)
-		deal = frappe.db.get_value("CRM Deal", {"lead": self.lead}, "name")
+		deal = frappe.db.get_value(
+			"Opportunity", {"opportunity_from": "Lead", "party_name": self.lead}, "name"
+		)
 		self.assertTrue(deal)
-		self.assertEqual(frappe.db.get_value("CRM Lead", self.lead, "status"), CLOSED_WON)
+		self.assertEqual(frappe.db.get_value("Lead", self.lead, "tbo_stage"), CLOSED_WON)
 		self.assertEqual(
-			frappe.db.get_value("Quotation", name, ["crm_deal", "quotation_to", "party_name"]),
-			(deal, "CRM Deal", deal),
+			frappe.db.get_value("Quotation", name, ["opportunity", "quotation_to", "party_name"]),
+			(deal, "Lead", self.lead),
 		)
 		self.assertEqual(api.get_lead_quotations(self.lead)["deal"], deal)
 		self.assertTrue(frappe.get_all("Version", filters={"ref_doctype": "Quotation", "docname": name}))
@@ -249,7 +245,7 @@ class TestStatuses(LeadQuotationTestCase):
 		self.assertRaises(frappe.ValidationError, api.set_quote_status, name, q.REJECTED, "Too costly", 1)
 		api.set_quote_status(name, q.REJECTED, "Too costly", 1, "Price")
 		self.assertEqual(
-			frappe.db.get_value("CRM Lead", self.lead, ["status", "lost_reason", "lost_notes"]),
+			frappe.db.get_value("Lead", self.lead, ["tbo_stage", "tbo_lost_reason", "tbo_lost_notes"]),
 			(CLOSED_LOST, "Other", "Price"),
 		)
 
@@ -262,7 +258,7 @@ class TestStatuses(LeadQuotationTestCase):
 		self.assertEqual(frappe.db.get_value("Quotation", name, "tbo_quote_status"), q.EXPIRED)
 
 	def test_whatsapp_and_email(self):
-		frappe.db.set_value("CRM Lead", self.lead, "mobile_no", "9847000555")
+		frappe.db.set_value("Lead", self.lead, "mobile_no", "9847000555")
 		frappe.set_user(BDE)
 		saved = self.save()
 		result = api.mark_sent(saved["name"], "WhatsApp", message="Here is the quote")
@@ -317,9 +313,14 @@ class TestRevisionsAndOrders(LeadQuotationTestCase):
 		frappe.set_user(BDE)
 		order = api.make_sales_order(name)["sales_order"]
 		frappe.set_user("Administrator")
-		deal = frappe.db.get_value("CRM Deal", {"lead": self.lead}, "name")
-		customer = frappe.db.get_value("Sales Order", order, "customer")
-		self.assertEqual(frappe.db.get_value("Customer", customer, "crm_deal"), deal)
+		deal = frappe.db.get_value(
+			"Opportunity", {"opportunity_from": "Lead", "party_name": self.lead}, "name"
+		)
+		customer, opportunity = frappe.db.get_value("Sales Order", order, ["customer", "opportunity"])
+		# ERPNext made the Customer from the lead; the deal knows it
+		self.assertEqual(frappe.db.get_value("Customer", customer, "lead_name"), self.lead)
+		self.assertEqual(opportunity, deal)
+		self.assertEqual(frappe.db.get_value("Opportunity", deal, "tbo_customer"), customer)
 
 	def test_print_format_renders(self):
 		frappe.set_user(BDE)

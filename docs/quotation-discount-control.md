@@ -11,7 +11,8 @@ before the quotation can be submitted. Every adjustment, approval and override i
   (roles, a field and default levels), and `tbo_smart/public/js/quotation_adjustment.js`
   (the Quotation form).
 - **Tests:** `tbo_smart/tests/test_quotation_adjustment.py`.
-- **Status:** v1.1, 2026-10-12. Enforcement is **off** until management switches it on (§9).
+- **Status:** v1.2, 2026-10-16. Enforcement is **off** until management switches it on (§9).
+  Since v1.2 the deal is ERPNext's Opportunity (`erpnext-lead-cutover.md`).
 
 ## 1. The flow
 
@@ -126,7 +127,7 @@ One row per adjustment (`QADJ-YYYY-#####`).
 
 | Field | |
 | --- | --- |
-| quotation, customer, deal | The quotation, its customer name, and its CRM Deal (Frappe CRM's `crm_deal` field, or the party when *Quotation To* is CRM Deal). |
+| quotation, customer, deal | The quotation, its customer name, and its deal (ERPNext's `Quotation.opportunity`). |
 | kind | Discount or Commission. |
 | status | Pending, Escalated (forwarded, still open), Approved, Rejected, Overridden. |
 | within_limit | Set on **Applied** rows: the person applied it inside their own limit. |
@@ -174,9 +175,9 @@ All of them act as the session user, and permissions are checked on the server.
 
 | Method | HTTP | Returns / does |
 | --- | --- | --- |
-| `get_adjustment_limits()` | GET | `{enabled, applies_to, kinds, level, limits, limit_labels, is_approver, can_view_all, can_override, can_forward, open_requests}`. In `limits`, `null` means no limit and `0` means not set. `is_approver`: some level ranks below mine, so requests can wait for me. `can_view_all`: my level approves directly (Director, CEO). `can_override`: my level has no limit. `can_forward`: a higher level exists. `open_requests`: how many of my requests are still open. The CRM uses these only to hide what a user cannot do. |
+| `get_adjustment_limits()` | GET | `{enabled, applies_to, kinds, level, limits, limit_labels, is_approver, can_view_all, can_override, can_forward, open_requests}`. In `limits`, `null` means no limit and `0` means not set. `is_approver`: some level ranks below mine, so requests can wait for me. `can_view_all`: my level approves directly (Director, CEO). `can_override`: my level has no limit. `can_forward`: a higher level exists. `open_requests`: how many of my requests are still open. Screens use these only to hide what a user cannot do. |
 | `get_quotation_adjustment_status(quotation)` | GET | For each limited kind: `percent`, `limit`, `limit_label`, `within_limit`, `approved` and the `latest` adjustment. Needs read on the quotation. When the user cannot read that adjustment (a BDE looking at another BDE's request), `latest` carries only its state (status, level, percentages, voided) with `name` set to null, never the requester, reason or remarks. |
-| `get_quotations_adjustment_status(quotations)` | GET | The same for up to 100 quotations at once (a JSON list of names), keyed by quotation. Quotations the user cannot read, or that do not exist, are left out. It runs a fixed number of queries however many quotations there are. Used by the CRM deal's Quotations tab. |
+| `get_quotations_adjustment_status(quotations)` | GET | The same for up to 100 quotations at once (a JSON list of names), keyed by quotation. Quotations the user cannot read, or that do not exist, are left out. It runs a fixed number of queries however many quotations there are. Used by a deal's or lead's list of quotations. |
 | `get_adjustment_requests(scope)` | GET | Requests (not within-limit Applied rows), newest first, up to 200, with `requested_by_name` and the quotation `currency` (which `get_pending_approvals` now returns too). `scope="mine"`: the ones I made. `scope="all"`: every request, only for a level that approves directly (Director, CEO), otherwise 403. |
 | `get_adjustment_trail(name)` | GET | One adjustment with its `steps` (action, by_user, by_name, level, percent, at, remarks), oldest first. Needs read on the adjustment, so a BDE sees only the trails of their own requests. |
 | `request_adjustment(quotation, kind, percent, reason)` | POST | Creates a Pending request at the next level up and notifies that level. It is refused when: the requester cannot write the quotation; the quotation is not a draft; the percentage is within the requester's own limit; the reason is empty; the requester has no level; or a request is already open. |
@@ -194,7 +195,7 @@ are emailed per the user's notification settings, and reach the TBO Smart phone 
   except the requester.
 - On a decision, the requester.
 
-## 8. UI: ERPNext desk and the CRM
+## 8. UI: ERPNext desk, the hub and the app
 
 **ERPNext desk:**
 
@@ -213,8 +214,8 @@ are emailed per the user's notification settings, and reach the TBO Smart phone 
   …) and a **Waiting for me** button, which is the approvals inbox for BDM, Head, Director
   and CEO.
 
-**In the CRM (tbocloud/crm#2, `docs/tbo-quotation-approvals.md` there):** daily users never
-open `/app` for this.
+**In the CRM (tbocloud/crm#2), until Frappe CRM was uninstalled** (`erpnext-lead-cutover.md`);
+the same APIs serve the hub's screens now:
 
 1. **Deal → Quotations tab** (`QuotationsList.vue`): each quotation shows a chip per limited
    kind (Within limit, Needs approval, Pending with BDM, Approved 8%, Rejected, Overridden
@@ -255,9 +256,9 @@ Quotations tab shows the same chips and Request approval, a draft with an open r
    - choose **Limits apply to** (Discount / Commission / Both);
    - enter each level's max discount % and max commission %;
    - tick **Enforce adjustment limits**.
-4. Tell the team: above your limit, use *Request approval* on the deal's Quotations tab in
-   the CRM (or *Adjustment → Request approval* on the quotation); approvers use the CRM's
-   **Approvals** page (or the **Waiting for me** list in the desk).
+4. Tell the team: above your limit, use *Request approval* (the hub's quotation screens, the
+   app, or *Adjustment → Request approval* on the quotation); approvers use the app's
+   approvals or the **Waiting for me** list in the desk.
 
 ## 10. Open questions for management
 
@@ -267,13 +268,16 @@ Quotations tab shows the same chips and Request approval, a draft with an open r
    %). It is not yet copied to the Sales Order's `commission_rate`, which ERPNext fills
    from the Sales Partner. Should an approved commission carry over to the Sales Order?
 4. **Who exactly approves:** anyone holding the next level's role (today), or the
-   requester's own manager from the CRM Sales Hierarchy?
+   requester's own manager from the TBO Sales Hierarchy?
 5. **Should the CEO's own adjustments** also be logged for a board review? They are logged
    as Applied today.
 6. **Amended quotations:** should an approval carry over to an amendment with the same
    values? Today it does not.
 
 ## Changelog
+
+- v1.2 (2026-10-16): the deal behind a quotation is its `opportunity` (ERPNext's Opportunity)
+  instead of Frappe CRM's `crm_deal`; the CRM screens went with the CRM app.
 
 - v1.1 (2026-10-12): APIs for the CRM screens (`get_quotations_adjustment_status`,
   `get_adjustment_requests`, `get_adjustment_trail`, access flags on

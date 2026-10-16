@@ -5,7 +5,7 @@ when it is scheduled; cancelled meetings don't count. Scheduling one moves the l
 Scheduled. Once its time has passed without minutes it turns MOM Pending (a job every 15
 minutes), the BDE is nudged, and it escalates like a follow-up: the BDM, then the sales head.
 Submitting the MOM moves the lead to Nth Meeting Completed and creates the "Sales follow-up"
-CRM Task for the next follow-up date. Meetings are never deleted by sales users; a meeting
+ToDo for the next follow-up date. Meetings are never deleted by sales users; a meeting
 that doesn't happen is Cancelled.
 """
 
@@ -18,6 +18,8 @@ from frappe.utils import add_to_date, cint, escape_html, format_datetime, get_da
 from tbo_smart.lead_pipeline import pipeline_enabled, setting
 from tbo_smart.lead_pipeline.statuses import CLOSED_LOST, MEETING_COMPLETED, MEETING_SCHEDULED, status_type
 from tbo_smart.lead_pipeline.transitions import advance_lead
+from tbo_smart.sales import lead_url
+from tbo_smart.sales.activities import add_follow_up_task
 from tbo_smart.smart_leads import FOLLOW_UP_TYPE, follow_ups_enabled
 from tbo_smart.smart_leads.notify import deliver, notify
 from tbo_smart.smart_leads.utils import on_leave
@@ -80,14 +82,14 @@ class LeadMeeting:
 	def set_stage(self):
 		"""The next number for this lead, under a lock on the lead so two meetings scheduled
 		at once can't take the same number."""
-		frappe.db.get_value("CRM Lead", self.lead, "name", for_update=True)
+		frappe.db.get_value("Lead", self.lead, "name", for_update=True)
 		held = frappe.db.count(DOCTYPE, {"lead": self.lead, "status": ("!=", CANCELLED)})
 		self.stage = held + 1
 		self.stage_label = stage_label(self.stage)
 
 	def set_defaults(self):
 		if not self.bde:
-			self.bde = frappe.db.get_value("CRM Lead", self.lead, "lead_owner") or frappe.session.user
+			self.bde = frappe.db.get_value("Lead", self.lead, "lead_owner") or frappe.session.user
 		if not self.duration_minutes:
 			self.duration_minutes = DEFAULT_DURATION
 		if self.meeting_type == "Online":
@@ -96,7 +98,7 @@ class LeadMeeting:
 			self.meeting_link = None
 
 	def validate_lead(self):
-		if self.is_new() and status_type(frappe.db.get_value("CRM Lead", self.lead, "status")) == "Lost":
+		if self.is_new() and status_type(frappe.db.get_value("Lead", self.lead, "tbo_stage")) == "Lost":
 			frappe.throw(_("This lead is {0}. Reopen it before scheduling a meeting.").format(CLOSED_LOST))
 
 	def validate_place(self):
@@ -135,13 +137,10 @@ class LeadMeeting:
 			self.db_set("follow_up_task", self.create_follow_up())
 
 	def create_follow_up(self) -> str:
-		# imported here so the controller loads on a site without the CRM app
-		from tbo_smart.api.mobile.crm import add_follow_up_task
-
 		task = add_follow_up_task(
-			"CRM Lead",
+			"Lead",
 			self.lead,
-			f"{getdate(self.next_follow_up_on)} 10:00:00",
+			getdate(self.next_follow_up_on),
 			title=_("Follow up after the {0}").format(self.stage_label),
 			assigned_to=self.bde,
 			description=self.next_meeting_details or None,
@@ -153,7 +152,7 @@ class LeadMeeting:
 		frappe.publish_realtime(
 			"tbo_lead_pipeline_update",
 			{"lead": self.lead, "meeting": self.name},
-			doctype="CRM Lead",
+			doctype="Lead",
 			docname=self.lead,
 			after_commit=True,
 		)
@@ -163,7 +162,7 @@ class LeadMeeting:
 
 
 def has_permission(doc, ptype=None, user=None) -> bool:
-	"""A meeting is open to whoever may read its lead under Frappe CRM's own rules; changing it
+	"""A meeting is open to whoever may read its lead (tbo_smart.sales.permissions); changing it
 	needs write on the lead. Deleting stays with the doctype's roles (System Manager)."""
 	user = user or frappe.session.user
 	if ptype == "delete":
@@ -171,15 +170,15 @@ def has_permission(doc, ptype=None, user=None) -> bool:
 	lead_ptype = (
 		"read" if ptype in ("read", "select", "print", "export", "report", "email", "share") else "write"
 	)
-	return bool(frappe.has_permission("CRM Lead", lead_ptype, doc=doc.lead, user=user))
+	return bool(frappe.has_permission("Lead", lead_ptype, doc=doc.lead, user=user))
 
 
 def get_permission_query_conditions(user=None) -> str:
-	"""List queries: only meetings of the leads the user may read (CRM's own lead query)."""
+	"""List queries: only meetings of the leads the user may read (the Lead list query)."""
 	user = user or frappe.session.user
 	if "System Manager" in frappe.get_roles(user):
 		return ""
-	leads = frappe.get_list("CRM Lead", fields=["name"], user=user, limit_page_length=0, run=0)
+	leads = frappe.get_list("Lead", fields=["name"], user=user, limit_page_length=0, run=0)
 	return f"`tab{DOCTYPE}`.`lead` in ({leads})"
 
 
@@ -284,12 +283,12 @@ def send_reminder(row) -> None:
 		f"**{subject}**\n{_('Join')}: {where}" if row.meeting_type == "Online" else f"**{subject}**\n{where}"
 	)
 	html = f"<p><b>{escape_html(subject)}</b></p><p>{escape_html(where or '')}</p>"
-	deliver(row.bde, subject, text, html, f"/leads/{row.lead}#meetings", _("Open the lead"))
+	deliver(row.bde, subject, text, html, lead_url(row.lead), _("Open the lead"))
 	notify_people([row.bde], subject, row.lead)
 
 
 def notify_people(users, subject: str, lead: str) -> None:
-	notify(users, subject, "CRM Lead", lead)
+	notify(users, subject, "Lead", lead)
 
 
 # ---------- the morning: MOM escalation and today's meetings (09:30, working days) ----------
@@ -430,6 +429,6 @@ def send_meeting_digests(day) -> dict:
 			+ "</ul>"
 			for title, lines in sections
 		)
-		sent[user] = deliver(user, subject, text, html, "/leads", _("Open the CRM"))
+		sent[user] = deliver(user, subject, text, html, lead_url(), _("Open the leads"))
 		notify([user], subject, "TBO Smart Settings", "TBO Smart Settings")
 	return sent

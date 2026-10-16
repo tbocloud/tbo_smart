@@ -7,6 +7,8 @@ from frappe.utils import add_days, getdate, nowdate
 
 from tbo_smart.api import smart_leads as api
 from tbo_smart.api.mobile import crm as mobile_crm
+from tbo_smart.sales import lead_url
+from tbo_smart.sales.activities import task_title
 from tbo_smart.smart_leads import scoring, triage
 from tbo_smart.smart_leads.call_today import build_call_today
 from tbo_smart.smart_leads.follow_ups import (
@@ -24,7 +26,7 @@ from tbo_smart.smart_leads.utils import WorkCalendar
 from tbo_smart.test_utils import (
 	age_lead,
 	ai_http_response,
-	change_lead_status,
+	change_lead_stage,
 	configure_ai_providers,
 	delete_smart_lead_records,
 	disable_sales_hierarchy,
@@ -35,8 +37,9 @@ from tbo_smart.test_utils import (
 	get_all_keys,
 	get_fixture,
 	make_approved_leave,
-	make_crm_lead,
+	make_lead,
 	make_lead_note,
+	make_lead_source,
 	make_lead_task,
 	make_leave_type,
 	make_migration_note,
@@ -89,7 +92,7 @@ class SmartLeadsTestCase(FrappeTestCase):
 		ensure_company_holiday_list()
 		enable_sales_hierarchy()
 		for user in (BDE, BDM):
-			frappe.db.delete("CRM Sales Hierarchy", {"user": user})
+			frappe.db.delete("TBO Sales Hierarchy", {"user": user})
 		bdm_node = make_sales_hierarchy_node(BDM)
 		make_sales_hierarchy_node(BDE, bdm_node)
 		frappe.db.commit()  # nosemgrep
@@ -101,6 +104,8 @@ class SmartLeadsTestCase(FrappeTestCase):
 		disable_sales_hierarchy((BDE, BDM))
 		disable_smart_leads()
 		set_smart_lead_settings(escalation_sales_head=None)
+		# FrappeTestCase rolls back here; the switches must stay off for the next test files
+		frappe.db.commit()  # nosemgrep
 		super().tearDownClass()
 
 	def setUp(self):
@@ -118,15 +123,18 @@ class TestScoring(SmartLeadsTestCase):
 	def score(self, lead: str) -> frappe._dict:
 		scoring.score_leads([lead])
 		return frappe.db.get_value(
-			"CRM Lead", lead, ["lead_score", "lead_temperature", "tbo_score_reason"], as_dict=True
+			"Lead",
+			lead,
+			["tbo_score as lead_score", "tbo_temperature as lead_temperature", "tbo_score_reason"],
+			as_dict=True,
 		)
 
 	def test_status_history_and_migration_raise_the_score(self):
-		hot = make_crm_lead(BDE, "Hot Lead", mobile_no="9847000001")
-		change_lead_status(hot, "Contacted")
-		change_lead_status(hot, "Proposal Sent")
+		hot = make_lead(BDE, "Hot Lead", mobile_no="9847000001")
+		change_lead_stage(hot, "Contacted")
+		change_lead_stage(hot, "Proposal Sent")
 		make_migration_note(hot, status="Interested", priority="High")
-		cold = make_crm_lead(BDE, "Cold Lead", mobile_no="9847000002")
+		cold = make_lead(BDE, "Cold Lead", mobile_no="9847000002")
 		make_migration_note(cold, status="Do Not Contact", created="2025-01-02")
 		age_lead(cold, 400)
 
@@ -138,23 +146,25 @@ class TestScoring(SmartLeadsTestCase):
 		self.assertEqual((cold_score.lead_score, cold_score.lead_temperature), (0, "Cold"))
 
 	def test_closed_lead_scores_zero(self):
-		lead = make_crm_lead(BDE, "Junk Lead")
-		change_lead_status(lead, "Closed – Lost", lost_reason="Other", lost_notes="Spam")
+		lead = make_lead(BDE, "Junk Lead")
+		change_lead_stage(lead, "Closed – Lost", tbo_lost_reason="Other", tbo_lost_notes="Spam")
 		result = self.score(lead)
 		self.assertEqual((result.lead_score, result.lead_temperature), (0, "Cold"))
 		self.assertEqual(result.tbo_score_reason, "Closed (Closed – Lost)")
 
 	def test_source_conversion_rate_counts(self):
 		for source in ("SL Referral", "SL Cold Call"):
-			if not frappe.db.exists("CRM Lead Source", source):
-				frappe.get_doc({"doctype": "CRM Lead Source", "source_name": source}).insert()
+			make_lead_source(source)
 		for index in range(10):
-			make_crm_lead(
-				BDE2, f"Ref {index}", source="SL Referral", status="Closed – Won" if index < 5 else "New Lead"
+			make_lead(
+				BDE2,
+				f"Ref {index}",
+				source="SL Referral",
+				tbo_stage="Closed – Won" if index < 5 else "New Lead",
 			)
-			make_crm_lead(BDE2, f"Cold {index}", source="SL Cold Call")
-		referral = make_crm_lead(BDE, "Referred", source="SL Referral", mobile_no="9847000003")
-		cold_call = make_crm_lead(BDE, "Cold called", source="SL Cold Call", mobile_no="9847000004")
+			make_lead(BDE2, f"Cold {index}", source="SL Cold Call")
+		referral = make_lead(BDE, "Referred", source="SL Referral", mobile_no="9847000003")
+		cold_call = make_lead(BDE, "Cold called", source="SL Cold Call", mobile_no="9847000004")
 		# the inserts above re-scored as they came in and cached the rates of that moment
 		frappe.cache.delete_value(scoring.RATES_CACHE_KEY)
 		referral_score, cold_score = self.score(referral), self.score(cold_call)
@@ -164,7 +174,7 @@ class TestScoring(SmartLeadsTestCase):
 
 	def test_ai_adjusts_within_bounds_and_reads_each_change_once(self):
 		configure_ai_providers(openai=True)
-		lead = make_crm_lead(BDE, "Quote Asker", mobile_no="9847000005")
+		lead = make_lead(BDE, "Quote Asker", mobile_no="9847000005")
 		make_lead_note(lead, "Asked for a quote for the billing module")
 		base = self.score(lead).lead_score
 
@@ -177,7 +187,7 @@ class TestScoring(SmartLeadsTestCase):
 		with mock_ai(answer):
 			scoring.score_leads([lead], use_ai=True, ai_limit=10)
 		row = frappe.db.get_value(
-			"CRM Lead", lead, ["lead_score", "tbo_ai_adjust", "tbo_score_reason"], as_dict=True
+			"Lead", lead, ["tbo_score as lead_score", "tbo_ai_adjust", "tbo_score_reason"], as_dict=True
 		)
 		self.assertEqual(row.tbo_ai_adjust, scoring.AI_LIMIT)
 		self.assertEqual(row.lead_score, min(base + scoring.AI_LIMIT, 100))
@@ -189,12 +199,12 @@ class TestScoring(SmartLeadsTestCase):
 
 	def test_ai_reason_with_an_invented_number_is_dropped(self):
 		configure_ai_providers(openai=True)
-		lead = make_crm_lead(BDE, "Licence Lead", mobile_no="9847000006")
+		lead = make_lead(BDE, "Licence Lead", mobile_no="9847000006")
 		make_lead_note(lead, "Interested in licences")
 		with mock_ai(openai_answer({"leads": [{"id": lead, "adjust": 10, "reason": "Wants 50 licences"}]})):
 			result = scoring.score_leads([lead], use_ai=True, ai_limit=10)
 		self.assertEqual(result["ai"], 0)
-		reason, read_of = frappe.db.get_value("CRM Lead", lead, ["tbo_ai_reason", "tbo_ai_hash"])
+		reason, read_of = frappe.db.get_value("Lead", lead, ["tbo_ai_reason", "tbo_ai_hash"])
 		self.assertFalse(reason)
 		# still counted as read: not sent (and billed) again until the lead changes
 		self.assertTrue(read_of)
@@ -203,15 +213,15 @@ class TestScoring(SmartLeadsTestCase):
 		self.assertEqual(post.call_count, 0)
 
 	def test_a_new_note_rescores_the_lead(self):
-		lead = make_crm_lead(BDE, "Fresh Note", mobile_no="9847000007")
-		frappe.db.set_value("CRM Lead", lead, "tbo_scored_at", None)
+		lead = make_lead(BDE, "Fresh Note", mobile_no="9847000007")
+		frappe.db.set_value("Lead", lead, "tbo_scored_at", None)
 		make_lead_note(lead, "Called, call back next week")
-		self.assertTrue(frappe.db.get_value("CRM Lead", lead, "tbo_scored_at"))
+		self.assertTrue(frappe.db.get_value("Lead", lead, "tbo_scored_at"))
 
 	def test_dashboard_cards(self):
 		from tbo_smart.smart_leads.dashboard import get_cards
 
-		make_crm_lead(BDE, "Card Lead", mobile_no="9847000008")
+		make_lead(BDE, "Card Lead", mobile_no="9847000008")
 		frappe.set_user(BDE)
 		cards = {card["name"]: card["data"] for card in get_cards(nowdate(), nowdate(), BDE)}
 		self.assertEqual(cards["tbo_call_today"]["value"], 1)
@@ -223,20 +233,20 @@ class TestScoring(SmartLeadsTestCase):
 
 class TestCallToday(SmartLeadsTestCase):
 	def test_order_overdue_due_today_then_best_score(self):
-		overdue = make_crm_lead(BDE, "Overdue", mobile_no="9847000101")
+		overdue = make_lead(BDE, "Overdue", mobile_no="9847000101")
 		make_lead_task(overdue, days(-3), BDE)
-		due = make_crm_lead(BDE, "Due Today", mobile_no="9847000102")
+		due = make_lead(BDE, "Due Today", mobile_no="9847000102")
 		make_lead_task(due, nowdate(), BDE)
-		interested = make_crm_lead(BDE, "Interested Before", mobile_no="9847000103")
+		interested = make_lead(BDE, "Interested Before", mobile_no="9847000103")
 		make_migration_note(interested, status="Interested")
-		plain = make_crm_lead(BDE, "Plain", mobile_no="9847000104")
-		later = make_crm_lead(BDE, "Planned Later", mobile_no="9847000105")
+		plain = make_lead(BDE, "Plain", mobile_no="9847000104")
+		later = make_lead(BDE, "Planned Later", mobile_no="9847000105")
 		make_lead_task(later, days(3), BDE)
-		touched = make_crm_lead(BDE, "Touched Today", mobile_no="9847000106")
+		touched = make_lead(BDE, "Touched Today", mobile_no="9847000106")
 		make_lead_note(touched, "Spoke this morning")
-		junk = make_crm_lead(BDE, "Junk", mobile_no="9847000107")
-		change_lead_status(junk, "Closed – Lost", lost_reason="Other", lost_notes="Spam")
-		other = make_crm_lead(BDE2, "Not Mine", mobile_no="9847000108")
+		junk = make_lead(BDE, "Junk", mobile_no="9847000107")
+		change_lead_stage(junk, "Closed – Lost", tbo_lost_reason="Other", tbo_lost_notes="Spam")
+		other = make_lead(BDE2, "Not Mine", mobile_no="9847000108")
 
 		frappe.set_user(BDE)
 		result = build_call_today()
@@ -252,7 +262,7 @@ class TestCallToday(SmartLeadsTestCase):
 		self.assertEqual((len(short["data"]), short["more"]), (2, 2))
 
 	def test_only_my_team_may_open_my_list(self):
-		make_crm_lead(BDE, "Team Lead", mobile_no="9847000109")
+		make_lead(BDE, "Team Lead", mobile_no="9847000109")
 		frappe.set_user(BDE2)
 		self.assertRaises(frappe.PermissionError, build_call_today, BDE)
 		frappe.set_user(BDM)
@@ -267,7 +277,7 @@ class TestCallToday(SmartLeadsTestCase):
 		self.assertRaises(frappe.ValidationError, mobile_crm.get_call_today)
 
 	def test_mobile_shape_matches_the_contract_fixture(self):
-		lead = make_crm_lead(BDE, "Shape", mobile_no="9847000110", email="shape@example.com")
+		lead = make_lead(BDE, "Shape", mobile_no="9847000110", email_id="shape@example.com")
 		make_lead_task(lead, days(-1), BDE)
 		make_lead_note(lead, "Asked for a demo", days_ago=2)
 		frappe.set_user(BDE)
@@ -286,14 +296,14 @@ class TestFollowUps(SmartLeadsTestCase):
 		return {item.lead: item for item in run.items}
 
 	def test_rules_and_the_ladder(self):
-		fresh = make_crm_lead(BDE, "No Plan")
-		stale = make_crm_lead(BDE, "Stale")
+		fresh = make_lead(BDE, "No Plan")
+		stale = make_lead(BDE, "Stale")
 		age_lead(stale, 30)
-		due = make_crm_lead(BDE, "Due")
+		due = make_lead(BDE, "Due")
 		make_lead_task(due, nowdate(), BDE)
 		late = {}
 		for overdue_days in (1, 2, 4, 7):
-			lead = make_crm_lead(BDE, f"Late {overdue_days}")
+			lead = make_lead(BDE, f"Late {overdue_days}")
 			make_lead_task(lead, days(-overdue_days), BDE)
 			late[overdue_days] = lead
 
@@ -313,9 +323,9 @@ class TestFollowUps(SmartLeadsTestCase):
 	def test_people_on_leave_are_skipped_and_covered(self):
 		employee = make_staff(BDE)
 		leave_type = make_leave_type()
-		lead = make_crm_lead(BDE, "While Away")
+		lead = make_lead(BDE, "While Away")
 		make_lead_task(lead, days(-1), BDE)
-		late = make_crm_lead(BDE, "Escalated While Away")
+		late = make_lead(BDE, "Escalated While Away")
 		make_lead_task(late, days(-4), BDE)
 		application = make_approved_leave(employee, leave_type, nowdate(), days(2))
 		try:
@@ -331,7 +341,7 @@ class TestFollowUps(SmartLeadsTestCase):
 
 	def test_a_cover_on_leave_is_skipped_too(self):
 		leave_type = make_leave_type()
-		lead = make_crm_lead(BDE, "Both Away")
+		lead = make_lead(BDE, "Both Away")
 		make_lead_task(lead, days(-1), BDE)
 		applications = [
 			make_approved_leave(make_staff(user), leave_type, nowdate(), days(1)) for user in (BDE, BDM)
@@ -346,7 +356,7 @@ class TestFollowUps(SmartLeadsTestCase):
 
 	def test_a_half_day_still_counts_as_working(self):
 		employee = make_staff(BDE)
-		lead = make_crm_lead(BDE, "Half Day")
+		lead = make_lead(BDE, "Half Day")
 		make_lead_task(lead, days(-1), BDE)
 		application = make_approved_leave(employee, make_leave_type(), nowdate(), half_day=1)
 		try:
@@ -357,7 +367,7 @@ class TestFollowUps(SmartLeadsTestCase):
 			frappe.get_doc("Leave Application", application).cancel()
 
 	def test_disabled_owner_goes_to_the_fallback_or_needs_owner(self):
-		lead = make_crm_lead(GONE, "Orphan")
+		lead = make_lead(GONE, "Orphan")
 		set_user_enabled(GONE, False)
 		run = FollowUpRun()
 		run.evaluate()
@@ -372,7 +382,7 @@ class TestFollowUps(SmartLeadsTestCase):
 		self.assertNotIn(lead, run.needs_owner)
 
 		api.reassign_leads(json.dumps([lead]), BDE2)
-		self.assertEqual(frappe.db.get_value("CRM Lead", lead, "lead_owner"), BDE2)
+		self.assertEqual(frappe.db.get_value("Lead", lead, "lead_owner"), BDE2)
 
 	def test_only_sales_heads_see_needs_owner(self):
 		frappe.set_user(BDE)
@@ -380,31 +390,31 @@ class TestFollowUps(SmartLeadsTestCase):
 		self.assertRaises(frappe.PermissionError, api.reassign_leads, "[]", BDE)
 
 	def test_escalation_notices_go_out_once_per_level(self):
-		lead = make_crm_lead(BDE, "Climbing")
+		lead = make_lead(BDE, "Climbing")
 		task = make_lead_task(lead, days(-2), BDE)
 		run = FollowUpRun()
 		run.evaluate()
 		with patch("tbo_smart.smart_leads.follow_ups.notify") as notify:
 			notify_escalations(run)
-			self.assertEqual(frappe.db.get_value("CRM Task", task, "tbo_escalation_level"), 1)
-			calls = [call for call in notify.call_args_list if call.args[2:] == ("CRM Lead", lead)]
+			self.assertEqual(frappe.db.get_value("ToDo", task, "tbo_escalation_level"), 1)
+			calls = [call for call in notify.call_args_list if call.args[2:] == ("Lead", lead)]
 			self.assertEqual(len(calls), 1)
 			self.assertEqual(calls[0].args[0], {BDE, BDM})
 			notify.reset_mock()
 			again = FollowUpRun()
 			again.evaluate()
 			notify_escalations(again)
-			self.assertFalse([call for call in notify.call_args_list if call.args[2:] == ("CRM Lead", lead)])
+			self.assertFalse([call for call in notify.call_args_list if call.args[2:] == ("Lead", lead)])
 
 	def test_digest_goes_to_teams_else_email(self):
-		lead = make_crm_lead(BDE, "Digest Lead", organization="Galom")
+		lead = make_lead(BDE, "Digest Lead", company_name="Galom")
 		make_lead_task(lead, days(-1), BDE)
 		run = FollowUpRun()
 		run.evaluate()
 		digest = build_digest(run, BDE)
 		self.assertIn("1 overdue", digest["subject"])
 		self.assertIn("Digest Lead (Galom): 1 working day overdue", digest["text"])
-		self.assertIn("/crm/call-today", digest["html"])
+		self.assertIn(lead_url(view="call_today"), digest["html"])
 
 		set_teams_dm_url()
 		with patch("tbo_smart.smart_leads.notify.requests.post", return_value=ai_http_response(202)) as post:
@@ -417,7 +427,7 @@ class TestFollowUps(SmartLeadsTestCase):
 		self.assertEqual(sendmail.call_args.kwargs["recipients"], [BDE])
 
 	def test_daily_job_runs_once_and_only_when_on(self):
-		lead = make_crm_lead(BDE, "Job Lead")
+		lead = make_lead(BDE, "Job Lead")
 		make_lead_task(lead, days(-1), BDE)
 		with (
 			patch("tbo_smart.smart_leads.follow_ups.frappe.db.commit"),
@@ -429,8 +439,8 @@ class TestFollowUps(SmartLeadsTestCase):
 			self.assertIsNone(run_follow_ups())
 
 	def test_summary_counts_my_leads(self):
-		make_crm_lead(BDE, "Summary No Plan")
-		due = make_crm_lead(BDE, "Summary Due")
+		make_lead(BDE, "Summary No Plan")
+		due = make_lead(BDE, "Summary Due")
 		make_lead_task(due, nowdate(), BDE)
 		frappe.set_user(BDE)
 		counts = api.get_follow_up_summary()
@@ -481,13 +491,13 @@ class TestTriage(SmartLeadsTestCase):
 		return {row["lead"]: row for row in run["rows"] if row["owner"] in OWNERS}
 
 	def test_preview_buckets_and_apply_never_closes(self):
-		call_again = make_crm_lead(BDE, "Call Again")
-		closing = make_crm_lead(BDE, "Not Interested")
+		call_again = make_lead(BDE, "Call Again")
+		closing = make_lead(BDE, "Not Interested")
 		make_lead_note(closing, "Not interested, bought elsewhere", days_ago=40)
-		planned = make_crm_lead(BDE, "Planned")
+		planned = make_lead(BDE, "Planned")
 		make_lead_task(planned, days(2), BDE)
-		active = make_crm_lead(BDE, "Active")
-		change_lead_status(active, "Contacted")
+		active = make_lead(BDE, "Active")
+		change_lead_stage(active, "Contacted")
 
 		with mock_ai(*[triage_answer({closing})] * 100):
 			run = api.start_triage()
@@ -499,28 +509,28 @@ class TestTriage(SmartLeadsTestCase):
 		self.assertEqual(
 			getdate(rows[call_again]["follow_up_on"]), WorkCalendar().next_working_day(nowdate())
 		)
-		self.assertFalse(frappe.db.exists("CRM Task", {"reference_docname": call_again}))
+		self.assertFalse(frappe.db.exists("ToDo", {"reference_name": call_again}))
 
 		applied = api.apply_triage(run["name"])
 		self.assertEqual(applied["run"]["status"], "Applied")
 		task = frappe.db.get_value(
-			"CRM Task", {"reference_docname": call_again}, ["tbo_task_type", "assigned_to"], as_dict=True
+			"ToDo", {"reference_name": call_again}, ["tbo_task_type", "allocated_to"], as_dict=True
 		)
-		self.assertEqual((task.tbo_task_type, task.assigned_to), ("Sales follow-up", BDE))
-		self.assertEqual(frappe.db.get_value("CRM Lead", closing, "status"), "New Lead")
-		self.assertFalse(frappe.db.exists("CRM Task", {"reference_docname": closing}))
+		self.assertEqual((task.tbo_task_type, task.allocated_to), ("Sales follow-up", BDE))
+		self.assertEqual(frappe.db.get_value("Lead", closing, "tbo_stage"), "New Lead")
+		self.assertFalse(frappe.db.exists("ToDo", {"reference_name": closing}))
 		self.assertRaises(frappe.ValidationError, api.apply_triage, run["name"])
 
 		closed = api.close_triage_leads(run["name"], json.dumps([closing]), "Closed – Lost")
 		self.assertEqual(closed["closed"], [closing])
 		self.assertEqual(
-			frappe.db.get_value("CRM Lead", closing, ["status", "lost_reason"]), ("Closed – Lost", "Other")
+			frappe.db.get_value("Lead", closing, ["tbo_stage", "tbo_lost_reason"]), ("Closed – Lost", "Other")
 		)
 
 	def test_dates_follow_capacity(self):
 		set_smart_lead_settings(triage_daily_capacity=1)
-		first = make_crm_lead(BDE, "First")
-		second = make_crm_lead(BDE, "Second")
+		first = make_lead(BDE, "First")
+		second = make_lead(BDE, "Second")
 		with mock_ai(*[triage_answer(set())] * 100):
 			rows = self.mine(api.start_triage())
 		days_planned = sorted(getdate(rows[lead]["follow_up_on"]) for lead in (first, second))
@@ -528,7 +538,7 @@ class TestTriage(SmartLeadsTestCase):
 		self.assertEqual(days_planned[1], calendar.next_working_day(days_planned[0]))
 
 	def test_invented_reason_is_not_used(self):
-		lead = make_crm_lead(BDE, "Invented")
+		lead = make_lead(BDE, "Invented")
 		with mock_ai(*[triage_answer({lead}, invent={lead})] * 100):
 			run = api.start_triage()
 		self.assertNotIn(lead, self.mine(run))
@@ -544,9 +554,7 @@ class TestNotes(SmartLeadsTestCase):
 	def setUp(self):
 		super().setUp()
 		configure_ai_providers(openai=True)
-		self.lead = make_crm_lead(
-			BDE, "Ajith Kumar", organization="Thrissur Gold House", mobile_no="9847012345"
-		)
+		self.lead = make_lead(BDE, "Ajith Kumar", company_name="Thrissur Gold House", mobile_no="9847012345")
 
 	def test_draft_note_proposes_without_writing(self):
 		follow_up = days(5)
@@ -567,7 +575,9 @@ class TestNotes(SmartLeadsTestCase):
 		self.assertEqual(draft["next_status"], "Contacted")
 		self.assertEqual(draft["follow_up_on"], follow_up)
 		self.assertEqual(draft["warnings"], [])
-		self.assertFalse(frappe.db.exists("FCRM Note", {"reference_docname": self.lead}))
+		self.assertFalse(
+			frappe.db.exists("Comment", {"reference_name": self.lead, "comment_type": "Comment"})
+		)
 
 	def test_draft_note_guard_and_bad_dates(self):
 		frappe.set_user(BDE)
@@ -590,20 +600,27 @@ class TestNotes(SmartLeadsTestCase):
 	def test_save_confirmed_call_with_status_and_follow_up(self):
 		frappe.set_user(BDE)
 		result = api.save_note(self.lead, "Called Ajith, wants a demo", "call", "Contacted", days(3), "Demo")
-		self.assertTrue(frappe.db.exists("CRM Call Log", result["call"]))
-		self.assertEqual(frappe.db.get_value("CRM Lead", self.lead, "status"), "Contacted")
-		task = frappe.db.get_value(
-			"CRM Task", result["task"], ["tbo_task_type", "assigned_to", "title"], as_dict=True
+		call = frappe.db.get_value(
+			"Event", result["call"], ["event_category", "status", "description"], as_dict=True
 		)
-		self.assertEqual((task.tbo_task_type, task.assigned_to, task.title), ("Sales follow-up", BDE, "Demo"))
+		self.assertEqual((call.event_category, call.status), ("Call", "Completed"))
+		self.assertIn("wants a demo", call.description)
+		self.assertEqual(frappe.db.get_value("Lead", self.lead, "tbo_stage"), "Contacted")
+		task = frappe.db.get_value(
+			"ToDo", result["task"], ["tbo_task_type", "allocated_to", "description"], as_dict=True
+		)
+		self.assertEqual(
+			(task.tbo_task_type, task.allocated_to, task_title(task.description)),
+			("Sales follow-up", BDE, "Demo"),
+		)
 
-	def test_a_call_without_my_number_is_kept_as_a_note(self):
+	def test_a_call_without_my_number_is_still_a_call(self):
 		frappe.db.set_value("User", BDE, "mobile_no", None)
 		try:
 			frappe.set_user(BDE)
 			result = api.save_note(self.lead, "Rang, no answer", "call")
-			self.assertEqual(result["kind"], "note")
-			self.assertTrue(frappe.db.get_value("FCRM Note", result["note"], "content").startswith("Call: "))
+			self.assertEqual(result["kind"], "call")
+			self.assertEqual(frappe.db.get_value("Event", result["call"], "event_category"), "Call")
 		finally:
 			frappe.set_user("Administrator")
 			frappe.db.set_value("User", BDE, "mobile_no", "+91 98470 00011")
@@ -644,7 +661,7 @@ class TestNotes(SmartLeadsTestCase):
 		self.assertEqual(draft["phone"], "+919847012345")
 		self.assertTrue(draft["url"].startswith("https://wa.me/919847012345?text=Hello%20Ajith"))
 		frappe.set_user("Administrator")
-		no_phone = make_crm_lead(BDE, "No Phone")
+		no_phone = make_lead(BDE, "No Phone")
 		frappe.set_user(BDE)
 		self.assertRaises(frappe.ValidationError, api.draft_whatsapp, no_phone, "en")
 		self.assertRaises(frappe.ValidationError, api.draft_whatsapp, self.lead, "fr")
@@ -656,8 +673,8 @@ class TestNotes(SmartLeadsTestCase):
 		self.assertTrue(api.save_note(self.lead, "Plain note", "note")["note"])
 
 
-class TestWithoutCRM(FrappeTestCase):
-	"""tbo_smart also runs on tbo-smart.tbocloud.in, which has no CRM app."""
+class TestWithoutERPNext(FrappeTestCase):
+	"""tbo_smart must also migrate on a site without ERPNext."""
 
 	def test_everything_is_off_and_nothing_is_set_up(self):
 		from tbo_smart.smart_leads import any_enabled, setup
@@ -665,10 +682,10 @@ class TestWithoutCRM(FrappeTestCase):
 		enable_smart_leads()
 		try:
 			with (
-				patch("tbo_smart.smart_leads.crm_installed", return_value=False),
-				patch("tbo_smart.smart_leads.setup.crm_installed", return_value=False),
+				patch("tbo_smart.smart_leads.erpnext_installed", return_value=False),
+				patch("tbo_smart.smart_leads.setup.erpnext_installed", return_value=False),
 				patch("tbo_smart.smart_leads.setup.create_custom_fields") as create,
-				patch("tbo_smart.api.smart_leads.crm_installed", return_value=False),
+				patch("tbo_smart.api.smart_leads.erpnext_installed", return_value=False),
 			):
 				self.assertFalse(any_enabled())
 				setup.after_migrate()

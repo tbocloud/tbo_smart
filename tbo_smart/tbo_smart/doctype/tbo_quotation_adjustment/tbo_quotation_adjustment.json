@@ -51,8 +51,8 @@
   {
    "fieldname": "deal",
    "fieldtype": "Link",
-   "label": "CRM Deal",
-   "options": "CRM Deal",
+   "label": "Deal",
+   "options": "Opportunity",
    "in_standard_filter": 1,
    "read_only": 1
   },

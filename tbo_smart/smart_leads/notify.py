@@ -50,10 +50,6 @@ def teams_url_problem(url: str) -> str | None:
 	return None
 
 
-def crm_url(path: str) -> str:
-	return frappe.utils.get_url("/crm" + path)
-
-
 def teams_message(text: str, url: str | None, button: str) -> dict:
 	"""A Teams message with one Adaptive Card, the shape Workflows webhooks accept."""
 	card = {
@@ -86,11 +82,11 @@ def send_teams(email: str, text: str, url: str | None, button: str) -> bool:
 	return True
 
 
-def deliver(user: str, subject: str, text: str, html: str, path: str, button: str) -> str:
+def deliver(user: str, subject: str, text: str, html: str, url: str, button: str) -> str:
 	"""Teams, else email. Returns the channel used ("teams", "email" or "none")."""
 	email = frappe.db.get_value("User", user, "email") or user
 	try:
-		if send_teams(email, text, crm_url(path), button):
+		if send_teams(email, text, url, button):
 			return "teams"
 	except (TeamsError, requests.RequestException):
 		frappe.log_error(title="TBO smart leads: Teams message not sent")

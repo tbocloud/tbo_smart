@@ -62,6 +62,12 @@
   "anthropic_api_key",
   "anthropic_input_price",
   "anthropic_output_price",
+  "sales_section",
+  "enable_sales_hierarchy",
+  "sales_company",
+  "column_break_sales",
+  "lead_page_url",
+  "hub_integration_role",
   "lead_scoring_section",
   "enable_lead_scoring",
   "lead_scoring_use_ai",
@@ -90,7 +96,6 @@
   "enable_lead_pipeline",
   "column_break_lead_pipeline",
   "meeting_reminder_minutes",
-  "pipeline_retired_statuses",
   "lead_quotations_section",
   "enable_lead_quotations",
   "quotation_validity_days",
@@ -160,14 +165,14 @@
    "fieldname": "finance_section",
    "fieldtype": "Section Break",
    "label": "Finance workflow",
-   "description": "CRM finance workflow, docs/crm-finance-workflow.md. Each phase has its own switch and is off until management turns it on."
+   "description": "The finance workflow of a deal (Opportunity), docs/crm-finance-workflow.md. Each phase has its own switch and is off until management turns it on."
   },
   {
    "default": "0",
    "fieldname": "enable_finance_workflow",
    "fieldtype": "Check",
    "label": "Finance workflow (Phase 1)",
-   "description": "Deal links on sales orders, invoices and payments, the deal's post-sale stage, the CRM Finance tab, the New quotation dialog, the pending-approval guard and the BDE conversion report. Custom fields exist either way."
+   "description": "Deal links on sales orders, invoices and payments, the deal's post-sale stage, the deal's Finance view, the New quotation dialog, the pending-approval guard and the BDE conversion report. Custom fields exist either way."
   },
   {
    "default": "1",
@@ -186,21 +191,21 @@
    "depends_on": "eval:doc.enable_finance_workflow",
    "fieldname": "finance_crm_access",
    "fieldtype": "Check",
-   "label": "Let finance roles open the CRM",
-   "description": "Users with one of the roles below can open the CRM and read every deal (read only), so Accounts can use the Finance tab."
+   "label": "Let finance roles read deals",
+   "description": "Users with one of the roles below read every deal (Opportunity) and organization (Prospect), read only, so Accounts can use the deal's Finance view."
   },
   {
    "default": "Accounts User\nAccounts Manager",
    "depends_on": "eval:doc.enable_finance_workflow && doc.finance_crm_access",
    "fieldname": "finance_crm_roles",
    "fieldtype": "Small Text",
-   "label": "Finance roles in the CRM",
+   "label": "Finance roles that read deals",
    "description": "One role per line."
   },
   {
    "fieldname": "finance_crm_granted",
    "fieldtype": "Small Text",
-   "label": "CRM read rows added",
+   "label": "Read rows added",
    "hidden": 1,
    "read_only": 1,
    "no_copy": 1,
@@ -406,7 +411,7 @@
    "fieldname": "enable_finance_dashboard",
    "fieldtype": "Check",
    "label": "Finance dashboard (Phase 5)",
-   "description": "Adds finance cards to the CRM dashboard by role: quotations, invoiced, collected, outstanding, overdue and lead-to-deal for CRM users (their own deals for a salesperson); payable to India, transfers waiting, bank lines to verify and open exceptions for accounts, finance and management. Needs Phase 1 on."
+   "description": "Finance cards on the sales dashboard by role: quotations, invoiced, collected, outstanding, overdue and lead-to-deal for sales users (their own deals for a salesperson); payable to India, transfers waiting, bank lines to verify and open exceptions for accounts, finance and management. Needs Phase 1 on."
   },
   {
    "description": "Used only by the smart lead features switched on below. Keys are stored encrypted and never shown again.",
@@ -495,6 +500,43 @@
    "fieldname": "anthropic_output_price",
    "fieldtype": "Float",
    "label": "Anthropic-compatible output price (USD per 1M tokens)"
+  },
+  {
+   "fieldname": "sales_section",
+   "fieldtype": "Section Break",
+   "label": "Sales: leads and deals",
+   "description": "ERPNext's Lead and Opportunity are TBO's sales records (docs/erpnext-lead-cutover.md)."
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_sales_hierarchy",
+   "fieldtype": "Check",
+   "label": "Sales hierarchy",
+   "description": "A user in the TBO Sales Hierarchy sees the leads and deals of everyone below them. Off: everyone sees their own (Sales Managers and System Managers see all)."
+  },
+  {
+   "fieldname": "sales_company",
+   "fieldtype": "Link",
+   "options": "Company",
+   "label": "Default sales company",
+   "description": "The company new deals and quotations are made for. Blank: the site's default company."
+  },
+  {
+   "fieldname": "column_break_sales",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "lead_page_url",
+   "fieldtype": "Data",
+   "label": "Lead page URL",
+   "description": "Where links to a lead open, e.g. the hub's lead page https://support.example.com/helpdesk/leads (the lead's name is added). Blank: the desk."
+  },
+  {
+   "fieldname": "hub_integration_role",
+   "fieldtype": "Link",
+   "options": "Role",
+   "label": "Hub integration role",
+   "description": "The TBO Support hub's API user has this role; only it may act for a hub user (docs/hub-leads-api.md). Blank: Hub Integration."
   },
   {
    "fieldname": "lead_scoring_section",
@@ -665,14 +707,6 @@
    "label": "Meeting reminder (minutes before)"
   },
   {
-   "description": "The old lead statuses retired by the pipeline migration, kept to undo it.",
-   "fieldname": "pipeline_retired_statuses",
-   "fieldtype": "Long Text",
-   "hidden": 1,
-   "label": "Retired lead statuses",
-   "read_only": 1
-  },
-  {
    "fieldname": "lead_quotations_section",
    "fieldtype": "Section Break",
    "label": "Lead quotations"
@@ -735,7 +769,7 @@
   },
   {
    "default": "0",
-   "description": "The Pipeline page and the pipeline cards on the CRM dashboard. Needs the lead pipeline.",
+   "description": "The Pipeline page and the pipeline cards on the sales dashboard. Needs the lead pipeline.",
    "fieldname": "enable_pipeline_dashboard",
    "fieldtype": "Check",
    "label": "Pipeline dashboard"
