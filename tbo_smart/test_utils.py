@@ -14,6 +14,7 @@ import jwt
 import requests
 from cryptography.hazmat.primitives.asymmetric import rsa
 from erpnext.setup.doctype.employee.test_employee import make_employee
+from frappe import _
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 from frappe.integrations.oauth2 import get_oauth_server, get_token
 from frappe.utils import (
@@ -1318,7 +1319,7 @@ def clear_crm_cutover(owners: list[str] | tuple = ()) -> None:
 	and commit (the CRM's inserts commit, so its fixtures outlive the test's rollback). Only in
 	tests, on a test site: it empties every CRM table."""
 	if not frappe.flags.in_test:
-		frappe.throw("clear_crm_cutover runs only in tests.")
+		frappe.throw(_("clear_crm_cutover runs only in tests."))
 	for doctype in CRM_TABLES:
 		frappe.db.delete(doctype)
 	for doctype, field, owner_field in (
