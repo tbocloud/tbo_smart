@@ -1,0 +1,332 @@
+{
+ "actions": [],
+ "autoname": "format:TBO-MTG-{YYYY}-{#####}",
+ "creation": "2026-10-16 09:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "lead",
+  "lead_name",
+  "stage",
+  "stage_label",
+  "column_break_status",
+  "status",
+  "bde",
+  "schedule_section",
+  "meeting_type",
+  "meeting_link",
+  "location",
+  "column_break_schedule",
+  "scheduled_at",
+  "duration_minutes",
+  "participants",
+  "mom_section",
+  "agenda",
+  "discussion_points",
+  "client_requirements",
+  "decisions",
+  "column_break_mom",
+  "client_interest",
+  "objections",
+  "quotation_feedback",
+  "actions_section",
+  "action_items",
+  "next_follow_up_on",
+  "next_meeting_details",
+  "column_break_next",
+  "prepared_by",
+  "submitted_on",
+  "follow_up_task",
+  "next_meeting",
+  "tracking_section",
+  "mom_pending_since",
+  "escalation_level",
+  "column_break_tracking",
+  "reminded_at"
+ ],
+ "fields": [
+  {
+   "fieldname": "lead",
+   "fieldtype": "Link",
+   "label": "Lead",
+   "options": "CRM Lead",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "search_index": 1,
+   "set_only_once": 1
+  },
+  {
+   "fieldname": "lead_name",
+   "fieldtype": "Data",
+   "label": "Lead name",
+   "fetch_from": "lead.lead_name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "stage",
+   "fieldtype": "Int",
+   "label": "Meeting no.",
+   "read_only": 1,
+   "description": "1st, 2nd, 3rd, then additional meetings; cancelled meetings don't count."
+  },
+  {
+   "fieldname": "stage_label",
+   "fieldtype": "Data",
+   "label": "Meeting",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "column_break_status",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Scheduled\nMeeting in Progress\nCompleted\nMOM Pending\nMOM Submitted\nFollow-up Required\nRescheduled\nCancelled",
+   "default": "Scheduled",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "bde",
+   "fieldtype": "Link",
+   "label": "BDE",
+   "options": "User",
+   "reqd": 1,
+   "in_standard_filter": 1,
+   "search_index": 1,
+   "description": "The salesperson who owns the meeting and its MOM."
+  },
+  {
+   "fieldname": "schedule_section",
+   "fieldtype": "Section Break",
+   "label": "Schedule"
+  },
+  {
+   "fieldname": "meeting_type",
+   "fieldtype": "Select",
+   "label": "Type",
+   "options": "Online\nPhysical visit",
+   "default": "Online",
+   "reqd": 1
+  },
+  {
+   "fieldname": "meeting_link",
+   "fieldtype": "Data",
+   "label": "Meeting link",
+   "depends_on": "eval:doc.meeting_type=='Online'",
+   "description": "Paste the Google Meet or Microsoft Teams link."
+  },
+  {
+   "fieldname": "location",
+   "fieldtype": "Small Text",
+   "label": "Client location",
+   "depends_on": "eval:doc.meeting_type=='Physical visit'"
+  },
+  {
+   "fieldname": "column_break_schedule",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "scheduled_at",
+   "fieldtype": "Datetime",
+   "label": "Scheduled at",
+   "reqd": 1,
+   "in_list_view": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "duration_minutes",
+   "fieldtype": "Int",
+   "label": "Duration (minutes)",
+   "default": "60"
+  },
+  {
+   "fieldname": "participants",
+   "fieldtype": "Small Text",
+   "label": "Participants",
+   "description": "Who joins, from the client and from TBO."
+  },
+  {
+   "fieldname": "mom_section",
+   "fieldtype": "Section Break",
+   "label": "Minutes of meeting (MOM)"
+  },
+  {
+   "fieldname": "agenda",
+   "fieldtype": "Small Text",
+   "label": "Agenda"
+  },
+  {
+   "fieldname": "discussion_points",
+   "fieldtype": "Text",
+   "label": "Key discussion points"
+  },
+  {
+   "fieldname": "client_requirements",
+   "fieldtype": "Text",
+   "label": "Client requirements"
+  },
+  {
+   "fieldname": "decisions",
+   "fieldtype": "Text",
+   "label": "Decisions and agreements"
+  },
+  {
+   "fieldname": "column_break_mom",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "client_interest",
+   "fieldtype": "Select",
+   "label": "Client interest",
+   "options": "\nPositive\nNeutral\nNegative"
+  },
+  {
+   "fieldname": "objections",
+   "fieldtype": "Text",
+   "label": "Objections"
+  },
+  {
+   "fieldname": "quotation_feedback",
+   "fieldtype": "Small Text",
+   "label": "Quotation feedback"
+  },
+  {
+   "fieldname": "actions_section",
+   "fieldtype": "Section Break",
+   "label": "Action items and next steps"
+  },
+  {
+   "fieldname": "action_items",
+   "fieldtype": "Table",
+   "label": "Action items",
+   "options": "TBO Lead Meeting Action"
+  },
+  {
+   "fieldname": "next_follow_up_on",
+   "fieldtype": "Date",
+   "label": "Next follow-up"
+  },
+  {
+   "fieldname": "next_meeting_details",
+   "fieldtype": "Small Text",
+   "label": "Next meeting details"
+  },
+  {
+   "fieldname": "column_break_next",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "prepared_by",
+   "fieldtype": "Link",
+   "label": "Prepared by",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "submitted_on",
+   "fieldtype": "Datetime",
+   "label": "MOM submitted on",
+   "read_only": 1
+  },
+  {
+   "fieldname": "follow_up_task",
+   "fieldtype": "Link",
+   "label": "Follow-up task",
+   "options": "CRM Task",
+   "read_only": 1
+  },
+  {
+   "fieldname": "next_meeting",
+   "fieldtype": "Link",
+   "label": "Next meeting",
+   "options": "TBO Lead Meeting",
+   "read_only": 1
+  },
+  {
+   "fieldname": "tracking_section",
+   "fieldtype": "Section Break",
+   "label": "Tracking",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "mom_pending_since",
+   "fieldtype": "Datetime",
+   "label": "MOM pending since",
+   "read_only": 1
+  },
+  {
+   "fieldname": "escalation_level",
+   "fieldtype": "Int",
+   "label": "MOM escalation level",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_tracking",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "reminded_at",
+   "fieldtype": "Datetime",
+   "label": "Reminder sent at",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-10-16 09:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tbo Smart",
+ "name": "TBO Lead Meeting",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Sales Manager",
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Sales User",
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1,
+   "write": 1,
+   "create": 1
+  }
+ ],
+ "show_title_field_in_link": 0,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "lead_name",
+ "track_changes": 1
+}
