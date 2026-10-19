@@ -124,6 +124,32 @@ class TestWebhook(TelephonyTestCase):
 		self.assertEqual((call.agent, call.last_event), (BDE, "call.summary"))
 		self.assertEqual(len(self.call_events(self.lead)), 1)
 
+	def test_the_final_summary_corrects_the_event_and_the_call_back(self):
+		# call.end said missed with nobody on it; call.summary says Bina answered
+		post_myoperator_webhook(
+			myoperator_event("C-FIX", event_type="call.end", status="missed", duration=10)
+		)
+		call = self.call_of("C-FIX")
+		self.assertEqual(frappe.db.get_value("ToDo", call.call_back, "status"), "Open")
+		post_myoperator_webhook(myoperator_event("C-FIX", agent=AGENT, duration=95))
+		call.reload()
+		event = frappe.db.get_value("Event", call.event, ["subject", "owner"], as_dict=True)
+		self.assertEqual((event.subject, event.owner), (f"Call from {NUMBER} (1m 35s)", BDE))
+		self.assertEqual(self.call_events(self.lead), [call.event])
+		# the cancelled task stays linked on the call
+		self.assertEqual(frappe.db.get_value("ToDo", call.call_back, "status"), "Cancelled")
+		self.assertEqual(
+			frappe.get_all("ToDo", filters={"reference_name": self.lead}, pluck="name"), [call.call_back]
+		)
+
+	def test_a_call_back_another_missed_call_shares_stays_open(self):
+		post_myoperator_webhook(myoperator_event("C-M1", status="missed", duration=10))
+		post_myoperator_webhook(myoperator_event("C-M2", event_type="call.end", status="missed", duration=12))
+		first, second = self.call_of("C-M1"), self.call_of("C-M2")
+		self.assertEqual(first.call_back, second.call_back)
+		post_myoperator_webhook(myoperator_event("C-M2", agent=AGENT, duration=60))
+		self.assertEqual(frappe.db.get_value("ToDo", first.call_back, "status"), "Open")
+
 	def test_a_summary_that_loses_the_insert_race_still_completes_the_call(self):
 		post_myoperator_webhook(myoperator_event("C-RACE", event_type="call.end"))
 		real = calls.stored_call
@@ -322,6 +348,15 @@ class TestClickToCall(TelephonyTestCase):
 		)
 		call = self.call_of("C-C2C")
 		self.assertEqual((call.lead, call.agent), (self.lead, BDE))
+
+	def test_without_a_number_the_leads_first_number_is_called(self):
+		only_whatsapp = make_lead(BDE, "WhatsApp Only", whatsapp_no="+91 98123 45678")
+		frappe.set_user(BDE)
+		with patch(
+			"tbo_smart.telephony.myoperator.requests.post", return_value=myoperator_response()
+		) as post:
+			api.click_to_call(only_whatsapp)
+		self.assertEqual(post.call_args.kwargs["json"]["number"], OTHER_NUMBER)
 
 	def test_a_mobile_only_agent_gets_the_anonymous_dialer(self):
 		other = make_lead(BDE2, "Second", mobile_no=OTHER_NUMBER)

@@ -107,6 +107,10 @@ days, the notice, 30 s, the model and its price.
    - **The call Event** (category Call, Completed, at the call's start in site time) is created
      as the agent (else the lead owner, else Administrator). Its subject is "Call from +91… (2m
      05s)", "Call to …", "Missed call from …" or "Unanswered call to …".
+   - **A later `call.summary`** (after `call.end` already made them) keeps the one Event and
+     brings it up to date: its subject, start and owner (the agent). A Call back made for a
+     call that turned out answered is cancelled, unless another missed call shares it; the task
+     stays linked on the TBO Call (`call_back`).
    - **Missed incoming call:** one high-priority "Call back: +91…" follow-up due today for the
      lead owner (else the agent, else the fallback owner). It is skipped when one is already
      open for them today.
@@ -242,7 +246,9 @@ The TBO Call, the Event and the summary stay.
   - a wrong, empty or missing secret is refused, and a forged company ID doesn't help;
   - while switched off, even the right secret is refused;
   - the same call lands once;
-  - `call.end` followed by `call.summary` makes one Event;
+  - `call.end` followed by `call.summary` makes one Event, and the summary corrects its
+    subject, owner and Call back;
+  - a `call.summary` that loses the insert race still completes the call;
   - other events are ignored;
   - the call lands as the agent, in site time.
 - **Matching:**
