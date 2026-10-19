@@ -819,7 +819,7 @@
    "fieldtype": "Check",
    "label": "Proposals",
    "default": "0",
-   "description": "Proposals to a lead, built in the hub and read by the client at /proposal/<link>. Needs Quotations on the lead."
+   "description": "Proposals to a lead, built in the hub; each client reads theirs at its own /proposal/ link on this site. Needs Quotations on the lead."
   },
   {
    "fieldname": "proposal_validity_days",
