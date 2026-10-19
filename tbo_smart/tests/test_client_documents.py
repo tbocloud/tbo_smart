@@ -463,6 +463,11 @@ class TestBRD(ClientDocumentTestCase):
 			frappe.ValidationError, call_as_guest, page.save_answers, token, json.dumps({question: "late"})
 		)
 		self.assertRaises(frappe.DoesNotExistError, call_as_guest, page.save_answers, "0" * 32, "{}")
+		# with BRDs switched off the link shows nothing
+		frappe.set_user("Administrator")
+		enable_client_documents(brds=False)
+		frappe.set_user(HUB)
+		self.assertIsNone(brd.by_questions_token(token))
 
 	def test_presales_edits_the_questions(self):
 		doc = self.make_brd()["proposal"]

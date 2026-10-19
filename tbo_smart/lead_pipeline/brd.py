@@ -325,9 +325,10 @@ def questionnaire_open(doc) -> bool:
 
 
 def by_questions_token(token: str | None):
-	from tbo_smart.lead_pipeline.proposals import DOCTYPE, TOKEN, proposals_enabled
+	from tbo_smart.lead_pipeline.client_documents import document_enabled
+	from tbo_smart.lead_pipeline.proposals import DOCTYPE, TOKEN
 
-	if not isinstance(token, str) or not TOKEN.match(token) or not proposals_enabled():
+	if not isinstance(token, str) or not TOKEN.match(token) or not document_enabled("BRD"):
 		return None
 	name = frappe.db.get_value(DOCTYPE, {"questions_token": token, "document_type": "BRD"}, "name")
 	return frappe.get_doc(DOCTYPE, name) if name else None
@@ -411,9 +412,11 @@ def save_answers(doc, answers: dict) -> int:
 	the lead owner when any did."""
 	from tbo_smart.lead_pipeline.proposals import DOCTYPE, as_system, client_name, tell_owner
 
+	frappe.db.get_value(DOCTYPE, doc.name, "name", for_update=True)
+	# read again under the lock: an answer saved, or the BRD sent, meanwhile is seen
+	doc.reload()
 	if not questionnaire_open(doc):
 		frappe.throw(_("This questionnaire is closed. Thank you."))
-	frappe.db.get_value(DOCTYPE, doc.name, "name", for_update=True)
 	rows = {row.name: row for row in doc.questions}
 	if set(answers) - set(rows):
 		frappe.throw(_("That question isn't on this page."), frappe.DoesNotExistError)
