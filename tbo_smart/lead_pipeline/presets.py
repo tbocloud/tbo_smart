@@ -4,7 +4,7 @@ plus TBO Quotation Package for bundles.
 | Need | Master |
 | --- | --- |
 | Services and products, their category | Item (sales items) and Item Group |
-| Rates | Item Price on Selling Settings' selling price list |
+| Rates | Item Price on Selling Settings' selling price list, or a segment's own (rate_card.py) |
 | Packages: default lines, description, qty, rate, project duration | TBO Quotation Package (new; ERPNext's Product Bundle is a stock bundle with no rates or text) |
 | GST | Sales Taxes and Charges Template |
 | Payment terms, terms and conditions | Payment Terms Template, Terms and Conditions |
@@ -48,8 +48,10 @@ def price_list() -> str | None:
 	return frappe.db.get_single_value("Selling Settings", "selling_price_list")
 
 
-def get_catalogue() -> dict:
-	"""{packages, services, item_groups, defaults, can_edit}: what the quotation builder offers."""
+def get_catalogue(price_list_name: str | None = None) -> dict:
+	"""{packages, services, item_groups, price_list, can_edit}: what the quotation builder offers,
+	priced from `price_list_name` (a segment's list, rate_card.py) where it has a rate, else from
+	the selling price list."""
 	packages = frappe.get_all(
 		PACKAGE,
 		# editors see the disabled ones too, to switch them back on; the builder offers enabled ones
@@ -73,7 +75,7 @@ def get_catalogue() -> dict:
 		order_by="idx asc",
 		limit_page_length=0,
 	)
-	services = get_services()
+	services = get_services(price_list_name)
 	rates = {row["item_code"]: row["rate"] for row in services}
 	for package in packages:
 		package["items"] = [
@@ -90,13 +92,14 @@ def get_catalogue() -> dict:
 		"packages": packages,
 		"services": services,
 		"item_groups": sorted({row["item_group"] for row in services if row["item_group"]}),
-		"price_list": price_list(),
+		"price_list": price_list_name or price_list(),
 		"can_edit": can_edit_presets(),
 	}
 
 
-def get_services() -> list[dict]:
-	"""Enabled sales items with their category and selling rate."""
+def get_services(price_list_name: str | None = None) -> list[dict]:
+	"""Enabled sales items with their category and selling rate: `price_list_name`'s rate where it
+	has one, else the selling price list's."""
 	Item = frappe.qb.DocType("Item")
 	Price = frappe.qb.DocType("Item Price")
 	rows = (
@@ -118,6 +121,22 @@ def get_services() -> list[dict]:
 		.orderby(Item.item_name)
 		.limit(MAX_SERVICES)
 	).run(as_dict=True)
+	own = (
+		dict(
+			frappe.get_all(
+				"Item Price",
+				filters={
+					"price_list": price_list_name,
+					"selling": 1,
+					"item_code": ("in", [row.name for row in rows] or [""]),
+				},
+				fields=["item_code", "price_list_rate"],
+				as_list=True,
+			)
+		)
+		if price_list_name and price_list_name != price_list()
+		else {}
+	)
 	seen, services = set(), []
 	for row in rows:
 		if row.name in seen:
@@ -130,7 +149,7 @@ def get_services() -> list[dict]:
 				"item_group": row.item_group,
 				"description": frappe.utils.strip_html(row.description or "").strip() or None,
 				"uom": row.stock_uom,
-				"rate": flt(row.price_list_rate),
+				"rate": flt(own.get(row.name, row.price_list_rate)),
 			}
 		)
 	return services
@@ -179,14 +198,15 @@ def save_package(values: dict) -> str:
 	return doc.name
 
 
-def set_service_rate(item_code: str, rate: float) -> float:
-	"""The item's selling rate on the selling price list (an Item Price, created when missing)."""
+def set_service_rate(item_code: str, rate: float, price_list_name: str | None = None) -> float:
+	"""The item's selling rate on `price_list_name` (a segment's own list), else on the selling
+	price list (an Item Price, created when missing)."""
 	require_preset_editor()
 	if flt(rate) < 0:
 		frappe.throw(_("A rate can't be negative."))
 	if not frappe.db.exists("Item", {"name": item_code, "is_sales_item": 1, "disabled": 0}):
 		frappe.throw(_("{0} is not a sales item.").format(item_code))
-	selling = price_list()
+	selling = price_list_name or price_list()
 	if not selling:
 		frappe.throw(_("Set the default selling price list in Selling Settings first."))
 	name = frappe.db.get_value(

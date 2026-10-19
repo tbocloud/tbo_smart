@@ -46,6 +46,9 @@ curl -s -X POST https://india.teambackoffice.com/api/method/tbo_smart.api.hub_le
 | `update_lead` | POST | `name`, `data`, `acting_user` | as `get_lead` |
 | `set_stage` | POST | `name`, `stage`, `note?`, `acting_user` | as `get_lead` |
 | `add_note` | POST | `name`, `note`, `acting_user` | the new timeline `Item` |
+| `get_rate_card` | GET | `acting_user` | `RateCard` (§2.3) |
+| `save_rate_card` | POST | `rows` (JSON list of `{segment, price_list, max_discount}`), `acting_user` | `RateCard` |
+| `set_segment_rate` | POST | `item_code`, `rate`, `segment?` (blank: the selling price list), `acting_user` | `{item_code, segment, rate}` |
 
 ### 2.1 Shapes
 
@@ -70,8 +73,8 @@ Quotation = {name, docstatus, tbo_quote_status, transaction_date, valid_till, cu
   (Open, Ongoing, On Hold, Won, Lost) and colour name. `allowed_stages` is every other stage when
   the acting user may write the lead, else `[]`. Automatic moves (meetings, quotations) still
   happen on the server.
-- **Segments:** Retail, Small, Medium, Large, Premium (`Lead.tbo_segment`; Phase 2 adds a price
-  list per segment).
+- **Segments:** Retail, Small, Medium, Large, Premium (`Lead.tbo_segment`); each has a price
+  list and a discount band on the rate card (§2.3).
 - **Views:** `mine` = the acting user owns it; `call_today` = their Call today list, in its
   order (`smart-leads.md` §4.3; empty while lead scoring is off); `follow_up` = leads with an
   open follow-up due today or earlier, earliest first. `total` counts the whole view; `start` /
@@ -158,7 +161,7 @@ and `won_value` (latest quotations' total), `conversion` (won of new, %).
 | `lead_name` | split into `first_name` / `last_name` when those are not sent |
 | `first_name`, `last_name`, `company_name`, `email_id`, `mobile_no`, `phone`, `whatsapp_no`, `job_title`, `website` | the Lead's own |
 | `source` (a Lead Source), `territory`, `industry` (Industry Type) | links; `get_options` lists them |
-| `segment` | `tbo_segment` |
+| `segment` | `tbo_segment`; moving a lead from one segment to another needs a preset editor (417 otherwise; `lead-pipeline.md` §9.8) |
 | `lead_owner` | another sales user: only within the acting user's reach (anyone for a Sales Manager outside the hierarchy, their team for a team lead, nobody for a salesperson); 403 otherwise |
 | `note` | `create_lead` only: the lead's first note |
 | `next_follow_up` | `YYYY-MM-DD`: a Sales follow-up ToDo for the lead owner that day, unless one is already open for it; an empty value adds nothing (it never closes one) |
@@ -169,6 +172,24 @@ and `won_value` (latest quotations' total), `conversion` (won of new, %).
   "Other" with the text as `tbo_lost_notes`. For any other stage `note` is added as a note.
   Closed – Won makes the deal (with the lead pipeline on).
 - `add_note` needs read on the lead (as the app's notes do).
+
+### 2.3 The segment rate card
+
+```
+RateCard = {segments: [{segment, price_list (null: the selling list), max_discount (0: none)}],
+  default_price_list, price_lists: [selling price list names], can_edit,
+  services: [{item_code, item_name, item_group, description, uom, rate (selling list),
+    rates: {segment: rate | null}}]}
+```
+
+- Every segment is listed, in order, whether or not it is on the card. `rates` has a key for
+  each segment with its own price list; `null` where that list has no price for the service.
+- Needs Quotations on the lead (417 otherwise). Writes need a role in "Roles that edit presets
+  and prices" (403 otherwise); `can_edit` tells the hub whether to show the edit controls.
+- `save_rate_card` replaces the card: a row with neither a list nor a band is dropped. Refused
+  (417): an unknown segment, a segment twice, a band outside 0-100, a list that isn't selling.
+- `set_segment_rate` with a segment that has no list of its own is refused (417).
+- What the card does to quotations: `lead-pipeline.md` §9.8.
 
 ## 3. Links back to the hub
 
@@ -187,10 +208,11 @@ user (everyone) and a salesperson (themselves only).
 (unknown, disabled and non-sales users refused); anyone else acts only as themselves; lists and
 reads follow the acting user; writes are theirs (owner, lead owner, note author) and the session
 returns to the integration user; field, owner and lost-reason rules; the follow-up view; the
-options.
+options. `tests/test_segment_rate_card.py`: the rate card methods (acting user, editors only).
 
 ## Changelog
 
 - **v1.1 (2026-10-19):** `get_overview` and `get_sales_activity`; `list_leads` takes `source`,
   `temperature` and `metric` with its period.
 - **v1.0 (2026-10-16):** first version.
+- **v1.1 (2026-10-19):** `get_rate_card`, `save_rate_card`, `set_segment_rate`.

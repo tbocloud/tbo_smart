@@ -200,7 +200,10 @@ doc_events = {
 	# Smart leads (docs/smart-leads.md): re-score a lead when it or its activity changes; no-op while off
 	# Lead pipeline (docs/lead-pipeline.md): the deal at Closed – Won; no-op while off
 	"Lead": {
-		"validate": "tbo_smart.sales.stages.validate_lead",
+		"validate": [
+			"tbo_smart.sales.stages.validate_lead",
+			"tbo_smart.lead_pipeline.rate_card.validate_lead_segment",
+		],
 		"on_update": [
 			"tbo_smart.smart_leads.scoring.lead_changed",
 			"tbo_smart.lead_pipeline.won.lead_updated",

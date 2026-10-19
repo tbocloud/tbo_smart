@@ -1,0 +1,51 @@
+{
+ "actions": [],
+ "creation": "2026-10-16 18:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "segment",
+  "price_list",
+  "max_discount"
+ ],
+ "fields": [
+  {
+   "fieldname": "segment",
+   "fieldtype": "Select",
+   "label": "Segment",
+   "options": "Retail\nSmall\nMedium\nLarge\nPremium",
+   "reqd": 1,
+   "in_list_view": 1,
+   "columns": 3
+  },
+  {
+   "fieldname": "price_list",
+   "fieldtype": "Link",
+   "label": "Price list",
+   "options": "Price List",
+   "in_list_view": 1,
+   "columns": 4,
+   "description": "Blank: the selling price list in Selling Settings."
+  },
+  {
+   "fieldname": "max_discount",
+   "fieldtype": "Percent",
+   "label": "Discount band %",
+   "in_list_view": 1,
+   "columns": 3,
+   "description": "The discount anyone may give on this segment's quotations without approval. Above it, the quotation approval levels apply. Blank or 0: only the levels' own limits."
+  }
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-10-16 18:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tbo Smart",
+ "name": "TBO Segment Rate",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

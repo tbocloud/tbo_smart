@@ -13,12 +13,12 @@ from contextlib import contextmanager
 import frappe
 from frappe import _
 from frappe.query_builder.functions import Min
-from frappe.utils import cint, get_datetime, getdate
+from frappe.utils import cint, flt, get_datetime, getdate
 
 from tbo_smart.api.mobile.capabilities import CRM_ROLES, get_capabilities
 from tbo_smart.api.mobile.crm import check_assignee, get_crm_users
 from tbo_smart.api.mobile.utils import get_full_names
-from tbo_smart.lead_pipeline import setting
+from tbo_smart.lead_pipeline import rate_card, require_quotations, setting
 from tbo_smart.lead_pipeline.dashboard import people, scope_owners
 from tbo_smart.lead_pipeline.meetings import DOCTYPE as MEETING
 from tbo_smart.lead_pipeline.overview import LeadOverview, SalesActivity, period_range
@@ -607,4 +607,39 @@ def add_note(name: str, note: str, acting_user: str | None = None) -> dict:
 			"who_name": frappe.utils.get_fullname(user),
 			"text": plain_text(comment.content),
 			"ref": comment.name,
+		}
+
+
+# ---------- the segment rate card (docs/lead-pipeline.md §9.8) ----------
+
+
+@frappe.whitelist()
+def get_rate_card(acting_user: str | None = None) -> dict:
+	"""Each segment's price list and discount band, and every service's rates; `can_edit` says
+	whether the acting user may change them (the roles that edit presets and prices)."""
+	with acting_as(acting_user):
+		require_quotations()
+		return rate_card.get_rate_card()
+
+
+@frappe.whitelist(methods=["POST"])
+def save_rate_card(rows: list | str, acting_user: str | None = None) -> dict:
+	"""Replace the segments' price lists and bands; returns the rate card."""
+	with acting_as(acting_user):
+		require_quotations()
+		rows = frappe.parse_json(rows) if isinstance(rows, str) else rows
+		return rate_card.save_rate_card(rows)
+
+
+@frappe.whitelist(methods=["POST"])
+def set_segment_rate(
+	item_code: str, rate: float | str, segment: str | None = None, acting_user: str | None = None
+) -> dict:
+	"""A service's rate on the segment's own price list (no segment: the selling price list)."""
+	with acting_as(acting_user):
+		require_quotations()
+		return {
+			"item_code": item_code,
+			"segment": segment or None,
+			"rate": rate_card.set_segment_rate(item_code, flt(rate), segment or None),
 		}
