@@ -340,6 +340,15 @@ class TestClickToCall(TelephonyTestCase):
 		call = self.call_of("C-C2C")
 		self.assertEqual((call.lead, call.agent), (self.lead, BDE))
 
+	def test_without_a_number_the_leads_first_number_is_called(self):
+		only_whatsapp = make_lead(BDE, "WhatsApp Only", whatsapp_no="+91 98123 45678")
+		frappe.set_user(BDE)
+		with patch(
+			"tbo_smart.telephony.myoperator.requests.post", return_value=myoperator_response()
+		) as post:
+			api.click_to_call(only_whatsapp)
+		self.assertEqual(post.call_args.kwargs["json"]["number"], OTHER_NUMBER)
+
 	def test_a_mobile_only_agent_gets_the_anonymous_dialer(self):
 		other = make_lead(BDE2, "Second", mobile_no=OTHER_NUMBER)
 		frappe.set_user(BDE2)
