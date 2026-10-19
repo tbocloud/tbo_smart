@@ -324,7 +324,11 @@ has_permission = {
 # -------
 
 # The client's proposal page (docs/proposals.md §5)
-website_route_rules = [{"from_route": "/proposal/<token>", "to_route": "proposal"}]
+website_route_rules = [
+	{"from_route": "/proposal/<token>", "to_route": "proposal"},
+	# a BRD's questionnaire (docs/client-documents.md §5)
+	{"from_route": "/questions/<token>", "to_route": "questions"},
+]
 
 before_tests = "tbo_smart.test_utils.before_tests"
 

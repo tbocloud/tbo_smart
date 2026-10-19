@@ -1,0 +1,84 @@
+<!doctype html>
+{%- set p = q -%}
+{%- set lh = q.letter_head -%}
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>{{ q.share.title | e }}</title>
+<link rel="icon" href="{{ q.share.icon | e }}">
+<meta property="og:title" content="{{ q.share.title | e }}">
+<meta property="og:description" content="{{ q.share.description | e }}">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+{% include "tbo_smart/templates/includes/client_document_style.html" %}
+</head>
+<body>
+<main class="wrap">
+	<article class="sheet" aria-labelledby="q-title">
+		{% include "tbo_smart/templates/includes/client_document_header.html" %}
+		<section class="cover pad questionnaire">
+			<p class="kicker">{{ _("Business requirements") }}</p>
+			<h1 id="q-title">{{ _("A few questions for {0}").format(q.client) | e }}</h1>
+			<div class="rule" aria-hidden="true"></div>
+			<p>{{ _("Your answers go straight into your business requirements document, in your own words. Answer what you can; you can come back to this page and change an answer any time until the document is approved.") }}</p>
+			<p class="progress" role="status" aria-live="polite"><span id="answered">{{ q.answered }}</span> / {{ q.total }} {{ _("answered") }}</p>
+		</section>
+		{%- if not q.open %}
+		<div class="pad"><p class="notice info" role="status"><strong>{{ _("Thank you.") }}</strong> {{ _("This questionnaire is closed: your business requirements were sent for approval.") }}</p></div>
+		{%- endif %}
+		<form id="answers" class="pad" novalidate>
+			{%- for group in q.groups %}
+			<section class="block">
+				<h2>{{ group.heading | e }}</h2>
+				{%- for item in group.questions %}
+				<div class="question">
+					<label for="a-{{ item.name | e }}">{{ item.question | e }}</label>
+					<textarea id="a-{{ item.name | e }}" name="{{ item.name | e }}" maxlength="2000"{% if not q.open %} disabled{% endif %}>{{ item.answer | e }}</textarea>
+				</div>
+				{%- endfor %}
+			</section>
+			{%- endfor %}
+			{%- if q.open %}
+			<div class="actions save-bar">
+				<button type="submit" class="primary">{{ _("Save my answers") }}</button>
+				<span class="saved" role="status" aria-live="polite"></span>
+			</div>
+			<p class="error" role="alert" aria-live="assertive"></p>
+			{%- endif %}
+		</form>
+		<div class="page-foot pad"><span>{{ (q.company or "") | e }}</span></div>
+	</article>
+</main>
+{%- if q.open %}
+<script>
+(function () {
+	var token = {{ q.token | tojson }};
+	var csrf = {{ (csrf_token or "") | tojson }};
+	var form = document.getElementById("answers");
+	var button = form.querySelector("button"), saved = form.querySelector(".saved"), error = form.querySelector(".error");
+	function message(err) {
+		try { return JSON.parse(JSON.parse(err._server_messages)[0]).message.replace(/<[^>]+>/g, " "); }
+		catch (e) { return {{ _("Your answers weren't saved. Check your connection and try again.") | tojson }}; }
+	}
+	form.addEventListener("submit", function (event) {
+		event.preventDefault();
+		var answers = {}, count = 0;
+		form.querySelectorAll("textarea").forEach(function (t) { answers[t.name] = t.value.trim(); if (t.value.trim()) count++; });
+		var headers = { "Accept": "application/json" };
+		if (csrf) headers["X-Frappe-CSRF-Token"] = csrf;
+		button.disabled = true; error.textContent = ""; saved.textContent = "";
+		fetch("/api/method/tbo_smart.api.proposal_page.save_answers", { method: "POST", headers: headers, credentials: "same-origin",
+			body: new URLSearchParams({ token: token, answers: JSON.stringify(answers) }) })
+			.then(function (r) { return r.json().then(function (j) { if (!r.ok) throw j; return j; }); })
+			.then(function () { saved.textContent = {{ _("Saved. Thank you.") | tojson }}; document.getElementById("answered").textContent = count; })
+			.catch(function (err) { error.textContent = message(err); })
+			.finally(function () { button.disabled = false; });
+	});
+})();
+</script>
+{%- endif %}
+</body>
+</html>

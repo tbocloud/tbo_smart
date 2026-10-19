@@ -7,16 +7,22 @@ from frappe.utils import add_days, getdate, nowdate
 
 from tbo_smart.api import hub_leads
 from tbo_smart.api import hub_proposals as hub
+from tbo_smart.api import proposal_page as page
+from tbo_smart.lead_pipeline import brd
 from tbo_smart.lead_pipeline import document_types as kinds
 from tbo_smart.lead_pipeline import proposals as p
 from tbo_smart.lead_pipeline import quotations as q
 from tbo_smart.test_utils import (
 	accept_as_client,
+	brd_answer,
+	call_as_guest,
+	configure_ai_providers,
 	configure_quotation_approval,
 	delete_owner_lead_records,
 	disable_client_documents,
 	disable_lead_quotations,
 	disable_proposals,
+	disable_smart_leads,
 	enable_client_documents,
 	enable_proposals,
 	make_accepted_proposal,
@@ -28,7 +34,9 @@ from tbo_smart.test_utils import (
 	make_outgoing_email_account,
 	make_pdf_bytes,
 	make_quotation_item,
+	make_signed_agreement,
 	make_user,
+	mock_ai,
 	price_hub_proposal,
 	send_hub_proposal,
 	set_leaf_customer_group,
@@ -63,6 +71,7 @@ class ClientDocumentTestCase(FrappeTestCase):
 		frappe.db.set_value("Sales Taxes and Charges Template", cls.gst, "is_default", 0)
 		disable_client_documents()
 		disable_proposals()
+		disable_smart_leads()
 		disable_lead_quotations()
 		configure_quotation_approval(enabled=0)
 		set_segment_rates()
@@ -183,7 +192,7 @@ class TestQuotation(ClientDocumentTestCase):
 		self.assertEqual(frappe.db.get_value(p.DOCTYPE, quote["name"], "status"), p.ACCEPTED)
 		self.assertEqual(frappe.db.get_value("Quotation", revision.name, "tbo_quote_status"), q.ACCEPTED)
 		chain = hub.get_document_chain(self.lead, acting_user=BDE)
-		self.assertEqual([step["done"] for step in chain["steps"]], [True, True, False])
+		self.assertEqual([step["done"] for step in chain["steps"]], [True, True, False, False])
 		self.assertEqual(chain["next"]["document_type"], kinds.WORK_ORDER)
 
 	def test_only_from_an_accepted_proposal(self):
@@ -285,8 +294,8 @@ class TestWorkOrder(ClientDocumentTestCase):
 		self.assertIn("Signed", p.render_html(doc))
 		chain = hub.get_document_chain(self.lead, acting_user=BDE)
 		self.assertEqual(chain["steps"][2]["status_label"], "Signed")
-		self.assertTrue(all(step["done"] for step in chain["steps"]))
-		self.assertIsNone(chain["next"])
+		self.assertEqual([step["done"] for step in chain["steps"]], [True, True, True, False])
+		self.assertEqual((chain["next"]["document_type"], chain["next"]["source"]), (kinds.BRD, doc.name))
 		self.assertEqual(hub_leads.get_lead(self.lead, acting_user=BDE)["documents"], chain)
 
 	def test_source_code_clause_follows_the_scoping(self):
@@ -311,4 +320,155 @@ class TestWorkOrder(ClientDocumentTestCase):
 		self.assertEqual(
 			(revision["document_type"], revision["source_document"], revision["revision_no"]),
 			(kinds.WORK_ORDER, quote["name"], 1),
+		)
+
+
+class TestBRD(ClientDocumentTestCase):
+	def make_brd(self, ai_on: bool = False, *answers) -> dict:
+		order = make_signed_agreement(self.lead, BDE, TEMPLATE, SERVICE)
+		if not ai_on:
+			return make_hub_document(order, kinds.BRD, BDE)
+		frappe.set_user("Administrator")
+		enable_proposals(ai=True)
+		configure_ai_providers()
+		frappe.set_user(HUB)
+		with mock_ai(*answers) as post:
+			result = make_hub_document(order, kinds.BRD, BDE)
+		result["post"] = post
+		return result
+
+	def test_built_from_the_agreement_without_ai(self):
+		result = self.make_brd()
+		doc = result["proposal"]
+		self.assertTrue(doc["name"].startswith("BRD-"))
+		self.assertEqual(
+			[row["section_type"] for row in doc["sections"]], [kind for kind, _h in kinds.BRD_SECTIONS]
+		)
+		bodies = {row["section_type"]: row["body"] for row in doc["sections"]}
+		# only what the client told us, the rest to confirm
+		self.assertIn("Payroll by hand", bodies["Pain Points"])
+		self.assertIn("Tally and Excel", bodies["Current Process"])
+		self.assertIn("To confirm with client", bodies["Business Objectives"])
+		self.assertIn("## Accounts", bodies["Desired Process"])
+		questions = doc["questionnaire"]["questions"]
+		self.assertTrue(any("Accounts: how is this done today" in row["question"] for row in questions))
+		self.assertEqual({row["asked_by"] for row in questions}, {"Library"})
+		self.assertIn("Section | Question | Answer", bodies["Open Questions"])
+		token = frappe.db.get_value(p.DOCTYPE, doc["name"], "questions_token")
+		self.assertRegex(token, p.TOKEN)
+		self.assertNotEqual(token, frappe.db.get_value(p.DOCTYPE, doc["name"], "public_token"))
+		self.assertIsNone(doc["questionnaire"]["url"])
+
+	def test_only_from_a_signed_agreement(self):
+		quote = make_accepted_quotation_document(self.lead, BDE, TEMPLATE, SERVICE)
+		order = make_hub_document(quote["name"], kinds.WORK_ORDER, BDE)["proposal"]["name"]
+		self.assertRaises(frappe.ValidationError, make_hub_document, order, kinds.BRD, BDE)
+
+	def test_the_ai_writes_from_the_clients_words_and_asks_for_the_gaps(self):
+		sections = {
+			"Pain Points": "- Salary takes 37 hours a month",
+			"Business Objectives": "- To confirm with client: the objectives",
+			"Success Criteria": "- Close the books in 12 days",
+		}
+		result = self.make_brd(
+			True,
+			brd_answer(
+				sections,
+				[{"section": "Success Criteria", "question": "What does a good month-end look like?"}],
+			),
+		)
+		self.assertEqual(result["post"].call_count, 1)
+		sent = json.loads(result["post"].call_args.kwargs["json"]["messages"][1]["content"])
+		self.assertEqual(set(sent["sections"]), set(brd.AI_SECTIONS))
+		self.assertEqual(sent["modules"], [row["module_name"] for row in result["proposal"]["modules"]])
+		self.assertIn("never invent", result["post"].call_args.kwargs["json"]["messages"][0]["content"])
+		bodies = {row["section_type"]: row["body"] for row in result["proposal"]["sections"]}
+		self.assertEqual(bodies["Business Objectives"], sections["Business Objectives"])
+		# "12 days" isn't in anything the client said: left as the data built it, with a warning
+		self.assertNotIn("12 days", bodies["Success Criteria"])
+		self.assertTrue(result["warnings"])
+		# "37 hours" isn't either
+		self.assertIn("Payroll by hand", bodies["Pain Points"])
+		asked = {row["question"]: row["asked_by"] for row in result["proposal"]["questionnaire"]["questions"]}
+		self.assertEqual(asked["What does a good month-end look like?"], "AI")
+		self.assertTrue(
+			frappe.db.exists(
+				"TBO AI Usage Log", {"feature": "BRD draft", "reference_name": result["proposal"]["name"]}
+			)
+		)
+
+	def test_the_client_answers_and_only_those_sections_change(self):
+		doc = self.make_brd()["proposal"]
+		url = hub.share_questionnaire(doc["name"], acting_user=BDE)["url"]
+		token = url.rsplit("/", 1)[1]
+		frappe.set_user("Guest")
+		frappe.form_dict.token = token
+		from tbo_smart.www import questions as page_view
+
+		context = page_view.get_context(frappe._dict())
+		frappe.set_user(HUB)
+		self.assertEqual(context.q["total"], len(doc["questionnaire"]["questions"]))
+		html = frappe.render_template("tbo_smart/www/questions.html", {**context, "_": frappe._})
+		self.assertIn("Accounts: how is this done today", html)
+		self.assertNotIn("Payroll by hand", html)
+
+		questions = doc["questionnaire"]["questions"]
+		current = next(row for row in questions if row["section_type"] == "Current Process")
+		goal = next(row for row in questions if row["section_type"] == "Business Objectives")
+		saved = call_as_guest(
+			page.save_answers,
+			token,
+			json.dumps({current["name"]: "Tally, entered by two accountants", goal["name"]: ""}),
+		)
+		self.assertEqual(saved["saved"], 1)
+		self.assertRaises(
+			frappe.DoesNotExistError, call_as_guest, page.save_answers, token, json.dumps({"nope": "x"})
+		)
+		doc = hub.get_proposal(doc["name"], acting_user=BDE)
+		self.assertEqual(doc["questionnaire"]["new_answers"], 1)
+		self.assertTrue(any("new answers" in reason for reason in doc["send_blockers"]))
+
+		before = {row["section_type"]: row["body"] for row in doc["sections"]}
+		frappe.set_user("Administrator")
+		enable_proposals(ai=True)
+		configure_ai_providers()
+		frappe.set_user(HUB)
+		with mock_ai(
+			brd_answer({"Current Process": "## Accounts\n- Tally, entered by two accountants"})
+		) as post:
+			result = hub.apply_answers(doc["name"], acting_user=BDE)
+		sent = json.loads(post.call_args.kwargs["json"]["messages"][1]["content"])
+		self.assertEqual(sent["sections"], ["Current Process"])
+		self.assertEqual(sent["client_answers"][0]["answer"], "Tally, entered by two accountants")
+		after = {row["section_type"]: row["body"] for row in result["proposal"]["sections"]}
+		self.assertEqual(after["Current Process"], "## Accounts\n- Tally, entered by two accountants")
+		self.assertIn("Tally, entered by two accountants", after["Open Questions"])
+		for kind in ("Pain Points", "Desired Process", "Business Objectives", "Stakeholders"):
+			self.assertEqual(after[kind], before[kind])
+		self.assertEqual(result["proposal"]["questionnaire"]["new_answers"], 0)
+		self.assertRaises(frappe.ValidationError, hub.apply_answers, doc["name"], acting_user=BDE)
+
+	def test_approved_closes_the_questionnaire(self):
+		doc = self.make_brd()["proposal"]
+		token = hub.share_questionnaire(doc["name"], acting_user=BDE)["url"].rsplit("/", 1)[1]
+		send_hub_proposal(doc["name"], BDE)
+		html = p.render_html(frappe.get_doc(p.DOCTYPE, doc["name"]))
+		self.assertIn("Approve the BRD", html)
+		accept_as_client(doc["name"])
+		self.assertEqual(
+			hub.get_document_chain(self.lead, acting_user=BDE)["steps"][3]["status_label"], "Approved"
+		)
+		question = doc["questionnaire"]["questions"][0]["name"]
+		self.assertRaises(
+			frappe.ValidationError, call_as_guest, page.save_answers, token, json.dumps({question: "late"})
+		)
+		self.assertRaises(frappe.DoesNotExistError, call_as_guest, page.save_answers, "0" * 32, "{}")
+
+	def test_presales_edits_the_questions(self):
+		doc = self.make_brd()["proposal"]
+		mine = [{"section_type": "Integrations", "question": "Which bank do you use?"}]
+		doc = hub.save_questions(doc["name"], json.dumps(mine), acting_user=BDE)
+		self.assertEqual(
+			[(row["question"], row["asked_by"]) for row in doc["questionnaire"]["questions"]],
+			[("Which bank do you use?", "Presales")],
 		)

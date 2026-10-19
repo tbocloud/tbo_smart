@@ -1346,13 +1346,15 @@ def proposal_token(name: str) -> str:
 	return frappe.db.get_value("TBO Proposal", name, "public_token")
 
 
-def enable_client_documents(quotations: bool = True, work_orders: bool = True) -> None:
+def enable_client_documents(quotations: bool = True, work_orders: bool = True, brds: bool = True) -> None:
 	"""TBO Smart Settings' switches for the documents after the proposal (docs/client-documents.md)."""
-	set_smart_lead_settings(enable_quotation_documents=int(quotations), enable_work_orders=int(work_orders))
+	set_smart_lead_settings(
+		enable_quotation_documents=int(quotations), enable_work_orders=int(work_orders), enable_brds=int(brds)
+	)
 
 
 def disable_client_documents() -> None:
-	enable_client_documents(False, False)
+	enable_client_documents(False, False, False)
 
 
 def accept_as_client(name: str, designation: str | None = None) -> None:
@@ -1382,6 +1384,25 @@ def make_accepted_quotation_document(lead: str, acting_user: str, template: str,
 	send_hub_proposal(quote, acting_user)
 	accept_as_client(quote)
 	return hub_proposals.get_proposal(quote, acting_user=acting_user)
+
+
+def make_signed_agreement(lead: str, acting_user: str, template: str, item_code: str) -> str:
+	"""The chain up to a signed project agreement: an accepted proposal (`template`, one line of
+	`item_code`), its accepted quotation, and the agreement with a start date, sent and signed
+	(emails mocked). Returns the agreement's name."""
+	from tbo_smart.api import hub_proposals
+
+	quote = make_accepted_quotation_document(lead, acting_user, template, item_code)["name"]
+	order = make_hub_document(quote, "Work Order", acting_user)["proposal"]["name"]
+	hub_proposals.save_proposal(order, json.dumps({"start_date": nowdate()}), acting_user=acting_user)
+	send_hub_proposal(order, acting_user)
+	accept_as_client(order, "Director")
+	return order
+
+
+def brd_answer(sections: dict, questions: list | None = None) -> MagicMock:
+	"""The AI's BRD answer: {section: text} and the questions [{section, question}] it adds."""
+	return openai_answer({"sections": sections, "questions": questions or []}, 900, 400)
 
 
 def make_hub_document(source: str, document_type: str, acting_user: str) -> dict:
