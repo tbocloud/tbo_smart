@@ -22,7 +22,7 @@ from tbo_smart.api.finance.quotation import (
 from tbo_smart.finance import get_default_company
 from tbo_smart.lead_pipeline import presets as catalogue
 from tbo_smart.lead_pipeline import quotations as q
-from tbo_smart.lead_pipeline import quotations_enabled, require_quotations
+from tbo_smart.lead_pipeline import quotations_enabled, rate_card, require_quotations
 from tbo_smart.quotation_control import QuotationControl
 from tbo_smart.sales.opportunity import lead_opportunity
 from tbo_smart.smart_leads.utils import normalise_phone, whatsapp_link
@@ -100,17 +100,20 @@ def lead_pdfs(lead: str) -> list:
 @frappe.whitelist()
 def get_quotation_form(lead: str, quotation: str | None = None, meeting: str | None = None) -> dict:
 	"""The builder's values: a new quotation for the lead (company, validity, default tax,
-	payment terms and terms) or one of its drafts, plus the catalogue of packages and services."""
+	payment terms and terms) or one of its drafts, plus the catalogue of packages and services
+	priced for the lead's segment and its `pricing` (segment, price list, discount band)."""
 	require_lead(lead, "read")
+	pricing = rate_card.lead_pricing(lead)
+	priced = {"catalogue": catalogue.get_catalogue(pricing["price_list"]), "pricing": pricing}
 	if quotation:
 		doc = get_lead_quotation(quotation, lead, "read")
-		return {**form_choices(doc.company), "catalogue": catalogue.get_catalogue(), **serialize(doc)}
+		return {**form_choices(doc.company), **priced, **serialize(doc)}
 	company = get_default_company() or frappe.defaults.get_user_default("Company")
 	terms = q.setting("quotation_terms")
 	lead_doc = frappe.db.get_value("Lead", lead, ["lead_name", "company_name"], as_dict=True)
 	return {
 		**form_choices(company),
-		"catalogue": catalogue.get_catalogue(),
+		**priced,
 		"name": None,
 		"company": company,
 		"party": {
@@ -182,6 +185,7 @@ def new_lead_quotation(lead: str, values) -> object:
 			if meeting and frappe.db.exists("TBO Lead Meeting", {"name": meeting, "lead": lead})
 			else None,
 			"tbo_quote_status": q.DRAFT,
+			"selling_price_list": rate_card.price_list_for(rate_card.lead_segment(lead)),
 			# the discount comes off the net total, as the approval limits read it
 			"apply_discount_on": "Net Total",
 			"company": values.get("company") or get_default_company(),
@@ -323,9 +327,10 @@ def make_sales_order(quotation: str) -> dict:
 
 
 @frappe.whitelist()
-def get_catalogue() -> dict:
+def get_catalogue(segment: str | None = None) -> dict:
+	"""The catalogue, priced for `segment` (its own price list where it has one)."""
 	require_quotations()
-	return catalogue.get_catalogue()
+	return catalogue.get_catalogue(rate_card.price_list_for(segment))
 
 
 @frappe.whitelist(methods=["POST"])

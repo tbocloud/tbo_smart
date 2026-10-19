@@ -241,6 +241,10 @@ Director and CEO (capability `approve_quotations`), through the thin wrappers in
 for me* and *I requested*, approve in full or a lower %, reject, forward, CEO override with a
 reason, and the trail. A notification about a request opens it in the app.
 
+**Segment discount band:** on a lead's quotation the discount limit is the higher of the
+person's level limit and the lead segment's band (`lead-pipeline.md` §9.8,
+`quotation_control.effective_limit`); everything above it follows this flow unchanged.
+
 **Quotations on the lead** (`lead-pipeline.md` §9) use the same control: the lead's
 Quotations tab shows the same chips and Request approval, a draft with an open request shows
 *Pending Approval*, and *Mark sent* refuses it until the approval is granted.

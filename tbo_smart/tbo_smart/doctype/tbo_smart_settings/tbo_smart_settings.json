@@ -106,6 +106,8 @@
   "quotation_print_format",
   "quotation_preset_roles",
   "enable_pipeline_dashboard",
+  "segment_rates_section",
+  "segment_rates",
   "checkin_section",
   "enforce_checkin_radius",
   "checkin_locations",
@@ -775,6 +777,19 @@
    "label": "Pipeline dashboard"
   },
   {
+   "fieldname": "segment_rates_section",
+   "fieldtype": "Section Break",
+   "label": "Segment rate card",
+   "depends_on": "eval:doc.enable_lead_quotations",
+   "description": "A price list and a discount band per lead segment. The quotation builder prices a lead's lines from its segment's list (else the selling price list) and lets anyone give up to the band without approval."
+  },
+  {
+   "fieldname": "segment_rates",
+   "fieldtype": "Table",
+   "label": "Segments",
+   "options": "TBO Segment Rate"
+  },
+  {
    "fieldname": "checkin_section",
    "fieldtype": "Section Break",
    "label": "Check-in location"
@@ -830,7 +845,7 @@
  "index_web_pages_for_search": 0,
  "issingle": 1,
  "links": [],
- "modified": "2026-10-16 15:00:00.000000",
+ "modified": "2026-10-16 18:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Smart Settings",

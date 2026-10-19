@@ -3,13 +3,15 @@
 doc_events for Quotation call the hook functions at the bottom; each one only calls
 QuotationControl methods. A quotation above the saving user's limit can be saved as a draft,
 but it cannot be submitted (and so cannot become a sales order or invoice) until a granted
-TBO Quotation Adjustment covers its percentage and its list value.
+TBO Quotation Adjustment covers its percentage and its list value. On a lead's quotation the
+discount limit is at least the lead segment's discount band (docs/lead-pipeline.md §9.8).
 """
 
 import frappe
 from frappe import _
 from frappe.utils import cint, flt
 
+from tbo_smart.lead_pipeline.rate_card import quotation_band
 from tbo_smart.tbo_smart.doctype.tbo_quotation_adjustment.tbo_quotation_adjustment import (
 	GRANTED_STATUSES,
 	OPEN_STATUSES,
@@ -52,6 +54,16 @@ def get_percent(doc, kind: str) -> float:
 	if kind == "Commission":
 		return flt(doc.get(COMMISSION_FIELD), 2)
 	return get_discount_percent(doc)
+
+
+def effective_limit(settings, level, kind: str, doc) -> float | None:
+	"""`level`'s limit for `kind` on this quotation. On a lead's quotation anyone may give up to
+	its segment's discount band; a level whose own limit is higher keeps it."""
+	limit = settings.get_limit(level, kind)
+	if kind != "Discount" or limit is None:
+		return limit
+	band = quotation_band(doc)
+	return max(flt(limit, 2), band) if band else limit
 
 
 def get_granted(quotation: str, kind: str) -> list:
@@ -160,7 +172,7 @@ class QuotationControl:
 			percent = get_percent(self.doc, kind)
 			if percent <= 0:
 				continue
-			limit = self.settings.get_limit(self.level, kind)
+			limit = effective_limit(self.settings, self.level, kind, self.doc)
 			if self.settings.is_within(limit, percent):
 				continue
 			if not self.doc.is_new() and get_covering(self.doc.name, kind, percent, value):
@@ -232,7 +244,7 @@ class QuotationControl:
 		for kind in self.kinds:
 			percent = get_percent(self.doc, kind)
 			if percent <= 0 or not self.settings.is_within(
-				self.settings.get_limit(self.level, kind), percent
+				effective_limit(self.settings, self.level, kind, self.doc), percent
 			):
 				continue
 			if get_covering(self.doc.name, kind, percent, value):

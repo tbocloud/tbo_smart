@@ -13,11 +13,13 @@ from tbo_smart.api.mobile.utils import get_full_names
 from tbo_smart.quotation_control import (
 	COMMISSION_FIELD,
 	covers,
+	effective_limit,
 	get_covering,
 	get_list_value,
 	get_percent,
 	new_adjustment,
 )
+from tbo_smart.sales import LEAD_LINK
 from tbo_smart.tbo_smart.doctype.tbo_quotation_adjustment.tbo_quotation_adjustment import (
 	GRANTED_STATUSES,
 	OPEN_STATUSES,
@@ -166,7 +168,7 @@ def collect_statuses(names: list[str]) -> dict:
 		rows = []
 		for kind in kinds:
 			percent = get_percent(doc, kind)
-			limit = settings.get_limit(level, kind)
+			limit = effective_limit(settings, level, kind, doc)
 			newest = latest.get((name, kind))
 			rows.append(
 				{
@@ -198,7 +200,17 @@ def load_quotations(names: list[str]) -> dict:
 		for row in frappe.get_all(
 			"Quotation",
 			filters={"name": ("in", names)},
-			fields=["name", "docstatus", "net_total", COMMISSION_FIELD],
+			# the party and lead, for a lead segment's discount band
+			fields=[
+				"name",
+				"docstatus",
+				"net_total",
+				COMMISSION_FIELD,
+				"quotation_to",
+				"party_name",
+				LEAD_LINK,
+				"opportunity",
+			],
 		)
 	}
 	for doc in docs.values():
@@ -244,7 +256,7 @@ def request_adjustment(quotation: str, kind: str, percent: float | str, reason: 
 			_("You have no quotation approval level. Ask HR to give you your designation's role."),
 			frappe.PermissionError,
 		)
-	limit = settings.get_limit(level, kind)
+	limit = effective_limit(settings, level, kind, doc)
 	if settings.is_within(limit, percent):
 		frappe.throw(
 			_("{0}% is within your limit ({1}); set it on the quotation.").format(
