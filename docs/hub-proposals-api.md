@@ -1,4 +1,4 @@
-# Hub proposals API (`tbo_smart.api.hub_proposals`), v2.2
+# Hub proposals API (`tbo_smart.api.hub_proposals`), v2.3
 
 **Status:** built 2026-10-19. The TBO Support hub's proposal builder (tbocloud/helpdesk
 `docs/proposals.md`) calls these. What proposals are and do: `proposals.md`; the documents after
@@ -96,7 +96,8 @@ Profile = {name, website, about, industry, size, locations, current_software, ke
   pain_points}
 
 Scoping = {modules: [names], customisation, customisations: [{item, days, detail}], mobile_app,
-  web_app, integrations, data_migration, users, hosting, amc, timeline_weeks, source_code,
+  web_app, integrations, data_migration, users and companies (each a number, 0: not said, or
+  "Unlimited"), hosting, amc, timeline_weeks, source_code,
   architecture ("Simple" / "Detailed"), timeline_template, payment_terms, amc_plan}
 
 ChatLine = {role: "presales" | "assistant", text, at?}
@@ -150,7 +151,8 @@ Library = {can_edit, modules: [Module + enabled, sort_order], items: [{name, lib
 - `share_proposal` and `send_proposal` are refused (417, the blockers joined) while any blocker
   stands; Share doesn't need an outgoing email account.
 - `read_client_website`: http(s) public addresses only, checked on every redirect; a site that
-  can't be read is 417 with the reason.
+  can't be read is 417 with the reason in the message (`_server_messages`), e.g. "That doesn't
+  look like a website…", "Couldn't find the website…", "…took too long to answer".
 - Library methods: the roles in "Roles that edit presets and prices" only (403). A Timeline's
   phases must add up to its days; a Payment Terms template's milestones to 100 (417).
 
@@ -173,8 +175,10 @@ user with `acting_user`.
 
 ## Changelog
 
-- **v2.2 (2026-10-19):** the BRD: `save_questions`, `share_questionnaire`, `send_questionnaire`,
+- **v2.3 (2026-10-20):** the BRD: `save_questions`, `share_questionnaire`, `send_questionnaire`,
   `apply_answers`, `questionnaire` on `Proposal`, `save_answers` on the client's side.
+- **v2.2 (2026-10-20):** `Scoping.companies`; users and companies may be "Unlimited";
+  `read_client_website` errors always carry a readable message.
 - **v2.1 (2026-10-19):** `create_document`, `get_document_chain`, `documents` on the lead,
   `document_types` in the options, `clause_groups` in the library, the type fields on `Proposal` and `Row`, `start_date`, and
   `accept`'s `designation`.

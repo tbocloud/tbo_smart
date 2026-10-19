@@ -84,7 +84,8 @@ def scoping_answers(raw, solution_type: str | None = None) -> dict:
 		"web_app": bool(cint(raw.get("web_app"))),
 		"integrations": str(raw.get("integrations") or "").strip()[:500],
 		"data_migration": bool(cint(raw.get("data_migration"))),
-		"users": max(cint(raw.get("users")), 0),
+		"users": headcount(raw.get("users")),
+		"companies": headcount(raw.get("companies")),
 		"hosting": raw.get("hosting") if raw.get("hosting") in HOSTING else None,
 		"amc": bool(cint(raw.get("amc"))),
 		"timeline_weeks": max(cint(raw.get("timeline_weeks")), 0),
@@ -99,6 +100,33 @@ def scoping_answers(raw, solution_type: str | None = None) -> dict:
 	if not answers["customisation"]:
 		answers["customisations"] = []
 	return answers
+
+
+UNLIMITED = "Unlimited"
+
+
+def headcount(value) -> int | str:
+	"""Users or companies: a number (0: not said) or "Unlimited"."""
+	if str(value or "").strip().casefold() in ("unlimited", "-1"):
+		return UNLIMITED
+	return max(cint(value), 0)
+
+
+def scale_text(answers: dict) -> str:
+	"""What the set-up is sized for, in words: "Unlimited users, Up to 3 companies"."""
+	users, companies = answers.get("users"), answers.get("companies")
+	parts = []
+	if users == UNLIMITED:
+		parts.append(_("Unlimited users"))
+	elif users:
+		parts.append((_("{0} user") if users == 1 else _("{0} users")).format(users))
+	if companies == UNLIMITED:
+		parts.append(_("Unlimited companies"))
+	elif companies:
+		parts.append(
+			(_("Up to {0} company") if companies == 1 else _("Up to {0} companies")).format(companies)
+		)
+	return ", ".join(parts)
 
 
 def customisation_rows(value) -> list[dict]:
@@ -291,8 +319,11 @@ def company_overview(doc) -> str:
 
 
 def proposed_solution_data(doc) -> str:
-	rows = library("Solution Component", doc)
-	return table((_("Component"), _("What it does")), [(row.title, row.body) for row in rows]) if rows else ""
+	rows = [(row.title, row.body) for row in library("Solution Component", doc)]
+	scale = scale_text(scoping_answers(doc.scoping, doc.solution_type))
+	if scale:
+		rows.append((_("Users and companies"), scale))
+	return table((_("Component"), _("What it does")), rows) if rows else ""
 
 
 def scope_of_work(doc) -> str:
@@ -407,7 +438,11 @@ def project_team(doc) -> str:
 
 
 def investment(doc) -> str:
-	return bullet_list(row.title for row in library("Investment Note", doc))
+	notes = [row.title for row in library("Investment Note", doc)]
+	scale = scale_text(scoping_answers(doc.scoping, doc.solution_type))
+	if scale:
+		notes.insert(0, _("The price covers {0}.").format(scale.lower()))
+	return bullet_list(notes)
 
 
 def payment_terms(doc) -> str:
@@ -461,8 +496,12 @@ def amc(doc) -> str:
 
 
 def assumptions(doc) -> str:
+	scale = scale_text(scoping_answers(doc.scoping, doc.solution_type))
+	sized = [_("The set-up is sized for {0}.").format(scale.lower())] if scale else []
 	return bullet_list(
-		unique([*(row.title for row in library("Assumption", doc)), *module_lines(doc, "assumptions")])
+		unique(
+			[*(row.title for row in library("Assumption", doc)), *module_lines(doc, "assumptions"), *sized]
+		)
 	)
 
 
@@ -1015,9 +1054,10 @@ anything it doesn't mention empty, false or 0.
 Answer only JSON: {"template": "<one of templates[].name, the best fit>", "modules": ["<only
 names from modules>"], "customisations": ["<each special request not covered by a module, as a
 short line in the client's words>"], "mobile_app": true/false, "web_app": true/false,
-"integrations": "<systems to connect, or empty>", "data_migration": true/false, "users": <number
-or 0>, "hosting": "<one of hosting, or null>", "amc": true/false, "timeline_weeks": <number or 0>,
-"source_code": true/false}"""
+"integrations": "<systems to connect, or empty>", "data_migration": true/false, "users": <number,
+"Unlimited" for unlimited users, or 0>, "companies": <number of companies, "Unlimited", 2 when only
+"multi-company" is said, or 0>, "hosting": "<one of hosting, or null>", "amc": true/false,
+"timeline_weeks": <number or 0>, "source_code": true/false}"""
 
 
 def usage(doc) -> dict:
@@ -1090,6 +1130,7 @@ def edit_state(doc) -> dict:
 		"amc_plan": answers["amc_plan"],
 		"amc_plans": [row.title for row in library("AMC Plan")],
 		"users": answers["users"],
+		"companies": answers["companies"],
 		"hosting": answers["hosting"],
 		"hostings": list(HOSTING),
 		"mobile_app": answers["mobile_app"],
@@ -1153,9 +1194,12 @@ def apply_edit(doc, ops: dict) -> list[str]:
 		if isinstance(ops.get(key), bool) and ops[key] != answers[key]:
 			answers[key] = ops[key]
 			done.append(_("{0}: {1}").format(label, _("yes") if ops[key] else _("no")))
-	if isinstance(ops.get("users"), int) and ops["users"] >= 0 and ops["users"] != answers["users"]:
-		answers["users"] = ops["users"]
-		done.append(_("Users: {0}").format(ops["users"]))
+	for key, label in (("users", _("Users")), ("companies", _("Companies"))):
+		if key in ops and ops[key] not in (None, ""):
+			value = headcount(ops[key])
+			if value != answers[key]:
+				answers[key] = value
+				done.append(_("{0}: {1}").format(label, _(value) if value == UNLIMITED else value))
 	if isinstance(ops.get("integrations"), str) and ops["integrations"].strip() != answers["integrations"]:
 		answers["integrations"] = ops["integrations"].strip()[:500]
 		done.append(_("Integrations: {0}").format(answers["integrations"] or _("none")))
@@ -1213,7 +1257,7 @@ Only use values from the choices; leave out anything the message doesn't ask for
 
 Answer only JSON with any of: "add_modules", "remove_modules" (names from catalogue / modules),
 "timeline_template" (from timelines), "payment_terms" (from payment_templates), "amc" (true /
-false), "amc_plan" (from amc_plans), "hosting" (from hostings), "users" (a number), "mobile_app",
+false), "amc_plan" (from amc_plans), "hosting" (from hostings), "users", "companies" (a number or "Unlimited"), "mobile_app",
 "data_migration" (true / false), "integrations" (text), "add_customisations" (["short line", …]),
 "remove_customisations" (as listed), "pricing_mode" ("Itemised" or "Consolidated"),
 "sections_off", "sections_on" (from section_types)."""
