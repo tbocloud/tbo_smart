@@ -889,3 +889,128 @@ LIBRARY = (
 		sort_order=7,
 	),
 )
+
+
+# ---------- the project agreement's clauses (docs/client-documents.md §4) ----------
+
+CLAUSE = "Agreement Clause"
+AGREEMENT_CLAUSES = (
+	item(
+		CLAUSE,
+		"Asking for a change",
+		"Either party may ask for a change to the agreed scope in writing (an email is enough). TBO "
+		"estimates its effort, cost and effect on the timeline within 3 business days.",
+		group="Change Requests",
+		sort_order=1,
+	),
+	item(
+		CLAUSE,
+		"Approving it",
+		"Work on a change starts only after the Client approves the estimate in writing. Approved "
+		"changes are billed with the next milestone and may move the dates that follow.",
+		group="Change Requests",
+		sort_order=2,
+	),
+	item(
+		CLAUSE,
+		"Your data",
+		"The Client owns its data, its configuration and the documents made for it under this agreement.",
+		group="Intellectual Property",
+		sort_order=1,
+	),
+	item(
+		CLAUSE,
+		"The platform",
+		"ERPNext and the Frappe Framework stay under their open-source licence (GNU GPL v3); no licence "
+		"fee is due for them.",
+		group="Intellectual Property",
+		sort_order=2,
+	),
+	item(
+		CLAUSE,
+		"TBO's components",
+		"TBO keeps the rights to its own reusable components and grants the Client a perpetual licence "
+		"to use them in its business.",
+		group="Intellectual Property",
+		sort_order=3,
+	),
+	item(
+		CLAUSE,
+		"Source code",
+		"The source code of the custom work is handed over to the Client once every payment under this "
+		"agreement is complete.",
+		group="Intellectual Property",
+		condition="Source code",
+		sort_order=4,
+	),
+	item(
+		CLAUSE,
+		"Confidential information",
+		"Each party keeps the other's confidential information secret and uses it only for this "
+		"project, during the agreement and for 3 years after it. This doesn't cover information that "
+		"is public, or that the law requires to be shared.",
+		group="Confidentiality",
+		sort_order=1,
+	),
+	item(
+		CLAUSE,
+		"Personal data",
+		"TBO handles personal data in the Client's system only to deliver this project and as the "
+		"Client instructs.",
+		group="Confidentiality",
+		sort_order=2,
+	),
+	item(
+		CLAUSE,
+		"Notice",
+		"Either party may end this agreement with 30 days' written notice.",
+		group="Termination",
+		sort_order=1,
+	),
+	item(
+		CLAUSE,
+		"Serious breach",
+		"Either party may end it at once if the other seriously breaches it and doesn't put it right "
+		"within 15 days of being told in writing.",
+		group="Termination",
+		sort_order=2,
+	),
+	item(
+		CLAUSE,
+		"Work done",
+		"On termination the Client pays for the work done and the milestones reached until then, and "
+		"TBO hands over the Client's data and the work paid for.",
+		group="Termination",
+		sort_order=3,
+	),
+	item(
+		CLAUSE,
+		"Payments",
+		"Invoices are due within 7 days. Work may pause while a payment is overdue.",
+		group="General",
+		sort_order=1,
+	),
+	item(
+		CLAUSE,
+		"Liability",
+		"Neither party is liable for indirect or consequential loss. TBO's total liability under this "
+		"agreement is limited to the fees paid under it.",
+		group="General",
+		sort_order=2,
+	),
+	item(
+		CLAUSE,
+		"Governing law",
+		"This agreement is governed by the laws of India; the courts of Kochi, Kerala have jurisdiction.",
+		group="General",
+		sort_order=3,
+	),
+	item(
+		CLAUSE,
+		"The whole agreement",
+		"This agreement, with the accepted proposal and quotation it names, is the whole agreement "
+		"between the parties. Changes are valid only in writing.",
+		group="General",
+		sort_order=4,
+	),
+)

@@ -19,6 +19,7 @@ from tbo_smart.api.mobile.capabilities import CRM_ROLES, get_capabilities
 from tbo_smart.api.mobile.crm import check_assignee, get_crm_users
 from tbo_smart.api.mobile.utils import get_full_names
 from tbo_smart.lead_pipeline import rate_card, require_quotations, setting
+from tbo_smart.lead_pipeline.client_documents import chain as document_chain
 from tbo_smart.lead_pipeline.dashboard import people, scope_owners
 from tbo_smart.lead_pipeline.meetings import DOCTYPE as MEETING
 from tbo_smart.lead_pipeline.overview import LeadOverview, SalesActivity, period_range
@@ -449,6 +450,7 @@ def lead_payload(name: str) -> dict:
 		"timeline": timeline(name, quotations, proposals),
 		"quotations": [{key: row.get(key) for key in QUOTATION_FIELDS} for row in quotations],
 		"proposals": proposals,
+		"documents": document_chain(name) if proposals_enabled() else None,
 		"allowed_stages": [stage for stage in STATUS_NAMES if stage != lead.tbo_stage]
 		if lead.can_write
 		else [],

@@ -381,11 +381,16 @@ def suggest_timeline(doc) -> str | None:
 	return next((row.title for row in options if flt(row.weeks) >= needed), options[-1].title)
 
 
-def project_timeline(doc) -> str:
-	"""The picked timeline template's phases ("phase | days"), drawn as a bar on the page."""
+def chosen_timeline(doc):
+	"""The timeline template the proposal picked (else the suggested one), or None."""
 	answers = scoping_answers(doc.scoping, doc.solution_type)
 	options = {row.title: row for row in timeline_templates()}
-	chosen = options.get(answers["timeline_template"] or "") or options.get(suggest_timeline(doc) or "")
+	return options.get(answers["timeline_template"] or "") or options.get(suggest_timeline(doc) or "")
+
+
+def project_timeline(doc) -> str:
+	"""The picked timeline template's phases ("phase | days"), drawn as a bar on the page."""
+	chosen = chosen_timeline(doc)
 	if not chosen:
 		return ""
 	rows = milestone_rows(chosen.body)
@@ -1190,7 +1195,9 @@ def apply_edit(doc, ops: dict) -> list[str]:
 def rebuilt_body(doc, row) -> str | None:
 	"""A section's text rebuilt from the data; the Proposed Solution keeps the AI's benefits
 	under the rebuilt component table (None: the section isn't built from data)."""
-	text = build_section(doc, row.section_type)
+	from tbo_smart.lead_pipeline import document_types
+
+	text = document_types.build_section(doc, row.section_type)
 	if text is None or row.section_type != "Proposed Solution":
 		return text
 	marker = f"## {_('Business benefits')}"

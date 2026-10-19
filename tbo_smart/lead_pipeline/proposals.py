@@ -1,8 +1,11 @@
-"""Proposals to a lead (docs/proposals.md).
+"""Proposals to a lead (docs/proposals.md) and the client documents after them
+(docs/client-documents.md).
 
 A proposal (TBO Proposal) is a lead's document in ordered blocks (cover, about us, challenge,
 solution, scope, timeline, pricing, terms, custom), started from a template (TBO Proposal
 Template) and optionally drafted by the AI from the lead, its notes and its meetings' minutes.
+The quotation and the project agreement after it are TBO Proposals of their own type
+(document_types.py): the same blocks, page, PDF, sending, views, accept / sign and revisions.
 Its pricing is the lead's own ERPNext Quotation (lead_quotation.save_quotation), so the price
 lives in one place and the segment band and discount approval apply. The client reads it at
 `/proposal/<token>` (www/proposal.py) and accepts or declines there; acceptance moves the
@@ -21,6 +24,7 @@ from frappe import _
 from frappe.utils import add_days, cint, escape_html, flt, get_url, getdate, now_datetime, today
 
 from tbo_smart import ai
+from tbo_smart.lead_pipeline import document_types as kinds
 from tbo_smart.lead_pipeline import proposal_builder as builder
 from tbo_smart.lead_pipeline import proposal_media as media
 from tbo_smart.lead_pipeline import quotations as q
@@ -40,53 +44,11 @@ DRAFT, SENT, VIEWED, ACCEPTED, DECLINED, EXPIRED = (
 	"Expired",
 )
 WITH_CLIENT = (SENT, VIEWED)
-# The Universal IT Proposal (docs/proposals.md §2): 23 sections in three parts, each with its
-# default heading. A template is a preset on top of it: which sections are on, the default modules
-# and the scoping questions.
-MASTER_SECTIONS = (
-	("Cover", "Cover"),
-	("Executive Summary", "Executive Summary"),
-	("Company Overview", "Company Overview"),
-	("Client Background", "Client Background & Business Understanding"),
-	("Business Challenges", "Business Challenges"),
-	("Proposed Solution", "Proposed Solution"),
-	("Scope of Work", "Scope of Work"),
-	("Modules & Features", "Functional Modules & Features"),
-	("Proposed Workflow", "Proposed Workflow"),
-	("Technical Architecture", "Technical Architecture"),
-	("Deliverables", "Project Deliverables"),
-	("Implementation Plan", "Implementation Plan"),
-	("Project Timeline", "Project Timeline"),
-	("Project Team", "Project Team & Responsibilities"),
-	("Investment", "Investment"),
-	("Payment Terms", "Payment Terms"),
-	("Warranty & Support", "Warranty & Post-Implementation Support"),
-	("AMC", "Annual Maintenance Contract (AMC)"),
-	("Assumptions", "Assumptions & Dependencies"),
-	("Out of Scope", "Out of Scope"),
-	("Risks & Mitigation", "Risks & Mitigation"),
-	("Terms & Conditions", "Terms & Conditions"),
-	("Acceptance", "Acceptance & Approval"),
-)
-PART_STARTS = {
-	"Executive Summary": "Part A — Business Proposal",
-	"Scope of Work": "Part B — Technical & Implementation Proposal",
-	"Investment": "Part C — Commercial Proposal",
-}
-SECTION_TYPES = (*(kind for kind, _heading in MASTER_SECTIONS), "Image", "Custom")
-
-
-def parts_of() -> dict:
-	"""{section type: its part}: each master section belongs to the part it falls in."""
-	part, found = None, {}
-	for kind, _heading in MASTER_SECTIONS:
-		part = PART_STARTS.get(kind, part)
-		found[kind] = part
-	return found
-
-
-PART_OF = parts_of()
-DEFAULT_HEADINGS = dict(MASTER_SECTIONS)
+# the Universal IT Proposal's 23 sections in three parts (docs/proposals.md §2)
+MASTER_SECTIONS = kinds.MASTER_SECTIONS
+PART_STARTS = kinds.PART_STARTS
+SECTION_TYPES = kinds.PROPOSAL_TYPE.section_types
+DEFAULT_HEADINGS = kinds.PROPOSAL_TYPE.headings
 # the v1.0 block types, and what each became (patches.v1.proposal_master_sections)
 OLD_TYPES = {
 	"About us": "Company Overview",
@@ -117,10 +79,13 @@ TRACKING_FIELDS = (
 	"decided_on",
 	"decided_by_name",
 	"decided_by_email",
+	"decided_by_designation",
 	"decline_reason",
 )
 # a new proposal's workflow fields, whatever a caller sent (Proposal.check_locked_fields)
 NEW_PROPOSAL = {
+	"document_type": kinds.PROPOSAL,
+	"source_document": None,
 	"status": DRAFT,
 	"quotation": None,
 	"proposal_family": None,
@@ -131,6 +96,8 @@ NEW_PROPOSAL = {
 }
 # set only by this module's workflow (Proposal.check_locked_fields)
 LOCKED_FIELDS = (
+	"document_type",
+	"source_document",
 	"status",
 	"quotation",
 	"proposal_family",
@@ -179,7 +146,12 @@ class Proposal:
 		self.check_locked_fields()
 
 	def before_insert(self):
+		# before naming, so a caller can't name it as another type of document
+		self.check_locked_fields()
 		self.set_token()
+
+	def autoname(self):
+		self.name_by_type()
 
 	def after_insert(self):
 		self.start_family()
@@ -242,6 +214,14 @@ class Proposal:
 					_(before.status)
 				)
 			)
+
+	def name_by_type(self):
+		"""PROP-2026-00001 for a proposal (the doctype's own rule), WO-2026-00001 for a work order…"""
+		prefix = kinds.of(self).prefix
+		if prefix != kinds.PROPOSAL_TYPE.prefix:
+			from frappe.model.naming import make_autoname
+
+			self.name = make_autoname(f"{prefix}-.YYYY.-.#####", self.doctype)
 
 	def set_token(self):
 		"""The client's link: unguessable, and new for every revision."""
@@ -401,9 +381,11 @@ def save_template(values: dict) -> str:
 	return doc.name
 
 
-def section_row(row, with_guidance: bool = False) -> dict:
-	if not isinstance(row, dict) or row.get("section_type") not in SECTION_TYPES:
-		frappe.throw(_("Each block is one of: {0}.").format(", ".join(SECTION_TYPES)))
+def section_row(row, with_guidance: bool = False, allowed: tuple = SECTION_TYPES) -> dict:
+	"""A block from the hub or a template, checked against the section types `allowed` (a
+	proposal's by default)."""
+	if not isinstance(row, dict) or row.get("section_type") not in allowed:
+		frappe.throw(_("Each block is one of: {0}.").format(", ".join(allowed)))
 	values = {
 		"section_type": row["section_type"],
 		"enabled": cint(row.get("enabled", 1)),
@@ -618,10 +600,13 @@ def save_content(doc, data: dict) -> None:
 		if valid_till and getdate(valid_till) < getdate(today()):
 			frappe.throw(_("Valid till can't be in the past."))
 		doc.valid_till = valid_till
+	if "start_date" in data:
+		doc.start_date = data.get("start_date") or None
 	if "sections" in data:
 		if not isinstance(data["sections"], list):
 			frappe.throw(_("sections must be a list of blocks."))
-		rows = [section_row(row) for row in data["sections"]]
+		allowed = kinds.of(doc).section_types
+		rows = [section_row(row, allowed=allowed) for row in data["sections"]]
 		mark_edits(doc.sections, rows)
 		doc.set("sections", rows)
 	doc.save()
@@ -660,12 +645,12 @@ def rebuild_section(doc, index: int, force: bool = False) -> dict:
 			),
 		}
 	warnings = []
-	if row.section_type in builder.AI_SECTIONS:
+	if row.section_type in kinds.of(doc).ai_sections:
 		if not ai_enabled():
 			frappe.throw(_("AI proposal drafts are not switched on."))
 		warnings = builder.write_sections(doc, [row.section_type], "Proposal section")
 	else:
-		text = builder.build_section(doc, row.section_type)
+		text = kinds.build_section(doc, row.section_type)
 		if text is None:
 			frappe.throw(
 				_("{0} isn't built from the libraries; edit it by hand.").format(_(row.section_type))
@@ -690,18 +675,19 @@ def regenerate_all(doc, force: bool = False) -> dict:
 			row.body = text or None
 			row.edited = 0
 	warnings = []
-	if ai_enabled():
-		kinds = [
+	ai_sections = kinds.of(doc).ai_sections
+	if ai_sections and ai_enabled():
+		written = [
 			row.section_type
 			for row in doc.sections
-			if row.section_type in builder.AI_SECTIONS and (force or not cint(row.edited))
+			if row.section_type in ai_sections and (force or not cint(row.edited))
 		]
 		try:
-			warnings = builder.write_sections(doc, kinds, whole=True)
+			warnings = builder.write_sections(doc, written, whole=True)
 		except ai.AIProviderError as e:
 			warnings = [_("The AI couldn't write the narrative ({0}).").format(e.summary)]
 		for row in doc.sections:
-			if row.section_type in kinds:
+			if row.section_type in written:
 				row.edited = 0
 	doc.save()
 	return {"warnings": warnings, "kept": kept}
@@ -712,6 +698,8 @@ def edit_by_chat(doc, message: str) -> dict:
 	one small call into structured changes, applied (never a rewrite of the proposal) and kept in
 	the transcript. Returns {reply, changes, warnings}."""
 	require_draft(doc)
+	if kinds.of(doc).name != kinds.PROPOSAL:
+		frappe.throw(_("Edit this document's sections directly."))
 	if not ai_enabled():
 		frappe.throw(_("AI proposal drafts are not switched on. Edit the form instead."))
 	changes = builder.apply_edit(doc, builder.parse_edit(doc, message))
@@ -733,8 +721,15 @@ def edit_by_chat(doc, message: str) -> dict:
 
 def price_from_modules(doc) -> None:
 	"""The quotation's lines from the modules and the customisation days (builder.pricing_values),
-	through the quotation builder, so the band and the approvals apply."""
-	save_pricing(doc, builder.pricing_values(doc))
+	through the quotation builder, so the band and the approvals apply. A quotation document's new
+	ERPNext Quotation starts with the default taxes, terms, payment terms and validity."""
+	values = builder.pricing_values(doc)
+	if not doc.quotation and kinds.of(doc).name == kinds.QUOTATION:
+		from tbo_smart.api.lead_quotation import new_quotation_defaults
+		from tbo_smart.finance import get_default_company
+
+		values = {**new_quotation_defaults(get_default_company()), **values}
+	save_pricing(doc, values)
 
 
 def save_pricing(doc, values: dict) -> None:
@@ -744,6 +739,7 @@ def save_pricing(doc, values: dict) -> None:
 	from tbo_smart.api import lead_quotation
 
 	require_draft(doc)
+	require_priced(doc)
 	quotation = doc.quotation if doc.quotation and frappe.db.exists("Quotation", doc.quotation) else None
 	if quotation and frappe.db.get_value("Quotation", quotation, "docstatus") != 0:
 		quotation = q.create_revision(frappe.get_doc("Quotation", quotation)).name
@@ -752,6 +748,15 @@ def save_pricing(doc, values: dict) -> None:
 		doc.quotation = saved["name"]
 		doc.flags.proposal_workflow = True
 		doc.save()
+
+
+def require_priced(doc) -> None:
+	"""Only a proposal or a quotation is priced here; the documents after them show the price the
+	client accepted."""
+	if not kinds.of(doc).priced:
+		frappe.throw(
+			_("This document shows the price the client accepted. Change it through a new quotation.")
+		)
 
 
 def create_revision(doc):
@@ -825,7 +830,14 @@ def send_blockers(doc, by_email: bool = True) -> list[str]:
 		reasons.append(_("Its validity has passed. Set a new valid till date."))
 	if by_email and not has_outgoing_email():
 		reasons.append(_("The ERP site has no outgoing email account yet. Ask an admin to set one up."))
+	spec = kinds.of(doc)
+	if spec.signature and not doc.get("start_date"):
+		reasons.append(_("Set the project's start date: the timeline's dates follow from it."))
+	if spec.shows_price:
+		return reasons + accepted_price_blockers(doc)
 	if not doc.quotation:
+		if spec.name == kinds.QUOTATION:
+			reasons.append(_("Price the quotation first."))
 		return reasons
 	quotation = frappe.get_doc("Quotation", doc.quotation)
 	if quotation.docstatus == 2 or quotation.get("tbo_quote_status") in q.CLOSED:
@@ -853,6 +865,15 @@ def send_blockers(doc, by_email: bool = True) -> list[str]:
 				).format(_(kind).lower(), percent, format_limit(limit))
 			)
 	return reasons
+
+
+def accepted_price_blockers(doc) -> list[str]:
+	"""A document after the quotation shows the price the client accepted: it needs that quotation,
+	still accepted."""
+	status = frappe.db.get_value("Quotation", doc.quotation, "tbo_quote_status") if doc.quotation else None
+	if status == q.ACCEPTED:
+		return []
+	return [_("It needs the client's accepted quotation. Make a new quotation and have it accepted first.")]
 
 
 def has_outgoing_email() -> bool:
@@ -894,12 +915,8 @@ def refuse_while_blocked(doc, by_email: bool = True) -> None:
 def release(doc, via: str, to: str | None) -> None:
 	"""The proposal goes to the client: its quotation goes out with it (or the lead moves to
 	Proposal Sent), it becomes Sent, and the uploads it doesn't show are deleted."""
-	if doc.quotation:
-		quotation = frappe.get_doc("Quotation", doc.quotation)
-		if quotation.get("tbo_quote_status") not in q.WITH_CLIENT:
-			q.mark_sent(quotation, via)
-	else:
-		advance_lead(doc.lead, PROPOSAL_SENT, _("proposal {0} sent").format(doc.name))
+	if kinds.of(doc).priced:
+		send_price(doc, via)
 	if doc.status == DRAFT:
 		doc.status = SENT
 	doc.sent_on = now_datetime()
@@ -910,25 +927,29 @@ def release(doc, via: str, to: str | None) -> None:
 	media.drop_unused_images(doc)
 
 
+def send_price(doc, via: str) -> None:
+	"""A priced document's quotation goes out with it; a proposal without one moves the lead."""
+	if doc.quotation:
+		quotation = frappe.get_doc("Quotation", doc.quotation)
+		if quotation.get("tbo_quote_status") not in q.WITH_CLIENT:
+			q.mark_sent(quotation, via)
+	else:
+		advance_lead(doc.lead, PROPOSAL_SENT, _("proposal {0} sent").format(doc.name))
+
+
 def email(doc, lead, to: str, message: str | None, attach_pdf: bool) -> None:
 	from frappe.core.doctype.communication.email import make
 
 	company = frappe.db.get_value("Company", frappe.defaults.get_global_default("company"), "company_name")
+	said = kinds.words(kinds.of(doc).name)
 	greeting = _("Dear {0},").format(lead.lead_name or lead.company_name)
-	text = (message or "").strip() or "\n\n".join(
-		[
-			greeting,
-			_(
-				"Thank you for your time. Our proposal is ready for you to read, and you can accept it on the same page."
-			),
-		]
-	)
+	text = (message or "").strip() or "\n\n".join([greeting, said["email_intro"]])
 	paragraphs = "".join(
 		f"<p>{escape_html(part).replace(chr(10), '<br>')}</p>" for part in text.split("\n\n")
 	)
 	link = public_url(doc)
 	content = (
-		f"{paragraphs}<p><a href=\"{link}\">{escape_html(_('Read the proposal: {0}').format(doc.title))}</a></p>"
+		f"{paragraphs}<p><a href=\"{link}\">{escape_html(said['read_link'].format(doc.title))}</a></p>"
 		f"<p>{escape_html(link)}</p>"
 	)
 	attachments = [{"fname": f"{doc.name}.pdf", "fcontent": render_pdf(doc)}] if attach_pdf else None
@@ -936,7 +957,7 @@ def email(doc, lead, to: str, message: str | None, attach_pdf: bool) -> None:
 		doctype="Lead",
 		name=doc.lead,
 		recipients=to,
-		subject=_("{0}: our proposal").format(company or doc.title) if company else doc.title,
+		subject=said["subject"].format(company) if company else doc.title,
 		content=content,
 		send_email=1,
 		attachments=attachments,
@@ -989,16 +1010,25 @@ def record_view(doc) -> None:
 	if not first:
 		return
 	with as_system():
-		quotation = quotation_with_client(doc)
+		quotation = quotation_with_client(doc) if kinds.of(doc).priced else None
 		if quotation and quotation.tbo_quote_status == q.SENT:
 			q.set_status(quotation, q.VIEWED, _("opened proposal {0}").format(doc.name))
-		tell_owner(doc, _("{0} opened the proposal {1}").format(client_name(doc), doc.title))
+		noun = kinds.words(kinds.of(doc).name)["noun"]
+		tell_owner(doc, _("{0} opened the {1} {2}").format(client_name(doc), noun, doc.title))
 
 
-def decide(doc, accept: bool, name: str | None, email_address: str | None, reason: str | None = None) -> None:
-	"""The client accepts or declines. Once decided it stays so: the same answer again changes
-	nothing, the other one is refused. Accepting moves the quotation to Accepted (the lead to
-	Closed – Won, which makes its deal) or, without a quotation, the lead itself."""
+def decide(
+	doc,
+	accept: bool,
+	name: str | None,
+	email_address: str | None,
+	reason: str | None = None,
+	designation: str | None = None,
+) -> None:
+	"""The client accepts (signs) or declines. Once decided it stays so: the same answer again
+	changes nothing, the other one is refused. Accepting a priced document moves its quotation to
+	Accepted (the lead to Closed – Won, which makes its deal) or, without a quotation, the lead
+	itself; a document signed with a designation (the agreement) needs it."""
 	target = ACCEPTED if accept else DECLINED
 	# read under the row lock: a revision or another answer at the same moment is seen
 	locked = frappe.db.get_value(
@@ -1014,13 +1044,17 @@ def decide(doc, accept: bool, name: str | None, email_address: str | None, reaso
 		frappe.throw(_("This proposal can't be answered any more. Ask us for the latest one."))
 	if locked.valid_till and getdate(locked.valid_till) < getdate(today()):
 		frappe.throw(_("This proposal has expired. Ask us for a new one."))
-	if price_unavailable(doc):
+	spec = kinds.of(doc)
+	if spec.priced and price_unavailable(doc):
 		# its price has expired or was withdrawn: there is nothing left to accept or decline
 		frappe.throw(_("The price in this proposal is no longer valid. Ask us for a new one."))
 	name = clean(name, MAX_HEADING)
 	email_address = clean(email_address, MAX_HEADING)
+	designation = clean(designation, MAX_HEADING)
 	if accept and not (name and email_address):
 		frappe.throw(_("Type your name and email to accept."))
+	if accept and spec.signature and not designation:
+		frappe.throw(_("Type your designation to sign."))
 	if email_address:
 		frappe.utils.validate_email_address(email_address, throw=True)
 	values = {
@@ -1028,18 +1062,23 @@ def decide(doc, accept: bool, name: str | None, email_address: str | None, reaso
 		"decided_on": now_datetime(),
 		"decided_by_name": name or None,
 		"decided_by_email": email_address or None,
+		"decided_by_designation": (designation or None) if accept else None,
 		"decline_reason": None if accept else (clean(reason, MAX_REASON) or None),
 	}
 	frappe.db.set_value(DOCTYPE, doc.name, values)
 	doc.update(values)
 	with as_system():
-		move_pipeline(doc, accept)
+		if spec.priced:
+			move_pipeline(doc, accept)
 		who = name or email_address or client_name(doc)
+		noun = kinds.words(spec.name)["noun"]
 		tell_owner(
 			doc,
-			(_("{0} accepted the proposal {1}") if accept else _("{0} declined the proposal {1}")).format(
-				who, doc.title
-			),
+			(
+				(_("{0} signed the {1} {2}") if spec.signature else _("{0} accepted the {1} {2}"))
+				if accept
+				else _("{0} declined the {1} {2}")
+			).format(who, noun, doc.title),
 		)
 
 
@@ -1132,9 +1171,10 @@ def page_context(doc, preview: bool = False, pdf: bool = False) -> dict:
 		)
 		or frappe._dict()
 	)
+	spec = kinds.of(doc)
 	expired = bool(doc.valid_till and getdate(doc.valid_till) < getdate(today()))
 	pricing = pricing_table(doc.quotation) if doc.quotation else None
-	price_gone = doc.status in WITH_CLIENT and price_unavailable(doc)
+	price_gone = spec.priced and doc.status in WITH_CLIENT and price_unavailable(doc)
 	blocks = numbered_blocks(doc, pricing, pdf)
 	letter_head = media.letter_head_context(doc, pdf)
 	logo = get_url(company.company_logo) if (company.company_logo or "").startswith("/files/") else None
@@ -1146,11 +1186,15 @@ def page_context(doc, preview: bool = False, pdf: bool = False) -> dict:
 		"company": company.company_name,
 		"logo": logo,
 		"share": share_card(doc, company.company_name, logo, letter_head),
+		"words": kinds.words(spec.name),
+		"signature": spec.signature,
 		"valid_till": frappe.utils.formatdate(doc.valid_till, "d MMMM yyyy") if doc.valid_till else None,
 		"revision": cint(doc.revision_no),
 		"cover": {
 			"shown": bool(cover),
-			"solution": doc.get("solution_type"),
+			"solution": doc.get("solution_type")
+			if spec.name == kinds.PROPOSAL
+			else kinds.words(spec.name)["kicker"],
 			"tagline": text_parts(cover.body) if cover else [],
 			"image": media.image_payload(doc, cover, pdf) if cover else None,
 			"prepared_by": frappe.utils.get_fullname(doc.prepared_by) if doc.get("prepared_by") else None,
@@ -1158,7 +1202,7 @@ def page_context(doc, preview: bool = False, pdf: bool = False) -> dict:
 			"reference": doc.name,
 			"version": cint(doc.revision_no) + 1,
 		},
-		"toc": table_of_contents(blocks),
+		"toc": table_of_contents(blocks) if spec.contents else [],
 		"status": doc.status,
 		"preview": preview,
 		"superseded": not cint(doc.is_latest),
@@ -1179,6 +1223,7 @@ def page_context(doc, preview: bool = False, pdf: bool = False) -> dict:
 		"acceptance": {
 			"client": client_name(doc),
 			"name": doc.decided_by_name,
+			"designation": doc.get("decided_by_designation") if doc.status == ACCEPTED else None,
 			"email": masked_email(doc.decided_by_email) if doc.status == ACCEPTED else None,
 			"date": frappe.utils.formatdate(doc.decided_on, "d MMMM yyyy")
 			if doc.status == ACCEPTED and doc.decided_on
@@ -1206,7 +1251,7 @@ def share_card(doc, company: str | None, logo: str | None, letter_head: dict | N
 	return {
 		"brand": brand,
 		"title": f"{doc.title} · {brand}",
-		"description": _("Proposal for {0} from {1}").format(client_name(doc), brand),
+		"description": kinds.words(kinds.of(doc).name)["for"].format(client_name(doc), brand),
 		"icon": icon,
 		"touch_icon": logo or get_url(f"{BUNDLED_ICON}.png"),
 		"image": header.get("image")
@@ -1227,6 +1272,7 @@ def numbered_blocks(doc, pricing, pdf: bool) -> list[dict]:
 	numbered 1, 2, … after the cover, their subheadings 1.1, 1.2, …, each part's title before its
 	first section."""
 	blocks, number, part = [], 0, None
+	part_of = kinds.of(doc).part_of
 	for row in doc.sections:
 		if not cint(row.enabled) or row.section_type == "Cover":
 			continue
@@ -1235,7 +1281,7 @@ def numbered_blocks(doc, pricing, pdf: bool) -> list[dict]:
 		if not (block["parts"] or block["image"] or always):
 			continue
 		# a custom or image block stays in the part it is placed in
-		new_part = PART_OF.get(row.section_type) or part
+		new_part = part_of.get(row.section_type) or part
 		block["part"] = _(new_part) if new_part and new_part != part else None
 		part = new_part or part
 		if not block["heading_hidden"]:
@@ -1266,7 +1312,7 @@ def page_block(doc, row, pdf: bool, pricing: dict | None = None) -> dict:
 	parts = text_parts(row.body) if row.section_type != "Image" else []
 	block = {
 		"type": row.section_type,
-		"heading": row.heading or _(DEFAULT_HEADINGS.get(row.section_type, row.section_type)),
+		"heading": row.heading or _(kinds.of(doc).headings.get(row.section_type, row.section_type)),
 		# an Image block without a heading of its own names itself for screen readers only
 		"heading_hidden": row.section_type == "Image" and not row.heading,
 		"parts": parts,
@@ -1306,7 +1352,8 @@ def timeline(parts: list[dict]) -> dict | None:
 			}
 		)
 		start += weeks
-	found["hidden"] = True
+	# a dated timeline (the agreement's) keeps its table under the bars: the dates are in it
+	found["hidden"] = len(found["header"]) <= 2
 	# the unit is the table's own ("days" in the timeline templates, "weeks" in older proposals)
 	return {"bars": bars, "total": f"{total:g}", "unit": found["header"][1]}
 
@@ -1500,12 +1547,14 @@ def on_ivory(pdf: bytes) -> bytes:
 
 
 def lead_proposals(lead: str) -> list[dict]:
-	"""The lead's proposals, newest first, for the lead page."""
+	"""The lead's proposals and the documents after them, newest first, for the lead page."""
 	return frappe.get_all(
 		DOCTYPE,
 		filters={"lead": lead},
 		fields=[
 			"name",
+			"document_type",
+			"source_document",
 			"title",
 			"status",
 			"revision_no",

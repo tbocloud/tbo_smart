@@ -119,6 +119,10 @@
   "proposal_service_item",
   "proposal_day_rate",
   "proposal_ai_daily_limit",
+  "client_documents_section",
+  "enable_quotation_documents",
+  "column_break_client_documents",
+  "enable_work_orders",
   "telephony_section",
   "enable_telephony",
   "myoperator_company_id",
@@ -900,6 +904,32 @@
    "description": "At most this many AI writes (a whole draft or one section) a day, so cost stays capped."
   },
   {
+   "fieldname": "client_documents_section",
+   "fieldtype": "Section Break",
+   "label": "Client documents after the proposal",
+   "depends_on": "eval:doc.enable_proposals",
+   "description": "Each is made in the hub from the accepted one before it, shared, sent and accepted or signed like a proposal (docs/client-documents.md)."
+  },
+  {
+   "fieldname": "enable_quotation_documents",
+   "fieldtype": "Check",
+   "label": "Quotations",
+   "default": "0",
+   "description": "After an accepted proposal: the detailed quotation, priced by an ERPNext Quotation with taxes, terms and validity, and the discount approval."
+  },
+  {
+   "fieldname": "column_break_client_documents",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "enable_work_orders",
+   "fieldtype": "Check",
+   "label": "Project agreements (work orders)",
+   "default": "0",
+   "depends_on": "eval:doc.enable_quotation_documents",
+   "description": "After an accepted quotation: the agreement both sides sign, with the scope, the dated timeline, the price, the payment milestones and the clauses."
+  },
+  {
    "fieldname": "telephony_section",
    "fieldtype": "Section Break",
    "label": "Telephony (MyOperator)",
@@ -1114,7 +1144,7 @@
  "index_web_pages_for_search": 0,
  "issingle": 1,
  "links": [],
- "modified": "2026-10-19 22:30:00.000000",
+ "modified": "2026-10-20 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Smart Settings",

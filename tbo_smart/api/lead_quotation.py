@@ -109,7 +109,6 @@ def get_quotation_form(lead: str, quotation: str | None = None, meeting: str | N
 		doc = get_lead_quotation(quotation, lead, "read")
 		return {**form_choices(doc.company), **priced, **serialize(doc)}
 	company = get_default_company() or frappe.defaults.get_user_default("Company")
-	terms = q.setting("quotation_terms")
 	lead_doc = frappe.db.get_value("Lead", lead, ["lead_name", "company_name"], as_dict=True)
 	return {
 		**form_choices(company),
@@ -122,6 +121,21 @@ def get_quotation_form(lead: str, quotation: str | None = None, meeting: str | N
 			"label": lead_doc.company_name or lead_doc.lead_name,
 		},
 		"currency": frappe.get_cached_value("Company", company, "default_currency") if company else None,
+		**new_quotation_defaults(company),
+		"additional_discount_percentage": 0,
+		"commission": 0,
+		"meeting": meeting
+		if meeting and frappe.db.exists("TBO Lead Meeting", {"name": meeting, "lead": lead})
+		else None,
+		"items": [],
+	}
+
+
+def new_quotation_defaults(company: str | None) -> dict:
+	"""What a new lead quotation starts with: the validity, the company's default tax template, and
+	the payment terms and terms set in TBO Smart Settings."""
+	terms = q.setting("quotation_terms")
+	return {
 		"valid_till": add_days(today(), q.validity_days()),
 		"taxes_and_charges": (get_default_taxes_and_charges(TAX_TEMPLATE, company=company) or {}).get(
 			"taxes_and_charges"
@@ -131,12 +145,6 @@ def get_quotation_form(lead: str, quotation: str | None = None, meeting: str | N
 		"payment_terms_template": q.setting("quotation_payment_terms"),
 		"tc_name": terms,
 		"terms": frappe.db.get_value("Terms and Conditions", terms, "terms") if terms else None,
-		"additional_discount_percentage": 0,
-		"commission": 0,
-		"meeting": meeting
-		if meeting and frappe.db.exists("TBO Lead Meeting", {"name": meeting, "lead": lead})
-		else None,
-		"items": [],
 	}
 
 
