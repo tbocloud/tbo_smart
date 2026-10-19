@@ -525,6 +525,8 @@ def create_revision(doc):
 	"""A new draft copied from this proposal with the next revision number in its family; it
 	becomes the latest and gets its own link. The earlier ones stay as they were."""
 	family = doc.proposal_family or doc.name
+	# the family's first proposal's row lock: two revisions at once take the next numbers in turn
+	frappe.db.get_value(DOCTYPE, family, "name", for_update=True)
 	members = frappe.get_all(DOCTYPE, filters={"proposal_family": family}, fields=["name", "revision_no"])
 	revision = frappe.copy_doc(doc)
 	revision.update(
