@@ -165,6 +165,7 @@ class TestLeadOverview(FrappeTestCase):
 		self.assertEqual(listed("stale"), {self.stale})
 		self.assertEqual(listed("overdue"), {self.new})
 		self.assertEqual(listed("hot"), {self.hot})
+		self.assertEqual(listed("open"), {self.new, self.hot, self.stale, self.revived})
 		self.assertEqual(listed("meetings"), {self.hot})
 		self.assertEqual(listed("quotations"), {self.hot})
 		self.assertIn(self.revived, listed("contacted"))

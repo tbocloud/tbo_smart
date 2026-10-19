@@ -40,7 +40,7 @@ from tbo_smart.sales.activities import DONE, OPEN
 from tbo_smart.smart_leads.migration import NOTE_TITLE_PREFIX
 
 PERIODS = ("week", "month", "quarter", "custom")
-METRICS = ("new", "contacted", "meetings", "quotations", "won", "lost", "stale", "overdue", "hot")
+METRICS = ("new", "contacted", "meetings", "quotations", "won", "lost", "stale", "overdue", "hot", "open")
 DEFAULT_STALE_DAYS = 21
 # the funnel's steps: how far along the pipeline a lead created in the range got
 FUNNEL = (
@@ -142,6 +142,8 @@ class LeadOverview(PipelineDashboard):
 			return list(self.stale_leads())
 		if metric == "overdue":
 			return self.overdue_leads()
+		if metric == "open":
+			return self.open_leads()
 		return self.hot_leads()
 
 	# ---------- leads ----------
@@ -237,6 +239,14 @@ class LeadOverview(PipelineDashboard):
 			).run(pluck=True)
 		)
 		return old_open - set(self.touched(self.stale_cutoff)) if old_open else set()
+
+	def open_leads(self) -> list[str]:
+		Lead = self.Lead
+		return (
+			frappe.qb.from_(Lead)
+			.select(Lead.name)
+			.where(self.lead_criterion() & Lead.tbo_stage.isin(OPEN_STATUSES))
+		).run(pluck=True)
 
 	def hot_leads(self) -> list[str]:
 		Lead = self.Lead
