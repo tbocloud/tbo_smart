@@ -1,4 +1,4 @@
-# Smart leads: scoring, Call today, follow-ups and AI notes (living spec, v1.2)
+# Smart leads: scoring, Call today, follow-ups, AI notes and AI runs leads (living spec, v1.3)
 
 **Status:** built 2026-10-15, every feature off by default; since v1.2 on **ERPNext's own Lead**
 instead of Frappe CRM's CRM Lead (`erpnext-lead-cutover.md`). This file is the living spec: it
@@ -26,6 +26,7 @@ lesson of tbo_smart#14).
 | `enable_lead_follow_ups` | Lead follow-ups and escalation | 0 | The rules, the escalation notices and the 09:30 digest |
 | `enable_lead_notes` | AI call notes, lead brief and WhatsApp drafts | 0 | Drafts in the note box, the brief, WhatsApp drafts |
 | `enable_lead_triage` | AI triage of stale leads | 0 | The Triage tab (Sales Manager / System Manager) |
+| `enable_ai_leads` | **AI runs leads** (the master switch) | 0 | The AI reads every open lead on change, plans its next step, suggests stages, drafts messages, the daily plan and the gone-quiet nudges (§11) |
 
 Numbers: `call_today_size` (12, 5-30), `ai_daily_lead_limit` (200), `lead_stale_days` (21),
 `lead_ladder_l1_days` / `_l2_` / `_l3_` (2 / 4 / 7, must go up), `lead_manager_role`
@@ -99,6 +100,9 @@ check); Call today size 5-30; the ladder days go up; no negative numbers; triage
 | `tbo_scored_at` | Datetime, hidden | When it was last written |
 | `tbo_ai_adjust`, `tbo_ai_reason`, `tbo_ai_hash` | hidden | The last AI read and what it read (content hash) |
 | `tbo_ai_brief`, `tbo_ai_brief_hash`, `tbo_ai_brief_at` | hidden | The cached three-line brief |
+| `tbo_ai_insight` (JSON), `tbo_ai_insight_hash`, `tbo_ai_insight_at` | hidden | AI runs leads: the AI's last read of the lead and what it read (§11) |
+| `tbo_ai_sentiment` (Positive / Neutral / Negative), `tbo_ai_intent` (High / Medium / Low / None), `tbo_ai_next_action`, `tbo_ai_next_due`, `tbo_ai_stage` | hidden | The same read's parts, as fields so lists and counts can use them |
+| `tbo_ai_nudged_on` | hidden | When the owner was last told the lead had gone quiet |
 
 Scores are written with `frappe.db.set_value(..., update_modified=False)`: no Version row, no
 `modified` bump, no `on_update`.
@@ -391,16 +395,103 @@ commit, so test users stay, and the suite creates more than 60 on a fresh site.
    **Create follow-ups**, and close the Suggest close leads you agree with. Repeat on the next
    days until the New leads are done.
 8. Watch the cost in **TBO AI Usage Log** (desk, System Manager).
+9. **AI runs leads** (§11): with a provider tested, switch it on. Each open lead is read when
+   it next changes (and the quiet ones from 09:00 the next day); the hub's lead page shows
+   "AI suggests" and the Leads overview the day's plan. Check `ai_daily_lead_limit` (200 reads
+   a day) against the usage log.
 
 ## 10. Known limits
 
 - The AI adjustment runs only at night; a note added today changes the AI part of the score
-  tomorrow (the base score changes at once).
+  tomorrow (the base score changes at once). With AI runs leads on, a change also asks the AI
+  for that lead's adjustment at once.
+- AI runs leads reads a lead only when it changes, so leads nobody touches are read only by the
+  gone-quiet nudge; the first switch-on doesn't read all open leads at once (cost).
 - No per-person digest time; 09:30 site time for everyone.
 - The pause, failure status and alert keys live in Redis; a cache flush forgets a pause.
 - Teams delivery needs the Power Automate workflow; there is no channel post here.
 
+## 11. AI runs leads (`smart_leads/autopilot.py`)
+
+The owner (2026-10-16): "Leads fully controlled by AI", with people approving anything that goes
+out. It does for a lead what the hub already does for a ticket (tbocloud/helpdesk
+`ai_suggestion.py`, `customer_health.py`, `duplicates.py`): the AI reads and proposes, rules
+judge health, a person acts. One master switch, **AI runs leads** (`enable_ai_leads`, off), and
+a provider (§2). The other switches still decide their own parts (scoring, follow-ups, notes).
+
+### 11.1 What the AI does by itself
+
+| When | What | Written |
+| --- | --- | --- |
+| A lead is created, its stage or owner changes, or a note, a call or logged activity (Event) or an email (Communication) is added (a background job per lead, deduplicated, after commit; not during an import) | With lead scoring on: scores it (`score_leads`, with the AI adjustment when **AI reads notes** is on). Then reads it (`refresh_insight`) | the score; `tbo_ai_*` |
+| The read | **Summary** (two sentences), **sentiment** and **buying intent** from the notes, calls and the three newest emails, up to four **signals** (phrases that show it), the **next best action** (what, why, channel: call / WhatsApp / email / meeting, by when: today to 30 days), a **stage to suggest** (an open stage only, with a reason) and a **message draft** (WhatsApp or email) for the next step | `tbo_ai_insight` and its fields |
+| The lead has no open follow-up | The next action becomes the owner's **Sales follow-up** ("AI: Call to fix the demo", on its day, with the why). A person's own follow-up always wins: nothing is added when one is open | a ToDo |
+| Every read | A line on the lead's timeline **by TBO AI**: "Read the lead: Positive sentiment, High intent. Suggests: … (by 21 Oct 2026). Scheduled it as the follow-up. Suggests moving it to …" | a Comment of type Info, `comment_by` "TBO AI" (not a note: it never counts as a touch and never wakes the AI again) |
+| 09:00 every day (cron, before the 09:30 digest) | **Gone quiet** (`nudge_stale_leads`): open leads with an owner, no follow-up planned and no touch for `lead_stale_days` (never touched: counted from created), best score first, at most 5 per owner a day, each at most once a week: read again (with a re-engagement draft); each owner gets **one** notification ("4 of your leads have gone quiet. AI drafted what to send; check it and press Send.") | `tbo_ai_nudged_on`, Notification Log (also push) |
+| The 09:30 follow-up digest (§5.4) | Each line names the AI's next action: "Anu Textiles: due today; AI suggests: Call to fix the demo" | – |
+
+**Read once per change:** a read is skipped when nothing a person wrote or decided changed and
+no email came in since the last one (`tbo_ai_insight_hash`: the facts' content hash plus the
+emails), for a closed lead, and past the day's cap: at most `ai_daily_lead_limit` (200) reads
+a day (a Redis counter per day). A failed AI call writes nothing and is tried on the next
+change. Feature "Lead insight" in the usage log; "Lead email draft" for email drafts.
+
+**Number guard:** every text the AI writes (summary, signals, the action and its why, the stage
+reason, the message) passes `ai.guarded` against the lead's facts, the emails, today and the
+salesperson's name; a text with an invented number is dropped (a dropped message means no
+draft; a dropped action means no follow-up).
+
+### 11.2 What needs a person
+
+- **Nothing goes to a customer without a person pressing Send.** Drafts are only stored or
+  returned; the hub opens the person's own WhatsApp (`wa.me` with the text) or mail app, and
+  `log_message_sent` records it on the lead as theirs afterwards. No email is sent from here.
+- **Stage moves wait for Apply.** The AI never changes a stage; `apply_ai_stage` moves it as
+  the person (their write permission, their name in the stage log) and clears the suggestion;
+  `dismiss_ai_stage` just clears it. **Won and Lost are never suggested** (the prompt says so
+  and only open stages are kept) and never applied here.
+- Reassigning, closing and quotations stay where they were.
+
+### 11.3 Health and duplicates (no AI)
+
+- **Health** (`lead_health`), like the hub's customer health: **At risk** with any at-risk
+  signal or two watch ones, **Watch** with one, else **Healthy**. Signals: no touch for
+  `lead_stale_days` (at risk) or half of it (watch); no follow-up planned (watch); the
+  follow-up 3+ days overdue (at risk) or overdue (watch); the AI read the customer as
+  unhappy (watch); no phone and no email (at risk). Each with its words.
+- **Duplicates** (`find_duplicates`): up to five other leads the person may see with the same
+  mobile or phone (last ten digits after `normalise_phone`), the same email, or the same
+  company name (four letters or more), each with what matched.
+
+### 11.4 The daily plan
+
+`daily_plan(user)`: the person's Call today list (lead scoring on; why: follow-up overdue,
+due today, best score with nothing planned), else their follow-ups due by today, then up to
+five of their Hot leads not listed yet; each with the AI's next action, its day and the
+intent. The hub shows it on the Leads overview (`get_overview`'s `ai`), with the scope's
+counts of high-intent leads, unhappy customers and stage suggestions waiting for a person.
+
+### 11.5 API (`tbo_smart.api.hub_leads`, `hub-leads-api.md` §2.6)
+
+`get_lead_ai`, `refresh_lead_ai` (POST, write on the lead, once a minute), `apply_ai_stage`
+(POST), `dismiss_ai_stage` (POST), `draft_lead_message` (POST; AI runs leads or AI notes on),
+`log_message_sent` (POST), and `get_overview`'s `ai`.
+
+### 11.6 Tests
+
+`tbo_smart/tests/test_ai_leads.py` (AI mocked at the HTTP level with `mock_ai`; helpers
+`enable_ai_leads`, `ai_lead_insight`, `make_lead_email` in `test_utils.py`): off by default; a
+note makes the AI read the lead, plan a follow-up for the owner and log it as TBO AI; a
+person's own follow-up wins and an unchanged lead isn't read again; Won/Lost suggestions and
+invented numbers dropped; emails read; apply (as the person, stage log) and dismiss; health
+and duplicates within the person's view; drafts never send; the overview's plan; gone-quiet
+nudges once; the digest line; the daily cap.
+
 ## Changelog
+
+- **v1.3 (2026-10-19):** AI runs leads (§11): the master switch, the lead insight on change
+  with the next action as the follow-up, stage suggestions applied by a person, health,
+  duplicates, drafts, the daily plan, gone-quiet nudges, the digest's AI line.
 
 - **v1.2 (2026-10-16):** on ERPNext's Lead (`erpnext-lead-cutover.md`): scores in `tbo_score` /
   `tbo_temperature`, follow-ups ToDos, notes Comments, calls Events, stage changes from the

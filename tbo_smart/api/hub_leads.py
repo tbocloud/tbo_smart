@@ -29,6 +29,7 @@ from tbo_smart.sales import erpnext_installed
 from tbo_smart.sales.activities import (
 	OPEN,
 	add_follow_up_task,
+	add_log,
 	events_of,
 	next_follow_ups,
 	notes_of,
@@ -37,7 +38,14 @@ from tbo_smart.sales.activities import (
 from tbo_smart.sales.activities import add_note as add_comment_note
 from tbo_smart.sales.opportunity import lead_opportunity
 from tbo_smart.sales.stages import set_lead_stage
-from tbo_smart.smart_leads import FOLLOW_UP_TYPE, call_today_size, scoring_enabled
+from tbo_smart.smart_leads import (
+	FOLLOW_UP_TYPE,
+	ai_leads_enabled,
+	autopilot,
+	call_today_size,
+	notes_enabled,
+	scoring_enabled,
+)
 from tbo_smart.smart_leads.call_today import build_call_today
 
 VIEWS = ("all", "mine", "call_today", "follow_up")
@@ -384,7 +392,13 @@ def get_overview(
 			"all" if allowed is None else ("own" if allowed == [frappe.session.user] else "team")
 		)
 		result["people"] = people(allowed)
+		# the AI's part: the plan of the person picked (else the acting user's own)
+		result["ai"] = autopilot.overview_ai(owners_of(owner, allowed), owner or frappe.session.user)
 		return result
+
+
+def owners_of(owner: str | None, allowed: list | None) -> list | None:
+	return [owner] if owner else allowed
 
 
 @frappe.whitelist()
@@ -496,13 +510,114 @@ def timeline(name: str, quotations: list) -> list[dict]:
 				"ref": quotation.name,
 			}
 		)
+	for note in ai_notes(name):
+		items.append(
+			{
+				"kind": "ai",
+				"at": note.creation,
+				"who": None,
+				"text": plain_text(note.content),
+				"ref": note.name,
+			}
+		)
 	names = get_full_names({item["who"] for item in items if item["who"]})
 	for item in items:
-		item["who_name"] = names.get(item["who"]) if item["who"] else None
+		item["who_name"] = (
+			names.get(item["who"]) if item["who"] else (autopilot.AI_AUTHOR if item["kind"] == "ai" else None)
+		)
 	items.sort(
 		key=lambda item: get_datetime(item["at"]) if item["at"] else get_datetime("1900-01-01"), reverse=True
 	)
 	return items
+
+
+def ai_notes(name: str) -> list:
+	"""What the AI did on the lead (autopilot.log_on_timeline), newest first."""
+	return frappe.get_all(
+		"Comment",
+		filters={
+			"reference_doctype": "Lead",
+			"reference_name": name,
+			"comment_type": "Info",
+			"comment_by": autopilot.AI_AUTHOR,
+		},
+		fields=["name", "content", "creation"],
+		order_by="creation desc",
+	)
+
+
+# ---------- AI runs leads (docs/smart-leads.md §11) ----------
+
+
+def require_ai_leads() -> None:
+	if not ai_leads_enabled():
+		frappe.throw(_("AI runs leads is switched off in TBO Smart Settings."))
+
+
+@frappe.whitelist()
+def get_lead_ai(name: str, acting_user: str | None = None) -> dict:
+	"""The lead's "AI suggests": summary, sentiment, intent, next best action, a stage to
+	suggest and a drafted message (the stored insight), its health and likely duplicates."""
+	with acting_as(acting_user):
+		return autopilot.lead_ai(name)
+
+
+@frappe.whitelist(methods=["POST"])
+def refresh_lead_ai(name: str, acting_user: str | None = None) -> dict:
+	"""Ask the AI to read the lead again now (write on the lead, once a minute)."""
+	with acting_as(acting_user):
+		require_ai_leads()
+		autopilot.refresh_now(name)
+		return autopilot.lead_ai(name)
+
+
+@frappe.whitelist(methods=["POST"])
+def apply_ai_stage(name: str, acting_user: str | None = None) -> dict:
+	"""Move the lead to the stage the AI suggested, as the acting user (never Won or Lost).
+	Returns the lead as get_lead does."""
+	with acting_as(acting_user):
+		require_ai_leads()
+		autopilot.apply_stage(name)
+		return lead_payload(name)
+
+
+@frappe.whitelist(methods=["POST"])
+def dismiss_ai_stage(name: str, acting_user: str | None = None) -> dict:
+	"""Drop the AI's stage suggestion."""
+	with acting_as(acting_user):
+		autopilot.clear_stage(name)
+		return autopilot.lead_ai(name)
+
+
+@frappe.whitelist(methods=["POST"])
+def draft_lead_message(name: str, channel: str, language: str = "en", acting_user: str | None = None) -> dict:
+	"""An email or WhatsApp text for the acting user to edit and send from their own mail or
+	WhatsApp: {channel, subject, text, to?, url?}. Nothing is sent."""
+	with acting_as(acting_user):
+		if not (ai_leads_enabled() or notes_enabled()):
+			frappe.throw(_("AI drafts are switched off in TBO Smart Settings."))
+		return autopilot.draft_message(name, channel, language)
+
+
+@frappe.whitelist(methods=["POST"])
+def log_message_sent(name: str, channel: str, text: str, acting_user: str | None = None) -> dict:
+	"""The acting user sent a message from their own mail or WhatsApp: log it on the lead as
+	theirs. Returns the timeline entry."""
+	with acting_as(acting_user) as user:
+		if channel not in autopilot.MESSAGE_CHANNELS:
+			frappe.throw(_("channel must be whatsapp or email."))
+		if not (text or "").strip():
+			frappe.throw(_("Write the message first."))
+		frappe.has_permission("Lead", "read", name, throw=True)
+		event = add_log("Lead", name, channel, text)
+		return {
+			"kind": "activity",
+			"at": event.starts_on,
+			"who": user,
+			"who_name": frappe.utils.get_fullname(user),
+			"text": plain_text(event.subject),
+			"ref": event.name,
+		}
 
 
 # ---------- writes ----------

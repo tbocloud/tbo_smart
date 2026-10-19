@@ -22,6 +22,7 @@ FIELDS = (
 	"anthropic_model",
 	"anthropic_input_price",
 	"anthropic_output_price",
+	"enable_ai_leads",
 	"enable_lead_scoring",
 	"lead_scoring_use_ai",
 	"call_today_size",

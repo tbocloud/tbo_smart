@@ -1,4 +1,4 @@
-# Hub leads API (`tbo_smart.api.hub_leads`), v1.2
+# Hub leads API (`tbo_smart.api.hub_leads`), v1.3
 
 **Status:** built 2026-10-16. The TBO Support hub's lead page (tbocloud/helpdesk) shows and edits
 tboindia's leads through these methods. The leads are ERPNext's own **Lead**
@@ -50,6 +50,12 @@ curl -s -X POST https://india.teambackoffice.com/api/method/tbo_smart.api.hub_le
 | `get_rate_card` | GET | `acting_user` | `RateCard` (§2.3) |
 | `save_rate_card` | POST | `rows` (JSON list of `{segment, price_list, max_discount}`), `acting_user` | `RateCard` |
 | `set_segment_rate` | POST | `item_code`, `rate`, `segment?` (blank: the selling price list), `acting_user` | `{item_code, segment, rate}` |
+| `get_lead_ai` | GET | `name`, `acting_user` | LeadAI (§2.6) |
+| `refresh_lead_ai` | POST | `name`, `acting_user` | LeadAI, after a fresh read (write on the lead; once a minute) |
+| `apply_ai_stage` | POST | `name`, `acting_user` | as `get_lead`: moved to the suggested stage as the acting user |
+| `dismiss_ai_stage` | POST | `name`, `acting_user` | LeadAI, without the stage suggestion |
+| `draft_lead_message` | POST | `name`, `channel` (`whatsapp` / `email`), `language` (`en` / `ml`, WhatsApp), `acting_user` | `{channel, subject, text, to?, url?}`: nothing is sent |
+| `log_message_sent` | POST | `name`, `channel`, `text`, `acting_user` | the new timeline `Item` (an activity by the acting user) |
 
 ### 2.1 Shapes
 
@@ -63,8 +69,8 @@ Lead = {name, lead_name, first_name, last_name, company_name, email_id, mobile_n
   (Hot / Warm / Cold), tbo_score_reason, tbo_lost_reason, tbo_lost_notes, creation, modified,
   next_follow_up (date | null), deal (the Opportunity once won | null), can_write}
 
-Item = {kind: "note" | "call" | "activity" | "meeting" | "stage" | "quotation", at, who (user | null),
-  who_name, text, ref (the record's name)}
+Item = {kind: "note" | "call" | "activity" | "meeting" | "stage" | "quotation" | "ai", at,
+  who (user | null), who_name, text, ref (the record's name)}
 
 Quotation = {name, docstatus, tbo_quote_status, transaction_date, valid_till, currency,
   grand_total, tbo_revision_no, tbo_is_latest}
@@ -82,7 +88,8 @@ Quotation = {name, docstatus, tbo_quote_status, transaction_date, valid_till, cu
   `page_length` page it. Other filters apply in every view.
 - **Timeline:** notes (Comments), calls and logged meetings, emails and WhatsApp (Events), the
   pipeline meetings (TBO Lead Meeting, `text` "1st meeting: MOM Submitted"), stage changes
-  (`text` "Contacted → Proposal Sent") and quotations, newest first.
+  (`text` "Contacted → Proposal Sent"), quotations and what the AI did (`kind` "ai", `who`
+  null, `who_name` "TBO AI", `smart-leads.md` §11), newest first.
 
 ### 2.2 Writing
 
@@ -192,6 +199,28 @@ cancelled), `moms_submitted` (MOM submitted in the range), `mom_pending` (now),
 their day), `follow_ups_overdue` (open past their day now), `new` (created in the range), `won`
 and `won_value` (latest quotations' total), `conversion` (won of new, %).
 
+### 2.6 AI runs leads
+
+Behind TBO Smart Settings → AI runs leads (`smart-leads.md` §11). `get_lead_ai` answers with
+the switch off too (`enabled` false; health and duplicates still come).
+
+```
+LeadAI = {enabled, ai_ready, open, at (last read | null), stale (the lead changed since),
+  score: {score, temperature, reason} | null (lead scoring off),
+  insight: {summary, sentiment (Positive | Neutral | Negative), intent (High | Medium | Low | None),
+    signals: [text], next_action: {what, why, channel (call | whatsapp | email | meeting), due} | null,
+    suggested_stage | null, stage_reason | null,
+    message: {channel (whatsapp | email), subject, text} | null} | null (never read),
+  health: {status (healthy | watch | at_risk), signals: [{key, state, text}]} | null (closed),
+  duplicates: [{name, lead_name, company_name, tbo_stage, lead_owner, owner_name,
+    match: ["phone" | "email" | "company"]}]}
+```
+
+`get_overview` adds `ai`: `{enabled: false}`, or `{enabled, ai_ready, plan: {user, rows:
+[{name, lead_name, company_name, tbo_stage, score, temperature, why, next_action, next_due,
+intent}]}, high_intent, negative, stage_suggestions, read}` for the scope (the plan is the
+`owner` picked, else the acting user's).
+
 ## 3. Links back to the hub
 
 Teams messages, emails and the morning digest link to the lead page when TBO Smart Settings →
@@ -213,6 +242,9 @@ options. `tests/test_segment_rate_card.py`: the rate card methods (acting user, 
 
 ## Changelog
 
+- **v1.3 (2026-10-19):** AI runs leads (§2.6): `get_lead_ai`, `refresh_lead_ai`,
+  `apply_ai_stage`, `dismiss_ai_stage`, `draft_lead_message`, `log_message_sent`,
+  `get_overview`'s `ai`, the timeline's `ai` items.
 - **v1.2 (2026-10-19):** `get_overview` and `get_sales_activity`; `list_leads` takes `source`,
   `temperature` and `metric` with its period.
 - **v1.1 (2026-10-19):** `get_rate_card`, `save_rate_card`, `set_segment_rate`.

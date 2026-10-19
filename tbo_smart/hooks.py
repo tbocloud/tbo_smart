@@ -199,18 +199,33 @@ doc_events = {
 	# The lead's stage rules and history (docs/erpnext-lead-cutover.md)
 	# Smart leads (docs/smart-leads.md): re-score a lead when it or its activity changes; no-op while off
 	# Lead pipeline (docs/lead-pipeline.md): the deal at Closed – Won; no-op while off
+	# AI runs leads (docs/smart-leads.md §11): the AI reads a lead again when it or its activity
+	# changes; no-op while off
 	"Lead": {
 		"validate": [
 			"tbo_smart.sales.stages.validate_lead",
 			"tbo_smart.lead_pipeline.rate_card.validate_lead_segment",
 		],
+		"after_insert": "tbo_smart.smart_leads.autopilot.lead_changed",
 		"on_update": [
 			"tbo_smart.smart_leads.scoring.lead_changed",
 			"tbo_smart.lead_pipeline.won.lead_updated",
+			"tbo_smart.smart_leads.autopilot.lead_changed",
 		],
 	},
-	"Comment": {"after_insert": "tbo_smart.smart_leads.scoring.activity_changed"},
-	"Event": {"after_insert": "tbo_smart.smart_leads.scoring.activity_changed"},
+	"Comment": {
+		"after_insert": [
+			"tbo_smart.smart_leads.scoring.activity_changed",
+			"tbo_smart.smart_leads.autopilot.activity_changed",
+		]
+	},
+	"Event": {
+		"after_insert": [
+			"tbo_smart.smart_leads.scoring.activity_changed",
+			"tbo_smart.smart_leads.autopilot.activity_changed",
+		]
+	},
+	"Communication": {"after_insert": "tbo_smart.smart_leads.autopilot.activity_changed"},
 	"ToDo": {"on_update": "tbo_smart.smart_leads.scoring.activity_changed"},
 	# Lead quotations: an approval request or decision changes the quotation's draft state
 	"TBO Quotation Adjustment": {"on_update": "tbo_smart.lead_pipeline.quotations.adjustment_changed"},
@@ -240,7 +255,11 @@ scheduler_events = {
 	"cron": {
 		# Phase 2 (receivables): digest at 08:00, reminders at 09:00, site time
 		"0 8 * * *": ["tbo_smart.finance.digest.send_digest"],
-		"0 9 * * *": ["tbo_smart.finance.reminders.run_reminders"],
+		# AI runs leads: drafts for leads gone quiet, before the 09:30 digest
+		"0 9 * * *": [
+			"tbo_smart.finance.reminders.run_reminders",
+			"tbo_smart.smart_leads.autopilot.nudge_stale_leads",
+		],
 		# Smart leads: escalation notices and the follow-up digest at 09:30, site time
 		"30 9 * * *": [
 			"tbo_smart.smart_leads.follow_ups.run_follow_ups",
