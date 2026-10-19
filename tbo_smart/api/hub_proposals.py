@@ -15,9 +15,9 @@ from frappe.utils import cint
 from tbo_smart.api import lead_quotation
 from tbo_smart.api.hub_leads import acting_as
 from tbo_smart.api.quotation_adjustment import request_adjustment
+from tbo_smart.lead_pipeline import brd, presets, rate_card
 from tbo_smart.lead_pipeline import client_documents as documents
 from tbo_smart.lead_pipeline import document_types as kinds
-from tbo_smart.lead_pipeline import presets, rate_card
 from tbo_smart.lead_pipeline import proposal_builder as builder
 from tbo_smart.lead_pipeline import proposal_library as library
 from tbo_smart.lead_pipeline import proposal_media as media
@@ -76,6 +76,8 @@ def payload(doc) -> dict:
 		"name": doc.name,
 		"document_type": spec.name,
 		"document_label": kinds.label(spec.name),
+		# what the cover calls it ("Business Requirements Document")
+		"kicker": kinds.words(spec.name)["kicker"],
 		"accepted_label": kinds.accepted_label(spec.name),
 		"source_document": doc.source_document,
 		"can_price": spec.priced,
@@ -91,6 +93,7 @@ def payload(doc) -> dict:
 		"page_guide": frappe.db.get_value(p.TEMPLATE, doc.template, "page_guide") if doc.template else None,
 		"prepared_by": frappe.utils.get_fullname(doc.prepared_by) if doc.prepared_by else None,
 		"status": doc.status,
+		"ready_on": doc.ready_on,
 		"theme": doc.theme,
 		"pricing_mode": doc.pricing_mode or p.PRICING_MODES[0],
 		"scoping": builder.scoping_answers(doc.scoping, doc.solution_type),
@@ -131,6 +134,30 @@ def payload(doc) -> dict:
 		"share_blockers": p.send_blockers(doc, by_email=False) if can_write else [],
 		# the AI's cost, for the people who set prices and presets
 		"ai": ai_payload(doc) if presets.can_edit_presets() else None,
+		"questionnaire": questionnaire_payload(doc) if spec.questionnaire else None,
+	}
+
+
+def questionnaire_payload(doc) -> dict:
+	"""The BRD's questions for the client, their answers and the link's state."""
+	return {
+		"questions": [
+			{
+				"name": row.name,
+				"section_type": row.section_type,
+				"question": row.question,
+				"answer": row.answer,
+				"answered_on": row.answered_on,
+				"applied": cint(row.applied),
+				"asked_by": row.asked_by,
+			}
+			for row in doc.questions
+		],
+		"url": brd.questionnaire_url(doc) if doc.questions_sent_on else None,
+		"open": brd.questionnaire_open(doc),
+		"sent_on": doc.questions_sent_on,
+		"answered_on": doc.questions_answered_on,
+		"new_answers": len(brd.unapplied(doc)),
 	}
 
 
@@ -217,6 +244,7 @@ def document_type_payload(spec) -> dict:
 		"ai_sections": list(spec.ai_sections),
 		"priced": spec.priced,
 		"signature": spec.signature,
+		"questionnaire": spec.questionnaire,
 	}
 
 
@@ -276,6 +304,52 @@ def get_document_chain(lead: str, acting_user: str | None = None) -> dict:
 		return documents.chain(lead)
 
 
+@frappe.whitelist(methods=["POST"])
+def save_questions(name: str, questions: list | str, acting_user: str | None = None) -> dict:
+	"""A draft BRD's questions for the client ([{section_type, question}]); answered ones stay."""
+	with acting_as(acting_user):
+		doc = get_questionnaire_doc(name)
+		brd.save_questions(doc, parse(questions, list))
+		return payload(doc)
+
+
+@frappe.whitelist(methods=["POST"])
+def share_questionnaire(name: str, acting_user: str | None = None) -> dict:
+	"""The client's questionnaire link (only the questions; never the draft). Returns {proposal, url}."""
+	with acting_as(acting_user):
+		doc = get_questionnaire_doc(name)
+		url = brd.share_questionnaire(doc)
+		return {"proposal": payload(doc), "url": url}
+
+
+@frappe.whitelist(methods=["POST"])
+def send_questionnaire(
+	name: str, recipients: str | None = None, message: str | None = None, acting_user: str | None = None
+) -> dict:
+	"""Email the client the questionnaire link, on the lead's timeline. Returns {proposal, url}."""
+	with acting_as(acting_user):
+		doc = get_questionnaire_doc(name)
+		url = brd.send_questionnaire(doc, recipients, message)
+		return {"proposal": payload(doc), "url": url}
+
+
+@frappe.whitelist(methods=["POST"])
+def apply_answers(name: str, acting_user: str | None = None) -> dict:
+	"""The client's new answers into the BRD: only the sections they touch are rebuilt (the
+	narrative ones in one small AI call). Returns {proposal, sections, warnings}."""
+	with acting_as(acting_user):
+		doc = get_questionnaire_doc(name)
+		result = brd.apply_answers(doc)
+		return {"proposal": payload(doc), **result}
+
+
+def get_questionnaire_doc(name: str):
+	doc = get_doc(name, "write")
+	if not kinds.of(doc).questionnaire:
+		frappe.throw(_("Only a BRD has a client questionnaire."))
+	return doc
+
+
 @frappe.whitelist()
 def get_proposal(name: str, acting_user: str | None = None) -> dict:
 	with acting_as(acting_user):
@@ -289,7 +363,20 @@ def save_proposal(name: str, data: dict | str, acting_user: str | None = None) -
 	is ignored: there is one)."""
 	with acting_as(acting_user):
 		doc = get_doc(name, "write")
-		p.save_content(doc, parse(data))
+		warnings = p.save_content(doc, parse(data))
+		return {**payload(doc), "warnings": warnings}
+
+
+@frappe.whitelist(methods=["POST"])
+def finalise_proposal(name: str, ready: int | str = 1, acting_user: str | None = None) -> dict:
+	"""Mark the draft ready to send (`ready` 1: refused while anything stops it going out; its
+	content and numbers are then fixed) or reopen it for changes (`ready` 0)."""
+	with acting_as(acting_user):
+		doc = get_doc(name, "write")
+		if cint(ready):
+			p.finalise(doc)
+		else:
+			p.reopen(doc)
 		return payload(doc)
 
 
@@ -371,6 +458,19 @@ def extract_requirements(lead: str, text: str, acting_user: str | None = None) -
 		if not p.ai_enabled():
 			frappe.throw(_("AI proposal drafts are not switched on. Fill the form by hand."))
 		return builder.extract_requirements(lead, text)
+
+
+@frappe.whitelist(methods=["POST"])
+def read_chat_answer(lead: str, question: str, text: str, acting_user: str | None = None) -> dict:
+	"""A start-chat answer that isn't what the question expected (an intent, needs, Malayalam or
+	mixed) read by one small AI call. Returns {language, english, profile, template, scoping} with
+	only the fields the text gave; nothing is saved."""
+	with acting_as(acting_user):
+		p.require_proposals()
+		frappe.has_permission("Lead", "write", lead, throw=True)
+		if not p.ai_enabled():
+			frappe.throw(_("AI proposal drafts are not switched on. Fill the form by hand."))
+		return builder.read_chat_answer(lead, question, text)
 
 
 @frappe.whitelist(methods=["POST"])

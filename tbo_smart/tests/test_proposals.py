@@ -1402,3 +1402,138 @@ class TestChatFeedback(ProposalTestCase):
 		)
 		options = hub.get_proposal_options(acting_user=BDE)
 		self.assertIn("companies", options["questions"])
+
+
+class TestLiveFeedback(ProposalTestCase):
+	"""The second live test's findings: edits after Generate flow through, Mark ready fixes the
+	numbers, the AI's stray tail is trimmed, and the start chat reads off-script answers."""
+
+	def setUp(self):
+		super().setUp()
+		frappe.set_user("Administrator")
+		set_smart_lead_settings(proposal_service_item=SERVICE, proposal_day_rate=6000)
+		price = frappe.db.get_value(builder.MODULE, "Accounts", "default_price")
+		self.addCleanup(frappe.db.set_value, builder.MODULE, "Accounts", "default_price", price)
+		frappe.db.set_value(builder.MODULE, "Accounts", "default_price", 100000)
+		frappe.set_user(HUB)
+		self.proposal = make_hub_proposal(self.lead, BDE, TEMPLATE, 0, {"modules": ["Accounts"]})
+
+	def save(self, data):
+		return hub.save_proposal(self.proposal["name"], json.dumps(data), acting_user=BDE)
+
+	def bodies(self, proposal):
+		return {row["section_type"]: row["body"] or "" for row in proposal["sections"]}
+
+	def test_module_edits_flow_into_the_sections_and_the_quotation(self):
+		self.assertNotEqual(self.proposal["scoping"]["timeline_template"], "120 days")
+		modules = self.proposal["modules"]
+		modules[0].update(rate=150000, rate_overridden=1, effort_days=70, fit="Customised")
+		sections = self.proposal["sections"]
+		terms = next(row for row in sections if row["section_type"] == "Terms & Conditions")
+		terms["body"] = "Our own terms."
+		saved = self.save({"modules": modules, "sections": sections, "scoping": self.proposal["scoping"]})
+		bodies = self.bodies(saved)
+		self.assertIn("Accounts | Customised", bodies["Modules & Features"])
+		# 70 person-days: about 112 calendar days, so the suggestion moves to 120 days
+		self.assertEqual(saved["scoping"]["timeline_template"], "120 days")
+		self.assertIn("Planned over 120 days.", bodies["Project Timeline"])
+		self.assertEqual(bodies["Terms & Conditions"], "Our own terms.")  # a hand edit is kept
+		self.assertEqual([row["price_list_rate"] for row in saved["quotation"]["items"]], [150000])
+		self.assertEqual(saved["warnings"], [])
+		html = p.render_html(frappe.get_doc(p.DOCTYPE, saved["name"]), preview=True)
+		self.assertIn("Our own terms.", html)
+		self.assertIn("Customised", html)
+		# Reset to library writes the edit over
+		index = next(
+			i for i, row in enumerate(saved["sections"]) if row["section_type"] == "Terms & Conditions"
+		)
+		reset = hub.regenerate_section(saved["name"], index, 1, acting_user=BDE)
+		self.assertNotEqual(self.bodies(reset["proposal"])["Terms & Conditions"], "Our own terms.")
+
+	def test_a_timeline_picked_by_hand_stays(self):
+		scoping = {**self.proposal["scoping"], "timeline_template": "90 days"}
+		self.assertEqual(self.save({"scoping": scoping})["scoping"]["timeline_template"], "90 days")
+		modules = self.proposal["modules"]
+		modules[0]["effort_days"] = 70
+		saved = self.save({"modules": modules, "scoping": scoping})
+		self.assertEqual(saved["scoping"]["timeline_template"], "90 days")
+
+	def test_mark_ready_fixes_the_content_until_reopened(self):
+		name = self.proposal["name"]
+		ready = hub.finalise_proposal(name, 1, acting_user=BDE)
+		self.assertTrue(ready["ready_on"])
+		self.assertRaises(frappe.ValidationError, self.save, {"title": "Changed"})
+		reopened = hub.finalise_proposal(name, 0, acting_user=BDE)
+		self.assertIsNone(reopened["ready_on"])
+		self.assertEqual(self.save({"title": "Changed"})["title"], "Changed")
+		# Share marks it ready when presales didn't; a revision starts unmarked
+		shared = hub.share_proposal(name, acting_user=BDE)["proposal"]
+		self.assertTrue(shared["ready_on"])
+		revision = hub.create_revision(name, acting_user=BDE)
+		self.assertIsNone(revision["ready_on"])
+
+	def test_mark_ready_is_refused_while_something_blocks_it(self):
+		frappe.db.set_value(p.DOCTYPE, self.proposal["name"], "valid_till", add_days(nowdate(), -1))
+		self.assertRaises(
+			frappe.ValidationError, hub.finalise_proposal, self.proposal["name"], 1, acting_user=BDE
+		)
+
+	def test_the_ais_stray_tail_is_trimmed(self):
+		for text, clean in (
+			("It grows.ss", "It grows."),
+			("It grows.\nss", "It grows."),
+			("```\nIt grows.\n```", "It grows."),
+			("See erpnext.com", "See erpnext.com"),
+			("Ends well.", "Ends well."),
+		):
+			self.assertEqual(builder.tidy(text), clean)
+
+	def ai_on(self):
+		frappe.set_user("Administrator")
+		enable_proposals(ai=True)
+		configure_ai_providers()
+		frappe.set_user(HUB)
+
+	def test_an_intent_at_the_website_question_is_read(self):
+		self.ai_on()
+
+		def answer(url, body):
+			brief = json.loads(body["messages"][1]["content"])
+			self.assertEqual(brief["question"], "What's the client's website?")
+			return openai_answer(
+				{
+					"language": "English",
+					"english": "They need payroll and accounts.",
+					"modules": ["HR & Payroll", "Accounts", "Not A Module"],
+					"profile": {"pain_points": "Manual payroll", "size": 7},
+					"users": 0,
+				}
+			)
+
+		with mock_ai(answer) as post:
+			read = hub.read_chat_answer(
+				self.lead, "What's the client's website?", "they need payroll and accounts", acting_user=BDE
+			)
+		self.assertEqual(post.call_count, 1)
+		self.assertEqual(read["scoping"], {"modules": ["HR & Payroll", "Accounts"]})
+		self.assertEqual(read["profile"], {"pain_points": "Manual payroll"})
+		self.assertEqual(read["language"], "English")
+
+	def test_a_malayalam_answer_comes_back_in_english(self):
+		self.ai_on()
+		said = "ശമ്പളം കൈകൊണ്ട് ചെയ്യുന്നു, GST ഫയലിംഗ് വൈകുന്നു"
+		answer = openai_answer(
+			{
+				"language": "Malayalam",
+				"english": "Payroll is done by hand; GST filing is slow.ss",
+				"profile": {"pain_points": "Manual payroll\nGST filing is slow"},
+				"customisations": ["Salary slip in our format"],
+			}
+		)
+		with mock_ai(answer):
+			read = hub.read_chat_answer(self.lead, "What hurts today?", said, acting_user=BDE)
+		self.assertEqual(read["language"], "Malayalam")
+		self.assertEqual(read["english"], "Payroll is done by hand; GST filing is slow.")
+		self.assertEqual(read["profile"]["pain_points"], "Manual payroll\nGST filing is slow")
+		self.assertTrue(read["scoping"]["customisation"])
+		self.assertEqual(read["scoping"]["customisations"][0]["item"], "Salary slip in our format")

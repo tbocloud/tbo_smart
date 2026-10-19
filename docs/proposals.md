@@ -296,7 +296,8 @@ They stay separate (not merged into one call): each is small, the extraction mus
 by presales before anything is generated, and the website summary is reused across a lead's
 proposals. **A typical proposal makes two calls** (the extraction and the narrative), three for a
 lead's first proposal with a website; none without the AI. The chat's other answers (chips,
-numbers, customisation lines split one a line) are taken as they are, at no cost.
+numbers, customisation lines split one a line) are taken as they are, at no cost; only an answer
+that doesn't fit its question costs a call (5 below).
 
 4. **An edit in words** (`chat_edit`, feature **Proposal edit**), later, on a draft: "add Payroll",
    "make it 90 days", "remove AMC". One small call reads the message against the proposal's
@@ -311,7 +312,21 @@ numbers, customisation lines split one a line) are taken as they are, at no cost
    ("Done: Added HR & Payroll; Timeline: 90 days."), not written by the AI. The message and the
    reply go into `chat`. Everything factual (modules, prices, scope, timeline, terms) comes from data, never
 the AI; a text with a number that isn't in the brief is left out with a warning
-(`ai.invents_numbers`). The result is kept on the proposal; nothing is regenerated on save.
+(`ai.invents_numbers`). The result is kept on the proposal; the AI's text is never rewritten on
+save (§4.5 rebuilds only the data sections).
+
+5. **An off-script chat answer** (`read_chat_answer`, feature **Proposal chat answer**), in the
+   start chat, only when an answer doesn't fit its question: an intent typed at the website step
+   ("they need payroll and accounts"), needs in place of a number, Malayalam or a Malayalam and
+   English mix. One small structured call gets the question and the text (≤ 3,000 characters)
+   with the templates, the catalogue's names and the hostings, and returns the text's language
+   (English, Malayalam, Mixed), its English, and only the profile and scoping fields the text
+   gives (checked against the choices like the extraction). Values are stored in English; the
+   transcript keeps what was said, with "Translated from Malayalam" beside it.
+
+The AI's text is tidied (`builder.tidy`) before it is kept: a code fence, and a few lowercase
+letters left after the last sentence ("…growth.ss", or "ss" on a line of its own), are dropped.
+A live draft showed such a tail; a domain's ending ("erpnext.com") is not touched.
 
 **Regenerate** (`regenerate_section`): an AI section by one small call (feature **Proposal
 section**), any other from the libraries at no AI cost (*Reset to library*). A section edited by
@@ -326,7 +341,8 @@ about how many tokens a full regenerate costs (the brief at four characters a to
 
 ### 4.3 Sharing
 
-- **Copy link:** a sent proposal's `/proposal/<token>` link. A **draft's link shows nothing**;
+- **Copy link:** a sent proposal's `/proposal/<token>` link (Share and Send mark the draft ready,
+  §4.5, when presales didn't). A **draft's link shows nothing**;
   `share_proposal` (the hub asks "Share this draft?" first) sends it as Send does but without an
   email: refused while anything blocks it (the pricing above the limit too; an outgoing email
   account isn't needed), its quotation goes out (`mark_sent(…, "Manual")`), the lead moves to
@@ -340,7 +356,29 @@ about how many tokens a full regenerate costs (the brief at four characters a to
 *Create revision* copies the proposal (sections, modules, scoping, profile, images, pricing link)
 as a new **Draft** with the next `revision_no`, a fresh validity and a **new link**; it becomes the
 latest. Earlier versions keep their status and page ("A newer version exists"). Only the latest
-is sent.
+is sent. A revision starts not marked ready.
+
+### 4.5 Edits after Generate, and Mark ready
+
+A save (`save_content`) that changes the **modules** (price, days, fit, added or removed) or the
+**scoping** flows into the proposal, after the sections sent with it (the hub sends its copy):
+
+- every data section not edited by hand is built again (Modules & Features, Scope of Work,
+  Proposed Solution's table, Project Timeline, Investment, Payment Terms, Assumptions…); a section
+  edited by hand is kept until *Reset to library* (`regenerate_section` with `force`);
+- a timeline that was the suggestion follows the new effort (`suggest_timeline`); one picked by
+  hand stays (picking the suggested one counts as following it);
+- when the quotation's lines changed (a module's name, Item or price, or the customisation days)
+  the draft's quotation is priced again (`price_new_proposal`), so the page's Investment and the
+  payment amounts follow; what stops it comes back as `warnings` on the save. The AI's sections
+  are never rewritten on save.
+
+**Mark ready** (`finalise_proposal` with `ready` 1, `ready_on` stamped) is the step before Share
+and Send: refused while anything would stop it going out (the share blockers), and then the
+draft's content and numbers are fixed: every change (save, pricing, regenerate, the assistant,
+images) is refused with "It is marked ready to send. Reopen it to change it." until **Reopen**
+(`ready` 0). Share and Send mark it ready themselves when presales didn't, so the API stays as
+it was.
 
 ## 5. The client's page (`/proposal/<token>`) and the PDF
 
@@ -446,7 +484,7 @@ focus ring, 44px targets.
 
 ## 9. Tests
 
-`tbo_smart/tests/test_proposals.py` (47 tests):
+`tbo_smart/tests/test_proposals.py` (61 tests):
 
 - **Building:** the template's 23 sections, in order and all on; the data sections built from the
   libraries and the template's modules; the profile kept; the timeline and payment terms picked;
@@ -469,6 +507,11 @@ focus ring, 44px targets.
   (the transcript kept, the edit call reads the state not the transcript, only valid choices
   applied, AMC off, the timeline rebuilt, a hand edit kept, nothing matched, AI off).
 - **Sending, the client's page, images, the letter head:** as v1.1.
+- **Live feedback** (`TestLiveFeedback`): a module's price, days and fit flow into Modules &
+  Features, the timeline and the quotation while a hand edit is kept (and reset on request); a
+  timeline picked by hand stays; Mark ready refuses changes until reopened, Share marks it, a
+  revision starts unmarked, blockers refuse it; the AI's tail trimmed; an intent at the website
+  question and a Malayalam answer read (mocked).
 
 ## Changelog
 
@@ -477,7 +520,10 @@ focus ring, 44px targets.
   its own footer line, the contents with dot leaders and page numbers, one bundled font (Geist
   with tabular figures) on the PDF and the page, the type scale, and the footer line with
   "n / N" on every page but the cover.
-- **v2.2 (2026-10-20):** users and companies can be Unlimited (and companies are asked); every
+- **v2.3 (2026-10-19):** edits after Generate flow into the data sections, the timeline and the
+  quotation (§4.5); Mark ready / Reopen (`ready_on`); the AI's stray tail trimmed; an off-script
+  chat answer read in one small call, Malayalam to English (§4.2, 5).
+- **v2.2 (2026-10-19):** users and companies can be Unlimited (and companies are asked); every
   website-read failure comes back in words; the patch `proposal_scoping_companies` normalises
   existing scoping answers.
 - **v2.1 (2026-10-19):** the engine serves every client document (`client-documents.md`): the

@@ -6,8 +6,8 @@ import frappe
 from frappe import _
 from frappe.rate_limiter import rate_limit
 
+from tbo_smart.lead_pipeline import brd, proposals
 from tbo_smart.lead_pipeline import proposal_media as media
-from tbo_smart.lead_pipeline import proposals
 
 
 def get_public(token: str, preview: bool = False):
@@ -72,3 +72,18 @@ def image(token: str, file: str) -> None:
 	frappe.local.response.content_type = mime
 	frappe.local.response.display_content_as = "inline"
 	frappe.local.response.type = "download"
+
+
+@frappe.whitelist(allow_guest=True, methods=["POST"])  # the token is the key - nosemgrep
+@rate_limit(limit=60, seconds=60 * 60)
+def save_answers(token: str, answers: str | dict) -> dict:
+	"""The client's answers on a BRD's questionnaire ({question row: text}); a blank one clears
+	it. The owner is told once per save."""
+	doc = brd.by_questions_token(token)
+	if not doc:
+		frappe.throw(_("This questionnaire isn't available."), frappe.DoesNotExistError)
+	answers = frappe.parse_json(answers) if isinstance(answers, str) else answers
+	if not isinstance(answers, dict) or len(answers) > brd.MAX_QUESTIONS:
+		frappe.throw(_("Send the answers as a set of fields."))
+	changed = brd.save_answers(doc, answers)
+	return {"saved": changed}

@@ -16,6 +16,7 @@ from tbo_smart.api.mobile.crm import get_crm_users
 from tbo_smart.api.mobile.utils import get_full_names
 from tbo_smart.sales import erpnext_installed
 from tbo_smart.sales.activities import add_follow_up_task, task_title
+from tbo_smart.sales.stages import system_save
 from tbo_smart.smart_leads import (
 	FOLLOW_UP_TYPE,
 	OPEN_STATUSES,
@@ -173,7 +174,7 @@ def reassign_leads(leads: str | list, user: str) -> dict:
 		doc = frappe.get_doc("Lead", lead)
 		doc.check_permission("write")
 		doc.lead_owner = user
-		doc.save()
+		system_save(doc)
 		moved.append(lead)
 	return {"moved": moved}
 
