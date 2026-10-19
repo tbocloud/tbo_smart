@@ -1,8 +1,10 @@
 import unittest
 
 import frappe
+from frappe.database import get_db
 from frappe.tests.utils import FrappeTestCase
 
+from tbo_smart.api import cutover as cutover_api
 from tbo_smart.cutover import crm_to_erpnext as cutover
 from tbo_smart.test_utils import (
 	clear_crm_cutover,
@@ -132,6 +134,36 @@ class TestCRMCutover(FrappeTestCase):
 			)
 		finally:
 			frappe.delete_doc("TBO Lead Meeting", meeting, force=True, ignore_permissions=True)
+
+	def test_the_browser_methods_are_for_system_managers(self):
+		frappe.set_user(OWNER)
+		self.assertRaises(frappe.PermissionError, cutover_api.dry_run)
+		self.assertRaises(frappe.PermissionError, cutover_api.start)
+		self.assertRaises(frappe.PermissionError, cutover_api.verify)
+		frappe.set_user("Administrator")
+		self.assertEqual(cutover_api.dry_run()["counts"]["leads"]["crm"], 2)
+		self.assertFalse(frappe.db.exists("Lead", self.crm.lead))
+		self.assertEqual(cutover_api.status()["running"], False)
+		# one run at a time: while another connection holds the run's lock, start queues nothing
+		# and a run that slipped through exits without copying
+		other = get_db(
+			host=frappe.conf.db_host,
+			port=frappe.conf.db_port,
+			user=frappe.conf.db_name,
+			password=frappe.conf.db_password,
+			cur_db_name=frappe.conf.db_name,
+		)
+		other.connect()
+		try:
+			other.sql("SELECT GET_LOCK(%s, 0)", cutover_api.lock_name())
+			self.assertTrue(cutover_api.status()["running"])
+			self.assertFalse(cutover_api.start()["queued"])
+			cutover_api.run_once()
+			self.assertFalse(frappe.db.exists("Lead", {"crm_lead_ref": self.crm.lead}))
+		finally:
+			other.sql("SELECT RELEASE_LOCK(%s)", cutover_api.lock_name())
+			other.close()
+		self.assertFalse(cutover_api.status()["running"])
 
 	def test_finalize_removes_the_old_links(self):
 		cutover.run(dry_run=False)
