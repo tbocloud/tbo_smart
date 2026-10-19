@@ -434,6 +434,11 @@ else themselves) when the session user may see that person, else nothing; their 
 | `get_access` | GET | `{enabled}` |
 | `get_pipeline_dashboard(from_date?, to_date?, bde?, source?, status?)` | GET | The figures above plus `scope` (own / team / all) and `people` (the BDE filter's choices) |
 
+**The hub's Leads overview and Sales scoreboard** reuse this class: `lead_pipeline/overview.py`
+(`LeadOverview` and `SalesActivity` extend `PipelineDashboard` with the pipeline's value by
+stage, the funnel, contacted and stale leads, segments, sources and per-salesperson activity),
+served by `hub_leads.get_overview` and `get_sales_activity` (`hub-leads-api.md` §2.2, §2.3).
+
 ## 12. Tests
 
 `tbo_smart/tests/test_lead_pipeline.py` (helpers in `tbo_smart/test_utils.py`; AI mocked at the
