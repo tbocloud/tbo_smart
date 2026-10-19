@@ -5,6 +5,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, getdate, today
 
+from tbo_smart import ai
 from tbo_smart.api import hub_leads as hub
 from tbo_smart.api import telephony as api
 from tbo_smart.api.mobile import crm
@@ -15,6 +16,7 @@ from tbo_smart.test_utils import (
 	TEST_MYOPERATOR_KEY,
 	TEST_MYOPERATOR_SECRET,
 	TEST_OPENAI_KEY,
+	ai_http_response,
 	capabilities_as,
 	clear_dial_locks,
 	delete_sales_records,
@@ -121,6 +123,15 @@ class TestWebhook(TelephonyTestCase):
 		call = self.call_of("C-TWO")
 		self.assertEqual((call.agent, call.last_event), (BDE, "call.summary"))
 		self.assertEqual(len(self.call_events(self.lead)), 1)
+
+	def test_a_summary_that_loses_the_insert_race_still_completes_the_call(self):
+		post_myoperator_webhook(myoperator_event("C-RACE", event_type="call.end"))
+		real = calls.stored_call
+		# as if call.end were stored between this request's read and its insert
+		with patch("tbo_smart.telephony.calls.stored_call", side_effect=[None, real("C-RACE")]):
+			self.assertEqual(post_myoperator_webhook(myoperator_event("C-RACE", agent=AGENT)), {"ok": True})
+		call = self.call_of("C-RACE")
+		self.assertEqual((call.last_event, call.agent), ("call.summary", BDE))
 
 	def test_other_events_are_acknowledged_and_ignored(self):
 		event = myoperator_event("C-LIVE", event_type="call.answered")
@@ -259,7 +270,9 @@ class TestRecording(TelephonyTestCase):
 
 	def test_old_recordings_are_purged_and_the_call_stays(self):
 		call, _get = self.receive_recorded_call()
-		frappe.db.set_value("TBO Call", call.name, "started_at", add_days(today(), -200))
+		# no start time from MyOperator: the day it was stored counts; telephony off purges too
+		frappe.db.set_value("TBO Call", call.name, {"started_at": None, "creation": add_days(today(), -200)})
+		disable_telephony()
 		calls.purge_old_recordings()
 		call.reload()
 		self.assertFalse(call.recording)
@@ -335,6 +348,12 @@ class TestClickToCall(TelephonyTestCase):
 		self.assertEqual((result["ok"], post.call_args.kwargs["json"]["user_id"]), (True, "mo-uuid-bde"))
 		disable_telephony()
 		self.assertFalse(capabilities_as(BDE).click_to_call)
+
+	def test_a_mapped_person_without_a_sales_role_cant_call(self):
+		staff = make_user("tel.staff@tbosmart.test", ["Employee"])
+		enable_telephony([*AGENTS, {"user": staff, "myoperator_user_id": "mo-staff"}])
+		self.assertFalse(calls.can_call(staff))
+		self.assertTrue(calls.can_call(BDE))
 
 	def test_refusals_are_friendly(self):
 		frappe.set_user(BDE)
@@ -456,6 +475,24 @@ class TestCallSummary(TelephonyTestCase):
 		self.assertAlmostEqual(cost["Call transcription"], 2 * 0.006)
 		self.assertIn("Call summary", cost)
 		self.assertNotIn("Lead insight", cost)
+
+	def test_a_wrong_speech_model_doesnt_pause_the_chat_features(self):
+		enable_ai_leads()
+		missing = ai_http_response(
+			404, {"error": {"message": "The model does not exist", "code": "model_not_found"}}
+		)
+		with mock_ai(missing):
+			self.assertRaises(
+				ai.AIProviderError,
+				ai.transcribe,
+				AUDIO,
+				"a.mp3",
+				"no-such-model",
+				1,
+				0.006,
+				"Call transcription",
+			)
+		self.assertFalse(ai.provider_status()["providers"][ai.OPENAI]["paused"])
 
 	def test_short_calls_and_switched_off_summaries_make_no_ai_call(self):
 		enable_ai_leads()

@@ -359,7 +359,9 @@ def transcribe(
 		)
 	except AIProviderError as e:
 		log_usage(provider, feature, reference, 0, 0, started, error=e.kind)
-		record_failure(e, None)
+		# a wrong speech model must not pause the OpenAI section's chat features
+		if e.kind != "config":
+			record_failure(e, None)
 		raise
 	usage = data.get("usage") or {}
 	log_usage(

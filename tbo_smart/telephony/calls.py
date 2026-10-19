@@ -15,7 +15,7 @@ import frappe
 import requests
 from frappe import _
 from frappe.query_builder import CustomFunction
-from frappe.query_builder.functions import Count, Sum
+from frappe.query_builder.functions import Coalesce, Count, Sum
 from frappe.utils import add_days, cint, getdate, today
 
 from tbo_smart.lead_pipeline.statuses import OPEN_STATUSES
@@ -72,15 +72,9 @@ def receive(event: dict) -> dict:
 		"last_event": call["event_type"],
 		"payload": json.dumps(event),
 	}
-	existing = frappe.db.get_value(
-		DOCTYPE, {"call_id": call["call_id"]}, ["name", "last_event"], as_dict=True
-	)
-	if existing:
-		if existing.last_event == myoperator.FINAL_EVENT or call["event_type"] != myoperator.FINAL_EVENT:
-			return {"ok": True, "duplicate": True}
-		frappe.db.set_value(DOCTYPE, existing.name, {k: v for k, v in values.items() if v not in (None, "")})
-		name = existing.name
-	else:
+	final = call["event_type"] == myoperator.FINAL_EVENT
+	existing = stored_call(call["call_id"])
+	if not existing:
 		try:
 			name = (
 				frappe.get_doc({"doctype": DOCTYPE, "call_id": call["call_id"], **values})
@@ -88,8 +82,15 @@ def receive(event: dict) -> dict:
 				.name
 			)
 		except (frappe.DuplicateEntryError, frappe.UniqueValidationError):
-			# the same event twice at once: the other request stored it
+			# another request stored this call at the same moment; a call.summary still completes it
+			if not final:
+				return {"ok": True, "duplicate": True}
+			existing = stored_call(call["call_id"])
+	if existing:
+		if existing.last_event == myoperator.FINAL_EVENT or not final:
 			return {"ok": True, "duplicate": True}
+		frappe.db.set_value(DOCTYPE, existing.name, {k: v for k, v in values.items() if v not in (None, "")})
+		name = existing.name
 	frappe.enqueue(
 		"tbo_smart.telephony.calls.process_call",
 		call=name,
@@ -98,6 +99,10 @@ def receive(event: dict) -> dict:
 		now=frappe.flags.in_test,
 	)
 	return {"ok": True}
+
+
+def stored_call(call_id: str):
+	return frappe.db.get_value(DOCTYPE, {"call_id": call_id}, ["name", "last_event"], as_dict=True)
 
 
 def agent_ref(agent: dict | None) -> str | None:
@@ -309,10 +314,14 @@ def agent_of(user: str):
 
 
 def can_call(user: str | None = None) -> bool:
-	"""Telephony is on and the person has a MyOperator user ID or a mobile to ring."""
-	if not telephony_enabled():
+	"""Telephony is on and the person has a sales role and a MyOperator user ID or a mobile to
+	ring: the app's click_to_call capability and the hub's can_call."""
+	from tbo_smart.api.mobile.capabilities import CRM_ROLES  # it imports this module
+
+	user = user or frappe.session.user
+	if not telephony_enabled() or not CRM_ROLES & set(frappe.get_roles(user)):
 		return False
-	agent = agent_of(user or frappe.session.user)
+	agent = agent_of(user)
 	return bool(agent and ((agent.myoperator_user_id or "").strip() or normalise_phone(agent.mobile)))
 
 
@@ -390,21 +399,24 @@ def recording_file(call: str):
 
 
 def purge_old_recordings() -> None:
-	"""Daily: recordings and transcripts older than the retention days go; the call stays."""
-	if not telephony_enabled():
-		return
+	"""Daily, with telephony on or off: recordings and transcripts older than the retention days
+	go (by the call's start, else when it was stored); the call and its summary stay."""
+	Call = frappe.qb.DocType(DOCTYPE)
 	cutoff = add_days(getdate(), -recording_days())
-	for row in frappe.get_all(
-		DOCTYPE,
-		filters={"started_at": ("<", cutoff), "recording": ("is", "set")},
-		fields=["name", "recording"],
-		limit_page_length=0,
-	):
+	old = (
+		frappe.qb.from_(Call)
+		.select(Call.name)
+		.where(
+			(Coalesce(Call.started_at, Call.creation) < cutoff)
+			& (Call.recording.isnotnull() | Call.transcript.isnotnull())
+		)
+	).run(pluck=True)
+	for name in old:
 		for file in frappe.get_all(
-			"File", filters={"attached_to_doctype": DOCTYPE, "attached_to_name": row.name}, pluck="name"
+			"File", filters={"attached_to_doctype": DOCTYPE, "attached_to_name": name}, pluck="name"
 		):
 			frappe.delete_doc("File", file, ignore_permissions=True, force=True)
-		frappe.db.set_value(DOCTYPE, row.name, {"recording": None, "transcript": None})
+		frappe.db.set_value(DOCTYPE, name, {"recording": None, "transcript": None})
 
 
 # ---------- click-to-call ----------
