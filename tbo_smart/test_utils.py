@@ -1098,9 +1098,12 @@ def delete_lead_quotations(leads: list[str] | tuple) -> None:
 
 
 def delete_owner_lead_records(owners: list[str] | tuple) -> None:
-	"""Delete the quotations, smart-lead records and leads of these lead owners, and commit."""
+	"""Delete the proposals, quotations, deals, smart-lead records and leads of these lead owners,
+	and commit."""
 	leads = frappe.get_all("Lead", filters={"lead_owner": ("in", list(owners))}, pluck="name")
+	delete_lead_proposals(leads)
 	delete_lead_quotations(leads)
+	delete_lead_deals(leads)
 	delete_smart_lead_records(owners)
 
 
@@ -1148,6 +1151,110 @@ def get_item_rate(item_code: str, price_list: str) -> float | None:
 	return frappe.db.get_value(
 		"Item Price", {"item_code": item_code, "price_list": price_list, "selling": 1}, "price_list_rate"
 	)
+
+
+def make_outgoing_email_account() -> str:
+	"""A default outgoing Email Account (no SMTP login; emails are muted in tests), if the site
+	has none."""
+	name = frappe.db.get_value("Email Account", {"default_outgoing": 1, "enable_outgoing": 1}, "name")
+	if name:
+		return name
+	return (
+		frappe.get_doc(
+			{
+				"doctype": "Email Account",
+				"email_account_name": "TBO Smart Test Outbox",
+				"email_id": "outbox@tbosmart.test",
+				"enable_outgoing": 1,
+				"default_outgoing": 1,
+				"smtp_server": "localhost",
+				"no_smtp_authentication": 1,
+			}
+		)
+		.insert(ignore_permissions=True)
+		.name
+	)
+
+
+def enable_proposals(ai: bool = False, **values) -> None:
+	"""Quotations on the lead and Proposals on (with `ai`, AI proposal drafts too)."""
+	enable_lead_quotations(
+		enable_proposals=1, enable_proposal_ai=int(ai), proposal_validity_days=30, **values
+	)
+
+
+def disable_proposals() -> None:
+	set_smart_lead_settings(enable_proposals=0, enable_proposal_ai=0)
+
+
+def delete_lead_proposals(leads: list[str] | tuple) -> None:
+	"""Delete the proposals of these leads with their blocks, and commit."""
+	names = frappe.get_all("TBO Proposal", filters={"lead": ("in", list(leads) or [""])}, pluck="name")
+	if names:
+		frappe.db.delete("TBO Proposal Section", {"parenttype": "TBO Proposal", "parent": ("in", names)})
+		frappe.db.delete("TBO Proposal", {"name": ("in", names)})
+	frappe.db.commit()  # nosemgrep
+
+
+def make_hub_proposal(lead: str, acting_user: str, template: str | None = None, ai_draft: int = 0) -> dict:
+	"""A proposal for the lead through the hub API (hub_proposals.create_proposal) as `acting_user`;
+	returns the proposal's payload."""
+	from tbo_smart.api import hub_proposals
+
+	return hub_proposals.create_proposal(lead, template, ai_draft, acting_user=acting_user)["proposal"]
+
+
+def price_hub_proposal(
+	name: str, acting_user: str, item_code: str, rate: float = 100000, discount: float = 0
+) -> dict:
+	"""Price a proposal with one line through hub_proposals.save_pricing, `discount` the additional
+	discount %; returns the proposal's payload."""
+	from tbo_smart.api import hub_proposals
+
+	values = {
+		"valid_till": add_days(nowdate(), 20),
+		"items": [quotation_line(item_code, 1, rate)],
+		"additional_discount_percentage": discount,
+	}
+	return hub_proposals.save_pricing(name, json.dumps(values), acting_user=acting_user)
+
+
+def send_hub_proposal(name: str, acting_user: str, **kwargs) -> tuple:
+	"""hub_proposals.send_proposal with Frappe's email `make` mocked; returns (payload, the mock)."""
+	from tbo_smart.api import hub_proposals
+
+	with patch("frappe.core.doctype.communication.email.make") as make:
+		result = hub_proposals.send_proposal(name, acting_user=acting_user, **kwargs)
+	return result, make
+
+
+def make_sent_proposal(lead: str, acting_user: str, template: str, item_code: str) -> tuple:
+	"""A proposal from `template`, priced with one line of `item_code` and sent (email mocked);
+	returns (name, link token)."""
+	name = make_hub_proposal(lead, acting_user, template)["name"]
+	price_hub_proposal(name, acting_user, item_code)
+	send_hub_proposal(name, acting_user)
+	return name, proposal_token(name)
+
+
+def proposal_token(name: str) -> str:
+	"""The proposal's link token."""
+	return frappe.db.get_value("TBO Proposal", name, "public_token")
+
+
+def call_as_guest(fn, *args, **kwargs):
+	"""Call `fn` as Guest (the client on the proposal page), then return to the session user."""
+	user = frappe.session.user
+	frappe.set_user("Guest")
+	try:
+		return fn(*args, **kwargs)
+	finally:
+		frappe.set_user(user)
+
+
+def set_proposal_values(name: str, **values) -> None:
+	"""Write proposal fields straight in the database (e.g. a validity already past)."""
+	frappe.db.set_value("TBO Proposal", name, values, update_modified=False)
 
 
 def make_approved_leave(employee: str, leave_type: str, from_date, to_date=None, half_day: int = 0) -> str:

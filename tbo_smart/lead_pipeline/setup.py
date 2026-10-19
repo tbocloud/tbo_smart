@@ -264,6 +264,7 @@ def setup_lead_pipeline() -> None:
 	ensure_other_reason()
 	ensure_hub_role()
 	sync_print_format()
+	seed_proposal_templates()
 
 
 def link_lead_records() -> None:
@@ -313,6 +314,16 @@ def sync_print_format() -> None:
 			"html": html,
 		}
 	).insert(ignore_permissions=True)
+
+
+def seed_proposal_templates() -> None:
+	"""A few proposal templates on a site that has none; after that they are the editors' own."""
+	from tbo_smart.lead_pipeline.proposal_templates import TEMPLATES
+
+	if frappe.db.count("TBO Proposal Template"):
+		return
+	for template in TEMPLATES:
+		frappe.get_doc({"doctype": "TBO Proposal Template", **template}).insert(ignore_permissions=True)
 
 
 def after_migrate() -> None:

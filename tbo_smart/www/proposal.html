@@ -1,0 +1,254 @@
+<!doctype html>
+{%- set p = proposal -%}
+<html lang="en"{% if pdf %} class="pdf"{% endif %}>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>{{ p.title | e }}{% if p.company %} · {{ p.company | e }}{% endif %}</title>
+{%- if not pdf %}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+{%- endif %}
+<style>
+	:root {
+		--accent: #3a748d;
+		--accent-hover: #2a5766;
+		--accent-soft: #e6f0f4;
+		--accent-ink: #2c5f75;
+		--on-accent: #ffffff;
+		--ring: #c8641a;
+		--ink: #16181d;
+		--ink-2: #3b4049;
+		--ink-3: #626873;
+		--line: #e3e6ea;
+		--surface: #ffffff;
+		--page: #f6f7f9;
+		--success: #1f7a4d;
+		--success-soft: #e7f4ec;
+		--danger: #b42318;
+		--danger-soft: #fdecea;
+		--info-soft: #e8edfb;
+		--info: #2f56c6;
+	}
+	.theme-graphite { --accent: #2f3640; --accent-hover: #1f242b; --accent-soft: #eceef1; --accent-ink: #2f3640; }
+	@media (prefers-color-scheme: dark) {
+		:root:not(.pdf) {
+			--accent: #6fb4cf; --accent-hover: #8dc5da; --accent-soft: #15303b; --accent-ink: #a6d5e6;
+			--on-accent: #0b2129; --ring: #f59a4a; --ink: #eceef1; --ink-2: #c9cdd3; --ink-3: #9aa1ab;
+			--line: #2a2d33; --surface: #16171b; --page: #0f1013; --success: #6ccf9a; --success-soft: #12291d;
+			--danger: #ff8a80; --danger-soft: #3a1714; --info: #8da6ff; --info-soft: #16233f;
+		}
+		:root:not(.pdf) .theme-graphite { --accent: #c9cdd3; --accent-hover: #eceef1; --accent-soft: #23262c; --accent-ink: #eceef1; --on-accent: #16171b; }
+	}
+	* { box-sizing: border-box; }
+	body {
+		margin: 0; background: var(--page); color: var(--ink);
+		font: 16px/1.6 Geist, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+	}
+	.pdf body { background: #fff; }
+	.wrap { max-width: 860px; margin: 0 auto; padding: 32px 16px 64px; }
+	.sheet { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+	.pdf .sheet { border: 0; border-radius: 0; }
+	header.brand { display: flex; align-items: center; gap: 12px; padding: 20px 32px; border-bottom: 1px solid var(--line); }
+	header.brand img { max-height: 36px; max-width: 160px; }
+	header.brand .company { font-weight: 600; color: var(--ink-2); }
+	.cover { padding: 40px 32px 32px; border-bottom: 4px solid var(--accent); }
+	.eyebrow { margin: 0 0 8px; color: var(--accent-ink); font-weight: 500; font-size: 14px; letter-spacing: .02em; }
+	h1 { margin: 0 0 16px; font-size: 32px; line-height: 1.2; font-weight: 600; }
+	.meta { display: flex; flex-wrap: wrap; gap: 8px 24px; margin: 0; color: var(--ink-3); font-size: 14px; }
+	.meta dt { display: inline; }
+	.meta dd { display: inline; margin: 0 0 0 4px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+	.notice { margin: 16px 32px 0; padding: 12px 16px; border-radius: 8px; font-size: 14px; display: flex; gap: 8px; align-items: flex-start; }
+	.notice.info { background: var(--info-soft); color: var(--info); }
+	.notice.success { background: var(--success-soft); color: var(--success); }
+	.notice.danger { background: var(--danger-soft); color: var(--danger); }
+	.notice strong { font-weight: 600; }
+	section.block { padding: 28px 32px; border-bottom: 1px solid var(--line); page-break-inside: avoid; }
+	section.block:last-of-type { border-bottom: 0; }
+	section.block h2 { margin: 0 0 12px; font-size: 20px; font-weight: 600; }
+	section.block.lead-in p { font-size: 18px; color: var(--ink-2); }
+	p { margin: 0 0 12px; color: var(--ink-2); }
+	ul { margin: 0 0 12px; padding-left: 20px; color: var(--ink-2); }
+	li { margin-bottom: 4px; }
+	table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 15px; }
+	th { text-align: left; font-weight: 500; color: var(--ink-3); font-size: 13px; padding: 8px 8px 8px 0; border-bottom: 1px solid var(--line); }
+	td { padding: 12px 8px 12px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+	.num { text-align: right; font-family: "Geist Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; white-space: nowrap; padding-right: 0; }
+	th.num { font-family: inherit; }
+	td .desc { display: block; color: var(--ink-3); font-size: 14px; margin-top: 2px; }
+	.totals td { border-bottom: 0; padding: 6px 0; }
+	.totals tr.grand td { padding-top: 12px; border-top: 2px solid var(--ink); font-weight: 600; font-size: 17px; color: var(--ink); }
+	.words { margin-top: 8px; font-size: 14px; color: var(--ink-3); }
+	.decision { padding: 28px 32px; background: var(--accent-soft); }
+	.decision h2 { margin: 0 0 4px; font-size: 20px; font-weight: 600; }
+	.decision > p { margin-bottom: 16px; }
+	.fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+	label { display: block; font-size: 14px; font-weight: 500; color: var(--ink-2); margin-bottom: 4px; }
+	input, textarea { width: 100%; font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; min-height: 44px; }
+	textarea { min-height: 88px; }
+	.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 16px; }
+	button, .button { font: inherit; font-weight: 500; border-radius: 8px; padding: 10px 18px; min-height: 44px; cursor: pointer; border: 1px solid var(--line); background: var(--surface); color: var(--ink); text-decoration: none; display: inline-flex; align-items: center; }
+	button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+	button.primary:hover { background: var(--accent-hover); }
+	button[disabled] { opacity: .6; cursor: progress; }
+	:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+	details summary { cursor: pointer; color: var(--ink-2); min-height: 44px; display: inline-flex; align-items: center; }
+	.error { color: var(--danger); font-size: 14px; margin-top: 8px; }
+	footer { padding: 16px 32px; color: var(--ink-3); font-size: 13px; display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center; }
+	.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+	@media (max-width: 640px) {
+		.wrap { padding: 0 0 32px; }
+		.sheet { border-radius: 0; border-left: 0; border-right: 0; }
+		header.brand, .cover, section.block, .decision, footer { padding-left: 16px; padding-right: 16px; }
+		.notice { margin-left: 16px; margin-right: 16px; }
+		h1 { font-size: 26px; }
+		.fields { grid-template-columns: 1fr; }
+		th.hide-sm, td.hide-sm { display: none; }
+	}
+	@media print {
+		body, .wrap { background: #fff; padding: 0; }
+		.sheet { border: 0; }
+		.decision, footer .no-print, .notice.info { display: none; }
+	}
+	@media (prefers-reduced-motion: no-preference) { button { transition: background-color .15s; } }
+</style>
+</head>
+<body>
+<main class="wrap theme-{{ p.theme | e }}">
+	<article class="sheet" aria-labelledby="proposal-title">
+		<header class="brand">
+			{%- if p.logo %}<img src="{{ p.logo | e }}" alt="{{ (p.company or '') | e }}">{% endif %}
+			{%- if p.company and not p.logo %}<span class="company">{{ p.company | e }}</span>{% endif %}
+		</header>
+		<div class="cover">
+			<p class="eyebrow">{{ _("Proposal for {0}").format(p.client) | e }}</p>
+			<h1 id="proposal-title">{{ p.title | e }}</h1>
+			<dl class="meta">
+				{%- if p.valid_till %}<div><dt>{{ _("Valid till") }}</dt><dd>{{ p.valid_till | e }}</dd></div>{% endif %}
+				{%- if p.revision %}<div><dt>{{ _("Version") }}</dt><dd>{{ p.revision + 1 }}</dd></div>{% endif %}
+			</dl>
+		</div>
+		{%- if not pdf %}
+		{%- if p.preview %}
+		<p class="notice info" role="status"><strong>{{ _("Preview.") }}</strong> {{ _("This is how the client sees it. Opening it here counts no view, and it can't be accepted.") }}</p>
+		{%- endif %}
+		{%- if p.status == "Accepted" %}
+		<p class="notice success" role="status"><strong>{{ _("Accepted") }}</strong>&nbsp;{{ _("by {0} on {1}. Thank you, we'll be in touch.").format(p.decided_by or "", p.decided_on or "") | e }}</p>
+		{%- elif p.status == "Declined" %}
+		<p class="notice danger" role="status"><strong>{{ _("Declined") }}</strong>&nbsp;{{ _("on {0}. Thank you for letting us know.").format(p.decided_on or "") | e }}</p>
+		{%- elif p.superseded %}
+		<p class="notice info" role="status"><strong>{{ _("A newer version exists.") }}</strong> {{ _("Ask us for the latest link.") }}</p>
+		{%- elif p.expired %}
+		<p class="notice danger" role="status"><strong>{{ _("Expired.") }}</strong> {{ _("Ask us for a new proposal.") }}</p>
+		{%- endif %}
+		{%- endif %}
+
+		{%- for block in p.blocks %}
+		<section class="block{% if block.type == 'Cover' %} lead-in{% endif %}" aria-labelledby="block-{{ loop.index }}">
+			<h2 id="block-{{ loop.index }}"{% if block.type == 'Cover' %} class="sr-only"{% endif %}>{{ block.heading | e }}</h2>
+			{%- for part in block.parts %}
+			{%- if part.kind == "list" %}
+			<ul>{% for item in part["items"] %}<li>{{ item | e }}</li>{% endfor %}</ul>
+			{%- else %}
+			<p>{% for line in part.lines %}{{ line | e }}{% if not loop.last %}<br>{% endif %}{% endfor %}</p>
+			{%- endif %}
+			{%- endfor %}
+			{%- if block.type == "Pricing" and p.pricing %}
+			{%- set pr = p.pricing %}
+			<table>
+				<thead><tr><th scope="col">{{ _("Item") }}</th><th scope="col" class="num hide-sm">{{ _("Qty") }}</th><th scope="col" class="num hide-sm">{{ _("Rate") }}</th><th scope="col" class="num">{{ _("Amount") }}</th></tr></thead>
+				<tbody>
+				{%- for line in pr.lines %}
+				<tr><td>{{ line.item | e }}{% if line.description %}<span class="desc">{{ line.description | e }}</span>{% endif %}</td><td class="num hide-sm">{{ line.qty | e }}</td><td class="num hide-sm">{{ line.rate | e }}</td><td class="num">{{ line.amount | e }}</td></tr>
+				{%- endfor %}
+				</tbody>
+			</table>
+			<table class="totals" aria-label="{{ _('Totals') }}">
+				<tr><td>{{ _("Subtotal") }}</td><td class="num">{{ pr.total | e }}</td></tr>
+				{%- if pr.discount %}<tr><td>{{ _("Discount") }}</td><td class="num">− {{ pr.discount | e }}</td></tr>{% endif %}
+				{%- for tax in pr.taxes %}<tr><td>{{ tax.label | e }}</td><td class="num">{{ tax.amount | e }}</td></tr>{% endfor %}
+				<tr class="grand"><td>{{ _("Total") }}</td><td class="num">{{ pr.grand_total | e }}</td></tr>
+			</table>
+			{%- if pr.in_words %}<p class="words">{{ pr.in_words | e }}</p>{% endif %}
+			{%- if pr.payment_terms %}
+			<table aria-label="{{ _('Payment schedule') }}">
+				<thead><tr><th scope="col">{{ _("Payment") }}</th><th scope="col">{{ _("Due") }}</th><th scope="col" class="num">{{ _("Amount") }}</th></tr></thead>
+				<tbody>{% for term in pr.payment_terms %}<tr><td>{{ term.label | e }}</td><td>{{ (term.due or "") | e }}</td><td class="num">{{ term.amount | e }}</td></tr>{% endfor %}</tbody>
+			</table>
+			{%- endif %}
+			{%- endif %}
+		</section>
+		{%- endfor %}
+
+		{%- if p.can_decide and not pdf %}
+		<section class="decision" aria-labelledby="decide-title">
+			<h2 id="decide-title">{{ _("Ready to go ahead?") }}</h2>
+			<p>{{ _("Accept the proposal and we'll start on the next steps with you.") }}</p>
+			<form id="accept-form" novalidate>
+				<div class="fields">
+					<div><label for="accept-name">{{ _("Your name") }}</label><input id="accept-name" name="name" autocomplete="name" required maxlength="140"></div>
+					<div><label for="accept-email">{{ _("Your email") }}</label><input id="accept-email" name="email" type="email" autocomplete="email" required maxlength="140"></div>
+				</div>
+				<div class="actions">
+					<button type="submit" class="primary">{{ _("Accept proposal") }}</button>
+				</div>
+				<p class="error" role="alert" aria-live="assertive"></p>
+			</form>
+			<details>
+				<summary>{{ _("Not the right fit? Decline it") }}</summary>
+				<form id="decline-form" novalidate>
+					<label for="decline-reason">{{ _("What would make it work? (optional)") }}</label>
+					<textarea id="decline-reason" name="reason" maxlength="1000"></textarea>
+					<div class="actions"><button type="submit">{{ _("Decline proposal") }}</button></div>
+					<p class="error" role="alert" aria-live="assertive"></p>
+				</form>
+			</details>
+		</section>
+		{%- endif %}
+		{%- if not pdf %}
+		<footer>
+			<span>{{ (p.company or "") | e }}</span>
+			<a class="button no-print" href="/api/method/tbo_smart.api.proposal_page.download_pdf?token={{ p.token | e }}{% if p.preview %}&amp;preview=1{% endif %}">{{ _("Download PDF") }}</a>
+		</footer>
+		{%- endif %}
+	</article>
+</main>
+{%- if not pdf %}
+<script>
+(function () {
+	var token = {{ p.token | tojson }};
+	var csrf = {{ (csrf_token or "") | tojson }};
+	function post(method, data) {
+		var body = new URLSearchParams(Object.assign({ token: token }, data || {}));
+		var headers = { "Accept": "application/json" };
+		if (csrf) headers["X-Frappe-CSRF-Token"] = csrf;
+		return fetch("/api/method/tbo_smart.api.proposal_page." + method, { method: "POST", body: body, headers: headers, credentials: "same-origin" })
+			.then(function (r) { return r.json().then(function (j) { if (!r.ok) throw j; return j; }); });
+	}
+	function message(err) {
+		try { return JSON.parse(JSON.parse(err._server_messages)[0]).message.replace(/<[^>]+>/g, " "); }
+		catch (e) { return {{ _("Something went wrong. Try again, or reply to our email.") | tojson }}; }
+	}
+	function wire(id, method, fields) {
+		var form = document.getElementById(id);
+		if (!form) return;
+		form.addEventListener("submit", function (event) {
+			event.preventDefault();
+			var button = form.querySelector("button"), error = form.querySelector(".error"), data = {};
+			fields.forEach(function (f) { data[f] = form.elements[f].value.trim(); });
+			button.disabled = true; error.textContent = "";
+			post(method, data).then(function () { window.location.reload(); })
+				.catch(function (err) { error.textContent = message(err); button.disabled = false; });
+		});
+	}
+	wire("accept-form", "accept", ["name", "email"]);
+	wire("decline-form", "decline", ["reason"]);
+	{%- if not p.preview %}
+	post("record_view").catch(function () {});
+	{%- endif %}
+})();
+</script>
+{%- endif %}
+</body>
+</html>

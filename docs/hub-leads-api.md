@@ -1,4 +1,4 @@
-# Hub leads API (`tbo_smart.api.hub_leads`), v1.1
+# Hub leads API (`tbo_smart.api.hub_leads`), v1.2
 
 **Status:** built 2026-10-16. The TBO Support hub's lead page (tbocloud/helpdesk) shows and edits
 tboindia's leads through these methods. The leads are ERPNext's own **Lead**
@@ -39,7 +39,7 @@ curl -s -X POST https://india.teambackoffice.com/api/method/tbo_smart.api.hub_le
 | --- | --- | --- | --- |
 | `get_options` | GET | `acting_user` | `{stages: [{name, label, type, color}], sources: [], segments: [], owners: [{email, full_name}], territories: [], industries: []}` |
 | `list_leads` | GET | `search?`, `stage?`, `owner?`, `segment?`, `view` (`all` / `mine` / `call_today` / `follow_up`, default `all`), `start` (0), `page_length` (20, at most 100), `acting_user` | `{rows: [Row], total}` |
-| `get_lead` | GET | `name`, `acting_user` | `{lead: Lead, timeline: [Item], quotations: [Quotation], allowed_stages: [stage name]}` |
+| `get_lead` | GET | `name`, `acting_user` | `{lead: Lead, timeline: [Item], quotations: [Quotation], proposals: [Proposal row], allowed_stages: [stage name]}` |
 | `create_lead` | POST | `data`, `acting_user` | as `get_lead` |
 | `update_lead` | POST | `name`, `data`, `acting_user` | as `get_lead` |
 | `set_stage` | POST | `name`, `stage`, `note?`, `acting_user` | as `get_lead` |
@@ -60,7 +60,7 @@ Lead = {name, lead_name, first_name, last_name, company_name, email_id, mobile_n
   (Hot / Warm / Cold), tbo_score_reason, tbo_lost_reason, tbo_lost_notes, creation, modified,
   next_follow_up (date | null), deal (the Opportunity once won | null), can_write}
 
-Item = {kind: "note" | "call" | "activity" | "meeting" | "stage" | "quotation", at, who (user | null),
+Item = {kind: "note" | "call" | "activity" | "meeting" | "stage" | "quotation" | "proposal", at, who (user | null),
   who_name, text, ref (the record's name)}
 
 Quotation = {name, docstatus, tbo_quote_status, transaction_date, valid_till, currency,
@@ -79,7 +79,10 @@ Quotation = {name, docstatus, tbo_quote_status, transaction_date, valid_till, cu
   `page_length` page it. Other filters apply in every view.
 - **Timeline:** notes (Comments), calls and logged meetings, emails and WhatsApp (Events), the
   pipeline meetings (TBO Lead Meeting, `text` "1st meeting: MOM Submitted"), stage changes
-  (`text` "Contacted → Proposal Sent") and quotations, newest first.
+  (`text` "Contacted → Proposal Sent"), quotations and proposals (`text` "<title>: Viewed"),
+  newest first.
+- **Proposals:** the lead's proposals while Proposals is on (`hub-proposals-api.md`, `Row`);
+  empty otherwise.
 
 ### 2.2 Writing
 
@@ -138,3 +141,5 @@ options. `tests/test_segment_rate_card.py`: the rate card methods (acting user, 
 
 - **v1.0 (2026-10-16):** first version.
 - **v1.1 (2026-10-19):** `get_rate_card`, `save_rate_card`, `set_segment_rate`.
+- **v1.2 (2026-10-19):** `get_lead` returns `proposals` and `proposal` timeline items
+  (`hub-proposals-api.md`).

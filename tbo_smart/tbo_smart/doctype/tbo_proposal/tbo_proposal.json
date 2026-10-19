@@ -1,0 +1,275 @@
+{
+ "actions": [],
+ "creation": "2026-10-19 10:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "title",
+  "lead",
+  "lead_name",
+  "template",
+  "column_break_main",
+  "status",
+  "quotation",
+  "valid_till",
+  "theme",
+  "sections_section",
+  "sections",
+  "revision_section",
+  "proposal_family",
+  "revision_no",
+  "is_latest",
+  "tracking_section",
+  "public_token",
+  "sent_on",
+  "sent_to",
+  "first_viewed_on",
+  "last_viewed_on",
+  "view_count",
+  "column_break_tracking",
+  "decided_on",
+  "decided_by_name",
+  "decided_by_email",
+  "decline_reason"
+ ],
+ "fields": [
+  {
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "label": "Title",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "lead",
+   "fieldtype": "Link",
+   "label": "Lead",
+   "options": "Lead",
+   "reqd": 1,
+   "search_index": 1,
+   "in_standard_filter": 1,
+   "set_only_once": 1
+  },
+  {
+   "fieldname": "lead_name",
+   "fieldtype": "Data",
+   "label": "Lead name",
+   "fetch_from": "lead.lead_name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "template",
+   "fieldtype": "Link",
+   "label": "Template",
+   "options": "TBO Proposal Template",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_main",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Draft\nSent\nViewed\nAccepted\nDeclined\nExpired",
+   "default": "Draft",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "quotation",
+   "fieldtype": "Link",
+   "label": "Quotation",
+   "options": "Quotation",
+   "read_only": 1,
+   "description": "The lead's quotation that prices it."
+  },
+  {
+   "fieldname": "valid_till",
+   "fieldtype": "Date",
+   "label": "Valid till"
+  },
+  {
+   "fieldname": "theme",
+   "fieldtype": "Select",
+   "label": "Theme",
+   "options": "TBO Teal\nGraphite",
+   "default": "TBO Teal"
+  },
+  {
+   "fieldname": "sections_section",
+   "fieldtype": "Section Break",
+   "label": "Blocks"
+  },
+  {
+   "fieldname": "sections",
+   "fieldtype": "Table",
+   "label": "Blocks",
+   "options": "TBO Proposal Section"
+  },
+  {
+   "fieldname": "revision_section",
+   "fieldtype": "Section Break",
+   "label": "Revisions",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "proposal_family",
+   "fieldtype": "Data",
+   "label": "Proposal family",
+   "read_only": 1,
+   "search_index": 1,
+   "description": "The first proposal of the chain; every revision carries it."
+  },
+  {
+   "fieldname": "revision_no",
+   "fieldtype": "Int",
+   "label": "Revision",
+   "read_only": 1
+  },
+  {
+   "fieldname": "is_latest",
+   "fieldtype": "Check",
+   "label": "Latest revision",
+   "default": "1",
+   "read_only": 1
+  },
+  {
+   "fieldname": "tracking_section",
+   "fieldtype": "Section Break",
+   "label": "With the client",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "public_token",
+   "fieldtype": "Data",
+   "label": "Link token",
+   "unique": 1,
+   "hidden": 1,
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "sent_on",
+   "fieldtype": "Datetime",
+   "label": "Sent on",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "sent_to",
+   "fieldtype": "Data",
+   "label": "Sent to",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "first_viewed_on",
+   "fieldtype": "Datetime",
+   "label": "First viewed on",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "last_viewed_on",
+   "fieldtype": "Datetime",
+   "label": "Last viewed on",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "view_count",
+   "fieldtype": "Int",
+   "label": "Views",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "column_break_tracking",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "decided_on",
+   "fieldtype": "Datetime",
+   "label": "Accepted or declined on",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "decided_by_name",
+   "fieldtype": "Data",
+   "label": "By",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "decided_by_email",
+   "fieldtype": "Data",
+   "label": "Their email",
+   "options": "Email",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "decline_reason",
+   "fieldtype": "Small Text",
+   "label": "Reason given",
+   "read_only": 1,
+   "no_copy": 1
+  }
+ ],
+ "links": [],
+ "modified": "2026-10-19 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tbo Smart",
+ "name": "TBO Proposal",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Sales Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  },
+  {
+   "role": "Sales User",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "report": 1,
+   "export": 1,
+   "print": 1,
+   "email": 1,
+   "share": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "autoname": "format:PROP-{YYYY}-{#####}",
+ "naming_rule": "Expression",
+ "title_field": "title",
+ "show_title_field_in_link": 1,
+ "track_changes": 1
+}
