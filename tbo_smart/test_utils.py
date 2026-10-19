@@ -1,6 +1,7 @@
 """Factories and toggles shared by the tbo_smart tests. Never define helpers inside test files."""
 
 import base64
+import contextlib
 import functools
 import io
 import json
@@ -1443,6 +1444,21 @@ def page_response(html: str, url: str = "https://client.example/") -> MagicMock:
 	response.encoding = "utf-8"
 	response.iter_content.return_value = [html.encode()]
 	return response
+
+
+@contextlib.contextmanager
+def lead_source_required():
+	"""Lead.source made mandatory on the site (a Property Setter), as on the live site, for the
+	block; removed after."""
+	from frappe.custom.doctype.property_setter.property_setter import make_property_setter
+
+	make_property_setter("Lead", "source", "reqd", 1, "Check")
+	frappe.clear_cache(doctype="Lead")
+	try:
+		yield
+	finally:
+		frappe.delete_doc("Property Setter", "Lead-source-reqd", force=True, ignore_permissions=True)
+		frappe.clear_cache(doctype="Lead")
 
 
 def set_proposal_values(name: str, **values) -> None:

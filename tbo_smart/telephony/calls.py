@@ -20,6 +20,7 @@ from frappe.utils import add_days, cint, getdate, today
 
 from tbo_smart.lead_pipeline.statuses import OPEN_STATUSES
 from tbo_smart.sales.activities import CALL, CANCELLED, OPEN, add_event, add_follow_up_task
+from tbo_smart.sales.stages import system_save
 from tbo_smart.smart_leads import FOLLOW_UP_TYPE
 from tbo_smart.smart_leads.utils import normalise_phone
 from tbo_smart.telephony import (
@@ -283,7 +284,9 @@ def new_caller_lead(number: str | None, owner: str | None) -> str | None:
 		}
 	)
 	with run_as(owner or "Administrator"):
-		lead.insert(ignore_permissions=True)
+		# a caller's lead has only their number: Source may be required on the site, but the
+		# call can't wait for it
+		system_save(lead, ignore_permissions=True)
 	return lead.name
 
 
