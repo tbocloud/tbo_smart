@@ -170,11 +170,11 @@
 
 		{%- for block in p.blocks %}
 		<section class="block{% if block.type == 'Cover' %} lead-in{% endif %}" aria-labelledby="block-{{ loop.index }}">
-			<h2 id="block-{{ loop.index }}"{% if block.type == 'Cover' %} class="sr-only"{% endif %}>{{ block.heading | e }}</h2>
+			<h2 id="block-{{ loop.index }}"{% if block.heading_hidden %} class="sr-only"{% endif %}>{{ block.heading | e }}</h2>
 			{%- if block.image %}
 			<figure class="{{ block.image.size | e }}{% if block.type == 'Cover' %} cover-image{% endif %}">
 				<img src="{{ block.image.src | e }}" alt="{{ block.image.alt | e }}" loading="lazy">
-				{%- if block.image.caption %}<figcaption>{{ block.image.caption | e }}</figcaption>{% endif %}
+				{%- if block.image.caption and block.type == "Image" %}<figcaption>{{ block.image.caption | e }}</figcaption>{% endif %}
 			</figure>
 			{%- endif %}
 			{%- for part in block.parts %}

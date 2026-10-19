@@ -582,6 +582,7 @@ class TestImages(ProposalTestCase):
 		html = p.render_html(frappe.get_doc(p.DOCTYPE, name), preview=True)
 		self.assertIn(f"file={file}", html)
 		self.assertIn('alt="Our team at work"', html)
+		self.assertIn('class="sr-only">Image</h2>', html)  # no heading of its own
 		self.assertNotIn("/private/files/", html)
 		pdf_html = p.render_html(frappe.get_doc(p.DOCTYPE, name), pdf=True)
 		self.assertIn("data:image/png;base64,", pdf_html)

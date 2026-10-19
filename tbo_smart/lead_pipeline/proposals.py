@@ -940,7 +940,9 @@ def page_block(doc, row, pdf: bool) -> dict:
 	return {
 		"type": row.section_type,
 		"heading": row.heading or _(row.section_type),
-		"parts": text_parts(row.body),
+		# a Cover's heading, and an Image block's without one of its own, are for screen readers
+		"heading_hidden": row.section_type == "Cover" or (row.section_type == "Image" and not row.heading),
+		"parts": text_parts(row.body) if row.section_type != "Image" else [],
 		"image": media.image_payload(doc, row, pdf),
 	}
 
