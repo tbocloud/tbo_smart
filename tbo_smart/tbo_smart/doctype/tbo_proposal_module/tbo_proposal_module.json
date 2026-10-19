@@ -24,7 +24,14 @@
   "assumptions",
   "out_of_scope",
   "workflow",
-  "image_tag"
+  "image_tag",
+  "srs_section",
+  "srs_requirements",
+  "srs_roles",
+  "srs_screens",
+  "column_break_srs",
+  "srs_validations",
+  "srs_notifications"
  ],
  "fields": [
   {
@@ -143,10 +150,50 @@
    "fieldtype": "Data",
    "label": "Image tag",
    "description": "A library image tagged with this module's name or this tag illustrates it."
+  },
+  {
+   "fieldname": "srs_section",
+   "fieldtype": "Section Break",
+   "label": "Functional specification (SRS)",
+   "description": "What this module adds to an SRS (docs/client-documents.md §6). One a line."
+  },
+  {
+   "fieldname": "srs_requirements",
+   "fieldtype": "Text",
+   "label": "Functional requirements",
+   "description": "“Requirement | How the client accepts it”, one a line. Each becomes a numbered FR with its acceptance criterion, and the UAT's test case."
+  },
+  {
+   "fieldname": "srs_roles",
+   "fieldtype": "Small Text",
+   "label": "User roles",
+   "description": "“Role | What they may do”, one a line."
+  },
+  {
+   "fieldname": "srs_screens",
+   "fieldtype": "Small Text",
+   "label": "Screens and fields",
+   "description": "“Screen: field, field, …”, one a line."
+  },
+  {
+   "fieldname": "column_break_srs",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "srs_validations",
+   "fieldtype": "Small Text",
+   "label": "Validations",
+   "description": "One rule a line."
+  },
+  {
+   "fieldname": "srs_notifications",
+   "fieldtype": "Small Text",
+   "label": "Notifications",
+   "description": "Who is told what, and when; one a line."
   }
  ],
  "links": [],
- "modified": "2026-10-19 21:00:00.000000",
+ "modified": "2026-10-22 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Proposal Module",

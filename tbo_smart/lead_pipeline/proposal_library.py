@@ -32,6 +32,11 @@ FIELDS = {
 		"out_of_scope",
 		"workflow",
 		"image_tag",
+		"srs_requirements",
+		"srs_roles",
+		"srs_screens",
+		"srs_validations",
+		"srs_notifications",
 	),
 	"item": (
 		"library",

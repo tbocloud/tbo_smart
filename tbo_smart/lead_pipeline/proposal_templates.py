@@ -1021,3 +1021,285 @@ AGREEMENT_CLAUSES = (
 		sort_order=4,
 	),
 )
+
+
+# ---------- the SRS: what each module adds to a functional specification (docs/client-documents.md §6) ----------
+
+
+def srs(
+	requirements: tuple,
+	roles: tuple = (),
+	screens: tuple = (),
+	validations: tuple = (),
+	notifications: tuple = (),
+) -> dict:
+	"""A module's SRS text: requirements as "requirement | acceptance criterion" lines."""
+	return {
+		"srs_requirements": "\n".join(requirements),
+		"srs_roles": "\n".join(roles),
+		"srs_screens": "\n".join(screens),
+		"srs_validations": "\n".join(validations),
+		"srs_notifications": "\n".join(notifications),
+	}
+
+
+SRS_TEXT = {
+	"Accounts": srs(
+		(
+			"Keep the chart of accounts, cost centres and fiscal years | The client's chart of accounts and cost centres are in the system and the fiscal year is open",
+			"Raise sales invoices with GST | A sales invoice for an intra-state and an inter-state customer shows CGST/SGST and IGST correctly",
+			"Record purchase invoices with GST input | A purchase invoice posts the input tax to the right GST accounts",
+			"Record payments and reconcile the bank | A payment against an invoice clears it, and a bank statement line matches it in reconciliation",
+			"Prepare GSTR-1 and GSTR-3B | The month's GSTR-1 and GSTR-3B reports match the invoices entered",
+			"Report profit and loss, balance sheet and cash flow | The statements for a test month agree with the trial balance",
+		),
+		(
+			"Accounts User | Enters invoices, payments and journals",
+			"Accounts Manager | Approves, closes periods and sees every report",
+		),
+		(
+			"Sales Invoice: customer, posting date, items, tax template, payment terms",
+			"Purchase Invoice: supplier, bill number, bill date, items, tax template",
+			"Payment Entry: party, mode, amount, reference, allocation to invoices",
+		),
+		(
+			"A closed period can't take new entries",
+			"A GSTIN is checked for its format",
+			"An invoice can't be cancelled once paid without cancelling the payment",
+		),
+		("The accounts manager is told of invoices overdue by 30 days",),
+	),
+	"HR & Payroll": srs(
+		(
+			"Keep the employee master with documents | An employee's record holds department, designation, joining date and documents",
+			"Record attendance from check-in and the biometric device | A day's check-ins become attendance with the right status",
+			"Apply for and approve leave against policy | A leave application within balance is approved by the manager and the balance drops",
+			"Run monthly payroll with statutory deductions | A payroll run for a test month computes PF, ESI and professional tax as the salary structure says",
+			"Issue salary slips | Each employee gets a salary slip by email after payroll is submitted",
+			"Claim and approve expenses | An expense claim is approved by the manager and paid through accounts",
+		),
+		(
+			"Employee | Applies for leave and expenses, sees own slips",
+			"HR Manager | Keeps the masters and runs payroll",
+			"Reporting Manager | Approves leave and expenses",
+		),
+		(
+			"Employee: name, department, designation, joining date, reporting manager, bank account",
+			"Leave Application: employee, leave type, from, to, reason",
+			"Salary Slip: employee, period, earnings, deductions, net pay",
+		),
+		(
+			"Leave can't exceed the balance unless the policy allows",
+			"Payroll can't run twice for the same period",
+		),
+		(
+			"The manager is told of each leave application",
+			"The employee is told when leave is approved or rejected",
+		),
+	),
+	"Selling & CRM": srs(
+		(
+			"Capture leads and opportunities | A new lead can be qualified into an opportunity with its source and owner",
+			"Make quotations from the price list | A quotation picks the customer's price list and its taxes",
+			"Turn a quotation into a sales order | An accepted quotation becomes a sales order with the same lines",
+			"Follow the sales pipeline | The pipeline report shows opportunities by stage and owner",
+		),
+		(
+			"Sales User | Works leads, quotations and orders",
+			"Sales Manager | Sees the whole pipeline and approves discounts",
+		),
+		(
+			"Lead: name, company, source, owner, status",
+			"Quotation: party, items, price list, taxes, validity",
+		),
+		("A discount above the limit needs the manager's approval",),
+		("The owner is told of quotations expiring this week",),
+	),
+	"Buying": srs(
+		(
+			"Raise material requests and purchase orders | A material request becomes a purchase order for the chosen supplier",
+			"Compare supplier quotations | Two supplier quotations for the same items are compared side by side",
+			"Receive goods against the order | A purchase receipt updates stock and the order's received quantity",
+		),
+		("Purchase User | Raises requests and orders", "Purchase Manager | Approves orders above the limit"),
+		("Purchase Order: supplier, items, rates, schedule date, taxes",),
+		("An order above the approval limit waits for the manager",),
+		("The requester is told when the order is placed",),
+	),
+	"Stock & Inventory": srs(
+		(
+			"Keep items and warehouses | Items carry their unit, group and valuation, and each warehouse holds its own stock",
+			"Move stock between warehouses | A stock transfer reduces one warehouse and increases the other",
+			"Track batches and serial numbers where needed | A batch item can't be issued without its batch",
+			"Report stock balance and ageing | The stock balance report agrees with a physical count for a test item",
+		),
+		(
+			"Stock User | Receives, issues and moves stock",
+			"Stock Manager | Approves adjustments and reconciliations",
+		),
+		(
+			"Item: code, name, unit, group, valuation method",
+			"Stock Entry: type, from warehouse, to warehouse, items",
+		),
+		("Stock can't go negative unless allowed", "A reconciliation needs the manager's approval"),
+		("The stock manager is told when an item falls below its reorder level",),
+	),
+	"Manufacturing": srs(
+		(
+			"Keep bills of materials | A BOM lists the raw materials and operations of a finished item",
+			"Plan production from sales orders | A production plan proposes work orders and material requests",
+			"Run work orders and job cards | A work order consumes raw materials and produces the finished goods",
+		),
+		(
+			"Manufacturing User | Runs work orders and job cards",
+			"Manufacturing Manager | Keeps BOMs and plans",
+		),
+		("Work Order: item, BOM, quantity, planned start, warehouses",),
+		("A work order can't finish more than planned without approval",),
+		("The planner is told when materials for a work order are short",),
+	),
+	"Projects & Timesheets": srs(
+		(
+			"Plan projects with tasks and milestones | A project shows its tasks, owners and dates",
+			"Record time on timesheets | A timesheet against a task adds to the project's hours",
+			"Bill the time | Billable timesheets become a sales invoice",
+		),
+		("Projects User | Works tasks and timesheets", "Projects Manager | Plans and bills projects"),
+		("Task: subject, project, assignee, expected dates", "Timesheet: employee, task, hours, billable"),
+		("A timesheet can't be submitted for a closed project",),
+		("The assignee is told of a new task",),
+	),
+	"Assets": srs(
+		(
+			"Register assets with their purchase details | An asset holds its category, location, cost and purchase date",
+			"Depreciate assets on schedule | The depreciation schedule posts the month's entries",
+			"Move and dispose of assets | A movement changes the location; a sale posts the gain or loss",
+		),
+		("Asset User | Registers and moves assets", "Accounts Manager | Runs depreciation and disposals"),
+		("Asset: name, category, location, gross value, available for use date",),
+		("An asset can't be depreciated before it is available for use",),
+		(),
+	),
+	"Helpdesk": srs(
+		(
+			"Log tickets from email and the portal | An email to the support address becomes a ticket",
+			"Assign and work tickets to an SLA | A ticket is assigned by the rules and shows its SLA due time",
+			"Close tickets with the customer's feedback | A resolved ticket asks the customer for feedback",
+		),
+		("Agent | Works the tickets", "Support Manager | Sets rules and SLAs, sees every report"),
+		("Ticket: subject, customer, priority, team, status",),
+		("A ticket can't close without a resolution note",),
+		("The customer is told at each reply and when the ticket closes",),
+	),
+	"Website & Portal": srs(
+		(
+			"Publish the website pages | The pages agreed are live on the client's domain",
+			"Let customers sign in to the portal | A customer sees their orders and invoices on the portal",
+		),
+		("Website Manager | Edits pages", "Customer | Uses the portal"),
+		("Web Page: title, route, content, published",),
+		(),
+		(),
+	),
+	"Flutter Mobile App": srs(
+		(
+			"Sign in securely | A user signs in and stays signed in until they sign out or are disabled",
+			"Work offline and sync | Entries made offline sync when the phone is back online",
+			"Use the agreed screens | Each screen in this specification works on Android and iOS",
+		),
+		("App User | Uses the app's screens",),
+		("Sign-in: email or phone, password or one-time code",),
+		("The app refuses an expired session",),
+		("Push notifications for the events agreed",),
+	),
+	"Web Application": srs(
+		(
+			"Sign in with roles | Each role sees only its own screens",
+			"Use the agreed screens and workflows | Each screen in this specification works in current browsers",
+		),
+		("User | Uses the screens of their role", "Administrator | Manages users and settings"),
+		(),
+		(),
+		(),
+	),
+	"Admin Panel": srs(
+		(
+			"Manage users and roles | An administrator adds a user and gives a role",
+			"Change the settings agreed | A setting changed in the panel applies at once",
+		),
+		("Administrator | Manages users, roles and settings",),
+		(),
+		(),
+		(),
+	),
+	"Reports & Dashboards": srs(
+		(
+			"Give each role its dashboard | Each role's dashboard opens with its figures",
+			"Email the scheduled reports | The scheduled reports arrive by email at the agreed time",
+		),
+		("Manager | Reads the dashboards and reports",),
+		(),
+		(),
+		("The scheduled reports go to the people agreed",),
+	),
+	"Integrations": srs(
+		(
+			"Exchange data with the systems agreed | A test record passes both ways without re-typing",
+			"Log and retry failures | A failed exchange is logged and retried, and an administrator can see it",
+		),
+		("Administrator | Sets up and watches the integrations",),
+		(),
+		("An exchange with a wrong key is refused",),
+		("The administrator is told when an exchange keeps failing",),
+	),
+	"Data Migration": srs(
+		(
+			"Load the masters | Customers, suppliers, items and employees are in the system and checked by the client",
+			"Load the opening balances | Opening balances agree with the client's books on the cut-over date",
+		),
+		("Client's key user | Checks the loaded data",),
+		(),
+		("Duplicates are removed before loading",),
+		(),
+	),
+	"Training": srs(
+		(
+			"Train each role | Each role's users have had their session and can do their daily work",
+			"Hand over user guides | The guides for each role are with the client",
+		),
+		(),
+		(),
+		(),
+		(),
+	),
+}
+
+NFR = "Non-functional Requirement"
+NON_FUNCTIONAL = (
+	item(
+		NFR,
+		"Performance",
+		"Screens open within 3 seconds for up to the agreed number of users.",
+		sort_order=1,
+	),
+	item(
+		NFR,
+		"Security",
+		"Role-based access; every change is logged with who made it and when; passwords are never stored in plain text.",
+		sort_order=2,
+	),
+	item(
+		NFR,
+		"Availability",
+		"The production system is available during business hours, with planned maintenance announced in advance.",
+		sort_order=3,
+	),
+	item(NFR, "Backup", "Daily backups, kept for 7 days, and a restore tested before go-live.", sort_order=4),
+	item(
+		NFR,
+		"Browsers and devices",
+		"Current Chrome, Edge, Safari and Firefox; the screens work on a tablet.",
+		sort_order=5,
+	),
+	item(NFR, "Mobile", "Android 9 and later, iOS 15 and later.", condition="Mobile app", sort_order=6),
+)

@@ -1347,15 +1347,20 @@ def proposal_token(name: str) -> str:
 	return frappe.db.get_value("TBO Proposal", name, "public_token")
 
 
-def enable_client_documents(quotations: bool = True, work_orders: bool = True, brds: bool = True) -> None:
+def enable_client_documents(
+	quotations: bool = True, work_orders: bool = True, brds: bool = True, srs: bool = True
+) -> None:
 	"""TBO Smart Settings' switches for the documents after the proposal (docs/client-documents.md)."""
 	set_smart_lead_settings(
-		enable_quotation_documents=int(quotations), enable_work_orders=int(work_orders), enable_brds=int(brds)
+		enable_quotation_documents=int(quotations),
+		enable_work_orders=int(work_orders),
+		enable_brds=int(brds),
+		enable_srs=int(srs),
 	)
 
 
 def disable_client_documents() -> None:
-	enable_client_documents(False, False, False)
+	enable_client_documents(False, False, False, False)
 
 
 def accept_as_client(name: str, designation: str | None = None) -> None:
@@ -1399,6 +1404,23 @@ def make_signed_agreement(lead: str, acting_user: str, template: str, item_code:
 	send_hub_proposal(order, acting_user)
 	accept_as_client(order, "Director")
 	return order
+
+
+def make_approved_brd(lead: str, acting_user: str, template: str, item_code: str) -> str:
+	"""The chain up to an approved BRD (made without the AI from a signed agreement, sent and
+	approved; emails mocked). Returns the BRD's name."""
+	order = make_signed_agreement(lead, acting_user, template, item_code)
+	name = make_hub_document(order, "BRD", acting_user)["proposal"]["name"]
+	send_hub_proposal(name, acting_user)
+	accept_as_client(name)
+	return name
+
+
+def srs_answer(requirements: list[tuple[str, str]]) -> MagicMock:
+	"""The AI's answer for one SRS module: [(requirement, acceptance criterion)]."""
+	return openai_answer(
+		{"requirements": [{"requirement": r, "acceptance": a} for r, a in requirements]}, 700, 250
+	)
 
 
 def brd_answer(sections: dict, questions: list | None = None) -> MagicMock:

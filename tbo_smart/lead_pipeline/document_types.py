@@ -20,7 +20,7 @@ from frappe.utils import add_days, flt, formatdate, getdate
 from tbo_smart.lead_pipeline import proposal_builder as builder
 from tbo_smart.lead_pipeline import setting
 
-PROPOSAL, QUOTATION, WORK_ORDER, BRD = "Proposal", "Quotation", "Work Order", "BRD"
+PROPOSAL, QUOTATION, WORK_ORDER, BRD, SRS = "Proposal", "Quotation", "Work Order", "BRD", "SRS"
 CLAUSE_LIBRARY = "Agreement Clause"
 
 # The Universal IT Proposal (docs/proposals.md §2): 23 sections in three parts, each with its
@@ -104,6 +104,14 @@ BRD_SECTIONS = (
 	("Open Questions", "Open Questions"),
 	("Acceptance", "Approval"),
 )
+# the functional specification: a "Module Specification" section a module is added on creation
+SRS_SECTIONS = (
+	("Cover", "Cover"),
+	("Introduction", "Introduction"),
+	("User Roles", "User Roles & Permissions"),
+	("Non-functional Requirements", "Non-functional Requirements"),
+	("Acceptance", "Approval"),
+)
 # the clause library's groups, one a section of the agreement
 CLAUSE_GROUPS = {
 	"Change Requests": "Change Requests",
@@ -146,6 +154,10 @@ class DocumentType:
 	questionnaire: bool = False
 	# called on a new document before its sections are built
 	prepare: Callable | None = None
+	# sections built from their own row (a section a module): {type: fn(doc, row)}, and the AI's
+	# writer for one such row: fn(doc, row, feature) -> warnings
+	row_builders: dict = field(default_factory=dict)
+	row_writer: Callable | None = None
 
 	@property
 	def headings(self) -> dict:
@@ -168,17 +180,21 @@ class DocumentType:
 # ---------- building the sections from data ----------
 
 
-def build_section(doc, kind: str) -> str | None:
+def build_section(doc, kind: str, row=None) -> str | None:
 	"""A section's text from the data and the libraries, or None for one that isn't built from data
-	(the cover, the acceptance, the AI's, a custom block)."""
-	make = of(doc).builders.get(kind)
+	(the cover, the acceptance, the AI's, a custom block). A section a module is built from its
+	own `row`."""
+	spec = of(doc)
+	if kind in spec.row_builders:
+		return spec.row_builders[kind](doc, row) if row is not None else None
+	make = spec.builders.get(kind)
 	return make(doc) if make else None
 
 
 def build_all(doc) -> None:
 	"""Every data section's text, for a new document."""
 	for row in doc.sections:
-		text = build_section(doc, row.section_type)
+		text = build_section(doc, row.section_type, row)
 		if text is not None:
 			row.body = text or None
 
@@ -460,8 +476,30 @@ def brd_type() -> DocumentType:
 	)
 
 
+def srs_type() -> DocumentType:
+	"""The SRS's type (its builders and writer live in srs.py)."""
+	from tbo_smart.lead_pipeline import srs
+
+	return DocumentType(
+		name=SRS,
+		prefix="SRS",
+		flag="enable_srs",
+		follows=BRD,
+		sections=SRS_SECTIONS,
+		builders=srs.BUILDERS,
+		row_builders=srs.ROW_BUILDERS,
+		ai_sections=(srs.MODULE_SECTION,),
+		writer=srs.write_sections,
+		row_writer=srs.write_module,
+		draft_feature="SRS draft",
+		section_feature="SRS module",
+		prepare=srs.prepare,
+		accepted_as="Approved",
+	)
+
+
 # in the order of the chain
-TYPES = {spec.name: spec for spec in (PROPOSAL_TYPE, QUOTATION_TYPE, WORK_ORDER_TYPE, brd_type())}
+TYPES = {spec.name: spec for spec in (PROPOSAL_TYPE, QUOTATION_TYPE, WORK_ORDER_TYPE, brd_type(), srs_type())}
 ALL_SECTION_TYPES = tuple(dict.fromkeys(kind for spec in TYPES.values() for kind in spec.section_types))
 
 
@@ -496,6 +534,31 @@ def default_sections(spec: DocumentType) -> list[dict]:
 
 def words(name: str) -> dict:
 	"""The words the client's page, the PDF and the email use for this type."""
+	if name == SRS:
+		return {
+			"kicker": _("Software Requirements Specification"),
+			"noun": _("SRS"),
+			"for": _("Functional specification for {0}, from {1}"),
+			"decide_title": _("Approve the specification"),
+			"decide_text": _(
+				"Approve this specification when it describes what the system should do. Each numbered requirement is tested with you at acceptance."
+			),
+			"accept_button": _("Approve the SRS"),
+			"decline_summary": _("Something missing or wrong? Ask for changes"),
+			"decline_prompt": _("What should change? (optional)"),
+			"decline_button": _("Ask for changes"),
+			"accepted": _("Approved"),
+			"accepted_note": _("by {0} on {1}. Thank you, we'll plan the implementation next."),
+			"declined": _("Changes asked for"),
+			"ask_new": _("Ask us for the updated SRS."),
+			"agree_text": _("By approving below, the client confirms this is what the system should do."),
+			"accepted_online": _("Approved online"),
+			"email_intro": _(
+				"The functional specification is ready: what the system will do, module by module, and how you will accept each requirement."
+			),
+			"read_link": _("Read the specification: {0}"),
+			"subject": _("{0}: the functional specification"),
+		}
 	if name == BRD:
 		return {
 			"kicker": _("Business Requirements Document"),

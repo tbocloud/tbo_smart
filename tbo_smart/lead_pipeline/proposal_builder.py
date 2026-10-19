@@ -65,6 +65,8 @@ AI_FEATURES = (
 	"Proposal chat answer",
 	"BRD draft",
 	"BRD section",
+	"SRS draft",
+	"SRS module",
 )
 
 
@@ -1327,7 +1329,7 @@ def rebuilt_body(doc, row) -> str | None:
 	under the rebuilt component table (None: the section isn't built from data)."""
 	from tbo_smart.lead_pipeline import document_types
 
-	text = document_types.build_section(doc, row.section_type)
+	text = document_types.build_section(doc, row.section_type, row)
 	if text is None or row.section_type != "Proposed Solution":
 		return text
 	marker = f"## {_('Business benefits')}"
