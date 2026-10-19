@@ -142,7 +142,14 @@ class TestCRMCutover(FrappeTestCase):
 		frappe.set_user("Administrator")
 		self.assertEqual(cutover_api.dry_run()["counts"]["leads"]["crm"], 2)
 		self.assertFalse(frappe.db.exists("Lead", self.crm.lead))
-		self.assertIn("running", cutover_api.status())
+		self.assertEqual(cutover_api.status()["running"], False)
+		# one run at a time: a second start while the slot is taken queues nothing
+		frappe.cache.set(cutover_api.lock_key(), "Administrator", nx=True, ex=60)
+		try:
+			self.assertFalse(cutover_api.start()["queued"])
+			self.assertTrue(cutover_api.status()["running"])
+		finally:
+			frappe.cache.delete(cutover_api.lock_key())
 
 	def test_finalize_removes_the_old_links(self):
 		cutover.run(dry_run=False)

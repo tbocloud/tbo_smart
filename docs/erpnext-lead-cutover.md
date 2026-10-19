@@ -200,7 +200,7 @@ System Console (Python) one at a time:
 | --- | --- |
 | 3. Dry run | `print(frappe.call("tbo_smart.api.cutover.dry_run"))` |
 | 4. Run (queued on the long queue, one at a time) | `print(frappe.call("tbo_smart.api.cutover.start"))` |
-| 4. Progress and report | `print(frappe.call("tbo_smart.api.cutover.status"))` (`running`, then `last_report`) |
+| 4. Progress and report | `print(frappe.call("tbo_smart.api.cutover.status"))` (`running`; `failed` with the error if the run broke; `last_report` from the last completed run) |
 | 5. Verify | `print(frappe.call("tbo_smart.api.cutover.verify"))` (`pass` must be `True`) |
 | 6. Finalize | `print(frappe.call("tbo_smart.api.cutover.finalize"))` |
 
