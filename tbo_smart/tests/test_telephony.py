@@ -124,6 +124,23 @@ class TestWebhook(TelephonyTestCase):
 		self.assertEqual((call.agent, call.last_event), (BDE, "call.summary"))
 		self.assertEqual(len(self.call_events(self.lead)), 1)
 
+	def test_the_final_summary_corrects_the_event_and_the_call_back(self):
+		# call.end said missed with nobody on it; call.summary says Bina answered
+		post_myoperator_webhook(
+			myoperator_event("C-FIX", event_type="call.end", status="missed", duration=10)
+		)
+		call = self.call_of("C-FIX")
+		self.assertEqual(frappe.db.get_value("ToDo", call.call_back, "status"), "Open")
+		post_myoperator_webhook(myoperator_event("C-FIX", agent=AGENT, duration=95))
+		call.reload()
+		event = frappe.db.get_value("Event", call.event, ["subject", "owner"], as_dict=True)
+		self.assertEqual((event.subject, event.owner), (f"Call from {NUMBER} (1m 35s)", BDE))
+		self.assertEqual(self.call_events(self.lead), [call.event])
+		self.assertIsNone(call.call_back)
+		self.assertEqual(
+			frappe.get_all("ToDo", filters={"reference_name": self.lead}, pluck="status"), ["Cancelled"]
+		)
+
 	def test_a_summary_that_loses_the_insert_race_still_completes_the_call(self):
 		post_myoperator_webhook(myoperator_event("C-RACE", event_type="call.end"))
 		real = calls.stored_call

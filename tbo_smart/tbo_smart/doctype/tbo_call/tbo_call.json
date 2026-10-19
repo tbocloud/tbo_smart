@@ -11,6 +11,7 @@
   "customer_number",
   "lead",
   "event",
+  "call_back",
   "column_break_who",
   "agent",
   "agent_ref",
@@ -78,6 +79,13 @@
    "fieldtype": "Link",
    "label": "Event",
    "options": "Event",
+   "read_only": 1
+  },
+  {
+   "fieldname": "call_back",
+   "fieldtype": "Link",
+   "label": "Call back task",
+   "options": "ToDo",
    "read_only": 1
   },
   {
@@ -193,7 +201,7 @@
  "in_create": 1,
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-10-19 12:00:00.000000",
+ "modified": "2026-10-19 21:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Call",

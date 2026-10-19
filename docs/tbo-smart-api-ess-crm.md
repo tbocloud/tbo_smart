@@ -801,7 +801,7 @@ Behind `crm`; the spec is [telephony-myoperator.md](telephony-myoperator.md).
 
 | Method | Verb | Params | Returns |
 | --- | --- | --- | --- |
-| `click_to_call` | POST | `name` (the lead), `number?` (one of the lead's own numbers; default its mobile) | `{ok, message: "MyOperator is calling your phone…", number, reference_id, request_id}`. MyOperator rings my phone, then the lead |
+| `click_to_call` | POST | `name` (the lead), `number?` (one of the lead's own numbers; default the first of its mobile, phone and WhatsApp) | `{ok, message: "MyOperator is calling your phone…", number, reference_id, request_id}`. MyOperator rings my phone, then the lead |
 | `call_recording` | GET | `call` (an activity's `recording`) | the recording (audio/mpeg), only when I may read the lead |
 
 - Show **Call via MyOperator** only with the `click_to_call` capability, and keep the normal
