@@ -28,6 +28,7 @@ from tbo_smart.test_utils import (
 	make_accepted_proposal,
 	make_accepted_quotation_document,
 	make_approved_brd,
+	make_approved_document,
 	make_gst_template,
 	make_hub_document,
 	make_hub_proposal,
@@ -558,3 +559,80 @@ class TestSRS(ClientDocumentTestCase):
 		self.assertEqual(post.call_count, 1)
 		self.assertNotIn("37 minutes", result["proposal"]["sections"][index]["body"])
 		self.assertTrue(result["warnings"])
+
+
+class TestImplementationPlan(ClientDocumentTestCase):
+	def make_plan(self) -> dict:
+		brd_name = make_approved_brd(self.lead, BDE, TEMPLATE, SERVICE)
+		srs_name = make_approved_document(brd_name, kinds.SRS, BDE)
+		return make_hub_document(srs_name, kinds.PLAN, BDE)["proposal"]
+
+	def test_dated_phases_deliverables_raci_and_the_clients_part(self):
+		plan_doc = self.make_plan()
+		self.assertTrue(plan_doc["name"].startswith("PIP-"))
+		self.assertEqual(plan_doc["start_date"], getdate(nowdate()))
+		bodies = {row["section_type"]: row["body"] for row in plan_doc["sections"]}
+		start = frappe.utils.formatdate(nowdate(), "d MMM yyyy")
+		self.assertIn("Phase | Days | From | To | Milestone", bodies["Project Timeline"])
+		self.assertIn("Analysis | ", bodies["Project Timeline"])
+		self.assertIn(start, bodies["Project Timeline"])
+		self.assertIn("Analysis complete", bodies["Project Timeline"])
+		self.assertIn("## Development & Configuration", bodies["Phase Deliverables"])
+		self.assertIn(
+			"Accounts: GST settings, tax templates, e-invoice and e-way bill", bodies["Phase Deliverables"]
+		)
+		self.assertIn("Phase | Project Manager", bodies["RACI Matrix"])
+		self.assertIn("Testing & UAT | A", bodies["RACI Matrix"])
+		self.assertIn(
+			f"Name the project owner and the key user of each department | {start}",
+			bodies["Client Responsibilities"],
+		)
+		self.assertIn("goes live by", bodies["Plan Overview"])
+		# a draft plan can't make a project yet
+		self.assertRaises(frappe.ValidationError, hub.get_project_plan, plan_doc["name"], acting_user=BDE)
+
+	def test_the_hub_makes_the_project_and_records_the_uat(self):
+		plan_doc = self.make_plan()
+		send_hub_proposal(plan_doc["name"], BDE)
+		accept_as_client(plan_doc["name"])
+		chain = hub.get_document_chain(self.lead, acting_user=BDE)
+		self.assertEqual(
+			[step["document_type"] for step in chain["steps"]][-3:], [kinds.PLAN, "Project", "UAT"]
+		)
+		self.assertEqual(
+			(chain["next"]["action"], chain["next"]["source"]), ("create_project", plan_doc["name"])
+		)
+		project = hub.get_project_plan(plan_doc["name"], acting_user=BDE)
+		self.assertEqual(project["start"], str(getdate(nowdate())))
+		self.assertEqual(project["phases"][0]["phase"], "Analysis")
+		self.assertEqual(
+			project["phases"][0]["tasks"][-1],
+			{
+				"subject": "Analysis complete",
+				"start": project["phases"][0]["end"],
+				"end": project["phases"][0]["end"],
+				"milestone": 1,
+			},
+		)
+		self.assertTrue(
+			any(
+				task["subject"].startswith("Accounts:")
+				for phase in project["phases"]
+				for task in phase["tasks"]
+			)
+		)
+		chain = hub.link_project(
+			plan_doc["name"], "PROJ-0042", "https://hub.example/helpdesk/projects/PROJ-0042", acting_user=BDE
+		)
+		self.assertEqual(chain["steps"][-2]["name"], "PROJ-0042")
+		self.assertEqual(chain["next"]["action"], "uat")
+		self.assertRaises(
+			frappe.ValidationError, hub.link_project, plan_doc["name"], "PROJ-0043", acting_user=BDE
+		)
+		chain = hub.record_uat(plan_doc["name"], "Signed", "Asha Menon", acting_user=BDE)
+		self.assertTrue(chain["steps"][-1]["done"])
+		self.assertIsNone(chain["next"])
+		self.assertEqual(
+			frappe.db.get_value(p.DOCTYPE, plan_doc["name"], "warranty_starts_on"),
+			getdate(add_days(nowdate(), 1)),
+		)

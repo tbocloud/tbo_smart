@@ -21,6 +21,7 @@ from tbo_smart.lead_pipeline import proposal_builder as builder
 from tbo_smart.lead_pipeline import setting
 
 PROPOSAL, QUOTATION, WORK_ORDER, BRD, SRS = "Proposal", "Quotation", "Work Order", "BRD", "SRS"
+PLAN = "Implementation Plan"
 CLAUSE_LIBRARY = "Agreement Clause"
 
 # The Universal IT Proposal (docs/proposals.md §2): 23 sections in three parts, each with its
@@ -112,6 +113,17 @@ SRS_SECTIONS = (
 	("Non-functional Requirements", "Non-functional Requirements"),
 	("Acceptance", "Approval"),
 )
+# the implementation plan: all data, dated from the agreement's start
+PLAN_SECTIONS = (
+	("Cover", "Cover"),
+	("Plan Overview", "Plan Overview"),
+	("Project Timeline", "Phases & Milestones"),
+	("Phase Deliverables", "Deliverables by Phase"),
+	("RACI Matrix", "RACI Matrix"),
+	("Client Responsibilities", "Client Responsibilities"),
+	("Risks & Mitigation", "Risks & Mitigation"),
+	("Acceptance", "Approval"),
+)
 # the clause library's groups, one a section of the agreement
 CLAUSE_GROUPS = {
 	"Change Requests": "Change Requests",
@@ -143,6 +155,8 @@ class DocumentType:
 	contents: bool = True
 	# the client signs it with their designation too
 	signature: bool = False
+	# its dates follow from its start date, which Send needs
+	dated: bool = False
 	# what Accepted reads as for this type
 	accepted_as: str = "Accepted"
 	# the AI's writer for `ai_sections`: writer(doc, kinds, feature, whole) -> warnings
@@ -451,6 +465,7 @@ WORK_ORDER_TYPE = DocumentType(
 	},
 	shows_price=True,
 	signature=True,
+	dated=True,
 	accepted_as="Signed",
 )
 
@@ -498,8 +513,28 @@ def srs_type() -> DocumentType:
 	)
 
 
+def plan_type() -> DocumentType:
+	"""The implementation plan's type (its builders live in implementation_plan.py)."""
+	from tbo_smart.lead_pipeline import implementation_plan as plan
+
+	return DocumentType(
+		name=PLAN,
+		prefix="PIP",
+		flag="enable_implementation_plans",
+		follows=SRS,
+		sections=PLAN_SECTIONS,
+		builders=plan.BUILDERS,
+		prepare=plan.prepare,
+		dated=True,
+		accepted_as="Approved",
+	)
+
+
 # in the order of the chain
-TYPES = {spec.name: spec for spec in (PROPOSAL_TYPE, QUOTATION_TYPE, WORK_ORDER_TYPE, brd_type(), srs_type())}
+TYPES = {
+	spec.name: spec
+	for spec in (PROPOSAL_TYPE, QUOTATION_TYPE, WORK_ORDER_TYPE, brd_type(), srs_type(), plan_type())
+}
 ALL_SECTION_TYPES = tuple(dict.fromkeys(kind for spec in TYPES.values() for kind in spec.section_types))
 
 
@@ -534,6 +569,33 @@ def default_sections(spec: DocumentType) -> list[dict]:
 
 def words(name: str) -> dict:
 	"""The words the client's page, the PDF and the email use for this type."""
+	if name == PLAN:
+		return {
+			"kicker": _("Project Implementation Plan"),
+			"noun": _("plan"),
+			"for": _("Implementation plan for {0}, from {1}"),
+			"decide_title": _("Approve the plan"),
+			"decide_text": _(
+				"Approve the plan's phases, dates and your part in them, and we'll start the project."
+			),
+			"accept_button": _("Approve the plan"),
+			"decline_summary": _("Dates don't work? Ask for changes"),
+			"decline_prompt": _("What should change? (optional)"),
+			"decline_button": _("Ask for changes"),
+			"accepted": _("Approved"),
+			"accepted_note": _("by {0} on {1}. Thank you, the project starts as planned."),
+			"declined": _("Changes asked for"),
+			"ask_new": _("Ask us for the updated plan."),
+			"agree_text": _(
+				"By approving below, the client agrees to the phases, the dates and its responsibilities."
+			),
+			"accepted_online": _("Approved online"),
+			"email_intro": _(
+				"The implementation plan is ready: the phases, the milestones, who does what and your part, with dates."
+			),
+			"read_link": _("Read the plan: {0}"),
+			"subject": _("{0}: the implementation plan"),
+		}
 	if name == SRS:
 		return {
 			"kicker": _("Software Requirements Specification"),

@@ -18,6 +18,7 @@ from tbo_smart.lead_pipeline import proposal_builder as builder
 from tbo_smart.lead_pipeline import proposals as p
 from tbo_smart.lead_pipeline import quotations as q
 from tbo_smart.lead_pipeline import setting
+from tbo_smart.lead_pipeline.implementation_plan import UAT_SIGNED
 
 # what a document copies from the one it is made from
 COPIED = (
@@ -222,7 +223,19 @@ def latest(lead: str, document_type: str) -> frappe._dict | None:
 	rows = frappe.get_all(
 		p.DOCTYPE,
 		filters={"lead": lead, "document_type": document_type, "is_latest": 1},
-		fields=["name", "title", "status", "quotation", "sent_on", "view_count", "decided_on", "modified"],
+		fields=[
+			"name",
+			"title",
+			"status",
+			"quotation",
+			"sent_on",
+			"view_count",
+			"decided_on",
+			"modified",
+			"hub_project",
+			"hub_project_url",
+			"uat_status",
+		],
 		order_by="creation desc",
 	)
 	return next((row for row in rows if row.status == p.ACCEPTED), rows[0] if rows else None)
@@ -250,7 +263,56 @@ def chain(lead: str) -> dict:
 			action = next_action(spec, step, before)
 		steps.append(step)
 		before = step
+		if spec.name == kinds.PLAN:
+			delivery = delivery_steps(row)
+			if action is None and step["done"]:
+				action = delivery_action(row, delivery)
+			steps += delivery
 	return {"steps": steps, "next": action}
+
+
+def delivery_steps(plan) -> list[dict]:
+	"""After the plan: the hub's project made from it, and the UAT sign-off on that project."""
+	project = plan.hub_project if plan else None
+	uat = plan.uat_status if plan else None
+	return [
+		{
+			"document_type": "Project",
+			"label": _("Project"),
+			"name": project,
+			"title": project,
+			"status": "Created" if project else None,
+			"status_label": _("Created") if project else None,
+			"done": bool(project),
+			"url": plan.hub_project_url if plan else None,
+			"view_count": 0,
+			"quotation_status": None,
+		},
+		{
+			"document_type": "UAT",
+			"label": _("UAT sign-off"),
+			"name": project if project else None,
+			"title": None,
+			"status": uat,
+			"status_label": _(uat) if uat else None,
+			"done": uat == UAT_SIGNED,
+			"view_count": 0,
+			"quotation_status": None,
+		},
+	]
+
+
+def delivery_action(plan, delivery: list[dict]) -> dict | None:
+	if not delivery[0]["done"]:
+		return {
+			"action": "create_project",
+			"document_type": "Project",
+			"source": plan.name,
+			"label": _("Create project"),
+		}
+	if not delivery[1]["done"]:
+		return {"action": "uat", "document_type": "UAT", "name": plan.hub_project, "label": _("UAT sign-off")}
+	return None
 
 
 def next_action(spec, step: dict, before: dict | None) -> dict | None:
@@ -259,7 +321,7 @@ def next_action(spec, step: dict, before: dict | None) -> dict | None:
 			"action": "open",
 			"document_type": spec.name,
 			"name": step["name"],
-			"label": _("Continue the {0}").format(kinds.label(spec.name).lower()),
+			"label": _("Continue the {0}").format(phrase(spec.name)),
 		}
 	if step["name"]:
 		return None
@@ -269,8 +331,14 @@ def next_action(spec, step: dict, before: dict | None) -> dict | None:
 		"action": "create",
 		"document_type": spec.name,
 		"source": before["name"],
-		"label": _("Create {0}").format(kinds.label(spec.name).lower()),
+		"label": _("Create {0}").format(phrase(spec.name)),
 	}
+
+
+def phrase(name: str) -> str:
+	"""The type's name inside a sentence: "quotation", but "BRD" and "SRS" as they are."""
+	label = kinds.label(name)
+	return label if label.isupper() else label.lower()
 
 
 def status_label(document_type: str, status: str) -> str:

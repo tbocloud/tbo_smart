@@ -33,6 +33,14 @@
   "questions_token",
   "questions_sent_on",
   "questions_answered_on",
+  "delivery_section",
+  "hub_project",
+  "hub_project_url",
+  "column_break_delivery",
+  "uat_status",
+  "uat_signed_on",
+  "uat_signed_by",
+  "warranty_starts_on",
   "revision_section",
   "proposal_family",
   "revision_no",
@@ -81,12 +89,12 @@
    "fieldname": "document_type",
    "fieldtype": "Select",
    "label": "Document type",
-   "options": "Proposal\nQuotation\nWork Order\nBRD\nSRS",
+   "options": "Proposal\nQuotation\nWork Order\nBRD\nSRS\nImplementation Plan",
    "default": "Proposal",
    "read_only": 1,
    "in_list_view": 1,
    "in_standard_filter": 1,
-   "description": "Proposal, quotation, project agreement, BRD or SRS: each is made from the accepted one before it (docs/client-documents.md)."
+   "description": "Proposal, quotation, project agreement, BRD, SRS or implementation plan: each is made from the accepted one before it (docs/client-documents.md)."
   },
   {
    "fieldname": "source_document",
@@ -147,8 +155,8 @@
    "fieldname": "start_date",
    "fieldtype": "Date",
    "label": "Project start date",
-   "depends_on": "eval:doc.document_type=='Work Order'",
-   "description": "The agreement's start: the timeline's dates follow from it."
+   "depends_on": "eval:['Work Order', 'Implementation Plan'].includes(doc.document_type)",
+   "description": "The agreement's (and the plan's) start: the timeline's dates follow from it."
   },
   {
    "fieldname": "theme",
@@ -251,6 +259,60 @@
    "fieldname": "questions_answered_on",
    "fieldtype": "Datetime",
    "label": "Last answer on",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "delivery_section",
+   "fieldtype": "Section Break",
+   "label": "Delivery",
+   "depends_on": "eval:doc.document_type=='Implementation Plan'"
+  },
+  {
+   "fieldname": "hub_project",
+   "fieldtype": "Data",
+   "label": "Hub project",
+   "read_only": 1,
+   "no_copy": 1,
+   "description": "The project the hub made from this plan."
+  },
+  {
+   "fieldname": "hub_project_url",
+   "fieldtype": "Data",
+   "label": "Hub project link",
+   "options": "URL",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "column_break_delivery",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "uat_status",
+   "fieldtype": "Data",
+   "label": "UAT sign-off",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "uat_signed_on",
+   "fieldtype": "Datetime",
+   "label": "UAT signed on",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "uat_signed_by",
+   "fieldtype": "Data",
+   "label": "UAT signed by",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "warranty_starts_on",
+   "fieldtype": "Date",
+   "label": "Warranty starts on",
    "read_only": 1,
    "no_copy": 1
   },
@@ -380,7 +442,7 @@
   }
  ],
  "links": [],
- "modified": "2026-10-22 12:00:00.000000",
+ "modified": "2026-10-23 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Proposal",

@@ -285,6 +285,7 @@ def setup_lead_pipeline() -> None:
 	seed_proposal_templates()
 	seed_agreement_clauses()
 	seed_srs_library()
+	seed_plan_library()
 
 
 def link_lead_records() -> None:
@@ -408,6 +409,22 @@ def seed_srs_library() -> None:
 		for row in seed.NON_FUNCTIONAL:
 			frappe.get_doc({"doctype": "TBO Proposal Library Item", **row}).insert(ignore_permissions=True)
 	frappe.db.set_default(SRS_SEEDED, 1)
+
+
+PLAN_SEEDED = "tbo_plan_library_seeded"
+
+
+def seed_plan_library() -> None:
+	"""The client's responsibilities for implementation plans, once per site and only when the
+	library has none (docs/client-documents.md §7)."""
+	from tbo_smart.lead_pipeline import proposal_templates as seed
+
+	if frappe.db.get_default(PLAN_SEEDED):
+		return
+	if not frappe.db.exists("TBO Proposal Library Item", {"library": seed.RESPONSIBILITY}):
+		for row in seed.CLIENT_RESPONSIBILITIES:
+			frappe.get_doc({"doctype": "TBO Proposal Library Item", **row}).insert(ignore_permissions=True)
+	frappe.db.set_default(PLAN_SEEDED, 1)
 
 
 def after_migrate() -> None:

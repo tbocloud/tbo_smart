@@ -18,6 +18,7 @@ from tbo_smart.api.quotation_adjustment import request_adjustment
 from tbo_smart.lead_pipeline import brd, presets, rate_card
 from tbo_smart.lead_pipeline import client_documents as documents
 from tbo_smart.lead_pipeline import document_types as kinds
+from tbo_smart.lead_pipeline import implementation_plan as plan
 from tbo_smart.lead_pipeline import proposal_builder as builder
 from tbo_smart.lead_pipeline import proposal_library as library
 from tbo_smart.lead_pipeline import proposal_media as media
@@ -82,7 +83,17 @@ def payload(doc) -> dict:
 		"source_document": doc.source_document,
 		"can_price": spec.priced,
 		"signature": spec.signature,
+		"dated": spec.dated,
 		"start_date": doc.start_date,
+		"delivery": {
+			"hub_project": doc.hub_project,
+			"uat_status": doc.uat_status,
+			"uat_signed_on": doc.uat_signed_on,
+			"uat_signed_by": doc.uat_signed_by,
+			"warranty_starts_on": doc.warranty_starts_on,
+		}
+		if spec.name == kinds.PLAN
+		else None,
 		"title": doc.title,
 		"lead": doc.lead,
 		"lead_name": doc.lead_name,
@@ -246,6 +257,7 @@ def document_type_payload(spec) -> dict:
 		"ai_sections": list(spec.ai_sections),
 		"priced": spec.priced,
 		"signature": spec.signature,
+		"dated": spec.dated,
 		"questionnaire": spec.questionnaire,
 	}
 
@@ -343,6 +355,40 @@ def apply_answers(name: str, acting_user: str | None = None) -> dict:
 		doc = get_questionnaire_doc(name)
 		result = brd.apply_answers(doc)
 		return {"proposal": payload(doc), **result}
+
+
+@frappe.whitelist()
+def get_project_plan(name: str, acting_user: str | None = None) -> dict:
+	"""An approved plan as the hub makes its project from it: the name, the client, the dates and
+	each phase with its tasks and milestone."""
+	with acting_as(acting_user):
+		return plan.project_plan(get_plan_doc(name))
+
+
+@frappe.whitelist(methods=["POST"])
+def link_project(name: str, project: str, url: str | None = None, acting_user: str | None = None) -> dict:
+	"""The hub made the plan's project: kept on the plan (once). Returns the chain."""
+	with acting_as(acting_user):
+		doc = get_plan_doc(name)
+		plan.link_project(doc, project, url)
+		return documents.chain(doc.lead)
+
+
+@frappe.whitelist(methods=["POST"])
+def record_uat(name: str, status: str, signed_by: str | None = None, acting_user: str | None = None) -> dict:
+	"""The hub's UAT sign-off on the plan's project: its state, and when Signed who signed (the
+	warranty starts the day after). Returns the chain."""
+	with acting_as(acting_user):
+		doc = get_plan_doc(name)
+		plan.record_uat(doc, status, signed_by)
+		return documents.chain(doc.lead)
+
+
+def get_plan_doc(name: str):
+	doc = get_doc(name, "write")
+	if kinds.of(doc).name != kinds.PLAN:
+		frappe.throw(_("{0} isn't an implementation plan.").format(name))
+	return doc
 
 
 def get_questionnaire_doc(name: str):
