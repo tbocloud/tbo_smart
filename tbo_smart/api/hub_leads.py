@@ -19,7 +19,9 @@ from tbo_smart.api.mobile.capabilities import CRM_ROLES, get_capabilities
 from tbo_smart.api.mobile.crm import check_assignee, get_crm_users
 from tbo_smart.api.mobile.utils import get_full_names
 from tbo_smart.lead_pipeline import rate_card, require_quotations, setting
+from tbo_smart.lead_pipeline.dashboard import people, scope_owners
 from tbo_smart.lead_pipeline.meetings import DOCTYPE as MEETING
+from tbo_smart.lead_pipeline.overview import LeadOverview, SalesActivity, period_range
 from tbo_smart.lead_pipeline.proposals import lead_proposals, proposals_enabled
 from tbo_smart.lead_pipeline.quotations import lead_quotations
 from tbo_smart.lead_pipeline.setup import HUB_ROLE, SEGMENTS
@@ -28,6 +30,7 @@ from tbo_smart.sales import erpnext_installed
 from tbo_smart.sales.activities import (
 	OPEN,
 	add_follow_up_task,
+	add_log,
 	events_of,
 	next_follow_ups,
 	notes_of,
@@ -36,10 +39,18 @@ from tbo_smart.sales.activities import (
 from tbo_smart.sales.activities import add_note as add_comment_note
 from tbo_smart.sales.opportunity import lead_opportunity
 from tbo_smart.sales.stages import set_lead_stage
-from tbo_smart.smart_leads import FOLLOW_UP_TYPE, call_today_size, scoring_enabled
+from tbo_smart.smart_leads import (
+	FOLLOW_UP_TYPE,
+	ai_leads_enabled,
+	autopilot,
+	call_today_size,
+	notes_enabled,
+	scoring_enabled,
+)
 from tbo_smart.smart_leads.call_today import build_call_today
 
 VIEWS = ("all", "mine", "call_today", "follow_up")
+TEMPERATURES = ("Hot", "Warm", "Cold")
 MAX_PAGE_LENGTH = 100
 # what the hub may write on a lead, by the key it sends
 LEAD_FIELDS = {
@@ -192,27 +203,45 @@ def list_leads(
 	view: str = "all",
 	start: int = 0,
 	page_length: int = 20,
+	source: str | None = None,
+	temperature: str | None = None,
+	metric: str | None = None,
+	period: str | None = None,
+	from_date: str | None = None,
+	to_date: str | None = None,
 	acting_user: str | None = None,
 ) -> dict:
 	"""The leads the acting user may see, newest change first: {rows, total}. `view`: all, mine
 	(they own it), call_today (their Call today list, in its order) or follow_up (an open
-	follow-up due by today, earliest first)."""
+	follow-up due by today, earliest first). `metric` (with `period`, or `from_date` and
+	`to_date`) keeps the leads one number of the overview counts (get_overview)."""
 	if view not in VIEWS:
 		frappe.throw(_("view must be one of {0}.").format(", ".join(VIEWS)))
 	start = max(cint(start), 0)
 	page_length = min(max(cint(page_length) or 20, 1), MAX_PAGE_LENGTH)
 	with acting_as(acting_user) as user:
 		filters = lead_filters(stage, owner, segment)
+		if source:
+			filters["source"] = source
+		if temperature:
+			if temperature not in TEMPERATURES:
+				frappe.throw(_("temperature must be one of {0}.").format(", ".join(TEMPERATURES)))
+			filters["tbo_temperature"] = temperature
+		if metric:
+			board, _allowed = overview_board(
+				resolve_period(period, from_date, to_date), from_date, to_date, owner
+			)
+			filters["name"] = ("in", board.metric_leads(metric) or [""])
 		or_filters = search_filters(search)
 		order_by = "modified desc"
 		if view == "mine":
 			filters["lead_owner"] = user
 		elif view == "call_today":
 			names = call_today_names(user)
-			filters["name"] = ("in", names or [""])
+			filters["name"] = ("in", within(filters, names) or [""])
 		elif view == "follow_up":
 			due = due_follow_ups()
-			filters["name"] = ("in", list(due) or [""])
+			filters["name"] = ("in", within(filters, list(due)) or [""])
 		rows = frappe.get_list(
 			"Lead",
 			filters=filters,
@@ -231,6 +260,14 @@ def list_leads(
 		if view in ("call_today", "follow_up"):
 			rows = rows[start : start + page_length]
 		return {"rows": serialize_rows(rows), "total": total}
+
+
+def within(filters: dict, names: list[str]) -> list[str]:
+	"""`names` kept to the leads a metric already picked, in their order."""
+	if "name" not in filters:
+		return names
+	picked = set(filters["name"][1])
+	return [name for name in names if name in picked]
 
 
 def lead_filters(stage: str | None, owner: str | None, segment: str | None) -> dict:
@@ -312,6 +349,73 @@ def serialize_rows(rows: list) -> list[dict]:
 		}
 		for row in rows
 	]
+
+
+# ---------- the overview and the sales scoreboard ----------
+
+
+def resolve_period(period: str | None, from_date, to_date) -> str:
+	"""Dates without a period are a custom range; neither is this month."""
+	return period or ("custom" if (from_date or to_date) else "month")
+
+
+def overview_board(period: str, from_date, to_date, owner: str | None) -> tuple[LeadOverview, list | None]:
+	"""(the overview's figures, the scope's owners): the session user's sales scope (their own
+	leads, their team's, or everyone's: None), narrowed to `owner` when that person is in it."""
+	allowed = scope_owners()
+	owners = allowed
+	if owner:
+		if allowed is not None and owner not in allowed:
+			frappe.throw(_("{0} is not in your team.").format(owner), frappe.PermissionError)
+		owners = [owner]
+	start, end = period_range(period, from_date, to_date)
+	return LeadOverview(start, end, owners), allowed
+
+
+@frappe.whitelist()
+def get_overview(
+	period: str | None = None,
+	from_date: str | None = None,
+	to_date: str | None = None,
+	owner: str | None = None,
+	acting_user: str | None = None,
+) -> dict:
+	"""The Leads overview for the acting user's sales scope: totals, the pipeline by stage with
+	its value, the funnel, lost reasons, hot leads, and figures by owner, segment and source.
+	`period`: week, month, quarter or custom (with `from_date` and `to_date`; dates alone are
+	custom too)."""
+	with acting_as(acting_user):
+		period = resolve_period(period, from_date, to_date)
+		board, allowed = overview_board(period, from_date, to_date, owner)
+		result = board.build_overview()
+		result["period"] = period
+		result["scope"] = (
+			"all" if allowed is None else ("own" if allowed == [frappe.session.user] else "team")
+		)
+		result["people"] = people(allowed)
+		# the AI's part: the plan of the person picked (else the acting user's own)
+		result["ai"] = autopilot.overview_ai(owners_of(owner, allowed), owner or frappe.session.user)
+		return result
+
+
+def owners_of(owner: str | None, allowed: list | None) -> list | None:
+	return [owner] if owner else allowed
+
+
+@frappe.whitelist()
+def get_sales_activity(
+	from_date: str | None = None, to_date: str | None = None, acting_user: str | None = None
+) -> dict:
+	"""Each salesperson's CRM activity from `from_date` to `to_date` (counts and totals only),
+	for the hub's Sales scoreboard. The hub's integration user may ask without `acting_user`:
+	the Scoreboard is open to the whole team and closes its periods at night with nobody signed
+	in. Anyone else gets their own sales scope."""
+	if not (acting_user or "").strip() and integration_role() in frappe.get_roles():
+		if not erpnext_installed():
+			frappe.throw(_("Leads need ERPNext on this site."))
+		return SalesActivity(from_date, to_date).build_activity()
+	with acting_as(acting_user):
+		return SalesActivity(from_date, to_date, scope_owners()).build_activity()
 
 
 # ---------- one lead ----------
@@ -410,6 +514,16 @@ def timeline(name: str, quotations: list, proposals: list) -> list[dict]:
 				"ref": quotation.name,
 			}
 		)
+	for note in ai_notes(name):
+		items.append(
+			{
+				"kind": "ai",
+				"at": note.creation,
+				"who": None,
+				"text": plain_text(note.content),
+				"ref": note.name,
+			}
+		)
 	for proposal in proposals:
 		items.append(
 			{
@@ -422,11 +536,102 @@ def timeline(name: str, quotations: list, proposals: list) -> list[dict]:
 		)
 	names = get_full_names({item["who"] for item in items if item["who"]})
 	for item in items:
-		item["who_name"] = names.get(item["who"]) if item["who"] else None
+		item["who_name"] = (
+			names.get(item["who"]) if item["who"] else (autopilot.AI_AUTHOR if item["kind"] == "ai" else None)
+		)
 	items.sort(
 		key=lambda item: get_datetime(item["at"]) if item["at"] else get_datetime("1900-01-01"), reverse=True
 	)
 	return items
+
+
+def ai_notes(name: str) -> list:
+	"""What the AI did on the lead (autopilot.log_on_timeline), newest first."""
+	return frappe.get_all(
+		"Comment",
+		filters={
+			"reference_doctype": "Lead",
+			"reference_name": name,
+			"comment_type": "Info",
+			"comment_by": autopilot.AI_AUTHOR,
+		},
+		fields=["name", "content", "creation"],
+		order_by="creation desc",
+	)
+
+
+# ---------- AI runs leads (docs/smart-leads.md §11) ----------
+
+
+def require_ai_leads() -> None:
+	if not ai_leads_enabled():
+		frappe.throw(_("AI runs leads is switched off in TBO Smart Settings."))
+
+
+@frappe.whitelist()
+def get_lead_ai(name: str, acting_user: str | None = None) -> dict:
+	"""The lead's "AI suggests": summary, sentiment, intent, next best action, a stage to
+	suggest and a drafted message (the stored insight), its health and likely duplicates."""
+	with acting_as(acting_user):
+		return autopilot.lead_ai(name)
+
+
+@frappe.whitelist(methods=["POST"])
+def refresh_lead_ai(name: str, acting_user: str | None = None) -> dict:
+	"""Ask the AI to read the lead again now (write on the lead, once a minute)."""
+	with acting_as(acting_user):
+		require_ai_leads()
+		autopilot.refresh_now(name)
+		return autopilot.lead_ai(name)
+
+
+@frappe.whitelist(methods=["POST"])
+def apply_ai_stage(name: str, acting_user: str | None = None) -> dict:
+	"""Move the lead to the stage the AI suggested, as the acting user (never Won or Lost).
+	Returns the lead as get_lead does."""
+	with acting_as(acting_user):
+		require_ai_leads()
+		autopilot.apply_stage(name)
+		return lead_payload(name)
+
+
+@frappe.whitelist(methods=["POST"])
+def dismiss_ai_stage(name: str, acting_user: str | None = None) -> dict:
+	"""Drop the AI's stage suggestion."""
+	with acting_as(acting_user):
+		autopilot.clear_stage(name)
+		return autopilot.lead_ai(name)
+
+
+@frappe.whitelist(methods=["POST"])
+def draft_lead_message(name: str, channel: str, language: str = "en", acting_user: str | None = None) -> dict:
+	"""An email or WhatsApp text for the acting user to edit and send from their own mail or
+	WhatsApp: {channel, subject, text, to?, url?}. Nothing is sent."""
+	with acting_as(acting_user):
+		if not (ai_leads_enabled() or notes_enabled()):
+			frappe.throw(_("AI drafts are switched off in TBO Smart Settings."))
+		return autopilot.draft_message(name, channel, language)
+
+
+@frappe.whitelist(methods=["POST"])
+def log_message_sent(name: str, channel: str, text: str, acting_user: str | None = None) -> dict:
+	"""The acting user sent a message from their own mail or WhatsApp: log it on the lead as
+	theirs. Returns the timeline entry."""
+	with acting_as(acting_user) as user:
+		if channel not in autopilot.MESSAGE_CHANNELS:
+			frappe.throw(_("channel must be whatsapp or email."))
+		if not (text or "").strip():
+			frappe.throw(_("Write the message first."))
+		frappe.has_permission("Lead", "read", name, throw=True)
+		event = add_log("Lead", name, channel, text)
+		return {
+			"kind": "activity",
+			"at": event.starts_on,
+			"who": user,
+			"who_name": frappe.utils.get_fullname(user),
+			"text": plain_text(event.subject),
+			"ref": event.name,
+		}
 
 
 # ---------- writes ----------

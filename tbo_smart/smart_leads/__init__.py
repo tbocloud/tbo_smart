@@ -6,7 +6,8 @@ Four features, each behind its own switch in TBO Smart Settings, all off by defa
   `lead_scoring_use_ai`);
 - the follow-up engine with its escalation ladder and 09:30 digest (`enable_lead_follow_ups`);
 - AI call notes, the lead brief and WhatsApp drafts (`enable_lead_notes`);
-- the one-time AI triage of stale leads (`enable_lead_triage`).
+- the one-time AI triage of stale leads (`enable_lead_triage`);
+- AI runs leads, the master switch of the AI lead autopilot (`enable_ai_leads`).
 
 Everything hangs off ERPNext's Lead, so on a site without ERPNext every switch reads as off
 and nothing is set up.
@@ -53,6 +54,12 @@ def notes_enabled() -> bool:
 
 def triage_enabled() -> bool:
 	return switch("enable_lead_triage")
+
+
+def ai_leads_enabled() -> bool:
+	"""TBO Smart Settings → AI runs leads (docs/smart-leads.md §11): AI reads every open lead
+	and proposes; people approve."""
+	return switch("enable_ai_leads")
 
 
 def any_enabled() -> bool:

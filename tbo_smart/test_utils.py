@@ -772,7 +772,9 @@ def disable_smart_leads() -> None:
 	"""Every smart lead switch off, no AI keys, no Teams URL, and no AI pause left in Redis."""
 	from tbo_smart.ai import reset_provider_state
 
-	set_smart_lead_settings(**{switch: 0 for switch in SMART_LEAD_SWITCHES}, lead_fallback_owner=None)
+	set_smart_lead_settings(
+		**{switch: 0 for switch in SMART_LEAD_SWITCHES}, enable_ai_leads=0, lead_fallback_owner=None
+	)
 	for field in ("openai_api_key", "anthropic_api_key", "teams_dm_workflow_url"):
 		store_settings_secret(field, None)
 	reset_provider_state()
@@ -861,6 +863,58 @@ def mock_ai(*responses):
 
 	queue = list(responses)
 	return patch("tbo_smart.ai.requests.post", side_effect=answer)
+
+
+def enable_ai_leads(**values) -> None:
+	"""AI runs leads on with an OpenAI test key, the smart lead switches as given in `values`
+	(scoring and the rest stay as they are)."""
+	configure_ai_providers(openai=True)
+	set_smart_lead_settings(
+		**{"enable_ai_leads": 1, "ai_daily_lead_limit": 200, "lead_stale_days": 21, **values}
+	)
+
+
+def ai_lead_insight(**overrides) -> dict:
+	"""The JSON an AI answers for a lead insight (autopilot.INSIGHT_PROMPT), with `overrides`."""
+	return {
+		"summary": "Owner of a textile shop who wants billing software; asked for a demo.",
+		"sentiment": "Positive",
+		"intent": "High",
+		"signals": ["asked for a demo"],
+		"next_action": {
+			"what": "Call to fix the demo",
+			"why": "They asked for a demo",
+			"channel": "call",
+			"due": str(add_days(nowdate(), 2)),
+		},
+		"suggested_stage": "Positive / Interested",
+		"stage_reason": "They asked for a demo",
+		"message": {
+			"channel": "whatsapp",
+			"subject": None,
+			"text": "Hello, thanks for your interest. Shall we set up the demo this week? Regards, Anu",
+		},
+		**overrides,
+	}
+
+
+def make_lead_email(lead: str, subject: str, content: str, received: bool = True) -> str:
+	"""An email (Communication) on a lead, as a received or sent mail leaves it."""
+	email = frappe.get_doc(
+		{
+			"doctype": "Communication",
+			"communication_type": "Communication",
+			"communication_medium": "Email",
+			"sent_or_received": "Received" if received else "Sent",
+			"subject": subject,
+			"content": content,
+			"reference_doctype": "Lead",
+			"reference_name": lead,
+			"communication_date": now_datetime(),
+		}
+	)
+	email.insert(ignore_permissions=True)
+	return email.name
 
 
 def make_migration_note(lead: str, old_id: str = "CRM-LEAD-2025-00001", **fields) -> str:
@@ -1296,6 +1350,7 @@ def delete_smart_lead_records(owners: list[str] | tuple) -> None:
 	leads = frappe.get_all("Lead", filters={"lead_owner": ("in", list(owners))}, pluck="name")
 	if leads:
 		frappe.db.delete("Comment", {"reference_doctype": "Lead", "reference_name": ("in", leads)})
+		frappe.db.delete("Communication", {"reference_doctype": "Lead", "reference_name": ("in", leads)})
 		frappe.db.delete("ToDo", {"reference_type": "Lead", "reference_name": ("in", leads)})
 		events = frappe.get_all(
 			"Event Participants",
@@ -1311,6 +1366,16 @@ def delete_smart_lead_records(owners: list[str] | tuple) -> None:
 	frappe.db.delete("Lead", {"lead_owner": ("in", list(owners))})
 	frappe.db.delete("TBO Lead Triage", {"name": ("like", "TBO-TRIAGE-%")})
 	frappe.db.commit()  # nosemgrep
+
+
+def delete_lead_pipeline_records(owners: list[str] | tuple) -> None:
+	"""Delete the leads of `owners` with their quotations, meetings and deals, and every note,
+	call, task and stage change on them (delete_smart_lead_records), and commit."""
+	leads = frappe.get_all("Lead", filters={"lead_owner": ("in", list(owners))}, pluck="name")
+	delete_lead_quotations(leads)
+	delete_lead_meetings(leads)
+	delete_lead_deals(leads)
+	delete_smart_lead_records(owners)
 
 
 def get_fixture(name: str) -> dict:

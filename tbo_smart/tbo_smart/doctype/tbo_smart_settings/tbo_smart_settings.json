@@ -68,6 +68,8 @@
   "column_break_sales",
   "lead_page_url",
   "hub_integration_role",
+  "ai_leads_section",
+  "enable_ai_leads",
   "lead_scoring_section",
   "enable_lead_scoring",
   "lead_scoring_use_ai",
@@ -546,6 +548,18 @@
    "description": "The TBO Support hub's API user has this role; only it may act for a hub user (docs/hub-leads-api.md). Blank: Hub Integration."
   },
   {
+   "fieldname": "ai_leads_section",
+   "fieldtype": "Section Break",
+   "label": "AI runs leads"
+  },
+  {
+   "default": "0",
+   "description": "The master switch. AI reads each open lead when it changes: its summary, sentiment and intent, the next best action (scheduled as the follow-up when none is planned) and a stage to suggest; a daily plan per salesperson; drafts for leads gone quiet. People approve: nothing goes to a customer without a person pressing Send, and Won and Lost are always a person's move. Needs an AI provider.",
+   "fieldname": "enable_ai_leads",
+   "fieldtype": "Check",
+   "label": "AI runs leads"
+  },
+  {
    "fieldname": "lead_scoring_section",
    "fieldtype": "Section Break",
    "label": "Smart leads: scoring and Call today"
@@ -882,7 +896,7 @@
  "index_web_pages_for_search": 0,
  "issingle": 1,
  "links": [],
- "modified": "2026-10-19 10:00:00.000000",
+ "modified": "2026-10-19 14:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Smart Settings",
