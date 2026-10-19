@@ -8,7 +8,7 @@
 {%- elif part.kind == "list" %}
 <ul>{% for item in part["items"] %}<li>{{ item | e }}</li>{% endfor %}</ul>
 {%- elif part.kind == "table" %}
-<table>
+<table{% if part.ids %} class="ids"{% endif %}>
 	<thead><tr>{% for cell in part.header %}<th scope="col"{% if part.numeric and not loop.first %} class="num"{% endif %}>{{ cell | e }}</th>{% endfor %}</tr></thead>
 	<tbody>{% for row in part.rows %}<tr>{% for cell in row %}<td{% if part.numeric and not loop.first %} class="num"{% endif %}>{{ cell | e }}</td>{% endfor %}</tr>{% endfor %}</tbody>
 </table>

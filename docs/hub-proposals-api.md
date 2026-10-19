@@ -1,4 +1,4 @@
-# Hub proposals API (`tbo_smart.api.hub_proposals`), v2.4
+# Hub proposals API (`tbo_smart.api.hub_proposals`), v2.5
 
 **Status:** built 2026-10-19. The TBO Support hub's proposal builder (tbocloud/helpdesk
 `docs/proposals.md`) calls these. What proposals are and do: `proposals.md`; the documents after
@@ -28,7 +28,7 @@ otherwise) and count against the day's limit (417 "Today's AI proposal runs are 
 | `extract_requirements` | POST | `lead`, `text`, `acting_user` | `{template, scoping: Scoping}` for presales to confirm; nothing saved |
 | `read_chat_answer` | POST | `lead`, `question`, `text`, `acting_user` | `{language ("English" / "Malayalam" / "Mixed"), english, profile: {only the Profile fields given}, template, scoping: {only the Scoping keys given}}`: an off-script start-chat answer, one small call; nothing saved |
 | `create_proposal` | POST | `lead`, `template?`, `ai_draft` (0/1), `scoping?` (JSON `Scoping`), `requirements?`, `client_profile` (JSON `Profile`, required: industry and pain_points), `chat?` (JSON `[ChatLine]`), `acting_user` | `{proposal: Proposal, warnings: [text]}` |
-| `create_document` | POST | `source` (the accepted document), `document_type` (`Quotation`, `Work Order`, `BRD`), `acting_user` | `{proposal: Proposal, warnings: [text]}` (`client-documents.md` §2) |
+| `create_document` | POST | `source` (the accepted document), `document_type` (`Quotation`, `Work Order`, `BRD`, `SRS`), `acting_user` | `{proposal: Proposal, warnings: [text]}` (`client-documents.md` §2) |
 | `get_document_chain` | GET | `lead`, `acting_user` | `Chain` |
 | `save_questions` | POST | `name` (a draft BRD), `questions` (JSON `[{section_type, question}]`), `acting_user` | `Proposal` (answered questions kept) |
 | `share_questionnaire` | POST | `name`, `acting_user` | `{proposal, url}`: the client's `/questions/<token>` link |
@@ -92,7 +92,7 @@ Template = {name, template_name, solution_type, description, enabled, page_guide
 
 Module = {name, module_name, solution_types (one a line), description, features, effort_days,
   default_price, item, fit, scope, deliverables, assumptions, out_of_scope, workflow,
-  image_tag}
+  image_tag, srs_requirements, srs_roles, srs_screens, srs_validations, srs_notifications}
 
 Profile = {name, website, about, industry, size, locations, current_software, key_processes,
   pain_points}
@@ -181,6 +181,8 @@ user with `acting_user`.
 
 ## Changelog
 
+- **v2.5 (2026-10-20):** the SRS: `create_document` makes one; the module's SRS fields in the
+  library.
 - **v2.4 (2026-10-19):** `finalise_proposal`, `ready_on`; `save_proposal` returns `warnings`
   and makes module and scoping edits flow through; `read_chat_answer`.
 - **v2.3 (2026-10-20):** the BRD: `save_questions`, `share_questionnaire`, `send_questionnaire`,

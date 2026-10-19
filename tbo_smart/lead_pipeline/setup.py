@@ -284,6 +284,7 @@ def setup_lead_pipeline() -> None:
 	sync_print_format()
 	seed_proposal_templates()
 	seed_agreement_clauses()
+	seed_srs_library()
 
 
 def link_lead_records() -> None:
@@ -383,6 +384,30 @@ def seed_agreement_clauses() -> None:
 		for clause in seed.AGREEMENT_CLAUSES:
 			frappe.get_doc({"doctype": "TBO Proposal Library Item", **clause}).insert(ignore_permissions=True)
 	frappe.db.set_default(CLAUSES_SEEDED, 1)
+
+
+SRS_SEEDED = "tbo_srs_library_seeded"
+
+
+def seed_srs_library() -> None:
+	"""What each catalogue module adds to an SRS, and the non-functional requirements, once per site
+	(docs/client-documents.md §6): a module's SRS fields are filled only where they are blank, and
+	the requirements only when the library has none, so the editors' own text is never replaced."""
+	from tbo_smart.lead_pipeline import proposal_templates as seed
+
+	if frappe.db.get_default(SRS_SEEDED):
+		return
+	for name, text in seed.SRS_TEXT.items():
+		current = frappe.db.get_value("TBO Proposal Module", name, list(text), as_dict=True)
+		if current is None:
+			continue
+		blank = {field: value for field, value in text.items() if value and not current.get(field)}
+		if blank:
+			frappe.db.set_value("TBO Proposal Module", name, blank)
+	if not frappe.db.exists("TBO Proposal Library Item", {"library": seed.NFR}):
+		for row in seed.NON_FUNCTIONAL:
+			frappe.get_doc({"doctype": "TBO Proposal Library Item", **row}).insert(ignore_permissions=True)
+	frappe.db.set_default(SRS_SEEDED, 1)
 
 
 def after_migrate() -> None:

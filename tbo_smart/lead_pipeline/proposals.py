@@ -705,7 +705,7 @@ def redate(doc) -> None:
 	timeline), unless someone edited them by hand."""
 	for row in doc.sections:
 		if row.section_type in DATED_SECTIONS and not cint(row.edited):
-			text = kinds.build_section(doc, row.section_type)
+			text = kinds.build_section(doc, row.section_type, row)
 			if text is not None:
 				row.body = text or None
 
@@ -744,12 +744,14 @@ def rebuild_section(doc, index: int, force: bool = False) -> dict:
 		}
 	warnings = []
 	spec = kinds.of(doc)
-	if row.section_type in spec.ai_sections and ai_enabled():
+	if row.section_type in spec.row_builders and spec.row_writer and ai_enabled():
+		warnings = spec.row_writer(doc, row, spec.section_feature)
+	elif row.section_type in spec.ai_sections and ai_enabled():
 		warnings = spec.writer(doc, [row.section_type], spec.section_feature)
 	elif row.section_type in spec.ai_sections and spec.name == kinds.PROPOSAL:
 		frappe.throw(_("AI proposal drafts are not switched on."))
 	else:
-		text = kinds.build_section(doc, row.section_type)
+		text = kinds.build_section(doc, row.section_type, row)
 		if text is None:
 			frappe.throw(
 				_("{0} isn't built from the libraries; edit it by hand.").format(_(row.section_type))
@@ -786,7 +788,8 @@ def regenerate_all(doc, force: bool = False) -> dict:
 		except ai.AIProviderError as e:
 			warnings = [_("The AI couldn't write the narrative ({0}).").format(e.summary)]
 		for row in doc.sections:
-			if row.section_type in written:
+			# a kept hand edit stays marked (a section a module shares its type with others)
+			if row.section_type in written and (force or not cint(row.edited)):
 				row.edited = 0
 	doc.save()
 	return {"warnings": warnings, "kept": kept}
@@ -1424,6 +1427,10 @@ def page_block(doc, row, pdf: bool, pricing: dict | None = None) -> dict:
 		"image": media.image_payload(doc, row, pdf),
 		"number": None,
 	}
+	for part in parts:
+		# an ID column (the SRS's FR numbers) never wraps
+		if part["kind"] == "table" and part["header"] and part["header"][0] == _("ID"):
+			part["ids"] = True
 	if row.section_type == "Project Timeline":
 		block["timeline"] = timeline(parts)
 	elif row.section_type == "Modules & Features":
