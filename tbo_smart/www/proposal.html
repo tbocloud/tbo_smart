@@ -1,6 +1,7 @@
 <!doctype html>
 {%- set p = proposal -%}
 {%- set lh = p.letter_head -%}
+{%- set w = p.words -%}
 {%- macro render_part(part) -%}
 {%- if part.kind == "heading" %}
 <h3>{% if part.number %}<span class="n">{{ part.number }}</span>{% endif %}{{ part.text | e }}</h3>
@@ -253,25 +254,25 @@
 		{%- if not pdf %}
 		<div class="pad">
 		{%- if p.preview %}
-		<p class="notice info preview" role="status"><strong>{{ _("Preview.") }}</strong> {{ _("This is how the client sees it. Opening it here counts no view, and it can't be accepted.") }}</p>
+		<p class="notice info preview" role="status"><strong>{{ _("Preview.") }}</strong> {{ _("This is how the client sees it. Opening it here counts no view, and it can't be answered.") }}</p>
 		{%- endif %}
 		{%- if p.status == "Accepted" %}
-		<p class="notice success" role="status"><strong>{{ _("Accepted") }}</strong>&nbsp;{{ _("by {0} on {1}. Thank you, we'll be in touch.").format(p.decided_by or "", p.decided_on or "") | e }}</p>
+		<p class="notice success" role="status"><strong>{{ w.accepted | e }}</strong>&nbsp;{{ w.accepted_note.format(p.decided_by or "", p.decided_on or "") | e }}</p>
 		{%- elif p.status == "Declined" %}
-		<p class="notice danger" role="status"><strong>{{ _("Declined") }}</strong>&nbsp;{{ _("on {0}. Thank you for letting us know.").format(p.decided_on or "") | e }}</p>
+		<p class="notice danger" role="status"><strong>{{ w.declined | e }}</strong>&nbsp;{{ _("on {0}. Thank you for letting us know.").format(p.decided_on or "") | e }}</p>
 		{%- elif p.superseded %}
 		<p class="notice info" role="status"><strong>{{ _("A newer version exists.") }}</strong> {{ _("Ask us for the latest link.") }}</p>
 		{%- elif p.price_unavailable %}
-		<p class="notice info" role="status"><strong>{{ _("This price is no longer valid.") }}</strong> {{ _("Ask us for an updated proposal.") }}</p>
+		<p class="notice info" role="status"><strong>{{ _("This price is no longer valid.") }}</strong> {{ w.ask_new | e }}</p>
 		{%- elif p.expired %}
-		<p class="notice danger" role="status"><strong>{{ _("Expired.") }}</strong> {{ _("Ask us for a new proposal.") }}</p>
+		<p class="notice danger" role="status"><strong>{{ _("Expired.") }}</strong> {{ w.ask_new | e }}</p>
 		{%- endif %}
 		</div>
 		{%- endif %}
 
 		<section class="cover pad" aria-labelledby="proposal-title">
 			{%- if p.logo and lh %}<img class="logo" src="{{ p.logo | e }}" alt="{{ (p.company or '') | e }}">{% endif %}
-			<p class="kicker">{{ (p.cover.solution or _("Proposal")) | e }}</p>
+			<p class="kicker">{{ (p.cover.solution or w.kicker) | e }}</p>
 			<h1 id="proposal-title">{{ p.title | e }}</h1>
 			<div class="rule" aria-hidden="true"></div>
 			<p class="for">{{ _("Prepared for") }}</p>
@@ -363,16 +364,16 @@
 
 			{%- if block.type == "Acceptance" %}
 			{%- set a = p.acceptance %}
-			<p>{{ _("By signing below, both parties accept this proposal, its scope, price and terms.") }}</p>
+			<p>{{ w.agree_text | e }}</p>
 			<table class="sign" role="presentation">
 				<tr>
 					<td>
 						<p class="who">{{ _("For {0}").format(a.client) | e }}</p>
 						<span class="filled">{{ (a.name or "") | e }}</span><span class="line">{{ _("Authorised person") }}</span>
-						<span class="filled"></span><span class="line">{{ _("Designation") }}</span>
+						<span class="filled">{{ (a.designation or "") | e }}</span><span class="line">{{ _("Designation") }}</span>
 						<span class="filled"></span><span class="line">{{ _("Signature") }}</span>
 						<span class="filled">{{ (a.date or "") | e }}</span><span class="line">{{ _("Date") }}</span>
-						{%- if a.accepted %}<span class="accepted">{{ _("Accepted online") }}{% if a.email %} · {{ a.email | e }}{% endif %}</span>{% endif %}
+						{%- if a.accepted %}<span class="accepted">{{ w.accepted_online | e }}{% if a.email %} · {{ a.email | e }}{% endif %}</span>{% endif %}
 					</td>
 					<td>
 						<p class="who">{{ _("For {0}").format(a.our_company or "") | e }}</p>
@@ -389,24 +390,27 @@
 
 		{%- if p.can_decide and not pdf %}
 		<section class="decision pad" aria-labelledby="decide-title">
-			<h2 id="decide-title">{{ _("Ready to go ahead?") }}</h2>
-			<p>{{ _("Accept the proposal and we'll start on the next steps with you.") }}</p>
+			<h2 id="decide-title">{{ w.decide_title | e }}</h2>
+			<p>{{ w.decide_text | e }}</p>
 			<form id="accept-form" novalidate>
 				<div class="fields">
 					<div><label for="accept-name">{{ _("Your name") }}</label><input id="accept-name" name="name" autocomplete="name" required maxlength="140"></div>
 					<div><label for="accept-email">{{ _("Your email") }}</label><input id="accept-email" name="email" type="email" autocomplete="email" required maxlength="140"></div>
+					{%- if p.signature %}
+					<div><label for="accept-designation">{{ _("Your designation") }}</label><input id="accept-designation" name="designation" autocomplete="organization-title" required maxlength="140"></div>
+					{%- endif %}
 				</div>
 				<div class="actions">
-					<button type="submit" class="primary">{{ _("Accept proposal") }}</button>
+					<button type="submit" class="primary">{{ w.accept_button | e }}</button>
 				</div>
 				<p class="error" role="alert" aria-live="assertive"></p>
 			</form>
 			<details>
-				<summary>{{ _("Not the right fit? Decline it") }}</summary>
+				<summary>{{ w.decline_summary | e }}</summary>
 				<form id="decline-form" novalidate>
-					<label for="decline-reason">{{ _("What would make it work? (optional)") }}</label>
+					<label for="decline-reason">{{ w.decline_prompt | e }}</label>
 					<textarea id="decline-reason" name="reason" maxlength="1000"></textarea>
-					<div class="actions"><button type="submit">{{ _("Decline proposal") }}</button></div>
+					<div class="actions"><button type="submit">{{ w.decline_button | e }}</button></div>
 					<p class="error" role="alert" aria-live="assertive"></p>
 				</form>
 			</details>
@@ -457,7 +461,7 @@
 				.catch(function (err) { error.textContent = message(err); button.disabled = false; });
 		});
 	}
-	wire("accept-form", "accept", ["name", "email"]);
+	wire("accept-form", "accept", {{ (["name", "email", "designation"] if p.signature else ["name", "email"]) | tojson }});
 	wire("decline-form", "decline", ["reason"]);
 	{%- if not p.preview %}
 	post("record_view").catch(function () {});

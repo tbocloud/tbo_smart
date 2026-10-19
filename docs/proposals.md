@@ -1,4 +1,4 @@
-# Proposals to a lead (living spec, v2.0)
+# Proposals to a lead (living spec, v2.1)
 
 **Status:** built 2026-10-19 (Phases 3 and 4 of the sales flow the owner approved on 2026-10-16;
 the Universal IT Proposal the owner set on 2026-10-19). Presales starts a proposal in the TBO
@@ -7,7 +7,9 @@ master structure, a pre-written module library and section libraries, with **one
 for the narrative; it is priced with the lead's quotation, shared or sent, and the client reads,
 accepts or declines it on a web page on the ERP site, or as an A4 PDF.
 This file is the living spec: every change to the feature updates it in the same pull request.
-The hub's contract is `hub-proposals-api.md`; the hub's own spec is tbocloud/helpdesk
+The documents after an accepted proposal (the quotation, the project agreement) are TBO Proposals
+of their own type, on the same engine: `client-documents.md`. The hub's contract is
+`hub-proposals-api.md`; the hub's own spec is tbocloud/helpdesk
 `docs/proposals.md`.
 
 - **Code:** `lead_pipeline/proposals.py` (the proposal, its page model, sending),
@@ -38,6 +40,7 @@ The hub's contract is `hub-proposals-api.md`; the hub's own spec is tbocloud/hel
 | Field | |
 | --- | --- |
 | `title`, `lead` (set once), `lead_name`, `template`, `solution_type`, `prepared_by` | `prepared_by` is the person who made it (the cover and our signatory) |
+| `document_type`, `source_document` | Proposal for a proposal; the documents after it (`client-documents.md`) |
 | `status` | Draft, Sent, Viewed, Accepted, Declined, Expired (§5) |
 | `client_profile` | JSON: name, website, about, industry, size, locations, current software, key processes, pain points (§3.1). Required. |
 | `requirements` | The requirements box, kept so a regenerate is one click (§3.1) |
@@ -440,6 +443,8 @@ focus ring, 44px targets.
 
 ## Changelog
 
+- **v2.1 (2026-10-19):** the engine serves every client document (`client-documents.md`): the
+  type's sections, words and pricing rules; the owner's note reads "… opened the proposal …".
 - **v2.0 (2026-10-19):** the Universal IT Proposal (23 sections in three parts), the scoping form
   and the start flow (client profile with the guarded website read, the requirements box, the
   templates), the module catalogue with pre-written text, the section libraries, pricing from the

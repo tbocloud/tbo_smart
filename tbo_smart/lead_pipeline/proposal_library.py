@@ -8,6 +8,7 @@ import frappe
 from frappe import _
 from frappe.utils import cint, flt
 
+from tbo_smart.lead_pipeline import document_types
 from tbo_smart.lead_pipeline import proposal_builder as builder
 from tbo_smart.lead_pipeline import proposal_media as media
 from tbo_smart.lead_pipeline.presets import can_edit_presets, require_preset_editor
@@ -73,6 +74,8 @@ def library_payload() -> dict:
 		"conditions": [c for c in (item_meta.get_field("condition").options or "").split("\n") if c],
 		"fits": list(builder.FITS),
 		"scope_groups": list(builder.SCOPE_GROUPS),
+		# an Agreement Clause's group: the agreement section it shows in (docs/client-documents.md §4)
+		"clause_groups": list(dict.fromkeys(document_types.CLAUSE_GROUPS.values())),
 		"hosting": list(builder.HOSTING),
 	}
 
