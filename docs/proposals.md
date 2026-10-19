@@ -132,7 +132,8 @@ next `revision_no` in its family, a fresh validity and a **new link**; it become
   refused. Only the latest revision, still Sent or Viewed and within its validity, can be
   answered. The status is read under a row lock, so two answers at once can't both win.
 - These moves run as a system action (the client is Guest), after the token was checked.
-- **Download PDF** (`download_pdf`): the same page, rendered by wkhtmltopdf.
+- **Download PDF** (`download_pdf`): the same page, rendered by wkhtmltopdf, with its status
+  (accepted, declined, superseded, price gone, expired) but not the decision panel.
 - **Rate limits** per IP: views 60, accept and decline 10, PDF 30 an hour.
 - Responsive (one column on a phone), print-friendly (the decision panel and links hidden), dark
   mode, keyboard reachable with a visible focus ring, 44px targets.

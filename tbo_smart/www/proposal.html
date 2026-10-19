@@ -109,7 +109,7 @@
 	@media print {
 		body, .wrap { background: #fff; padding: 0; }
 		.sheet { border: 0; }
-		.decision, footer .no-print, .notice.info { display: none; }
+		.decision, footer .no-print, .notice.preview { display: none; }
 	}
 	@media (prefers-reduced-motion: no-preference) { button { transition: background-color .15s; } }
 </style>
@@ -129,9 +129,8 @@
 				{%- if p.revision %}<div><dt>{{ _("Version") }}</dt><dd>{{ p.revision + 1 }}</dd></div>{% endif %}
 			</dl>
 		</div>
-		{%- if not pdf %}
-		{%- if p.preview %}
-		<p class="notice info" role="status"><strong>{{ _("Preview.") }}</strong> {{ _("This is how the client sees it. Opening it here counts no view, and it can't be accepted.") }}</p>
+		{%- if p.preview and not pdf %}
+		<p class="notice info preview" role="status"><strong>{{ _("Preview.") }}</strong> {{ _("This is how the client sees it. Opening it here counts no view, and it can't be accepted.") }}</p>
 		{%- endif %}
 		{%- if p.status == "Accepted" %}
 		<p class="notice success" role="status"><strong>{{ _("Accepted") }}</strong>&nbsp;{{ _("by {0} on {1}. Thank you, we'll be in touch.").format(p.decided_by or "", p.decided_on or "") | e }}</p>
@@ -143,7 +142,6 @@
 		<p class="notice info" role="status"><strong>{{ _("This price is no longer valid.") }}</strong> {{ _("Ask us for an updated proposal.") }}</p>
 		{%- elif p.expired %}
 		<p class="notice danger" role="status"><strong>{{ _("Expired.") }}</strong> {{ _("Ask us for a new proposal.") }}</p>
-		{%- endif %}
 		{%- endif %}
 
 		{%- for block in p.blocks %}

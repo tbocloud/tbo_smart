@@ -430,6 +430,8 @@ class TestClientPage(ProposalTestCase):
 		call_as_guest(page.accept, token, "Someone Else", "else@malabar.example")
 		self.assertEqual(frappe.db.get_value(p.DOCTYPE, name, "decided_by_name"), "Asha Menon")
 		self.assertRaises(frappe.ValidationError, call_as_guest, page.decline, token, "changed mind")
+		# the PDF says so too
+		self.assertIn("Accepted", p.render_html(frappe.get_doc(p.DOCTYPE, name), pdf=True))
 
 	def test_decline_rejects_the_quotation_but_keeps_the_lead_open(self):
 		name, token = make_sent_proposal(self.lead, BDE, TEMPLATE, SERVICE)
