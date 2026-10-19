@@ -1,4 +1,4 @@
-"""The hub's Leads overview and the Sales scoreboard's figures (docs/hub-leads-api.md §2.3, §2.4).
+"""The hub's Leads overview and the Sales scoreboard's figures (docs/hub-leads-api.md §2.4, §2.5).
 
 Both build on the pipeline dashboard (`PipelineDashboard`, docs/lead-pipeline.md §11): the same
 lead owners scope, date range and grouped queries, with what the hub's overview adds (the
@@ -526,9 +526,23 @@ class SalesActivity(LeadOverview):
 		return rows
 
 	def won_value_by_owner(self, won: list) -> dict:
-		values = {}
-		for lead in won:
-			values[lead.lead_owner] = flt(values.get(lead.lead_owner)) + self.lead_value([lead.name])
+		"""{owner: the latest quotations' total of their leads won in the range}, in one query."""
+		owner_of = {row.name: row.lead_owner for row in won}
+		values = dict.fromkeys(owner_of.values(), 0.0)
+		if not owner_of:
+			return values
+		Quotation = self.Quotation
+		for lead, value in (
+			frappe.qb.from_(Quotation)
+			.select(Quotation.tbo_lead, Sum(Quotation.base_grand_total))
+			.where(
+				Quotation.tbo_lead.isin(list(owner_of))
+				& (Quotation.docstatus != 2)
+				& (Quotation.tbo_is_latest == 1)
+			)
+			.groupby(Quotation.tbo_lead)
+		).run():
+			values[owner_of[lead]] += flt(value)
 		return values
 
 	def follow_ups_by_person(self) -> dict:

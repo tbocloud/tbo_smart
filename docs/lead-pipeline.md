@@ -477,7 +477,7 @@ else themselves) when the session user may see that person, else nothing; their 
 **The hub's Leads overview and Sales scoreboard** reuse this class: `lead_pipeline/overview.py`
 (`LeadOverview` and `SalesActivity` extend `PipelineDashboard` with the pipeline's value by
 stage, the funnel, contacted and stale leads, segments, sources and per-salesperson activity),
-served by `hub_leads.get_overview` and `get_sales_activity` (`hub-leads-api.md` §2.2, §2.3).
+served by `hub_leads.get_overview` and `get_sales_activity` (`hub-leads-api.md` §2.4, §2.5).
 
 ## 12. Tests
 

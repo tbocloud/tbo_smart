@@ -1,4 +1,4 @@
-# Hub leads API (`tbo_smart.api.hub_leads`), v1.1
+# Hub leads API (`tbo_smart.api.hub_leads`), v1.2
 
 **Status:** built 2026-10-16. The TBO Support hub's lead page (tbocloud/helpdesk) shows and edits
 tboindia's leads through these methods. The leads are ERPNext's own **Lead**
@@ -14,7 +14,8 @@ and every change to the API updates it in the same pull request.
 - **`acting_user`** on every call: the hub user's email. It must be a user on tboindia that is
   **enabled**, a **System User**, and has a **sales role** (Sales User, Sales Manager or System
   Manager) and is not itself an integration user; otherwise the call fails with **403**
-  (`PermissionError`). The integration user without `acting_user` also gets 403.
+  (`PermissionError`). The integration user without `acting_user` also gets 403, except for
+  `get_sales_activity` (§2.5), which then counts everyone.
 - **The call runs as that user** (`frappe.set_user` for the call, then back to the integration
   user): lists are their `frappe.get_list`, a lead opens only when they may read it, writes need
   their write permission, and every record written is theirs (Comment owner, the lead's
@@ -38,9 +39,9 @@ curl -s -X POST https://india.teambackoffice.com/api/method/tbo_smart.api.hub_le
 | Method | Verb | Arguments | Returns |
 | --- | --- | --- | --- |
 | `get_options` | GET | `acting_user` | `{stages: [{name, label, type, color}], sources: [], segments: [], owners: [{email, full_name}], territories: [], industries: []}` |
-| `list_leads` | GET | `search?`, `stage?`, `owner?`, `segment?`, `source?`, `temperature?` (Hot / Warm / Cold), `metric?` with `period?` / `from_date?` / `to_date?` (§2.2), `view` (`all` / `mine` / `call_today` / `follow_up`, default `all`), `start` (0), `page_length` (20, at most 100), `acting_user` | `{rows: [Row], total}` |
-| `get_overview` | GET | `period` (`week` / `month` / `quarter` / `custom`, default `month`), `from_date?`, `to_date?` (custom), `owner?`, `acting_user` | Overview (§2.2) |
-| `get_sales_activity` | GET | `from_date?`, `to_date?` (default this month), `acting_user?` (§2.3) | `{from_date, to_date, currency, people: [Activity]}` |
+| `list_leads` | GET | `search?`, `stage?`, `owner?`, `segment?`, `source?`, `temperature?` (Hot / Warm / Cold), `metric?` with `period?` / `from_date?` / `to_date?` (§2.4), `view` (`all` / `mine` / `call_today` / `follow_up`, default `all`), `start` (0), `page_length` (20, at most 100), `acting_user` | `{rows: [Row], total}` |
+| `get_overview` | GET | `period` (`week` / `month` / `quarter` / `custom`, default `month`), `from_date?`, `to_date?` (custom), `owner?`, `acting_user` | Overview (§2.4) |
+| `get_sales_activity` | GET | `from_date?`, `to_date?` (default this month), `acting_user?` (§2.5) | `{from_date, to_date, currency, people: [Activity]}` |
 | `get_lead` | GET | `name`, `acting_user` | `{lead: Lead, timeline: [Item], quotations: [Quotation], allowed_stages: [stage name]}` |
 | `create_lead` | POST | `data`, `acting_user` | as `get_lead` |
 | `update_lead` | POST | `name`, `data`, `acting_user` | as `get_lead` |
@@ -83,7 +84,46 @@ Quotation = {name, docstatus, tbo_quote_status, transaction_date, valid_till, cu
   pipeline meetings (TBO Lead Meeting, `text` "1st meeting: MOM Submitted"), stage changes
   (`text` "Contacted → Proposal Sent") and quotations, newest first.
 
-### 2.2 The overview
+### 2.2 Writing
+
+`data` keys (anything else is refused with 417):
+
+| Key | Field |
+| --- | --- |
+| `lead_name` | split into `first_name` / `last_name` when those are not sent |
+| `first_name`, `last_name`, `company_name`, `email_id`, `mobile_no`, `phone`, `whatsapp_no`, `job_title`, `website` | the Lead's own |
+| `source` (a Lead Source), `territory`, `industry` (Industry Type) | links; `get_options` lists them |
+| `segment` | `tbo_segment`; moving a lead from one segment to another needs a preset editor (417 otherwise; `lead-pipeline.md` §9.8) |
+| `lead_owner` | another sales user: only within the acting user's reach (anyone for a Sales Manager outside the hierarchy, their team for a team lead, nobody for a salesperson); 403 otherwise |
+| `note` | `create_lead` only: the lead's first note |
+| `next_follow_up` | `YYYY-MM-DD`: a Sales follow-up ToDo for the lead owner that day, unless one is already open for it; an empty value adds nothing (it never closes one) |
+
+- `create_lead` needs a name or a company. ERPNext checks the email (unique unless CRM Settings
+  allow duplicates, and never the owner's own).
+- `set_stage` to **Closed – Lost** needs `note`: a lost reason's name, or free text saved as
+  "Other" with the text as `tbo_lost_notes`. For any other stage `note` is added as a note.
+  Closed – Won makes the deal (with the lead pipeline on).
+- `add_note` needs read on the lead (as the app's notes do).
+
+### 2.3 The segment rate card
+
+```
+RateCard = {segments: [{segment, price_list (null: the selling list), max_discount (0: none)}],
+  default_price_list, price_lists: [selling price list names], can_edit,
+  services: [{item_code, item_name, item_group, description, uom, rate (selling list),
+    rates: {segment: rate | null}}]}
+```
+
+- Every segment is listed, in order, whether or not it is on the card. `rates` has a key for
+  each segment with its own price list; `null` where that list has no price for the service.
+- Needs Quotations on the lead (417 otherwise). Writes need a role in "Roles that edit presets
+  and prices" (403 otherwise); `can_edit` tells the hub whether to show the edit controls.
+- `save_rate_card` replaces the card: a row with neither a list nor a band is dropped. Refused
+  (417): an unknown segment, a segment twice, a band outside 0-100, a list that isn't selling.
+- `set_segment_rate` with a segment that has no list of its own is refused (417).
+- What the card does to quotations: `lead-pipeline.md` §9.8.
+
+### 2.4 The overview
 
 The hub's Leads → Overview. Built on the pipeline dashboard's figures
 (`lead_pipeline/overview.py`, `LeadOverview` extends `PipelineDashboard`, `lead-pipeline.md` §11),
@@ -131,7 +171,7 @@ by owner, segment and source). Stages, owners, segments and sources open with th
 filters (`stage`, `owner`, `segment`, `source`). A metric combines with the view and the
 other filters.
 
-### 2.3 Sales activity (the hub's Sales scoreboard)
+### 2.5 Sales activity (the hub's Sales scoreboard)
 
 `get_sales_activity` gives each salesperson's CRM activity in the range; the hub scores it
 (tbocloud/helpdesk `docs/team-dashboard.md`, Sales). **Counts and totals only, no lead is
@@ -151,45 +191,6 @@ cancelled), `moms_submitted` (MOM submitted in the range), `mom_pending` (now),
 `quotations_sent`, `follow_ups_done` (closed in the range) and `follow_ups_on_time` (closed by
 their day), `follow_ups_overdue` (open past their day now), `new` (created in the range), `won`
 and `won_value` (latest quotations' total), `conversion` (won of new, %).
-
-### 2.4 Writing
-
-`data` keys (anything else is refused with 417):
-
-| Key | Field |
-| --- | --- |
-| `lead_name` | split into `first_name` / `last_name` when those are not sent |
-| `first_name`, `last_name`, `company_name`, `email_id`, `mobile_no`, `phone`, `whatsapp_no`, `job_title`, `website` | the Lead's own |
-| `source` (a Lead Source), `territory`, `industry` (Industry Type) | links; `get_options` lists them |
-| `segment` | `tbo_segment`; moving a lead from one segment to another needs a preset editor (417 otherwise; `lead-pipeline.md` §9.8) |
-| `lead_owner` | another sales user: only within the acting user's reach (anyone for a Sales Manager outside the hierarchy, their team for a team lead, nobody for a salesperson); 403 otherwise |
-| `note` | `create_lead` only: the lead's first note |
-| `next_follow_up` | `YYYY-MM-DD`: a Sales follow-up ToDo for the lead owner that day, unless one is already open for it; an empty value adds nothing (it never closes one) |
-
-- `create_lead` needs a name or a company. ERPNext checks the email (unique unless CRM Settings
-  allow duplicates, and never the owner's own).
-- `set_stage` to **Closed – Lost** needs `note`: a lost reason's name, or free text saved as
-  "Other" with the text as `tbo_lost_notes`. For any other stage `note` is added as a note.
-  Closed – Won makes the deal (with the lead pipeline on).
-- `add_note` needs read on the lead (as the app's notes do).
-
-### 2.3 The segment rate card
-
-```
-RateCard = {segments: [{segment, price_list (null: the selling list), max_discount (0: none)}],
-  default_price_list, price_lists: [selling price list names], can_edit,
-  services: [{item_code, item_name, item_group, description, uom, rate (selling list),
-    rates: {segment: rate | null}}]}
-```
-
-- Every segment is listed, in order, whether or not it is on the card. `rates` has a key for
-  each segment with its own price list; `null` where that list has no price for the service.
-- Needs Quotations on the lead (417 otherwise). Writes need a role in "Roles that edit presets
-  and prices" (403 otherwise); `can_edit` tells the hub whether to show the edit controls.
-- `save_rate_card` replaces the card: a row with neither a list nor a band is dropped. Refused
-  (417): an unknown segment, a segment twice, a band outside 0-100, a list that isn't selling.
-- `set_segment_rate` with a segment that has no list of its own is refused (417).
-- What the card does to quotations: `lead-pipeline.md` §9.8.
 
 ## 3. Links back to the hub
 
@@ -212,7 +213,7 @@ options. `tests/test_segment_rate_card.py`: the rate card methods (acting user, 
 
 ## Changelog
 
-- **v1.1 (2026-10-19):** `get_overview` and `get_sales_activity`; `list_leads` takes `source`,
+- **v1.2 (2026-10-19):** `get_overview` and `get_sales_activity`; `list_leads` takes `source`,
   `temperature` and `metric` with its period.
-- **v1.0 (2026-10-16):** first version.
 - **v1.1 (2026-10-19):** `get_rate_card`, `save_rate_card`, `set_segment_rate`.
+- **v1.0 (2026-10-16):** first version.
