@@ -518,6 +518,7 @@ QUESTIONS = (
 	"integrations",
 	"data_migration",
 	"users",
+	"companies",
 	"hosting",
 	"amc",
 	"timeline_weeks",
