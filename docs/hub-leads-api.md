@@ -121,7 +121,8 @@ Overview = {period, from_date, to_date, scope ("own" | "team" | "all"), people: 
 | `win_rate`, `conversion_rate` | won of won + lost; created in the period and won now |
 
 **Every number opens its leads:** `list_leads(metric=…)` with the same `period` (or dates) and
-`owner` keeps exactly the leads behind a figure: `new`, `contacted`, `meetings`, `quotations`,
+`owner` keeps exactly the leads behind a figure (dates without a `period` are a custom
+range; neither is this month): `new`, `contacted`, `meetings`, `quotations`,
 `won`, `lost`, `stale`, `overdue`, `hot`. Stages, owners, segments and sources open with the
 plain filters (`stage`, `owner`, `segment`, `source`). A metric combines with the view and the
 other filters.

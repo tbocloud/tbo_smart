@@ -219,7 +219,9 @@ def list_leads(
 				frappe.throw(_("temperature must be one of {0}.").format(", ".join(TEMPERATURES)))
 			filters["tbo_temperature"] = temperature
 		if metric:
-			board, _allowed = overview_board(period or "month", from_date, to_date, owner)
+			# dates without a period are a custom range
+			period = period or ("custom" if (from_date or to_date) else "month")
+			board, _allowed = overview_board(period, from_date, to_date, owner)
 			filters["name"] = ("in", board.metric_leads(metric) or [""])
 		or_filters = search_filters(search)
 		order_by = "modified desc"

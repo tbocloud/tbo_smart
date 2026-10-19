@@ -11,10 +11,7 @@ from tbo_smart.lead_pipeline.statuses import CLOSED_LOST, CLOSED_WON, CONTACTED,
 from tbo_smart.test_utils import (
 	age_lead,
 	change_lead_stage,
-	delete_lead_deals,
-	delete_lead_meetings,
-	delete_lead_quotations,
-	delete_smart_lead_records,
+	delete_lead_pipeline_records,
 	disable_lead_quotations,
 	disable_sales_hierarchy,
 	enable_lead_quotations,
@@ -57,22 +54,14 @@ class TestLeadOverview(FrappeTestCase):
 	@classmethod
 	def tearDownClass(cls):
 		frappe.set_user("Administrator")
-		cls.clean()
+		delete_lead_pipeline_records(OWNERS)
 		disable_lead_quotations()
 		frappe.db.commit()  # nosemgrep
 		super().tearDownClass()
 
-	@classmethod
-	def clean(cls):
-		leads = frappe.get_all("Lead", filters={"lead_owner": ("in", OWNERS)}, pluck="name")
-		delete_lead_quotations(leads)
-		delete_lead_meetings(leads)
-		delete_lead_deals(leads)
-		delete_smart_lead_records(OWNERS)
-
 	def setUp(self):
 		frappe.set_user("Administrator")
-		self.clean()
+		delete_lead_pipeline_records(OWNERS)
 		set_smart_lead_settings(enable_lead_pipeline=0, lead_stale_days=21)
 		self.new = make_lead(BDE, "Fresh", source=SOURCE, tbo_segment="Small")
 		self.hot = make_lead(BDE, "Keen", tbo_segment="Large")
@@ -182,6 +171,8 @@ class TestLeadOverview(FrappeTestCase):
 		self.assertNotIn(self.stale, listed("contacted"))
 		self.assertEqual(listed("new"), {self.new, self.hot, self.won, self.lost})
 		self.assertEqual(listed("new", period="custom", from_date="2020-01-01", to_date="2020-01-31"), set())
+		# dates alone are a custom range
+		self.assertEqual(listed("new", from_date="2020-01-01", to_date="2020-01-31"), set())
 		self.assertEqual(listed("won", view="mine"), {self.won})
 		self.assertRaises(frappe.ValidationError, hub.list_leads, metric="nope", acting_user=BDE)
 		# plain filters the overview links to
