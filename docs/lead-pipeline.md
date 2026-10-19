@@ -423,6 +423,12 @@ lead is off.
   voiding, Mark sent refused while pending); a level whose own limit is higher keeps it.
   Commission is untouched. `get_quotation_adjustment_status` and `request_adjustment` use the
   same limit, so the chips and "within your limit" agree with the save.
+- **The lead's segment is guarded:** it sets the band, so once a lead has a segment only the
+  preset editors move it to another (`rate_card.validate_lead_segment`, Lead validate; refused
+  with a message otherwise). A lead without one gets its first from whoever works it, as on
+  creation. Imports (the cutover) are not checked.
+- **Lookups:** the status of many quotations at once (`get_quotations_adjustment_status`) reads
+  their bands in a fixed number of queries (`rate_card.quotation_bands`).
 - **Who edits:** only the roles in "Roles that edit presets and prices"
   (`presets.can_edit_presets`); everyone with quotations reads it. The settings check the rows
   (a segment once, a selling list, a band from 0 to 100%).

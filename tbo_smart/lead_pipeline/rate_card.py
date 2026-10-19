@@ -5,7 +5,9 @@ segment (`Lead.tbo_segment`), kept in TBO Smart Settings → Segment rate card (
   Price List and Item Price), else from Selling Settings' selling price list, line by line.
 - **Band:** anyone may give up to the segment's discount on a lead's quotation without approval.
   Above it, the quotation approval levels apply as before (tbo_smart.quotation_control reads the
-  band through `quotation_band`); a level whose own limit is higher keeps its own.
+  band through `quotation_band`); a level whose own limit is higher keeps its own. Because the
+  segment sets the band, only the preset editors move a lead from one segment to another
+  (`validate_lead_segment`).
 
 Only the preset editors (presets.can_edit_presets) change it. Everything reads as no rate card
 while Quotations on the lead is off.
@@ -17,6 +19,7 @@ from frappe.utils import flt
 
 from tbo_smart.lead_pipeline import SETTINGS, presets, quotations_enabled
 from tbo_smart.lead_pipeline.setup import SEGMENTS
+from tbo_smart.sales import LEAD_LINK
 
 ROW = "TBO Segment Rate"
 
@@ -66,9 +69,60 @@ def lead_pricing(lead: str) -> dict:
 def quotation_band(doc) -> float | None:
 	"""The discount band of the segment of the lead a quotation belongs to; None for any other
 	quotation."""
-	from tbo_smart.lead_pipeline.quotations import lead_of
+	return quotation_bands([doc])[0]
 
-	return band_for(lead_segment(lead_of(doc)))
+
+def quotation_bands(docs: list) -> list[float | None]:
+	"""quotation_band for many quotations in a fixed number of queries, in their order. The lead
+	is found as quotations.lead_of finds it: the party when made out to a Lead, else `tbo_lead`,
+	else the lead of its deal."""
+	if not docs or not quotations_enabled():
+		return [None] * len(docs)
+	leads = [
+		doc.get("party_name") if doc.get("quotation_to") == "Lead" else doc.get(LEAD_LINK) for doc in docs
+	]
+	deals = {
+		doc.get("opportunity")
+		for doc, lead in zip(docs, leads, strict=True)
+		if not lead and doc.get("opportunity")
+	}
+	deal_leads = (
+		dict(
+			frappe.get_all(
+				"Opportunity", filters={"name": ("in", list(deals))}, fields=["name", LEAD_LINK], as_list=True
+			)
+		)
+		if deals
+		else {}
+	)
+	leads = [lead or deal_leads.get(doc.get("opportunity")) for doc, lead in zip(docs, leads, strict=True)]
+	named = {lead for lead in leads if lead}
+	segments = (
+		dict(
+			frappe.get_all(
+				"Lead", filters={"name": ("in", list(named))}, fields=["name", "tbo_segment"], as_list=True
+			)
+		)
+		if named
+		else {}
+	)
+	rows = segment_rows()
+	bands = {segment: flt(row.max_discount, 2) for segment, row in rows.items() if flt(row.max_discount) > 0}
+	return [bands.get(segments.get(lead)) if lead else None for lead in leads]
+
+
+def validate_lead_segment(doc, method=None) -> None:
+	"""doc_events: Lead validate. The segment decides the discount band, so once a lead has one
+	only the preset editors move it to another (a salesperson can't raise their own limit)."""
+	if doc.is_new() or frappe.flags.in_import or not doc.has_value_changed("tbo_segment"):
+		return
+	before = doc.get_doc_before_save()
+	if before and before.get("tbo_segment") and not presets.can_edit_presets():
+		frappe.throw(
+			_("Only {0} may change a lead's segment: it sets the discount band.").format(
+				", ".join(sorted(presets.preset_roles()))
+			)
+		)
 
 
 # ---------- the editors' screen ----------

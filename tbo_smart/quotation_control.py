@@ -56,14 +56,13 @@ def get_percent(doc, kind: str) -> float:
 	return get_discount_percent(doc)
 
 
-def effective_limit(settings, level, kind: str, doc) -> float | None:
-	"""`level`'s limit for `kind` on this quotation. On a lead's quotation anyone may give up to
-	its segment's discount band; a level whose own limit is higher keeps it."""
+def effective_limit(settings, level, kind: str, band: float | None) -> float | None:
+	"""`level`'s limit for `kind`. On a lead's quotation (`band`, rate_card.quotation_band) anyone
+	may give a discount up to its segment's band; a level whose own limit is higher keeps it."""
 	limit = settings.get_limit(level, kind)
-	if kind != "Discount" or limit is None:
+	if kind != "Discount" or limit is None or not band:
 		return limit
-	band = quotation_band(doc)
-	return max(flt(limit, 2), band) if band else limit
+	return max(flt(limit, 2), band)
 
 
 def get_granted(quotation: str, kind: str) -> list:
@@ -152,6 +151,7 @@ class QuotationControl:
 		self.settings = get_settings()
 		self.kinds = self.settings.controlled_kinds()
 		self.level = self.settings.get_user_level() if self.kinds else None
+		self.band = quotation_band(doc) if "Discount" in self.kinds else None
 
 	def validate(self):
 		if self.doc.docstatus == 1:
@@ -172,7 +172,7 @@ class QuotationControl:
 			percent = get_percent(self.doc, kind)
 			if percent <= 0:
 				continue
-			limit = effective_limit(self.settings, self.level, kind, self.doc)
+			limit = effective_limit(self.settings, self.level, kind, self.band)
 			if self.settings.is_within(limit, percent):
 				continue
 			if not self.doc.is_new() and get_covering(self.doc.name, kind, percent, value):
@@ -244,7 +244,7 @@ class QuotationControl:
 		for kind in self.kinds:
 			percent = get_percent(self.doc, kind)
 			if percent <= 0 or not self.settings.is_within(
-				effective_limit(self.settings, self.level, kind, self.doc), percent
+				effective_limit(self.settings, self.level, kind, self.band), percent
 			):
 				continue
 			if get_covering(self.doc.name, kind, percent, value):

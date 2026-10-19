@@ -2,7 +2,6 @@ import json
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import add_days, nowdate
 
 from tbo_smart.api import hub_leads as hub
 from tbo_smart.api import lead_quotation as api
@@ -12,8 +11,7 @@ from tbo_smart.lead_pipeline import rate_card
 from tbo_smart.quotation_control import AdjustmentApprovalRequired
 from tbo_smart.test_utils import (
 	configure_quotation_approval,
-	delete_lead_quotations,
-	delete_smart_lead_records,
+	delete_owner_lead_records,
 	disable_lead_quotations,
 	enable_lead_quotations,
 	get_item_rate,
@@ -21,7 +19,7 @@ from tbo_smart.test_utils import (
 	make_quotation_item,
 	make_selling_price_list,
 	make_user,
-	quotation_line,
+	save_lead_quotation,
 	set_leaf_customer_group,
 	set_segment_rates,
 )
@@ -54,22 +52,16 @@ class SegmentRateCardTestCase(FrappeTestCase):
 	@classmethod
 	def tearDownClass(cls):
 		frappe.set_user("Administrator")
-		cls.clean()
+		delete_owner_lead_records(OWNERS)
 		set_segment_rates()
 		disable_lead_quotations()
 		configure_quotation_approval(enabled=0)
 		frappe.db.commit()  # nosemgrep
 		super().tearDownClass()
 
-	@classmethod
-	def clean(cls):
-		leads = frappe.get_all("Lead", filters={"lead_owner": ("in", OWNERS)}, pluck="name")
-		delete_lead_quotations(leads)
-		delete_smart_lead_records(OWNERS)
-
 	def setUp(self):
 		frappe.set_user("Administrator")
-		self.clean()
+		delete_owner_lead_records(OWNERS)
 		enable_lead_quotations()
 		configure_quotation_approval(enabled=0)
 		set_segment_rates(
@@ -96,13 +88,8 @@ class SegmentRateCardTestCase(FrappeTestCase):
 	def tearDown(self):
 		frappe.set_user("Administrator")
 
-	def save(self, lead, discount=0, quotation=None):
-		payload = {
-			"valid_till": add_days(nowdate(), 20),
-			"items": [quotation_line(SERVICE, 1, 100000)],
-			"additional_discount_percentage": discount,
-		}
-		return api.save_quotation(lead, json.dumps(payload), quotation)
+	def save(self, lead, discount=0):
+		return save_lead_quotation(lead, SERVICE, 100000, discount)
 
 
 class TestRateCard(SegmentRateCardTestCase):
@@ -231,3 +218,32 @@ class TestBandAndApproval(SegmentRateCardTestCase):
 		frappe.set_user(BDM)
 		saved = self.save(lead, discount=14)
 		self.assertEqual(saved["needs_approval"], [])
+
+
+class TestSegmentGuard(SegmentRateCardTestCase):
+	def test_only_editors_move_a_lead_to_another_segment(self):
+		frappe.set_user(HUB)
+		self.assertRaises(
+			frappe.ValidationError,
+			hub.update_lead,
+			self.medium,
+			json.dumps({"segment": "Premium"}),
+			acting_user=BDE,
+		)
+		self.assertEqual(frappe.db.get_value("Lead", self.medium, "tbo_segment"), "Medium")
+		hub.update_lead(self.medium, json.dumps({"segment": "Premium"}), acting_user=EDITOR)
+		self.assertEqual(frappe.db.get_value("Lead", self.medium, "tbo_segment"), "Premium")
+		# a lead without a segment gets its first one from the salesperson, as on creation
+		frappe.set_user("Administrator")
+		blank = make_lead(BDE, "No Segment", company_name=f"Blank {frappe.generate_hash(length=6)}")
+		frappe.set_user(HUB)
+		hub.update_lead(blank, json.dumps({"segment": "Small"}), acting_user=BDE)
+
+	def test_the_status_batch_reads_each_quotations_band(self):
+		configure_quotation_approval(enabled=1)
+		frappe.set_user(BDE)
+		premium = self.save(self.premium, discount=8)["name"]
+		medium = self.save(self.medium, discount=3)["name"]
+		statuses = quotation_adjustment.get_quotations_adjustment_status(json.dumps([premium, medium]))
+		self.assertEqual(statuses[premium]["kinds"][0]["limit"], 10)
+		self.assertEqual(statuses[medium]["kinds"][0]["limit"], 0)

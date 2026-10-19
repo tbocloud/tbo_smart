@@ -10,6 +10,7 @@ from frappe import _
 from frappe.utils import cint, flt
 
 from tbo_smart.api.mobile.utils import get_full_names
+from tbo_smart.lead_pipeline.rate_card import quotation_band, quotation_bands
 from tbo_smart.quotation_control import (
 	COMMISSION_FIELD,
 	covers,
@@ -162,13 +163,20 @@ def collect_statuses(names: list[str]) -> dict:
 		else []
 	)
 
+	bands = dict(
+		zip(
+			docs,
+			quotation_bands(list(docs.values())) if "Discount" in kinds else [None] * len(docs),
+			strict=True,
+		)
+	)
 	statuses = {}
 	for name, doc in docs.items():
 		value = get_list_value(doc)
 		rows = []
 		for kind in kinds:
 			percent = get_percent(doc, kind)
-			limit = effective_limit(settings, level, kind, doc)
+			limit = effective_limit(settings, level, kind, bands[name])
 			newest = latest.get((name, kind))
 			rows.append(
 				{
@@ -256,7 +264,7 @@ def request_adjustment(quotation: str, kind: str, percent: float | str, reason: 
 			_("You have no quotation approval level. Ask HR to give you your designation's role."),
 			frappe.PermissionError,
 		)
-	limit = effective_limit(settings, level, kind, doc)
+	limit = effective_limit(settings, level, kind, quotation_band(doc))
 	if settings.is_within(limit, percent):
 		frappe.throw(
 			_("{0}% is within your limit ({1}); set it on the quotation.").format(

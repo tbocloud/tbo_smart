@@ -1097,6 +1097,26 @@ def delete_lead_quotations(leads: list[str] | tuple) -> None:
 	frappe.db.commit()  # nosemgrep
 
 
+def delete_owner_lead_records(owners: list[str] | tuple) -> None:
+	"""Delete the quotations, smart-lead records and leads of these lead owners, and commit."""
+	leads = frappe.get_all("Lead", filters={"lead_owner": ("in", list(owners))}, pluck="name")
+	delete_lead_quotations(leads)
+	delete_smart_lead_records(owners)
+
+
+def save_lead_quotation(lead: str, item_code: str, rate: float, discount: float = 0, quotation=None) -> dict:
+	"""A lead quotation of one line through the builder (lead_quotation.save_quotation) as the
+	session user, `discount` the additional discount %, valid for 20 days. Returns its payload."""
+	from tbo_smart.api import lead_quotation
+
+	payload = {
+		"valid_till": add_days(nowdate(), 20),
+		"items": [quotation_line(item_code, 1, rate)],
+		"additional_discount_percentage": discount,
+	}
+	return lead_quotation.save_quotation(lead, json.dumps(payload), quotation)
+
+
 def make_selling_price_list(name: str, selling: int = 1) -> str:
 	"""A Price List in the company currency (selling, or buying only with `selling=0`)."""
 	if not frappe.db.exists("Price List", name):

@@ -90,7 +90,7 @@ Quotation = {name, docstatus, tbo_quote_status, transaction_date, valid_till, cu
 | `lead_name` | split into `first_name` / `last_name` when those are not sent |
 | `first_name`, `last_name`, `company_name`, `email_id`, `mobile_no`, `phone`, `whatsapp_no`, `job_title`, `website` | the Lead's own |
 | `source` (a Lead Source), `territory`, `industry` (Industry Type) | links; `get_options` lists them |
-| `segment` | `tbo_segment` |
+| `segment` | `tbo_segment`; moving a lead from one segment to another needs a preset editor (417 otherwise; `lead-pipeline.md` §9.8) |
 | `lead_owner` | another sales user: only within the acting user's reach (anyone for a Sales Manager outside the hierarchy, their team for a team lead, nobody for a salesperson); 403 otherwise |
 | `note` | `create_lead` only: the lead's first note |
 | `next_follow_up` | `YYYY-MM-DD`: a Sales follow-up ToDo for the lead owner that day, unless one is already open for it; an empty value adds nothing (it never closes one) |
