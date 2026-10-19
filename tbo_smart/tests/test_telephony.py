@@ -320,6 +320,9 @@ class TestClickToCall(TelephonyTestCase):
 
 	def test_the_app_sees_who_may_call_and_calls_the_same_way(self):
 		make_user("tel.nobody@tbosmart.test", ["Sales User"])
+		frappe.set_user(HUB)
+		self.assertTrue(hub.get_options(acting_user=BDE)["can_call"])
+		self.assertTrue(hub.get_lead(self.lead, acting_user=BDE)["lead"]["can_call"])
 		self.assertTrue(capabilities_as(BDE).click_to_call)
 		self.assertFalse(capabilities_as("tel.nobody@tbosmart.test").click_to_call)
 		frappe.set_user(BDE)

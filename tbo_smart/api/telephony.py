@@ -98,14 +98,19 @@ def webhook_url() -> str:
 	return frappe.utils.get_url(f"/api/method/{WEBHOOK_METHOD}")
 
 
+def masked(value: str | None) -> dict:
+	"""{set, masked}: enough of a secret to tell which one is saved, never the secret."""
+	if not value:
+		return {"set": False, "masked": None}
+	return {"set": True, "masked": f"…{value[-4:]}" if len(value) >= 16 else "…"}
+
+
 def settings_payload() -> dict:
 	doc = frappe.get_single(SETTINGS)
 	return {
 		"settings": {field: doc.get(field) for field in FIELDS},
 		"agents": [{field: row.get(field) for field in AGENT_FIELDS} for row in doc.telephony_agents],
-		"secrets": {
-			field: {"set": bool(secret(field))} for field in (*SECRET_FIELDS, "telephony_webhook_secret")
-		},
+		"secrets": {field: masked(secret(field)) for field in (*SECRET_FIELDS, "telephony_webhook_secret")},
 		"webhook": {"url": webhook_url(), "header": TOKEN_HEADER, "events": list(myoperator.CALL_EVENTS)},
 		"users": [{"email": row.user, "full_name": row.full_name} for row in get_crm_users(None)],
 	}
@@ -113,7 +118,7 @@ def settings_payload() -> dict:
 
 @frappe.whitelist()
 def get_settings(acting_user: str | None = None) -> dict:
-	"""{settings, agents, secrets: {field: {set}}, webhook: {url, header, events}, users}."""
+	"""{settings, agents, secrets: {field: {set, masked}}, webhook: {url, header, events}, users}."""
 	with acting_as(acting_user):
 		require_manager()
 		return settings_payload()

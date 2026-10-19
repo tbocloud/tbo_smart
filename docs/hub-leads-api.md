@@ -41,7 +41,7 @@ curl -s -X POST https://india.teambackoffice.com/api/method/tbo_smart.api.hub_le
 
 | Method | Verb | Arguments | Returns |
 | --- | --- | --- | --- |
-| `get_options` | GET | `acting_user` | `{stages: [{name, label, type, color}], sources: [], segments: [], owners: [{email, full_name}], territories: [], industries: []}` |
+| `get_options` | GET | `acting_user` | `{stages: [{name, label, type, color}], sources: [], segments: [], owners: [{email, full_name}], territories: [], industries: [], can_call}` |
 | `list_leads` | GET | `search?`, `stage?`, `owner?`, `segment?`, `source?`, `temperature?` (Hot / Warm / Cold), `metric?` with `period?` / `from_date?` / `to_date?` (§2.4), `view` (`all` / `mine` / `call_today` / `follow_up`, default `all`), `start` (0), `page_length` (20, at most 100), `acting_user` | `{rows: [Row], total}` |
 | `get_overview` | GET | `period` (`week` / `month` / `quarter` / `custom`; default `month`, or `custom` when dates are sent), `from_date?`, `to_date?` (custom), `owner?`, `acting_user` | Overview (§2.4) |
 | `get_sales_activity` | GET | `from_date?`, `to_date?` (default this month), `acting_user?` (§2.5) | `{from_date, to_date, currency, people: [Activity]}` |
@@ -260,7 +260,8 @@ options. `tests/test_segment_rate_card.py`: the rate card methods (acting user, 
 
 ## Changelog
 
-- **v1.5 (2026-10-19):** call timeline items carry MyOperator's call fields, `lead.can_call`,
+- **v1.5 (2026-10-19):** call timeline items carry MyOperator's call fields, `lead.can_call`
+  and `get_options`' `can_call`,
   and `get_sales_activity`'s `calls` and `talk_seconds` (`telephony-myoperator.md`).
 
 - **v1.4 (2026-10-19):** `get_lead` returns `proposals` and `proposal` timeline items

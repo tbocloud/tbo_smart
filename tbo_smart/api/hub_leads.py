@@ -189,6 +189,8 @@ def get_options(acting_user: str | None = None) -> dict:
 			"owners": [{"email": row.user, "full_name": row.full_name} for row in get_crm_users(None)],
 			"territories": frappe.get_all("Territory", pluck="name", order_by="name asc"),
 			"industries": frappe.get_all("Industry Type", pluck="name", order_by="name asc"),
+			# MyOperator click-to-call for the acting user (docs/telephony-myoperator.md)
+			"can_call": can_call(),
 		}
 
 

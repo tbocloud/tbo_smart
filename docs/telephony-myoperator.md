@@ -119,7 +119,7 @@ TBO Call is readable by System Managers only, so the transcript and the raw payl
 | `myoperator_webhook` | POST (guest) | the v2 JSON body, header `X-Webhook-Token` | `{ok, ignored? , duplicate?}` |
 | `click_to_call` | POST | `lead`, `number?` (one of the lead's own numbers, default its first: mobile, phone, WhatsApp), `acting_user?` | `{ok, message: "MyOperator is calling your phone…", number, reference_id, request_id}` |
 | `call_recording` | GET | `call` (TBO Call name, from the timeline's `recording`), `acting_user?` | the audio (audio/mpeg, inline) |
-| `get_settings` | GET | `acting_user?` | `{settings, agents, secrets: {field: {set}}, webhook: {url, header, events}, users: [{email, full_name}]}` |
+| `get_settings` | GET | `acting_user?` | `{settings, agents, secrets: {field: {set, masked (the last 4 characters)}}, webhook: {url, header, events}, users: [{email, full_name}]}` |
 | `save_settings` | POST | `values` (fields, secrets, `agents` replaces the mapping), `acting_user?` | as `get_settings` |
 | `regenerate_webhook_secret` | POST | `acting_user?` | `{secret, header, url}`: the only time the secret is shown |
 | `test_connection` | POST | `acting_user?` | `{ok, message, missing: [label], users: [{uuid, name, email, extension, contact}]}`: no call is placed |
@@ -149,7 +149,7 @@ TBO Call is readable by System Managers only, so the transcript and the raw payl
    next_step: {what, channel, due} | null, by: "TBO AI", at} | null}
 ```
 
-`get_lead`'s `lead` gains `can_call`: the acting user may use click-to-call. The transcript is
+`get_lead`'s `lead` and `get_options` gain `can_call`: the acting user may use click-to-call. The transcript is
 never in any answer.
 
 ### 4.2 The Sales scoreboard
