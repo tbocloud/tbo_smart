@@ -116,7 +116,9 @@ Proposal = {name, document_type, document_label, accepted_label, source_document
 Library = {can_edit, modules: [Module + enabled, sort_order], items: [{name, library, title,
   body, group, condition, weeks, amount, solution_types, sort_order, enabled}],
   images: [{name, image, url, title, alt_text, sections, solution_types, modules, enabled}],
-  libraries: [kinds], conditions: [conditions], fits, hosting, scope_groups}
+  libraries: [kinds], conditions: [conditions], fits, hosting, scope_groups,
+  clause_groups (an Agreement Clause's `group`: Change Requests, Intellectual Property,
+  Confidentiality, Termination, General)}
 ```
 
 ### 2.2 Rules
@@ -164,7 +166,7 @@ user with `acting_user`.
 ## Changelog
 
 - **v2.1 (2026-10-19):** `create_document`, `get_document_chain`, `documents` on the lead,
-  `document_types` in the options, the type fields on `Proposal` and `Row`, `start_date`, and
+  `document_types` in the options, `clause_groups` in the library, the type fields on `Proposal` and `Row`, `start_date`, and
   `accept`'s `designation`.
 - **v2.0 (2026-10-19):** the Universal IT Proposal: `get_client_profile`, `read_client_website`,
   `get_requirements_from_lead`, `extract_requirements`, `regenerate_section`,

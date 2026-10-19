@@ -114,6 +114,17 @@ class TestSwitches(ClientDocumentTestCase):
 			[kinds.PROPOSAL],
 		)
 
+	def test_the_clause_library_is_seeded_and_grouped(self):
+		library = hub.get_proposal_library(acting_user=BDE)
+		self.assertIn("Agreement Clause", library["libraries"])
+		self.assertEqual(
+			library["clause_groups"],
+			["Change Requests", "Intellectual Property", "Confidentiality", "Termination", "General"],
+		)
+		groups = {row["group"] for row in library["items"] if row["library"] == "Agreement Clause"}
+		self.assertLessEqual(groups, set(library["clause_groups"]))
+		self.assertTrue(groups)
+
 	def test_a_rest_insert_cant_choose_the_type(self):
 		proposal = make_hub_proposal(self.lead, BDE, TEMPLATE)["name"]
 		frappe.set_user("Administrator")
