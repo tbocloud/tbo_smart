@@ -6,6 +6,9 @@ may read its lead and changes need write on it. Writes are POST. Every method ne
 Settings → Proposals.
 """
 
+import base64
+import binascii
+
 import frappe
 from frappe import _
 from frappe.utils import cint
@@ -14,6 +17,7 @@ from tbo_smart.api import lead_quotation
 from tbo_smart.api.hub_leads import acting_as
 from tbo_smart.api.quotation_adjustment import request_adjustment
 from tbo_smart.lead_pipeline import presets, rate_card
+from tbo_smart.lead_pipeline import proposal_media as media
 from tbo_smart.lead_pipeline import proposals as p
 from tbo_smart.lead_pipeline import quotations as q
 from tbo_smart.quotation_control import QuotationControl
@@ -72,11 +76,10 @@ def payload(doc) -> dict:
 		"template": doc.template,
 		"status": doc.status,
 		"theme": doc.theme,
+		"letter_head": doc.letter_head_override,
+		"letter_head_preview": media.letter_head_context(doc),
 		"valid_till": doc.valid_till,
-		"sections": [
-			{"section_type": row.section_type, "heading": row.heading, "body": row.body}
-			for row in doc.sections
-		],
+		"sections": [section_payload(doc, row) for row in doc.sections],
 		"quotation": quotation,
 		"pricing": rate_card.lead_pricing(doc.lead),
 		"public_url": p.public_url(doc) if doc.status != p.DRAFT else None,
@@ -87,6 +90,19 @@ def payload(doc) -> dict:
 		"tracking": {field: doc.get(field) for field in TRACKING},
 		"can_write": can_write,
 		"send_blockers": p.send_blockers(doc) if can_write else [],
+	}
+
+
+def section_payload(doc, row) -> dict:
+	return {
+		"section_type": row.section_type,
+		"heading": row.heading,
+		"body": row.body,
+		"image": row.image,
+		"image_url": media.image_url(doc, row.image) if row.image else None,
+		"image_alt": row.image_alt,
+		"image_caption": row.image_caption,
+		"image_size": row.image_size or media.IMAGE_SIZES[0],
 	}
 
 
@@ -107,6 +123,9 @@ def get_proposal_options(acting_user: str | None = None) -> dict:
 			),
 			"section_types": list(p.SECTION_TYPES),
 			"themes": list(p.THEMES),
+			"letter_heads": media.letter_heads(),
+			"default_letter_head": media.default_letter_head(),
+			"proposal_letter_head": p.setting("proposal_letter_head"),
 		}
 
 
@@ -138,11 +157,25 @@ def get_proposal(name: str, acting_user: str | None = None) -> dict:
 
 @frappe.whitelist(methods=["POST"])
 def save_proposal(name: str, data: dict | str, acting_user: str | None = None) -> dict:
-	"""A draft's `title`, `theme`, `valid_till` and `sections` (each key optional)."""
+	"""A draft's `title`, `theme`, `letter_head` (blank: the default), `valid_till` and
+	`sections` (each key optional)."""
 	with acting_as(acting_user):
 		doc = get_doc(name, "write")
 		p.save_content(doc, parse(data))
 		return payload(doc)
+
+
+@frappe.whitelist(methods=["POST"])
+def upload_proposal_image(name: str, filename: str, content: str, acting_user: str | None = None) -> dict:
+	"""A private image on a draft (`content` base64, at most 5 MB, PNG / JPEG / WebP). Returns
+	{file, url}: put `file` in a Cover or Image block's `image` and save."""
+	with acting_as(acting_user):
+		doc = get_doc(name, "write")
+		try:
+			data = base64.b64decode(content or "", validate=True)
+		except (binascii.Error, ValueError):
+			frappe.throw(_("Send the image as base64."))
+		return media.upload_image(doc, filename, data)
 
 
 @frappe.whitelist()
@@ -204,6 +237,17 @@ def create_revision(name: str, acting_user: str | None = None) -> dict:
 	with acting_as(acting_user):
 		doc = get_doc(name, "write")
 		return payload(p.create_revision(doc))
+
+
+@frappe.whitelist(methods=["POST"])
+def set_default_letter_head(letter_head: str | None = None, acting_user: str | None = None) -> dict:
+	"""TBO Smart Settings → Proposal letter head (the roles that edit presets and prices; blank:
+	the Letter Head marked default). Returns the options."""
+	with acting_as(acting_user):
+		p.require_proposals()
+		presets.require_preset_editor()
+		media.set_default_letter_head(letter_head or None)
+	return get_proposal_options(acting_user)
 
 
 @frappe.whitelist(methods=["POST"])

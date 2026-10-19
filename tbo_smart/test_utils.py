@@ -1257,9 +1257,15 @@ def disable_proposals() -> None:
 
 
 def delete_lead_proposals(leads: list[str] | tuple) -> None:
-	"""Delete the proposals of these leads with their blocks, and commit."""
+	"""Delete the proposals of these leads with their blocks and image files, and commit."""
 	names = frappe.get_all("TBO Proposal", filters={"lead": ("in", list(leads) or [""])}, pluck="name")
 	if names:
+		for file in frappe.get_all(
+			"File",
+			filters={"attached_to_doctype": "TBO Proposal", "attached_to_name": ("in", names)},
+			pluck="name",
+		):
+			frappe.delete_doc("File", file, ignore_permissions=True, force=True)
 		frappe.db.delete("TBO Proposal Section", {"parenttype": "TBO Proposal", "parent": ("in", names)})
 		frappe.db.delete("TBO Proposal", {"name": ("in", names)})
 	frappe.db.commit()  # nosemgrep
@@ -1319,6 +1325,60 @@ def call_as_guest(fn, *args, **kwargs):
 		return fn(*args, **kwargs)
 	finally:
 		frappe.set_user(user)
+
+
+def make_image_bytes(kind: str = "PNG", size: tuple = (4, 4)) -> bytes:
+	"""A real image of `kind` (PNG, JPEG, WEBP, GIF) for upload tests."""
+	from PIL import Image
+
+	buffer = io.BytesIO()
+	Image.new("RGB", size, (58, 116, 141)).save(buffer, format=kind)
+	return buffer.getvalue()
+
+
+def upload_hub_image(name: str, acting_user: str, content: bytes, filename: str = "photo.png") -> dict:
+	"""hub_proposals.upload_proposal_image with `content` base64-encoded; returns {file, url}."""
+	from tbo_smart.api import hub_proposals
+
+	return hub_proposals.upload_proposal_image(
+		name, filename, base64.b64encode(content).decode(), acting_user=acting_user
+	)
+
+
+def make_private_file(content: bytes, filename: str = "private.png", **attached) -> str:
+	"""A private File (optionally attached via attached_to_doctype / attached_to_name)."""
+	return (
+		frappe.get_doc(
+			{"doctype": "File", "file_name": filename, "is_private": 1, "content": content, **attached}
+		)
+		.insert(ignore_permissions=True)
+		.name
+	)
+
+
+def make_letter_head(name: str, header_html: str = "", footer_html: str = "", **values) -> str:
+	"""A Letter Head (HTML header and footer unless `values` say otherwise), replacing one of
+	the same name. With is_default=1 it becomes the site's default."""
+	if frappe.db.exists("Letter Head", name):
+		frappe.delete_doc("Letter Head", name, force=True)
+	values = {
+		"source": "HTML",
+		"content": header_html,
+		"footer_source": "HTML",
+		"footer": footer_html,
+		**values,
+	}
+	doc = frappe.get_doc({"doctype": "Letter Head", "letter_head_name": name, **values})
+	doc.insert(ignore_permissions=True)
+	# Letter Head's before_insert always sets source to Image; put the intended one back
+	doc.db_set({"source": values["source"], "content": values["content"]})
+	return doc.name
+
+
+def clear_default_letter_heads() -> None:
+	"""No Letter Head is the default, and TBO Smart Settings → Proposal letter head is blank."""
+	frappe.db.set_value("Letter Head", {"is_default": 1}, "is_default", 0)
+	set_smart_lead_settings(proposal_letter_head=None)
 
 
 def set_proposal_values(name: str, **values) -> None:

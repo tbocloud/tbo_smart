@@ -6,6 +6,7 @@ import frappe
 from frappe import _
 from frappe.rate_limiter import rate_limit
 
+from tbo_smart.lead_pipeline import proposal_media as media
 from tbo_smart.lead_pipeline import proposals
 
 
@@ -53,3 +54,20 @@ def download_pdf(token: str, preview: str | None = None) -> None:
 	frappe.local.response.filename = f"{doc.name}.pdf"
 	frappe.local.response.filecontent = proposals.render_pdf(doc)
 	frappe.local.response.type = "pdf"
+
+
+@frappe.whitelist(allow_guest=True)  # the token is the key - nosemgrep
+@rate_limit(limit=600, seconds=60 * 60)
+def image(token: str, file: str) -> None:
+	"""An image the proposal shows (a block's, or its letter head's private one), never any other
+	file: the same "not found" otherwise. Drafts' too, as the preview shows them."""
+	doc = get_public(token, preview=True)
+	found = media.servable_file(doc, file)
+	mime = media.file_mime(found) if found else None
+	if not mime:
+		frappe.throw(_("This image isn't available."), frappe.DoesNotExistError)
+	frappe.local.response.filename = found.file_name
+	frappe.local.response.filecontent = found.get_content()
+	frappe.local.response.content_type = mime
+	frappe.local.response.display_content_as = "inline"
+	frappe.local.response.type = "download"

@@ -115,6 +115,7 @@
   "proposal_validity_days",
   "column_break_proposals",
   "enable_proposal_ai",
+  "proposal_letter_head",
   "checkin_section",
   "enforce_checkin_radius",
   "checkin_locations",
@@ -841,6 +842,14 @@
    "description": "The AI drafts a new proposal's blocks from the lead, its notes and its meetings' minutes. Uses the AI providers above."
   },
   {
+   "fieldname": "proposal_letter_head",
+   "fieldtype": "Link",
+   "label": "Proposal letter head",
+   "options": "Letter Head",
+   "depends_on": "eval:doc.enable_proposals",
+   "description": "The header and footer on every proposal's page and PDF, unless a proposal picks another. Blank: the Letter Head marked default; with no Letter Head at all, the company's logo."
+  },
+  {
    "fieldname": "checkin_section",
    "fieldtype": "Section Break",
    "label": "Check-in location"
@@ -896,7 +905,7 @@
  "index_web_pages_for_search": 0,
  "issingle": 1,
  "links": [],
- "modified": "2026-10-19 14:00:00.000000",
+ "modified": "2026-10-19 18:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Smart Settings",

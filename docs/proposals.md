@@ -1,4 +1,4 @@
-# Proposals to a lead (living spec, v1.0)
+# Proposals to a lead (living spec, v1.1)
 
 **Status:** built 2026-10-19 (Phases 3 and 4 of the sales flow the owner approved on 2026-10-16).
 A salesperson builds a proposal for a lead in the TBO Support hub, prices it with the lead's
@@ -7,7 +7,8 @@ This file is the living spec: every change to the feature updates it in the same
 The hub's contract is `hub-proposals-api.md`; the hub's own spec is tbocloud/helpdesk
 `docs/proposals.md`.
 
-- **Code:** `lead_pipeline/proposals.py` (the logic), `lead_pipeline/proposal_templates.py` (the
+- **Code:** `lead_pipeline/proposals.py` (the logic), `lead_pipeline/proposal_media.py` (images
+  and the letter head), `lead_pipeline/proposal_templates.py` (the
   seeded templates), `api/hub_proposals.py` (the hub), `api/proposal_page.py` and
   `www/proposal.py` / `www/proposal.html` (the client's page).
 - **Related specs:** `lead-pipeline.md` (stages, quotations §9, the segment rate card §9.8, the
@@ -20,6 +21,7 @@ The hub's contract is `hub-proposals-api.md`; the hub's own spec is tbocloud/hel
 | `enable_proposals` | off | The whole feature. Needs Quotations on the lead (and so the lead pipeline). Off: the hub hides it, the API refuses, every link shows "not found". |
 | `enable_proposal_ai` | off | The AI draft of a new proposal. Also needs an AI provider (`smart-leads.md` §2). |
 | `proposal_validity_days` | 30 | A new proposal's valid till. |
+| `proposal_letter_head` | blank | The Letter Head every proposal uses unless it picks another (§2.2). Blank: the Letter Head marked default. Also set from the hub (`set_default_letter_head`, preset editors). |
 
 ## 2. The proposal (TBO Proposal, `PROP-YYYY-#####`, track changes)
 
@@ -27,9 +29,10 @@ The hub's contract is `hub-proposals-api.md`; the hub's own spec is tbocloud/hel
 | --- | --- |
 | `title`, `lead` (set once), `lead_name`, `template` | |
 | `status` | Draft, Sent, Viewed, Accepted, Declined, Expired (§5) |
-| `sections` | Ordered blocks (**TBO Proposal Section**): `section_type` (Cover, About us, Challenge, Solution, Scope, Timeline, Pricing, Terms, Custom), `heading`, `body` (plain text: a blank line starts a paragraph, lines starting "- " are a list). At most 30. |
+| `sections` | Ordered blocks (**TBO Proposal Section**): `section_type` (Cover, About us, Challenge, Solution, Scope, Timeline, Pricing, Terms, Image, Custom), `heading`, `body` (plain text: a blank line starts a paragraph, lines starting "- " are a list), and on a Cover or Image block `image`, `image_alt`, `image_caption`, `image_size` (§2.1). At most 30. |
 | `quotation` | The lead's Quotation that prices it (§4) |
 | `theme` | TBO Teal or Graphite: the page's accent, both within the TBO brand |
+| `letter_head_override` | The proposal's own Letter Head; blank: the default (§2.2). Not called `letter_head`: Frappe fills a field of that name from the user's default letter head, which would pin every new proposal to it. |
 | `valid_till` | After it the client can't answer, and the nightly job marks it Expired |
 | `proposal_family`, `revision_no`, `is_latest` | Revisions (§4.3) |
 | `public_token` | 32 random hex characters, new for every revision: the link's only key |
@@ -45,6 +48,50 @@ changed through a revision. The controller enforces it for every path (REST, `se
 through this module's workflow (a new proposal starts as a fresh draft whatever a caller sends),
 a sent proposal's content not at all, and `quotation` must be a quotation of the proposal's own
 lead (the client's page shows it).
+
+### 2.1 Images
+
+- An **Image** block shows one picture with its caption, at full or half width (`image_size`
+  Full / Half; half is full width on a phone). A **Cover** block can carry a cover image the
+  same way. Other blocks carry none (an image sent with them is dropped).
+- `image` is a **File** (Link): a **private** file attached to this proposal. Anything else
+  (another proposal's image, any other file) is refused (403). `image_alt` is required with an
+  image (417), up to 140 characters; `image_caption` up to 280.
+- **Upload** (`hub_proposals.upload_proposal_image`, POST, write on the lead, Draft only): at
+  most **5 MB**; **PNG, JPEG or WebP**, told by the bytes (Pillow), never by the name, so the
+  file is named with the true extension. **SVG is refused** (it can carry script), as is
+  anything else. The builder then puts the returned `file` in a block and saves.
+- An Image block without an image shows nothing, like an empty text block.
+- **Served to guests** by `proposal_page.image(token, file)` (§5): only a file one of this
+  proposal's blocks shows (and attached to it), or a private image of its letter head; the same
+  "not found" for anything else, including another proposal's image and any other private file.
+  Private files are never made public. The **PDF embeds** the images as data URIs, so
+  wkhtmltopdf fetches nothing.
+- **Revisions** copy the images: each image gets its own File on the revision (the same file on
+  disk), so a revision never depends on its predecessor's attachments.
+- **Sending** deletes the proposal's uploads that no block shows (its content is fixed from
+  then on).
+
+### 2.2 The letter head
+
+The page, the PDF and the hub's preview carry ERPNext's own **Letter Head** (header and footer,
+image or HTML; no store of our own). Every proposal has one:
+
+1. the proposal's own pick (`letter_head_override`, the builder's picker), else
+2. TBO Smart Settings → **Proposal letter head**, else
+3. the Letter Head marked **default** (and not disabled).
+4. Only a site with **no** Letter Head at all falls back to the company's logo header; the hub
+   warns editors then.
+
+A disabled pick falls back to the next one; an unknown pick is refused. **HTML** headers and
+footers are run through `frappe.utils.html_utils.sanitize_html` before a guest sees them
+(script, event handlers and the like removed); Jinja in them is not rendered. **Image** ones
+show the image: a public `/files/` image by its URL, a private one through the token-gated
+`proposal_page.image`, and in the PDF as a data URI. A private image inside an HTML header is
+not rewritten: use the Image source for a private image. In the **PDF** the header sits at the
+top and the footer at the bottom of **every page** (Frappe's `get_pdf` lifts `#header-html` /
+`#footer-html` into wkhtmltopdf's header and footer); the page shows them above and below the
+proposal.
 
 ## 3. Templates (TBO Proposal Template)
 
@@ -105,9 +152,10 @@ next `revision_no` in its family, a fresh validity and a **new link**; it become
 `website_route_rules` → `www/proposal.py`. No login; `no_cache`; `noindex`.
 
 - **Shown** (line descriptions as plain text, left out when they only repeat the item's name):
-  the company's name and logo, "Proposal for <client company or name>", the title, valid
-  till, version, the blocks (empty ones left out), the pricing block's quotation lines, discount,
-  taxes, total, total in words and payment schedule. **Nothing else:** no emails, owners, notes,
+  the letter head (§2.2; without one the company's name and logo), "Proposal for <client
+  company or name>", the title, valid till, version, the blocks (empty ones left out) with
+  their images (§2.1), the pricing block's quotation lines, discount, taxes, total, total in
+  words and payment schedule. **Nothing else:** no emails, owners, notes,
   lead or quotation names, internal statuses. Everything is escaped.
 - **Not found** (the same 404 every time): a malformed or unknown token, a Draft without preview,
   Proposals switched off.
@@ -132,9 +180,12 @@ next `revision_no` in its family, a fresh validity and a **new link**; it become
   refused. Only the latest revision, still Sent or Viewed and within its validity, can be
   answered. The status is read under a row lock, so two answers at once can't both win.
 - These moves run as a system action (the client is Guest), after the token was checked.
-- **Download PDF** (`download_pdf`): the same page, rendered by wkhtmltopdf, with its status
-  (accepted, declined, superseded, price gone, expired) but not the decision panel.
-- **Rate limits** per IP: views 60, accept and decline 10, PDF 30 an hour.
+- **Download PDF** (`download_pdf`): the same page, rendered by wkhtmltopdf on A4, with its
+  status (accepted, declined, superseded, price gone, expired) but not the decision panel, the
+  letter head on every page and the images embedded.
+- **Images** (`image(token, file)`, GET): §2.1; inline, with the image's own type (PNG, JPEG,
+  WebP, or a letter head's GIF; never SVG). Drafts' images too, as the preview shows them.
+- **Rate limits** per IP: views 60, accept and decline 10, PDF 30, images 600 an hour.
 - Responsive (one column on a phone), print-friendly (the decision panel and links hidden), dark
   mode, keyboard reachable with a visible focus ring, 44px targets.
 
@@ -172,7 +223,10 @@ The hub's lead timeline shows each proposal (`kind: "proposal"`, "<title>: <stat
    **Proposals** on; optionally **AI proposal drafts** (with an AI provider).
 4. Review the four templates (hub Settings → Proposals, or the desk), add each template's default
    packages, and set the segment rate card (`lead-pipeline.md` §9.8).
-5. The company's logo on the Company (a public file) for the page's header.
+5. A **Letter Head** (Settings → Letter Head on the ERP site): the header (an image of the TBO
+   letter head, or HTML) and the footer (address, website); mark it **default**, or pick it in
+   TBO Smart Settings → Proposal letter head (or hub Settings → Rates and proposals). Without
+   any Letter Head the page falls back to the company's logo (a public file on the Company).
 
 ## 9. Tests
 
@@ -186,9 +240,20 @@ repricing revises the sent quotation, the old one can't be sent); the page: a dr
 shows nothing, preview, no private data, views counted with the first marking it Viewed,
 accept once (quotation Accepted, lead Closed – Won, deal made; repeated accept unchanged, decline
 refused), decline once (quotation Rejected, lead open), expired and superseded versions can't be
-answered, the nightly expiry, the PDF.
+answered, the nightly expiry, the PDF. Images (`TestImages`): upload size, type (SVG, GIF and
+junk refused, the extension from the bytes) and permission (write on the lead, Draft only);
+blocks keep only their own images with alt text; the guest endpoint serves only this proposal's
+images (not another proposal's, another revision's, a loose private file or an unknown one);
+images on the page, embedded in the PDF, copied to a revision, and unused uploads deleted on
+send. The letter head (`TestLetterHead`): the fallback order, the proposal's override and back
+to the default, a disabled pick, the logo with none at all, only editors set the default,
+sanitised HTML on the page and in the PDF's header and footer, and a private letter head image
+served through the token only while the proposal uses it.
 
 ## Changelog
 
+- **v1.1 (2026-10-19):** images (Image block, cover image, private uploads served by token,
+  embedded in the PDF, copied to revisions) and the letter head (ERPNext's Letter Head, the
+  setting, the per-proposal override, sanitised, on every PDF page).
 - **v1.0 (2026-10-19):** proposals, templates, pricing through the lead's quotation, AI draft,
   revisions, the client's page with views, accept and decline, sending.
