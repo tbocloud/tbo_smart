@@ -1372,6 +1372,18 @@ def make_accepted_proposal(lead: str, acting_user: str, template: str, item_code
 	return name
 
 
+def make_accepted_quotation_document(lead: str, acting_user: str, template: str, item_code: str) -> dict:
+	"""An accepted proposal (`template`, one line of `item_code`), its Quotation document made, sent
+	(email mocked) and accepted by the client; returns the quotation document's payload."""
+	from tbo_smart.api import hub_proposals
+
+	proposal = make_accepted_proposal(lead, acting_user, template, item_code)
+	quote = make_hub_document(proposal, "Quotation", acting_user)["proposal"]["name"]
+	send_hub_proposal(quote, acting_user)
+	accept_as_client(quote)
+	return hub_proposals.get_proposal(quote, acting_user=acting_user)
+
+
 def make_hub_document(source: str, document_type: str, acting_user: str) -> dict:
 	"""The next client document from `source` through hub_proposals.create_document; returns
 	{proposal, warnings}."""

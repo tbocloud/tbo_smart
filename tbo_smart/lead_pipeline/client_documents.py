@@ -79,6 +79,8 @@ def create_document(source_name: str, document_type: str) -> tuple:
 		)
 	if source.status != p.ACCEPTED or not cint(source.is_latest):
 		frappe.throw(_("Make it once the client has accepted {0}.").format(source.title))
+	# two requests at once wait here in turn, and the second sees the first's document
+	frappe.db.get_value(p.DOCTYPE, source.name, "name", for_update=True)
 	existing = in_play(source.lead, spec.name)
 	if existing:
 		frappe.throw(
@@ -133,11 +135,13 @@ def switch_off_unchosen(doc) -> None:
 
 
 def in_play(lead: str, document_type: str) -> str | None:
-	"""The lead's latest document of this type that is still a draft, with the client or accepted."""
+	"""The lead's latest document of this type that is still a draft, with the client or accepted
+	(a locking read: it sees what another request committed while this one waited)."""
 	return frappe.db.get_value(
 		p.DOCTYPE,
 		{"lead": lead, "document_type": document_type, "is_latest": 1, "status": ("in", IN_PLAY)},
 		"name",
+		for_update=True,
 	)
 
 

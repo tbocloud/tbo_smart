@@ -600,7 +600,8 @@ def save_content(doc, data: dict) -> None:
 		if valid_till and getdate(valid_till) < getdate(today()):
 			frappe.throw(_("Valid till can't be in the past."))
 		doc.valid_till = valid_till
-	if "start_date" in data:
+	redated = "start_date" in data and str(data.get("start_date") or "") != str(doc.start_date or "")
+	if redated:
 		doc.start_date = data.get("start_date") or None
 	if "sections" in data:
 		if not isinstance(data["sections"], list):
@@ -609,7 +610,23 @@ def save_content(doc, data: dict) -> None:
 		rows = [section_row(row, allowed=allowed) for row in data["sections"]]
 		mark_edits(doc.sections, rows)
 		doc.set("sections", rows)
+	if redated:
+		# after the sections, so the hub's copy of them doesn't undo the new dates
+		redate(doc)
 	doc.save()
+
+
+DATED_SECTIONS = ("Purpose", "Project Timeline")
+
+
+def redate(doc) -> None:
+	"""A new start date flows into the sections that show it (the agreement's purpose and dated
+	timeline), unless someone edited them by hand."""
+	for row in doc.sections:
+		if row.section_type in DATED_SECTIONS and not cint(row.edited):
+			text = kinds.build_section(doc, row.section_type)
+			if text is not None:
+				row.body = text or None
 
 
 def mark_edits(before, rows: list[dict]) -> None:

@@ -19,6 +19,7 @@ from tbo_smart.test_utils import (
 	enable_client_documents,
 	enable_proposals,
 	make_accepted_proposal,
+	make_accepted_quotation_document,
 	make_gst_template,
 	make_hub_document,
 	make_hub_proposal,
@@ -86,16 +87,6 @@ class ClientDocumentTestCase(FrappeTestCase):
 	def tearDown(self):
 		frappe.set_user("Administrator")
 
-	def accepted_quotation_document(self) -> dict:
-		proposal = make_accepted_proposal(self.lead, BDE, TEMPLATE, SERVICE)
-		quote = make_hub_document(proposal, kinds.QUOTATION, BDE)["proposal"]
-		send_hub_proposal(quote["name"], BDE)
-		accept_as_client(quote["name"])
-		return hub.get_proposal(quote["name"], acting_user=BDE)
-
-	def chain(self) -> dict:
-		return hub.get_document_chain(self.lead, acting_user=BDE)
-
 
 class TestSwitches(ClientDocumentTestCase):
 	def test_each_type_is_off_by_default(self):
@@ -104,7 +95,7 @@ class TestSwitches(ClientDocumentTestCase):
 		self.assertEqual([row["name"] for row in options["document_types"]], [kinds.PROPOSAL])
 		proposal = make_accepted_proposal(self.lead, BDE, TEMPLATE, SERVICE)
 		self.assertRaises(frappe.ValidationError, make_hub_document, proposal, kinds.QUOTATION, BDE)
-		chain = self.chain()
+		chain = hub.get_document_chain(self.lead, acting_user=BDE)
 		self.assertEqual([step["document_type"] for step in chain["steps"]], [kinds.PROPOSAL])
 		self.assertIsNone(chain["next"])
 		# the agreement's switch needs the quotation's
@@ -144,11 +135,11 @@ class TestSwitches(ClientDocumentTestCase):
 
 class TestQuotation(ClientDocumentTestCase):
 	def test_made_from_the_accepted_proposal(self):
-		chain = self.chain()
+		chain = hub.get_document_chain(self.lead, acting_user=BDE)
 		self.assertEqual(chain["next"]["action"], "create_proposal")
 		proposal = make_accepted_proposal(self.lead, BDE, TEMPLATE, SERVICE)
 		accepted = frappe.db.get_value(p.DOCTYPE, proposal, "quotation")
-		chain = self.chain()
+		chain = hub.get_document_chain(self.lead, acting_user=BDE)
 		self.assertEqual(
 			(chain["next"]["action"], chain["next"]["document_type"], chain["next"]["source"]),
 			("create", kinds.QUOTATION, proposal),
@@ -179,15 +170,17 @@ class TestQuotation(ClientDocumentTestCase):
 		self.assertIn("Advance on signing", bodies["Payment Terms"])
 		# one quotation in play at a time
 		self.assertRaises(frappe.DuplicateEntryError, make_hub_document, proposal, kinds.QUOTATION, BDE)
-		self.assertEqual(self.chain()["next"]["name"], quote["name"])
+		self.assertEqual(hub.get_document_chain(self.lead, acting_user=BDE)["next"]["name"], quote["name"])
 
 		send_hub_proposal(quote["name"], BDE)
 		self.assertEqual(frappe.db.get_value("Quotation", revision.name, "tbo_quote_status"), q.SENT)
-		self.assertEqual(self.chain()["steps"][1]["quotation_status"], q.SENT)
+		self.assertEqual(
+			hub.get_document_chain(self.lead, acting_user=BDE)["steps"][1]["quotation_status"], q.SENT
+		)
 		accept_as_client(quote["name"])
 		self.assertEqual(frappe.db.get_value(p.DOCTYPE, quote["name"], "status"), p.ACCEPTED)
 		self.assertEqual(frappe.db.get_value("Quotation", revision.name, "tbo_quote_status"), q.ACCEPTED)
-		chain = self.chain()
+		chain = hub.get_document_chain(self.lead, acting_user=BDE)
 		self.assertEqual([step["done"] for step in chain["steps"]], [True, True, False])
 		self.assertEqual(chain["next"]["document_type"], kinds.WORK_ORDER)
 
@@ -232,7 +225,7 @@ class TestQuotation(ClientDocumentTestCase):
 
 class TestWorkOrder(ClientDocumentTestCase):
 	def test_the_agreement_from_the_accepted_quotation(self):
-		quote = self.accepted_quotation_document()
+		quote = make_accepted_quotation_document(self.lead, BDE, TEMPLATE, SERVICE)
 		order = make_hub_document(quote["name"], kinds.WORK_ORDER, BDE)["proposal"]
 		self.assertTrue(order["name"].startswith("WO-"))
 		self.assertEqual(order["document_label"], "Project Agreement")
@@ -256,13 +249,22 @@ class TestWorkOrder(ClientDocumentTestCase):
 		self.assertRaises(frappe.ValidationError, hub.price_from_modules, order["name"], acting_user=BDE)
 		self.assertTrue(any("start date" in reason for reason in order["send_blockers"]))
 
+		# a new start date dates the timeline and the purpose, with the hub's copy of the sections
 		start = add_days(nowdate(), 7)
-		order = hub.save_proposal(order["name"], json.dumps({"start_date": start}), acting_user=BDE)
-		order = hub.regenerate_section(order["name"], 6, acting_user=BDE)["proposal"]
+		data = {"start_date": start, "sections": order["sections"]}
+		order = hub.save_proposal(order["name"], json.dumps(data), acting_user=BDE)
 		timeline = order["sections"][6]["body"]
 		self.assertIn("From | To", timeline)
 		self.assertIn(frappe.utils.formatdate(getdate(start), "d MMM yyyy"), timeline)
+		self.assertIn("The project starts on", order["sections"][2]["body"])
 		self.assertEqual(order["send_blockers"], [])
+		# a purpose edited by hand is kept when the date moves again
+		order["sections"][2]["body"] = "Our own purpose."
+		order = hub.save_proposal(order["name"], json.dumps({"sections": order["sections"]}), acting_user=BDE)
+		later = add_days(nowdate(), 14)
+		order = hub.save_proposal(order["name"], json.dumps({"start_date": later}), acting_user=BDE)
+		self.assertEqual(order["sections"][2]["body"], "Our own purpose.")
+		self.assertIn(frappe.utils.formatdate(getdate(later), "d MMM yyyy"), order["sections"][6]["body"])
 
 		send_hub_proposal(order["name"], BDE)
 		doc = frappe.get_doc(p.DOCTYPE, order["name"])
@@ -277,7 +279,7 @@ class TestWorkOrder(ClientDocumentTestCase):
 		self.assertEqual((doc.status, doc.decided_by_designation), (p.ACCEPTED, "Director"))
 		self.assertEqual(frappe.db.get_value("Quotation", doc.quotation, "tbo_quote_status"), q.ACCEPTED)
 		self.assertIn("Signed", p.render_html(doc))
-		chain = self.chain()
+		chain = hub.get_document_chain(self.lead, acting_user=BDE)
 		self.assertEqual(chain["steps"][2]["status_label"], "Signed")
 		self.assertTrue(all(step["done"] for step in chain["steps"]))
 		self.assertIsNone(chain["next"])
@@ -296,7 +298,7 @@ class TestWorkOrder(ClientDocumentTestCase):
 		self.assertIn("source code of the custom work", bodies["Intellectual Property"])
 
 	def test_a_revision_stays_an_agreement(self):
-		quote = self.accepted_quotation_document()
+		quote = make_accepted_quotation_document(self.lead, BDE, TEMPLATE, SERVICE)
 		order = make_hub_document(quote["name"], kinds.WORK_ORDER, BDE)["proposal"]
 		order = hub.save_proposal(order["name"], json.dumps({"start_date": nowdate()}), acting_user=BDE)
 		send_hub_proposal(order["name"], BDE)

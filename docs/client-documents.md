@@ -46,7 +46,8 @@ naming, so a REST insert can't name itself `WO-…`) and refuses changes to them
 Refused (417) unless: the type and every type before it are switched on; `source` is of the type
 it follows, **Accepted** and the latest revision; the person may write its lead. Refused (409)
 while the lead already has one of that type in play (Draft, Sent, Viewed or Accepted, the latest
-revision): open it or revise it.
+revision): open it or revise it. The source's row is locked first, so two requests at once
+can't both make one.
 
 It copies from the source: the client profile, the requirements, the scoping answers, the
 modules (the proposal's own lines and prices), the template, solution type, letter head and price
@@ -116,7 +117,8 @@ Formally confirms the business; made from the accepted quotation (*Create projec
   own (hub Settings → Rates and proposals, or the desk). **The seeded text is a starting point
   for TBO's lawyer to review.**
 - **Start date** (`start_date`): set by presales before sending ("Set the project's start date"
-  blocks Send otherwise); *Regenerate* on the timeline dates it.
+  blocks Send otherwise). A new start date rebuilds the Purpose and the Project Timeline with
+  their dates when they weren't edited by hand (an edited one is kept; *Regenerate* rebuilds it).
 - **Price:** never changed here (`require_priced`: "Change it through a new quotation."); Send
   is blocked unless its quotation is still Accepted.
 - **Signing:** the page asks for name, **designation** and email ("Sign the agreement"); the
@@ -170,7 +172,7 @@ taxes, the sections, one in play at a time, sent with its quotation, accepted �
 Accepted, the chain and its next action at each step); only from an accepted proposal; an unpriced
 proposal priced from its modules with the defaults; a discount above the limit blocks Send; the
 agreement (sections, Parties, Purpose with the references, clauses, price read only, the start
-date blocks Send and dates the timeline, the page asks for the designation, the PDF, signing
+date blocks Send and dates the timeline and the purpose (a hand-edited purpose kept), the page asks for the designation, the PDF, signing
 needs the designation and leaves the quotation Accepted, the chain done, `get_lead` carries it);
 the source-code clause follows the scoping; a revision stays an agreement.
 
