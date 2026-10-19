@@ -69,6 +69,16 @@ TRACKING_FIELDS = (
 	"decided_by_email",
 	"decline_reason",
 )
+# a new proposal's workflow fields, whatever a caller sent (Proposal.check_locked_fields)
+NEW_PROPOSAL = {
+	"status": DRAFT,
+	"quotation": None,
+	"proposal_family": None,
+	"revision_no": 0,
+	"is_latest": 1,
+	"view_count": 0,
+	**{field: None for field in TRACKING_FIELDS if field != "public_token"},
+}
 # set only by this module's workflow (Proposal.check_locked_fields)
 LOCKED_FIELDS = (
 	"status",
@@ -144,8 +154,14 @@ class Proposal:
 	def check_locked_fields(self):
 		"""Status, link, revision and tracking fields change only through this module
 		(`flags.proposal_workflow`), and a sent proposal's content only through a revision."""
-		before = None if self.is_new() else self.get_doc_before_save()
-		if not before or self.flags.proposal_workflow:
+		if self.flags.proposal_workflow:
+			return
+		if self.is_new():
+			# a new proposal starts as a fresh draft whatever was sent (its link is set by before_insert)
+			self.update(NEW_PROPOSAL)
+			return
+		before = self.get_doc_before_save()
+		if not before:
 			return
 		if any(self.get(field) != before.get(field) for field in LOCKED_FIELDS):
 			frappe.throw(_("Those fields are set by the proposal's workflow."), frappe.PermissionError)
@@ -522,6 +538,7 @@ def create_revision(doc):
 			"view_count": 0,
 		}
 	)
+	revision.flags.proposal_workflow = True
 	revision.insert()
 	for row in members:
 		if row.name != revision.name:

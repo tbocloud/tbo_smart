@@ -151,6 +151,24 @@ class TestBuilding(ProposalTestCase):
 		doc.title = "Changed after sending"
 		self.assertRaises(frappe.ValidationError, doc.save)
 
+	def test_a_new_proposal_starts_as_a_fresh_draft(self):
+		frappe.set_user(BDE)
+		doc = frappe.get_doc(
+			{
+				"doctype": p.DOCTYPE,
+				"lead": self.lead,
+				"title": "Sneaky",
+				"status": p.ACCEPTED,
+				"view_count": 7,
+				"decided_by_name": "Nobody",
+				"revision_no": 4,
+			}
+		).insert()
+		self.assertEqual(
+			(doc.status, doc.view_count, doc.decided_by_name, doc.revision_no), (p.DRAFT, 0, None, 0)
+		)
+		self.assertRegex(doc.public_token, p.TOKEN)
+
 	def test_editing_the_blocks(self):
 		proposal = make_hub_proposal(self.lead, BDE, TEMPLATE)
 		sections = [
