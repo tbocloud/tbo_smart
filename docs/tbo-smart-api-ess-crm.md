@@ -1,4 +1,4 @@
-# TBO Smart API: ESS, CRM and manager (tboindia side), v1.10
+# TBO Smart API: ESS, CRM and manager (tboindia side), v1.11
 
 This is the contract for the TBO Smart mobile app's **tboindia.tbocloud.in** half: HR
 self-service (HRMS), CRM (ERPNext's Lead, Opportunity and Prospect since v1.9; Frappe CRM
@@ -10,7 +10,8 @@ own contract in `tbocloud/helpdesk`.
   Frappe returns (`{"message": ...}`).
 - **Status:** v1.10, 2026-10-19. v1.9 kept every method and JSON shape; only what stands behind
   them changed (`docs/erpnext-lead-cutover.md`, changelog). v1.10 adds the leads overview and
-  AI runs leads (§6.5) and the lead list's overview filters. Any change gets a version note in the changelog at the end of
+  AI runs leads (§6.5) and the lead list's overview filters; v1.11 adds calling through MyOperator
+  (§6.6). Any change gets a version note in the changelog at the end of
   this file.
 
 ## 1. Conventions
@@ -430,6 +431,7 @@ ERP takes effect on the next request.
 | `crm_scope` | The widest sales visibility, the rule in `tbo_smart.sales.permissions`: `all` for System Manager; with **TBO Smart Settings → Sales hierarchy** on and the user in the **TBO Sales Hierarchy**, `team` if anyone is below them, else `own` (this limits even a Sales Manager); a Sales Manager outside the hierarchy `all`; everyone else `own`. `null` without `crm`. | `crm.get_leads`, `get_deals`, `get_my_follow_ups`, `get_sales_insights` |
 | `crm_scopes` | The `scope` values the user may pass, narrowest first: `own` → `["mine"]`; `team` → `["mine", "team"]`; `all` → `["mine", "team", "all"]`, without `team` when they have no sales team. Show a switcher only when there is more than one. | same |
 | `sales_insights` | `crm_manager`. | `crm.get_sales_insights`, `manager.get_sales_snapshot` |
+| `click_to_call` | `crm`, **TBO Smart Settings → Telephony** on, and the user mapped to a MyOperator user (ID or mobile) there ([telephony-myoperator.md](telephony-myoperator.md)). | `leads.click_to_call` |
 | `approve_quotations` | A quotation approval level that requests can wait at: the user's highest level role ranks above the lowest level (BDM, Sales & Marketing Head, Director, CEO with the default levels; never a BDE or someone with no level). The same rule as `is_approver` in `get_adjustment_limits` ([quotation-discount-control.md](quotation-discount-control.md) §2). | `quotation.get_approvals(tab="waiting")`, `quotation.decide` |
 
 ### 4.1 CRM scope
@@ -793,6 +795,24 @@ Fixtures: `leads.get_overview.json`, `leads.get_lead_ai.json`.
 - Health is rules, not AI (Healthy / Watch / At risk with its reasons); show it with its label,
   not by colour alone.
 
+### 6.6 Calling through MyOperator (v1.11): `tbo_smart.api.mobile.leads`
+
+Behind `crm`; the spec is [telephony-myoperator.md](telephony-myoperator.md).
+
+| Method | Verb | Params | Returns |
+| --- | --- | --- | --- |
+| `click_to_call` | POST | `name` (the lead), `number?` (one of the lead's own numbers; default its mobile) | `{ok, message: "MyOperator is calling your phone…", number, reference_id, request_id}`. MyOperator rings my phone, then the lead |
+| `call_recording` | GET | `call` (an activity's `recording`) | the recording (audio/mpeg), only when I may read the lead |
+
+- Show **Call via MyOperator** only with the `click_to_call` capability, and keep the normal
+  `tel:` call as the fallback (and when it fails: the message says why).
+- `crm.get_lead`'s `activities` of kind `call` that came through MyOperator add `call`,
+  `duration` (talk seconds), `direction` (`incoming` / `outgoing`), `status` (`answered` /
+  `missed` / `voicemail`), `recording` (the call's name, or null) and `summary` (`{text,
+  language, interest, sentiment, intent, objections[], next_step: {what, channel, due} | null,
+  by, at}` or null). Play the recording from `call_recording` with the app's Authorization
+  header. The transcript never reaches the app.
+
 ### 6.1 Sales insights (`get_sales_insights`)
 
 Read-only aggregates for the scope. Fixture: `crm.get_sales_insights.json`.
@@ -1024,6 +1044,10 @@ They need a site with **erpnext and hrms** installed and `allow_tests` on:
 those apps on Frappe version-15, and a second job adds the crm app for the cutover's tests.
 
 ## Changelog
+
+- **v1.11 (2026-10-19):** calling through MyOperator (§6.6): `leads.click_to_call`,
+  `leads.call_recording`, the `click_to_call` capability, and call fields on `get_lead`'s call
+  activities.
 
 - **v1.10 (2026-10-19):** the leads overview and AI runs leads in the app (§6.5): new
   `tbo_smart.api.mobile.leads` (`get_overview`, `get_lead_ai`, `refresh_lead_ai`,

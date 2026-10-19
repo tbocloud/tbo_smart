@@ -202,9 +202,15 @@ def error_detail(body) -> str:
 	return str(body.get("message") or "") if isinstance(body, dict) else ""
 
 
-def post(provider: AIProvider, url: str, body: dict, headers: dict, timeout: float) -> dict:
+def post(
+	provider: AIProvider, url: str, body: dict, headers: dict, timeout: float, files: dict | None = None
+) -> dict:
+	"""POST JSON (or, with `files`, a multipart form of `body` and the files); the JSON answer."""
 	try:
-		response = requests.post(url, json=body, headers=headers, timeout=timeout)
+		if files:
+			response = requests.post(url, data=body, files=files, headers=headers, timeout=timeout)
+		else:
+			response = requests.post(url, json=body, headers=headers, timeout=timeout)
 	except requests.RequestException as e:
 		# only the kind: the text can hold the request
 		raise AIProviderError(provider, "timeout", type(e).__name__) from None
@@ -314,6 +320,58 @@ def complete(
 		if text.strip() or not ran_out:
 			break
 	return text
+
+
+# ---------- speech to text ----------
+
+TRANSCRIBE_TIMEOUT = 180
+TRANSCRIBE_PROMPT = "A sales phone call in Kerala, India. It may be in Malayalam, English or both."
+
+
+def transcribe(
+	audio: bytes,
+	filename: str,
+	model: str,
+	minutes: float,
+	price_per_minute: float,
+	feature: str,
+	reference: tuple | None = None,
+) -> str:
+	"""The text of a recording from the OpenAI section's /audio/transcriptions (the model detects
+	the language), logged at `price_per_minute` for `minutes`. Raises AINotConfigured without an
+	OpenAI key and AIProviderError when it fails or is paused."""
+	provider = configured_providers().get(OPENAI)
+	if not provider:
+		frappe.throw(_("Transcription needs the OpenAI section in TBO Smart Settings."), AINotConfigured)
+	provider = AIProvider(OPENAI, provider.base_url, model, provider.api_key)
+	if circuit_open(provider):
+		raise AIProviderError(provider, "paused")
+	started = monotonic()
+	cost = round(flt(minutes) * flt(price_per_minute), 6)
+	try:
+		data = post(
+			provider,
+			f"{provider.base_url}/audio/transcriptions",
+			{"model": model, "response_format": "json", "prompt": TRANSCRIBE_PROMPT},
+			{"Authorization": f"Bearer {provider.api_key}"},
+			TRANSCRIBE_TIMEOUT,
+			files={"file": (filename, audio, "audio/mpeg")},
+		)
+	except AIProviderError as e:
+		log_usage(provider, feature, reference, 0, 0, started, error=e.kind)
+		record_failure(e, None)
+		raise
+	usage = data.get("usage") or {}
+	log_usage(
+		provider,
+		feature,
+		reference,
+		cint(usage.get("input_tokens")),
+		cint(usage.get("output_tokens")),
+		started,
+		cost=cost,
+	)
+	return str(data.get("text") or "").strip()
 
 
 # ---------- failover state (Redis) ----------
@@ -506,10 +564,12 @@ def log_usage(
 	output_tokens: int,
 	started: float,
 	error: str | None = None,
+	cost: float | None = None,
 ) -> None:
 	"""One TBO AI Usage Log row per attempt, written by a job queued at once (not after the
 	commit): a request that fails after a billed attempt rolls back, and the row must stay.
-	Never breaks the caller."""
+	`cost` overrides the token estimate (speech is priced by the minute). Never breaks the
+	caller."""
 	reference_doctype, reference_name = reference or (None, None)
 	try:
 		frappe.enqueue(
@@ -525,7 +585,9 @@ def log_usage(
 				"user": frappe.session.user,
 				"input_tokens": input_tokens,
 				"output_tokens": output_tokens,
-				"estimated_cost_usd": estimate_cost(provider, input_tokens, output_tokens),
+				"estimated_cost_usd": estimate_cost(provider, input_tokens, output_tokens)
+				if cost is None
+				else (0 if error else cost),
 				"duration_ms": round((monotonic() - started) * 1000),
 				"ok": 0 if error else 1,
 				"error_kind": error,

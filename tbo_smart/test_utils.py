@@ -855,9 +855,10 @@ def anthropic_answer(answer: dict) -> MagicMock:
 def mock_ai(*responses):
 	"""Patch the AI module's HTTP calls to answer `responses` in order (a function may build
 	one from the request: fn(url, json) -> response). Use as a context manager; the mock's
-	call_args_list shows each request."""
+	call_args_list shows each request (a speech request's form is in `data`, its audio in
+	`files`)."""
 
-	def answer(url, json=None, headers=None, timeout=None):
+	def answer(url, json=None, headers=None, timeout=None, data=None, files=None):
 		reply = queue.pop(0) if queue else ai_http_response(500, {"error": {"message": "no more answers"}})
 		return reply if isinstance(reply, MagicMock) else reply(url, json)
 
@@ -2323,3 +2324,216 @@ def get_dashboard_cards(window: tuple, user: str | None = None) -> dict:
 	from tbo_smart.finance import dashboard
 
 	return {card["name"]: card["data"] for card in dashboard.get_cards(*window, user)}
+
+
+# ---------- telephony (MyOperator) ----------
+
+TEST_WEBHOOK_SECRET = "tbo-test-webhook-secret-0123456789"
+TEST_MYOPERATOR_KEY = "mo-test-x-api-key"
+TEST_MYOPERATOR_SECRET = "mo-test-secret-token"
+TEST_MYOPERATOR_TOKEN = "mo-test-api-token"
+TELEPHONY_SECRETS = (
+	"myoperator_api_key",
+	"myoperator_secret_token",
+	"myoperator_api_token",
+	"telephony_webhook_secret",
+)
+
+
+def enable_telephony(agents: list[dict] | tuple = (), **values) -> None:
+	"""Telephony on with test MyOperator keys, company C-TEST, IVR IVR-TEST, the webhook
+	secret TEST_WEBHOOK_SECRET, the `agents` mapping rows ({user, myoperator_user_id, extension,
+	mobile}) and any other settings in `values`."""
+	set_smart_lead_settings(
+		**{
+			"enable_telephony": 1,
+			"myoperator_company_id": "C-TEST",
+			"myoperator_public_ivr_id": "IVR-TEST",
+			"myoperator_caller_id": None,
+			"telephony_create_leads": 1,
+			"telephony_fallback_owner": None,
+			"enable_call_summary": 0,
+			"call_summary_min_seconds": 30,
+			"transcription_model": "gpt-4o-transcribe",
+			"transcription_price_per_minute": 0.006,
+			**values,
+		}
+	)
+	for field, value in zip(
+		TELEPHONY_SECRETS,
+		(TEST_MYOPERATOR_KEY, TEST_MYOPERATOR_SECRET, TEST_MYOPERATOR_TOKEN, TEST_WEBHOOK_SECRET),
+		strict=True,
+	):
+		store_settings_secret(field, value)
+	set_telephony_agents(agents)
+
+
+def disable_telephony() -> None:
+	"""Telephony and the AI call summary off, no MyOperator secrets, no people mapped."""
+	set_smart_lead_settings(enable_telephony=0, enable_call_summary=0)
+	for field in TELEPHONY_SECRETS:
+		store_settings_secret(field, None)
+	set_telephony_agents(())
+
+
+def set_telephony_agents(agents: list[dict] | tuple) -> None:
+	"""Replace the MyOperator users mapping with `agents` rows."""
+	frappe.db.delete("TBO Telephony Agent", {"parenttype": "TBO Smart Settings"})
+	for index, row in enumerate(agents, start=1):
+		frappe.get_doc(
+			{
+				"doctype": "TBO Telephony Agent",
+				"parent": "TBO Smart Settings",
+				"parenttype": "TBO Smart Settings",
+				"parentfield": "telephony_agents",
+				"idx": index,
+				**row,
+			}
+		).db_insert()
+	frappe.clear_document_cache("TBO Smart Settings", "TBO Smart Settings")
+
+
+def myoperator_event(
+	call_id: str,
+	number: str = "+919876543210",
+	event_type: str = "call.summary",
+	direction: str = "incoming",
+	status: str = "bridged",
+	duration: int = 82,
+	agent: dict | None = None,
+	recording_filename: str | None = None,
+	client_ref_id: str = "",
+) -> dict:
+	"""A MyOperator Webhooks v2 call event shaped like the documented call.summary sample:
+	a customer leg and, with `agent` ({uuid, email, extension, contact}), an answered agent leg."""
+	legs = [
+		{
+			"leg_index": 1,
+			"agent": None,
+			"type": "customer",
+			"result": "connected" if status == "bridged" else "not_answered",
+			"phone_number": number,
+			"talk_duration": duration if status == "bridged" else None,
+		}
+	]
+	if agent:
+		legs.append(
+			{
+				"leg_index": 2,
+				"agent": agent,
+				"type": "agent",
+				"result": "answered" if status == "bridged" else "not_answered",
+				"dial_status": "ANSWER" if status == "bridged" else "NO ANSWER",
+				"phone_number": agent.get("contact"),
+				"talk_duration": duration if status == "bridged" else None,
+			}
+		)
+	return {
+		"company_id": "C-TEST",
+		"event_id": f"event-{call_id}-{event_type}",
+		"event_type": event_type,
+		"event_sequence": 1,
+		"event_version": "1",
+		"timestamp": "2026-10-19T05:29:28Z",
+		"channel": "call",
+		"direction": direction,
+		"session_id": call_id,
+		"system_identifier": "",
+		"customer_identifier": number,
+		"payload": {
+			"id": call_id,
+			"direction": direction,
+			"customer_number": number,
+			"status": status,
+			"started_at": "2026-10-19T05:28:04+00:00",
+			"ended_at": "2026-10-19T05:29:26+00:00",
+			"category": direction,
+			"duration": duration,
+			"recording_filename": recording_filename or "",
+			"ref_id": "",
+			"client_ref_id": client_ref_id,
+			"legs": legs,
+			"billable": True,
+			"comments": [],
+		},
+	}
+
+
+def post_myoperator_webhook(event: dict, token: str | None = TEST_WEBHOOK_SECRET):
+	"""Call the webhook as Guest with `event` as the JSON body and `token` in X-Webhook-Token
+	(None: no header), the way MyOperator posts it; then return to the session user."""
+	from tbo_smart.api import telephony
+
+	headers = {"X-Webhook-Token": token} if token is not None else {}
+	environ = EnvironBuilder(
+		method="POST",
+		base_url="https://tbosmart.test",
+		path="/api/method/tbo_smart.api.telephony.myoperator_webhook",
+		data=json.dumps(event),
+		content_type="application/json",
+		headers=headers,
+	).get_environ()
+	previous = getattr(frappe.local, "request", None), getattr(frappe.local, "request_ip", None)
+	frappe.local.request = WerkzeugRequest(environ)
+	frappe.local.request_ip = "127.0.0.1"
+	try:
+		return call_as_guest(telephony.myoperator_webhook)
+	finally:
+		frappe.local.request, frappe.local.request_ip = previous
+
+
+def myoperator_response(status: int = 200, body: dict | None = None, content: bytes = b"") -> MagicMock:
+	"""A fake requests.Response from MyOperator: JSON `body` (default the OBD API's success),
+	or `content` for a recording download."""
+	response = ai_http_response(
+		status,
+		body
+		if body is not None
+		else {
+			"details": "Request accepted successfully",
+			"status": "success",
+			"code": "200",
+			"unique_id": "REQ-1",
+		},
+	)
+	response.iter_content.return_value = [content] if content else []
+	response.__enter__.return_value = response
+	response.raise_for_status.side_effect = None if status < 400 else requests.HTTPError(str(status))
+	return response
+
+
+def delete_telephony_records(numbers: list[str] | tuple = ()) -> None:
+	"""Every TBO Call (with its recording Files), and the leads, call Events and tasks of
+	`numbers` that tests created."""
+	for name in frappe.get_all("TBO Call", pluck="name"):
+		for file in frappe.get_all(
+			"File", filters={"attached_to_doctype": "TBO Call", "attached_to_name": name}, pluck="name"
+		):
+			frappe.delete_doc("File", file, ignore_permissions=True, force=True)
+	frappe.db.delete("TBO Call")
+	for number in numbers:
+		for lead in frappe.get_all("Lead", filters={"mobile_no": ("like", f"%{number[-10:]}")}, pluck="name"):
+			frappe.db.delete("ToDo", {"reference_type": "Lead", "reference_name": lead})
+			frappe.db.delete("Comment", {"reference_doctype": "Lead", "reference_name": lead})
+			events = frappe.get_all(
+				"Event Participants",
+				filters={"reference_doctype": "Lead", "reference_docname": lead},
+				pluck="parent",
+			)
+			for event in events:
+				frappe.delete_doc("Event", event, ignore_permissions=True, force=True)
+			frappe.delete_doc("Lead", lead, ignore_permissions=True, force=True)
+
+
+def clear_dial_locks(users: list[str] | tuple) -> None:
+	"""Forget the users' click-to-call cool-down."""
+	from tbo_smart.telephony.calls import DIAL_LOCK_KEY
+
+	frappe.cache.delete_value(
+		[frappe.cache.make_key(DIAL_LOCK_KEY.format(user)) for user in users], make_keys=False
+	)
+
+
+def transcription_answer(text: str) -> MagicMock:
+	"""An OpenAI /audio/transcriptions 200 with `text`."""
+	return ai_http_response(200, {"text": text, "usage": {"input_tokens": 900, "output_tokens": 120}})

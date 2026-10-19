@@ -116,6 +116,30 @@
   "column_break_proposals",
   "enable_proposal_ai",
   "proposal_letter_head",
+  "telephony_section",
+  "enable_telephony",
+  "myoperator_company_id",
+  "myoperator_public_ivr_id",
+  "myoperator_caller_id",
+  "column_break_telephony_keys",
+  "myoperator_api_key",
+  "myoperator_secret_token",
+  "myoperator_api_token",
+  "telephony_webhook_secret",
+  "regenerate_webhook_secret",
+  "telephony_agents_section",
+  "telephony_agents",
+  "telephony_create_leads",
+  "telephony_fallback_owner",
+  "column_break_telephony_people",
+  "telephony_recording_days",
+  "telephony_recording_notice",
+  "telephony_ai_section",
+  "enable_call_summary",
+  "call_summary_min_seconds",
+  "column_break_telephony_ai",
+  "transcription_model",
+  "transcription_price_per_minute",
   "checkin_section",
   "enforce_checkin_radius",
   "checkin_locations",
@@ -850,6 +874,165 @@
    "description": "The header and footer on every proposal's page and PDF, unless a proposal picks another. Blank: the Letter Head marked default; with no Letter Head at all, the company's logo."
   },
   {
+   "fieldname": "telephony_section",
+   "fieldtype": "Section Break",
+   "label": "Telephony (MyOperator)",
+   "collapsible": 1,
+   "description": "Calls with leads through MyOperator: click-to-call, every call on the lead with its recording, and an AI call summary. Setup and field mapping: docs/telephony-myoperator.md."
+  },
+  {
+   "fieldname": "enable_telephony",
+   "fieldtype": "Check",
+   "label": "Enable telephony",
+   "default": "0",
+   "description": "Off: the webhook refuses every request and the Call buttons are hidden."
+  },
+  {
+   "fieldname": "myoperator_company_id",
+   "fieldtype": "Data",
+   "label": "MyOperator company ID",
+   "depends_on": "enable_telephony",
+   "description": "MyOperator panel → APIs & Webhook → Developer API → Calling APIs → Endpoint details."
+  },
+  {
+   "fieldname": "myoperator_public_ivr_id",
+   "fieldtype": "Data",
+   "label": "Public IVR ID",
+   "depends_on": "enable_telephony",
+   "description": "The IVR click-to-call calls go through (Endpoint details)."
+  },
+  {
+   "fieldname": "myoperator_caller_id",
+   "fieldtype": "Data",
+   "label": "Caller ID",
+   "depends_on": "enable_telephony",
+   "description": "Optional: the virtual number customers see. Blank: MyOperator's default for the IVR."
+  },
+  {
+   "fieldname": "column_break_telephony_keys",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "myoperator_api_key",
+   "fieldtype": "Password",
+   "label": "Calling API key (x-api-key)",
+   "depends_on": "enable_telephony",
+   "length": 255
+  },
+  {
+   "fieldname": "myoperator_secret_token",
+   "fieldtype": "Password",
+   "label": "Calling secret token",
+   "depends_on": "enable_telephony",
+   "length": 255
+  },
+  {
+   "fieldname": "myoperator_api_token",
+   "fieldtype": "Password",
+   "label": "API token (users and recordings)",
+   "depends_on": "enable_telephony",
+   "length": 255,
+   "description": "The token for developers.myoperator.co: fetches each call's recording and lists MyOperator's users for Test connection."
+  },
+  {
+   "fieldname": "telephony_webhook_secret",
+   "fieldtype": "Password",
+   "label": "Webhook secret",
+   "depends_on": "enable_telephony",
+   "read_only": 1,
+   "length": 255,
+   "description": "MyOperator sends it in the X-Webhook-Token header of every webhook. Regenerate it, then paste the new one into MyOperator."
+  },
+  {
+   "fieldname": "regenerate_webhook_secret",
+   "fieldtype": "Button",
+   "label": "Regenerate webhook secret",
+   "depends_on": "enable_telephony"
+  },
+  {
+   "fieldname": "telephony_agents_section",
+   "fieldtype": "Section Break",
+   "label": "Telephony: people",
+   "depends_on": "enable_telephony"
+  },
+  {
+   "fieldname": "telephony_agents",
+   "fieldtype": "Table",
+   "label": "MyOperator users",
+   "options": "TBO Telephony Agent",
+   "description": "Who each MyOperator user is here. Click-to-call rings the person's MyOperator user (or their mobile), and a call's agent is found by user ID, extension or mobile."
+  },
+  {
+   "fieldname": "telephony_create_leads",
+   "fieldtype": "Check",
+   "label": "Create a lead for an unknown caller",
+   "default": "1",
+   "description": "An incoming call from a number no lead has becomes a new lead (source Phone call)."
+  },
+  {
+   "fieldname": "telephony_fallback_owner",
+   "fieldtype": "Link",
+   "label": "Owner of new caller leads",
+   "options": "User",
+   "description": "When nobody here answered the call. Blank: the smart leads fallback owner."
+  },
+  {
+   "fieldname": "column_break_telephony_people",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "telephony_recording_days",
+   "fieldtype": "Int",
+   "label": "Keep recordings (days)",
+   "default": "180",
+   "description": "Recordings and transcripts older than this are deleted every night; the call and its summary stay. Blank: 180."
+  },
+  {
+   "fieldname": "telephony_recording_notice",
+   "fieldtype": "Small Text",
+   "label": "Recording notice",
+   "default": "This call may be recorded for quality and training purposes.",
+   "description": "Set this as the greeting of every MyOperator IVR and number, so callers hear it before a recorded call (DPDP Act 2023: tell people before you record them)."
+  },
+  {
+   "fieldname": "telephony_ai_section",
+   "fieldtype": "Section Break",
+   "label": "Telephony: AI call summary",
+   "depends_on": "enable_telephony"
+  },
+  {
+   "fieldname": "enable_call_summary",
+   "fieldtype": "Check",
+   "label": "AI call summary",
+   "default": "0",
+   "description": "Transcribes each answered call's recording (Malayalam, English or both) with the OpenAI provider above and sums it up on the lead. Counts against the AI daily lead limit."
+  },
+  {
+   "fieldname": "call_summary_min_seconds",
+   "fieldtype": "Int",
+   "label": "Shortest call to sum up (seconds)",
+   "description": "Blank: 30.",
+   "default": "30"
+  },
+  {
+   "fieldname": "column_break_telephony_ai",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "transcription_model",
+   "fieldtype": "Data",
+   "label": "Transcription model",
+   "default": "gpt-4o-transcribe",
+   "description": "An OpenAI speech-to-text model, e.g. gpt-4o-transcribe or gpt-4o-mini-transcribe."
+  },
+  {
+   "fieldname": "transcription_price_per_minute",
+   "fieldtype": "Float",
+   "label": "Transcription price per minute (USD)",
+   "default": "0.006",
+   "description": "For the cost in the AI usage log."
+  },
+  {
    "fieldname": "checkin_section",
    "fieldtype": "Section Break",
    "label": "Check-in location"
@@ -905,7 +1088,7 @@
  "index_web_pages_for_search": 0,
  "issingle": 1,
  "links": [],
- "modified": "2026-10-19 18:00:00.000000",
+ "modified": "2026-10-19 20:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Smart Settings",

@@ -39,6 +39,7 @@ from tbo_smart.sales.activities import CANCELLED as TASK_CANCELLED
 from tbo_smart.sales.activities import DONE, OPEN
 from tbo_smart.smart_leads import ai_leads_enabled
 from tbo_smart.smart_leads.migration import NOTE_TITLE_PREFIX
+from tbo_smart.telephony.calls import calls_by_agent
 
 PERIODS = ("week", "month", "quarter", "custom")
 METRICS = ("new", "contacted", "meetings", "quotations", "won", "lost", "stale", "overdue", "hot", "open")
@@ -485,8 +486,14 @@ class SalesActivity(LeadOverview):
 		won = self.closed_rows("Won")
 		won_value = self.won_value_by_owner(won)
 		follow_ups = self.follow_ups_by_person()
+		calls = calls_by_agent(self.from_date, self.end, self.owners)
 		people = (
-			set(bde) | set(created.values()) | set(contacted.values()) | set(follow_ups) | set(won_value)
+			set(bde)
+			| set(created.values())
+			| set(contacted.values())
+			| set(follow_ups)
+			| set(won_value)
+			| set(calls)
 		) - {None, ""}
 		names = get_full_names(people)
 		rows = []
@@ -511,6 +518,9 @@ class SalesActivity(LeadOverview):
 					"won": won_count,
 					"won_value": flt(won_value.get(user), 2),
 					"conversion": percent(won_count, new),
+					# answered MyOperator calls the person took, and their talk time
+					"calls": calls.get(user, {}).get("calls", 0),
+					"talk_seconds": calls.get(user, {}).get("talk_seconds", 0),
 				}
 			)
 		return {

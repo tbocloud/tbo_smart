@@ -69,8 +69,17 @@ def add_note(doctype: str, name: str, text: str):
 	).insert(ignore_permissions=True)
 
 
-def add_event(doctype: str, name: str, category: str, subject: str, text: str | None):
-	now = now_datetime()
+def add_event(
+	doctype: str,
+	name: str,
+	category: str,
+	subject: str,
+	text: str | None,
+	starts_on=None,
+	ai_read: bool = True,
+):
+	"""A completed Event on the record (at `starts_on`, default now). `ai_read` False: the AI
+	autopilot doesn't read the lead again for it (its caller feeds the autopilot itself)."""
 	event = frappe.get_doc(
 		{
 			"doctype": "Event",
@@ -79,11 +88,12 @@ def add_event(doctype: str, name: str, category: str, subject: str, text: str | 
 			"event_type": "Private",
 			"status": "Completed",
 			"send_reminder": 0,
-			"starts_on": now,
+			"starts_on": starts_on or now_datetime(),
 			"description": escape_html(clean_text(text)) if text else None,
 			"event_participants": [{"reference_doctype": doctype, "reference_docname": name}],
 		}
 	)
+	event.flags.skip_ai_read = not ai_read
 	event.insert(ignore_permissions=True)
 	return event
 
@@ -283,6 +293,10 @@ def get_timeline(reference_doctype: str, name: str) -> dict:
 	).run(as_dict=True)
 	people = get_full_names({note.owner for note in notes} | {event.owner for event in events})
 	note_text = {note.name: plain_text(note.content) for note in notes}
+	from tbo_smart.telephony.calls import call_details
+
+	# a call through MyOperator: its length, direction, status, recording and AI summary
+	telephony = call_details([event.name for event in events if event.event_category == CALL])
 	activities = [
 		{
 			"id": event.name,
@@ -294,6 +308,7 @@ def get_timeline(reference_doctype: str, name: str) -> dict:
 				if event.event_category == CALL
 				else plain_text(event.subject)
 			),
+			**telephony.get(event.name, {}),
 		}
 		for event in events
 	]
