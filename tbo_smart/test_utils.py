@@ -874,6 +874,21 @@ def enable_ai_leads(**values) -> None:
 	)
 
 
+def read_lead_with_ai(lead: str, text: str = "Asked for a demo of billing") -> None:
+	"""Switch AI runs leads on and let the AI read `lead` (answering ai_lead_insight) after a
+	note with `text`."""
+	enable_ai_leads()
+	with mock_ai(openai_answer(ai_lead_insight())):
+		make_lead_note(lead, text)
+
+
+def get_mobile_lead_names(**filters) -> set[str]:
+	"""The names the app's lead list (crm.get_leads) returns for `filters`, as the session user."""
+	from tbo_smart.api.mobile import crm
+
+	return {row["name"] for row in crm.get_leads(page_length=100, **filters)["data"]}
+
+
 def ai_lead_insight(**overrides) -> dict:
 	"""The JSON an AI answers for a lead insight (autopilot.INSIGHT_PROMPT), with `overrides`."""
 	return {

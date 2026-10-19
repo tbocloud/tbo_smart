@@ -4,16 +4,18 @@
     "lead_name": "Faisal Al Mansoori",
     "organization": "Al Noor Trading LLC",
     "designation": "Operations Manager",
-    "status": "New",
+    "status": "New Lead",
     "source": "Website",
     "owner": "Ruvaishid",
     "owner_id": "ruvaishid@teambackoffice.com",
     "phone": "+971 50 418 2276",
     "email": "faisal@alnoortrading.ae",
     "territory": "UAE",
+    "score": 82,
+    "temperature": "Hot",
     "converted": false,
     "last_contact": null,
-    "next_follow_up": "2026-10-10 16:00:00",
+    "next_follow_up": "2026-10-10",
     "created": "2026-10-10 08:40:12.000000",
     "notes": [
       {
@@ -27,7 +29,7 @@
       {
         "id": "CRM-TASK-2026-00211",
         "title": "Follow up with Faisal Al Mansoori",
-        "due": "2026-10-10 16:00:00",
+        "due": "2026-10-10",
         "status": "Todo",
         "done": false,
         "assigned_to": "ruvaishid@teambackoffice.com"

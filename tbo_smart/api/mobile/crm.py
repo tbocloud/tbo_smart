@@ -128,6 +128,8 @@ LEAD_FIELDS = [
 	"phone",
 	"email_id as email",
 	"territory",
+	"tbo_score as score",
+	"tbo_temperature as temperature",
 	"creation",
 ]
 DEAL_FIELDS = [
@@ -175,13 +177,24 @@ def get_leads(
 	page: int = 1,
 	page_length: int = 20,
 	scope: str | None = None,
+	source: str | None = None,
+	temperature: str | None = None,
+	metric: str | None = None,
+	period: str | None = None,
+	owner: str | None = None,
 ) -> dict:
-	"""Leads the session user may read in `scope` (mine / team / all; default: widest), newest first."""
+	"""Leads the session user may read in `scope` (mine / team / all; default: widest), newest first.
+
+	`source` and `temperature` (Hot / Warm / Cold) filter; `metric` with `period` keeps the leads
+	one number of the leads overview counts (`tbo_smart.api.mobile.leads.get_overview`), converted
+	ones included, as the hub's list does; `owner` (one person in my sales scope, as the overview
+	takes it) keeps that person's leads."""
 	capabilities = require_crm()
 	filters = scope_filter(capabilities, scope, "lead_owner")
 	if status:
 		filters["tbo_stage"] = status
-	if not cint(include_converted):
+	filters.update(overview_filters(source, temperature, metric, period, owner))
+	if not metric and not cint(include_converted):
 		converted = converted_leads_query().run(pluck=True)
 		if converted:
 			filters["name"] = ("not in", converted)
@@ -197,6 +210,35 @@ def get_leads(
 		page_length=length + 1,
 	)
 	return page_envelope(serialize_leads(leads), page, page_length)
+
+
+def overview_filters(
+	source: str | None,
+	temperature: str | None,
+	metric: str | None,
+	period: str | None,
+	owner: str | None = None,
+) -> dict:
+	"""get_list filters for the overview's lead lists, with the hub's own rules and figures."""
+	# hub_leads imports this module, so it is imported when it is needed
+	from tbo_smart.api.hub_leads import TEMPERATURES, overview_board, resolve_period
+
+	filters = {}
+	if source:
+		filters["source"] = source
+	if temperature:
+		if temperature not in TEMPERATURES:
+			frappe.throw(_("temperature must be one of {0}.").format(", ".join(TEMPERATURES)))
+		filters["tbo_temperature"] = temperature
+	if not (metric or owner):
+		return filters
+	# the overview's own owner check: one person in my sales scope, else 403
+	board, _allowed = overview_board(resolve_period(period, None, None), None, None, owner)
+	if owner:
+		filters["lead_owner"] = owner
+	if metric:
+		filters["name"] = ("in", board.metric_leads(metric) or [""])
+	return filters
 
 
 @frappe.whitelist()
@@ -620,6 +662,8 @@ def serialize_leads(leads: list) -> list[dict]:
 			"phone": lead.mobile_no or lead.phone,
 			"email": lead.email,
 			"territory": lead.territory,
+			"score": cint(lead.score),
+			"temperature": lead.temperature,
 			"converted": lead.name in converted,
 			"last_contact": last_contact.get(lead.name),
 			"next_follow_up": next_follow_up.get(lead.name),

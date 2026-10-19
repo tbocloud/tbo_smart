@@ -1,15 +1,16 @@
-# TBO Smart API: ESS, CRM and manager (tboindia side), v1.9
+# TBO Smart API: ESS, CRM and manager (tboindia side), v1.10
 
 This is the contract for the TBO Smart mobile app's **tboindia.tbocloud.in** half: HR
 self-service (HRMS), CRM (ERPNext's Lead, Opportunity and Prospect since v1.9; Frappe CRM
 before) and the manager views. The hub (TBO Support) has its
 own contract in `tbocloud/helpdesk`.
 
-- **Code:** `tbo_smart/api/mobile/{auth,capabilities,ess,crm,meeting,manager,quotation,device}.py` and `tbo_smart/push.py`.
+- **Code:** `tbo_smart/api/mobile/{auth,capabilities,ess,crm,leads,meeting,manager,quotation,device}.py` and `tbo_smart/push.py`.
 - **Fixtures:** `docs/fixtures/<module>.<method>.json`. Each one is the full HTTP body that
   Frappe returns (`{"message": ...}`).
-- **Status:** v1.9, 2026-10-16. v1.9 keeps every method and JSON shape; only what stands behind
-  them changed (`docs/erpnext-lead-cutover.md`, changelog). Any change gets a version note in the changelog at the end of
+- **Status:** v1.10, 2026-10-19. v1.9 kept every method and JSON shape; only what stands behind
+  them changed (`docs/erpnext-lead-cutover.md`, changelog). v1.10 adds the leads overview and
+  AI runs leads (§6.5) and the lead list's overview filters. Any change gets a version note in the changelog at the end of
   this file.
 
 ## 1. Conventions
@@ -587,7 +588,7 @@ Writes are normal inserts and saves under the session user.
 | Method | Verb | Params | Returns |
 | --- | --- | --- | --- |
 | `get_options` | GET | – | `{lead_sources[], lead_statuses[{name,type}], deal_stages[{name,type,probability}], lost_reasons[]}` |
-| `get_leads` | GET | `status?`, `scope?` (§4.1), `search?`, `include_converted?` (default false), `page`, `page_length` | page of Lead |
+| `get_leads` | GET | `status?`, `scope?` (§4.1), `search?`, `include_converted?` (default false), `source?`, `temperature?` (Hot / Warm / Cold), `metric?` with `period?` and `owner?` (§6.5), `page`, `page_length` | page of Lead |
 | `get_lead` | GET | `name` | Lead plus `notes[]`, `tasks[]`, `activities[]` |
 | `create_lead` | POST | `lead_name`, `organization?`, `email?`, `mobile_no?`, `source?`, `note?`, and for lead capture (§6.2) `follow_up_on?`, `follow_up_note?`, `assign_to?`, `source_channel?`, `card_image?`, `force?` | the new Lead (owner = me), as `get_lead`. Possible duplicates without `force`: 409 `DuplicateLead` |
 | `check_duplicates` | GET | `phone?`, `email?`, `organization?` | `{data: {matches: [Match]}}` (§6.2) |
@@ -606,6 +607,9 @@ Writes are normal inserts and saves under the session user.
 | `add_follow_up` | POST | `doctype`, `name`, `due`, `title?` | `{id, subject, due, status}` |
 | `set_task_done` | POST | `name` (the task's `id`), `done` (bool) | `{id, status, done}` |
 
+- **Lead** rows carry `score` (0-100, 0 when never scored) and `temperature` (`Hot` / `Warm` /
+  `Cold`, or an empty string when never scored) since v1.10, from smart leads' scoring
+  (`smart-leads.md`).
 - **Records behind the methods (v1.9):**
   - `convert_lead` makes the deal with ERPNext's own Lead → Opportunity mapper
     (`lead_pipeline.won.convert_lead`), after a write-permission check; a lead with a deal
@@ -755,6 +759,39 @@ Meeting = {name, stage, stage_label ("1st meeting" … "Additional meeting 1"), 
   without minutes; show it in red with an icon.
 - Push: MOM pending, escalations and the reminder before a meeting are Notification Logs on the
   Lead (open the lead).
+
+### 6.5 Leads overview and AI runs leads (v1.10): `tbo_smart.api.mobile.leads`
+
+The hub's own lead methods (`tbo_smart.api.hub_leads`, [hub-leads-api.md](hub-leads-api.md)
+§2.4 and §2.6), behind the `crm` capability like every method here. The app calls them as the
+person, so they run as the session user: the sales scope, the reads and the writes are theirs.
+Fixtures: `leads.get_overview.json`, `leads.get_lead_ai.json`.
+
+| Method | Verb | Params | Returns |
+| --- | --- | --- | --- |
+| `get_overview` | GET | `period?` (`week` / `month` / `quarter`, default `month`), `owner?` (one person in my scope; 403 outside it) | Overview (hub-leads-api.md §2.4) with `ai` (§2.6): the plan for today and the AI's counts |
+| `get_lead_ai` | GET | `name` | LeadAI (hub-leads-api.md §2.6): summary, sentiment, intent, next action, suggested stage, message draft, health, duplicates, `contact` for the deep links. Answers with AI runs leads off too (`enabled` false; health and duplicates still come) |
+| `refresh_lead_ai` | POST | `name` | LeadAI after a fresh read (write on the lead; once a minute) |
+| `apply_ai_stage` | POST | `name` | the Lead as `crm.get_lead`, moved to the suggested stage by me (never Won or Lost) |
+| `dismiss_ai_stage` | POST | `name` | LeadAI without the stage suggestion |
+| `draft_lead_message` | POST | `name`, `channel` (`whatsapp` / `email`), `language?` (`en` / `ml`, WhatsApp) | `{channel, subject, text, to?, url?}`: nothing is sent |
+
+- **Every number opens its leads:** `crm.get_leads(metric=…, period=…)` keeps exactly the leads
+  behind one figure of the overview, for the same period: `new`, `contacted`, `meetings`,
+  `quotations`, `won`, `lost`, `stale`, `overdue`, `hot`, `open`, and the AI's `high_intent`,
+  `unhappy` and `stage_suggested` (none while AI runs leads is off). Converted leads are
+  included (a won lead has its deal). `scope`, `status`, `source`, `temperature` and `search`
+  narrow it further. A stage of the pipeline opens with `status`, a source with `source`.
+- **`owner`** on `get_leads` is the overview's `owner`: one person in my sales scope (403 outside
+  it, as `get_overview` checks), so a number opened for that person keeps only their leads.
+- **Nothing is sent from the app or the site.** The app opens the person's own WhatsApp
+  (`https://wa.me/<contact.whatsapp>?text=…`) or mail (`mailto:<contact.email>?subject=…&body=…`).
+  Once they have sent it, **"I sent it"** is `crm.log_activity(doctype="lead", kind="whatsapp" |
+  "email", text)`: the same Event the hub's `log_message_sent` makes.
+- **Only a person moves a lead.** The AI's stage is applied by `apply_ai_stage` (the person's
+  click), and the AI never suggests Won or Lost.
+- Health is rules, not AI (Healthy / Watch / At risk with its reasons); show it with its label,
+  not by colour alone.
 
 ### 6.1 Sales insights (`get_sales_insights`)
 
@@ -927,7 +964,7 @@ Read-only aggregates for the scope. Fixture: `crm.get_sales_insights.json`.
 
 ## 10. Tests
 
-The tests are in `tbo_smart/tests/test_mobile_{ess,advance,crm,lead_capture,manager,quotation,push,sso}.py` and `test_checkin_location.py`, with helpers in
+The tests are in `tbo_smart/tests/test_mobile_{ess,advance,crm,lead_capture,leads,manager,quotation,push,sso}.py` and `test_checkin_location.py`, with helpers in
 `tbo_smart/test_utils.py`. They cover:
 
 - **ESS:** own-only data and server-time check-in; a half day inside a multi-day leave (2.5
@@ -945,6 +982,11 @@ The tests are in `tbo_smart/tests/test_mobile_{ess,advance,crm,lead_capture,mana
 - **Manager:** endpoints refuse non-managers and non-approvers; only the named approver can
   decide.
 - **Meetings** (`test_lead_pipeline.py`): the `get_meetings` shape against its fixture, status rules, MOM submit and `set_lead_status` with a lost reason.
+- **Leads overview and AI** (`test_mobile_leads.py`): only CRM users reach them, and only
+  for leads they can read; the overview is the caller's scope; a person applies or dismisses
+  the AI's stage (the stage log names them) and drafts a message; "I sent it" through
+  `log_activity`; `get_leads` by temperature, source and an overview metric (a won, converted
+  lead included); the fixtures' keys.
 - **CRM:** visibility follows the sales rules (`test_sales.py`). Call today (`test_smart_leads.py`): order, team permission, the off switch and the shape against `docs/fixtures/crm.get_call_today.json`.
 - **Lead capture** (`test_mobile_lead_capture.py`): phone formats (`+971 50…`, `050…`,
   `00971`, spaces and brackets), email and organization case, matches across leads,
@@ -982,6 +1024,13 @@ They need a site with **erpnext and hrms** installed and `allow_tests` on:
 those apps on Frappe version-15, and a second job adds the crm app for the cutover's tests.
 
 ## Changelog
+
+- **v1.10 (2026-10-19):** the leads overview and AI runs leads in the app (§6.5): new
+  `tbo_smart.api.mobile.leads` (`get_overview`, `get_lead_ai`, `refresh_lead_ai`,
+  `apply_ai_stage`, `dismiss_ai_stage`, `draft_lead_message`) over the hub's methods, behind
+  `crm`. `crm.get_leads` takes `source`, `temperature`, and `metric` with `period`; Lead rows
+  add `score` and `temperature`. The CRM fixtures show v1.9's values (the 13 lead stages, a
+  task's `due` as a date).
 
 - **v1.9 (2026-10-16):** the CRM methods run on ERPNext's Lead, Opportunity, Prospect, ToDo,
   Comment and Event (`erpnext-lead-cutover.md`) with the same names and JSON. Differences: a

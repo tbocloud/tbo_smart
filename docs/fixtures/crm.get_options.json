@@ -10,7 +10,7 @@
     ],
     "lead_statuses": [
       {
-        "name": "New",
+        "name": "New Lead",
         "type": "Open"
       },
       {
@@ -18,19 +18,47 @@
         "type": "Ongoing"
       },
       {
-        "name": "Nurture",
+        "name": "Meeting Scheduled",
         "type": "Ongoing"
       },
       {
-        "name": "Qualified",
+        "name": "First Meeting Completed",
+        "type": "Ongoing"
+      },
+      {
+        "name": "Second Meeting Completed",
+        "type": "Ongoing"
+      },
+      {
+        "name": "Third Meeting Completed",
+        "type": "Ongoing"
+      },
+      {
+        "name": "Proposal Sent",
+        "type": "Ongoing"
+      },
+      {
+        "name": "Negotiation",
+        "type": "Ongoing"
+      },
+      {
+        "name": "Positive / Interested",
+        "type": "Ongoing"
+      },
+      {
+        "name": "Follow-up Required",
+        "type": "Ongoing"
+      },
+      {
+        "name": "On Hold",
+        "type": "On Hold"
+      },
+      {
+        "name": "Closed – Won",
         "type": "Won"
       },
       {
-        "name": "Unqualified",
-        "type": "Lost"
-      },
-      {
-        "name": "Junk",
+        "name": "Closed – Lost",
         "type": "Lost"
       }
     ],

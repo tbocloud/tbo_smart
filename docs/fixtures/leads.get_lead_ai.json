@@ -1,0 +1,63 @@
+{
+  "message": {
+    "enabled": true,
+    "ai_ready": true,
+    "open": true,
+    "insight": {
+      "summary": "Runs three trading branches on Tally and wants inventory with VAT invoicing; asked for a demo.",
+      "sentiment": "Positive",
+      "intent": "High",
+      "signals": [
+        "asked for a demo",
+        "three branches"
+      ],
+      "next_action": {
+        "what": "Call to fix the demo date",
+        "why": "He asked for a demo on the last call",
+        "channel": "call",
+        "due": "2026-10-21"
+      },
+      "suggested_stage": "Positive / Interested",
+      "stage_reason": "He asked for a demo",
+      "message": {
+        "channel": "whatsapp",
+        "subject": null,
+        "text": "Hello Faisal, thanks for your time on the call. Shall we set up the demo this week? Regards, Ruvaishid"
+      }
+    },
+    "at": "2026-10-19 09:12:40.118230",
+    "stale": false,
+    "score": {
+      "score": 82,
+      "temperature": "Hot",
+      "reason": "Asked for a demo; replies within a day"
+    },
+    "health": {
+      "status": "watch",
+      "signals": [
+        {
+          "key": "follow_up",
+          "state": "watch",
+          "text": "Follow-up overdue"
+        }
+      ]
+    },
+    "duplicates": [
+      {
+        "name": "CRM-LEAD-2026-00122",
+        "lead_name": "Faisal M",
+        "company_name": "Al Noor Trading LLC",
+        "tbo_stage": "New Lead",
+        "lead_owner": "deepa@teambackoffice.com",
+        "owner_name": "Deepa",
+        "match": [
+          "company"
+        ]
+      }
+    ],
+    "contact": {
+      "whatsapp": "971504182276",
+      "email": "faisal@alnoortrading.ae"
+    }
+  }
+}
