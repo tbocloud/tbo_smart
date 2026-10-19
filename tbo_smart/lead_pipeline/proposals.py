@@ -1227,6 +1227,12 @@ def client_name(doc) -> str:
 	return label.company_name or label.lead_name
 
 
+def contact_name(doc) -> str | None:
+	"""The person the proposal is prepared for, when the client is a company."""
+	label = frappe.db.get_value("Lead", doc.lead, ["company_name", "lead_name"], as_dict=True)
+	return label.lead_name if label.company_name and label.lead_name != label.company_name else None
+
+
 def tell_owner(doc, subject: str) -> None:
 	"""A timeline comment on the lead and an in-app note (and push) to its owner."""
 	from frappe.desk.doctype.notification_log.notification_log import enqueue_create_notification
@@ -1306,6 +1312,7 @@ def page_context(doc, preview: bool = False, pdf: bool = False) -> dict:
 			"tagline": text_parts(cover.body) if cover else [],
 			"image": media.image_payload(doc, cover, pdf) if cover else None,
 			"prepared_by": frappe.utils.get_fullname(doc.prepared_by) if doc.get("prepared_by") else None,
+			"contact": contact_name(doc),
 			"date": frappe.utils.formatdate(doc.sent_on or doc.creation, "d MMMM yyyy"),
 			"reference": doc.name,
 			"version": cint(doc.revision_no) + 1,
@@ -1324,6 +1331,8 @@ def page_context(doc, preview: bool = False, pdf: bool = False) -> dict:
 		"decided_by": doc.decided_by_name,
 		"decided_on": frappe.utils.formatdate(doc.decided_on, "d MMMM yyyy") if doc.decided_on else None,
 		"letter_head": letter_head,
+		"fonts": media.font_faces(pdf),
+		"page": pdf_page(letter_head) if pdf else None,
 		"blocks": blocks,
 		"pricing": pricing,
 		"consolidated": doc.get("pricing_mode") == "Consolidated",
@@ -1582,37 +1591,96 @@ def pricing_line(row, money, service_item: str | None = None) -> dict:
 
 
 def render_html(doc, preview: bool = False, pdf: bool = False) -> str:
+	return render_page(page_context(doc, preview, pdf), pdf)
+
+
+def render_page(context: dict, pdf: bool) -> str:
 	return frappe.render_template(  # our own template; the values are escaped in it - nosemgrep
 		"tbo_smart/www/proposal.html",
-		{"proposal": page_context(doc, preview, pdf), "pdf": pdf, "print": False},
+		{"proposal": context, "pdf": pdf, "print": False},
 	)
 
 
-# A4, full bleed so the ivory reaches the edges (the side margins are padding in the page), and
-# the letter head's header and footer on every page (Frappe's get_pdf repeats #header-html and
-# #footer-html). The page numbers are drawn after (on_ivory): wkhtmltopdf's own text footer
-# doesn't render beside an HTML one.
-PDF_OPTIONS = {
-	"page-size": "A4",
-	"margin-top": "30mm",
-	"margin-bottom": "24mm",
-	"margin-left": "0mm",
-	"margin-right": "0mm",
-}
-
-
+# The PDF's page, in mm: A4 with 18 mm on every side. The letter head sits inside the top margin and
+# the footer line inside the bottom one (Frappe's get_pdf repeats #header-html and #footer-html on
+# every page). The ivory, the page numbers and the cover's blank footer are drawn after
+# (on_ivory): wkhtmltopdf's own text footer doesn't render beside an HTML one.
+A4_MM = (210, 297)
+MARGIN_MM = 18
+HEADER_GAP_MM = 8  # under the letter head: its rule and the space before the content
+FOOTER_MM = 9  # the footer line, above the bottom margin
+HTML_HEADER_MM = 20  # a letter head written in HTML, whose height isn't known before rendering
+BRAND_HEADER_MM = 10  # no letter head: the company's logo or name
+PT_PER_MM = 72 / 25.4
+PAGE_NUMBER_PT = 8
 IVORY = (251 / 255, 248 / 255, 239 / 255)
+MUTED = (103 / 255, 98 / 255, 90 / 255)
+
+
+def pdf_page(letter_head: dict | None) -> dict:
+	"""The page frame in mm: the letter head's height, the top and bottom margins, and the cover's
+	height (it fills its page)."""
+	header = (letter_head or {}).get("header")
+	height = (header.get("height") or HTML_HEADER_MM) if header else BRAND_HEADER_MM
+	top = MARGIN_MM + height + HEADER_GAP_MM
+	bottom = MARGIN_MM + FOOTER_MM
+	return {"header": height, "top": top, "bottom": bottom, "cover": A4_MM[1] - top - bottom - 2}
+
+
+def pdf_options(page: dict) -> dict:
+	"""wkhtmltopdf's options: full bleed at the sides (the 18 mm are padding in the page, so the
+	ivory reaches the edges), the letter head and the footer line in the top and bottom margins."""
+	return {
+		"page-size": "A4",
+		"margin-top": f"{page['top']}mm",
+		"margin-bottom": f"{page['bottom']}mm",
+		"margin-left": "0mm",
+		"margin-right": "0mm",
+	}
 
 
 def render_pdf(doc) -> bytes:
+	"""The PDF. With contents it is rendered twice: the second time with each section's page in
+	the contents (the page numbers don't move anything, so the pages stay where they were)."""
 	from frappe.utils.pdf import get_pdf
 
-	return on_ivory(get_pdf(render_html(doc, pdf=True), dict(PDF_OPTIONS)))
+	context = page_context(doc, pdf=True)
+	options = pdf_options(context["page"])
+	pdf = get_pdf(render_page(context, True), dict(options))
+	if context["toc"] and number_contents(context["toc"], pdf):
+		pdf = get_pdf(render_page(context, True), dict(options))
+	return on_ivory(pdf)
+
+
+def number_contents(toc: list[dict], pdf: bytes) -> bool:
+	"""Each contents item's page, from a rendered PDF: the first page after the contents, and not
+	before the item above it, whose text has the section's number and heading. Whether any was
+	found."""
+	import io
+	import unicodedata
+
+	from pypdf import PdfReader
+
+	def squeeze(text: str) -> str:
+		return re.sub(r"\s+", "", unicodedata.normalize("NFKC", text or "")).lower()
+
+	pages = [squeeze(page.extract_text()) for page in PdfReader(io.BytesIO(pdf)).pages]
+	items = [item for group in toc for item in group["items"]]
+	keys = [squeeze(f"{item['number']}{item['heading']}") for item in items]
+	# the contents list every heading; the sections start after its last one
+	page = next((n for n, text in enumerate(pages) if keys[-1] in text), len(pages)) + 1
+	found = False
+	for item, key in zip(items, keys, strict=True):
+		at = next((n for n in range(page, len(pages)) if key in pages[n]), None)
+		if at is not None:
+			item["page"], page, found = at + 1, at, True
+	return found
 
 
 def on_ivory(pdf: bytes) -> bytes:
 	"""Every page on ivory paper to its edges (wkhtmltopdf paints white below the content of the
-	last page), with "n / N" at the bottom right of every page but the cover."""
+	last page), with "n / N" in Geist at the right end of the footer line of every page but the
+	cover. The cover has a footer line of its own, so its running footer is painted over."""
 	import io
 
 	from pypdf import PdfReader, PdfWriter
@@ -1621,13 +1689,10 @@ def on_ivory(pdf: bytes) -> bytes:
 	pages = PdfReader(io.BytesIO(pdf)).pages
 	writer = PdfWriter()
 	scratch = PdfWriter()
-	font = DictionaryObject(
-		{
-			NameObject("/Type"): NameObject("/Font"),
-			NameObject("/Subtype"): NameObject("/Type1"),
-			NameObject("/BaseFont"): NameObject("/Helvetica"),
-		}
-	)
+	font, width_of = page_number_font(scratch)
+	ivory = f"{IVORY[0]:.4f} {IVORY[1]:.4f} {IVORY[2]:.4f} rg"
+	muted = f"{MUTED[0]:.4f} {MUTED[1]:.4f} {MUTED[2]:.4f} rg"
+	margin = MARGIN_MM * PT_PER_MM
 
 	def layer(width, height, ops: str):
 		page = scratch.add_blank_page(width, height)
@@ -1642,20 +1707,80 @@ def on_ivory(pdf: bytes) -> bytes:
 	for number, page in enumerate(pages, start=1):
 		width, height = float(page.mediabox.width), float(page.mediabox.height)
 		sheet = writer.add_blank_page(width, height)
-		sheet.merge_page(
-			layer(width, height, f"{IVORY[0]:.4f} {IVORY[1]:.4f} {IVORY[2]:.4f} rg 0 0 {width} {height} re f")
-		)
+		sheet.merge_page(layer(width, height, f"{ivory} 0 0 {width} {height} re f"))
 		sheet.merge_page(page)
-		if number > 1:
-			label = f"{number} / {len(pages)}"
-			# 18 mm from the right edge, on the footer's line; Helvetica 8 pt is about 4.4 pt a digit
-			x = width - 51 - len(label) * 4.4
-			sheet.merge_page(
-				layer(width, height, f"BT /F1 8 Tf 0.404 0.384 0.353 rg {x:.1f} 22 Td ({label}) Tj ET")
+		if number == 1:
+			footer = (MARGIN_MM + FOOTER_MM) * PT_PER_MM
+			sheet.merge_page(layer(width, height, f"{ivory} 0 0 {width} {footer:.1f} re f"))
+			continue
+		label = f"{number} / {len(pages)}"
+		x = width - margin - width_of(label, PAGE_NUMBER_PT)
+		sheet.merge_page(
+			layer(
+				width, height, f"BT /F1 {PAGE_NUMBER_PT} Tf {muted} {x:.1f} {margin:.1f} Td ({label}) Tj ET"
 			)
+		)
 	out = io.BytesIO()
 	writer.write(out)
 	return out.getvalue()
+
+
+def page_number_font(writer):
+	"""Geist Regular embedded as a TrueType font with the page numbers' characters (space to 9),
+	and label → its width in points at a size."""
+	import io
+
+	from PIL import ImageFont
+	from pypdf.generic import (
+		ArrayObject,
+		DecodedStreamObject,
+		DictionaryObject,
+		NameObject,
+		NumberObject,
+	)
+
+	data = media.font_data(400)
+	metrics = ImageFont.truetype(io.BytesIO(data), 1000)
+	first, last = ord(" "), ord("9")
+	widths = [round(metrics.getlength(chr(code))) for code in range(first, last + 1)]
+	ascent, descent = metrics.getmetrics()
+	program = DecodedStreamObject()
+	program.set_data(data)
+	program[NameObject("/Length1")] = NumberObject(len(data))
+	name = NameObject("/Geist-Regular")
+	descriptor = DictionaryObject(
+		{
+			NameObject("/Type"): NameObject("/FontDescriptor"),
+			NameObject("/FontName"): name,
+			NameObject("/Flags"): NumberObject(32),
+			NameObject("/FontBBox"): ArrayObject(
+				[NumberObject(0), NumberObject(-descent), NumberObject(1000), NumberObject(ascent)]
+			),
+			NameObject("/ItalicAngle"): NumberObject(0),
+			NameObject("/Ascent"): NumberObject(ascent),
+			NameObject("/Descent"): NumberObject(-descent),
+			NameObject("/CapHeight"): NumberObject(ascent),
+			NameObject("/StemV"): NumberObject(80),
+			NameObject("/FontFile2"): writer._add_object(program),
+		}
+	)
+	font = DictionaryObject(
+		{
+			NameObject("/Type"): NameObject("/Font"),
+			NameObject("/Subtype"): NameObject("/TrueType"),
+			NameObject("/BaseFont"): name,
+			NameObject("/FirstChar"): NumberObject(first),
+			NameObject("/LastChar"): NumberObject(last),
+			NameObject("/Widths"): ArrayObject([NumberObject(w) for w in widths]),
+			NameObject("/Encoding"): NameObject("/WinAnsiEncoding"),
+			NameObject("/FontDescriptor"): writer._add_object(descriptor),
+		}
+	)
+
+	def width_of(label: str, size: float) -> float:
+		return sum(widths[ord(char) - first] for char in label) * size / 1000
+
+	return writer._add_object(font), width_of
 
 
 def lead_proposals(lead: str) -> list[dict]:
