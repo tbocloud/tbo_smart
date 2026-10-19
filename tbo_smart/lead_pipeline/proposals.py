@@ -738,14 +738,19 @@ def decide(doc, accept: bool, name: str | None, email_address: str | None, reaso
 	nothing, the other one is refused. Accepting moves the quotation to Accepted (the lead to
 	Closed – Won, which makes its deal) or, without a quotation, the lead itself."""
 	target = ACCEPTED if accept else DECLINED
-	status = frappe.db.get_value(DOCTYPE, doc.name, "status", for_update=True)
+	# read under the row lock: a revision or another answer at the same moment is seen
+	locked = frappe.db.get_value(
+		DOCTYPE, doc.name, ["status", "is_latest", "valid_till", "quotation"], as_dict=True, for_update=True
+	)
+	doc.update(locked)
+	status = locked.status
 	if status == target:
 		return
 	if status in (ACCEPTED, DECLINED):
 		frappe.throw(_("This proposal was already {0}.").format(_(status).lower()))
-	if status not in WITH_CLIENT or not cint(doc.is_latest):
+	if status not in WITH_CLIENT or not cint(locked.is_latest):
 		frappe.throw(_("This proposal can't be answered any more. Ask us for the latest one."))
-	if doc.valid_till and getdate(doc.valid_till) < getdate(today()):
+	if locked.valid_till and getdate(locked.valid_till) < getdate(today()):
 		frappe.throw(_("This proposal has expired. Ask us for a new one."))
 	if price_unavailable(doc):
 		# its price has expired or was withdrawn: there is nothing left to accept or decline
