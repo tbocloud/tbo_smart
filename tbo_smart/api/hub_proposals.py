@@ -93,6 +93,7 @@ def payload(doc) -> dict:
 		"page_guide": frappe.db.get_value(p.TEMPLATE, doc.template, "page_guide") if doc.template else None,
 		"prepared_by": frappe.utils.get_fullname(doc.prepared_by) if doc.prepared_by else None,
 		"status": doc.status,
+		"ready_on": doc.ready_on,
 		"theme": doc.theme,
 		"pricing_mode": doc.pricing_mode or p.PRICING_MODES[0],
 		"scoping": builder.scoping_answers(doc.scoping, doc.solution_type),
@@ -362,7 +363,20 @@ def save_proposal(name: str, data: dict | str, acting_user: str | None = None) -
 	is ignored: there is one)."""
 	with acting_as(acting_user):
 		doc = get_doc(name, "write")
-		p.save_content(doc, parse(data))
+		warnings = p.save_content(doc, parse(data))
+		return {**payload(doc), "warnings": warnings}
+
+
+@frappe.whitelist(methods=["POST"])
+def finalise_proposal(name: str, ready: int | str = 1, acting_user: str | None = None) -> dict:
+	"""Mark the draft ready to send (`ready` 1: refused while anything stops it going out; its
+	content and numbers are then fixed) or reopen it for changes (`ready` 0)."""
+	with acting_as(acting_user):
+		doc = get_doc(name, "write")
+		if cint(ready):
+			p.finalise(doc)
+		else:
+			p.reopen(doc)
 		return payload(doc)
 
 
@@ -444,6 +458,19 @@ def extract_requirements(lead: str, text: str, acting_user: str | None = None) -
 		if not p.ai_enabled():
 			frappe.throw(_("AI proposal drafts are not switched on. Fill the form by hand."))
 		return builder.extract_requirements(lead, text)
+
+
+@frappe.whitelist(methods=["POST"])
+def read_chat_answer(lead: str, question: str, text: str, acting_user: str | None = None) -> dict:
+	"""A start-chat answer that isn't what the question expected (an intent, needs, Malayalam or
+	mixed) read by one small AI call. Returns {language, english, profile, template, scoping} with
+	only the fields the text gave; nothing is saved."""
+	with acting_as(acting_user):
+		p.require_proposals()
+		frappe.has_permission("Lead", "write", lead, throw=True)
+		if not p.ai_enabled():
+			frappe.throw(_("AI proposal drafts are not switched on. Fill the form by hand."))
+		return builder.read_chat_answer(lead, question, text)
 
 
 @frappe.whitelist(methods=["POST"])

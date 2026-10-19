@@ -9,6 +9,7 @@ from the libraries is rebuilt from them on request at no AI cost.
 
 import json
 import math
+import re
 
 import frappe
 from frappe import _
@@ -61,6 +62,7 @@ AI_FEATURES = (
 	"Proposal client profile",
 	"Proposal edit",
 	"Proposal module draft",
+	"Proposal chat answer",
 	"BRD draft",
 	"BRD section",
 )
@@ -856,6 +858,21 @@ def clip(text: str, limit: int) -> str:
 	return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
 
 
+# a model's stray tail: a code fence, or a few lowercase letters after the last sentence ("…growth.ss",
+# "…growth.\nss"), seen on live drafts (docs/proposals.md §5)
+FENCE = re.compile(r"^\s*```[a-z]*\s*$", re.MULTILINE)
+# (not a domain's ending: "erpnext.com", "frappe.io")
+JUNK_TAIL = re.compile(r"([.!?:)\]])\s*(?!(?:com|org|net|in|io|ai|co)\s*$)[a-z]{1,3}\s*$")
+JUNK_LINE = re.compile(r"\n\s*[a-z]{1,3}\s*$")
+
+
+def tidy(text) -> str:
+	"""The AI's text without the junk a model sometimes leaves at the end."""
+	text = FENCE.sub("", str(text or "")).strip()
+	text = JUNK_LINE.sub("", text)
+	return JUNK_TAIL.sub(r"\1", text).strip()
+
+
 def estimate_tokens(doc, kinds: list[str] | None = None) -> int:
 	"""About how many tokens writing these sections costs (prompt and brief at four characters a
 	token, plus about 250 a section of answer)."""
@@ -897,7 +914,7 @@ def write_sections(
 	for row in doc.sections:
 		if row.section_type not in kinds:
 			continue
-		text = str(written.get(row.section_type) or "").strip()[:6000]
+		text = tidy(written.get(row.section_type))[:6000]
 		if text and ai.invents_numbers(text, known):
 			dropped.append(row.heading or _(row.section_type))
 			continue
@@ -921,7 +938,7 @@ def expand_customisations(doc, answers: dict, written, known: set) -> list[str]:
 	untouched = scope is not None and (scope.body or "") == (scope_of_work(doc) or "")
 	dropped = []
 	for row in answers["customisations"]:
-		text = str(written.get(row["item"]) or "").strip()[:600]
+		text = tidy(written.get(row["item"]))[:600]
 		if text and ai.invents_numbers(text, known):
 			dropped.append(row["item"])
 		elif text:
@@ -1017,34 +1034,101 @@ def extract_requirements(lead: str, text: str) -> dict:
 	"""The requirements box read into the scoping form by one small AI call (structured output
 	only): {template, scoping}. The answer is checked against the templates, the catalogue and
 	the form's choices; presales confirms it before anything is generated."""
-	from tbo_smart.lead_pipeline.proposals import templates
-
 	text = clip(text, REQUIREMENTS_CHARS)
 	if not text:
 		frappe.throw(_("Write or paste the client's requirements first."))
 	require_ai_budget()
+	context, options = form_context(text)
+	answer = ai.call_ai(
+		EXTRACT_PROMPT, json.dumps(context, default=str), "Proposal requirements", ("Lead", lead)
+	)["response"]
+	return checked_form(answer if isinstance(answer, dict) else {}, options)
+
+
+def form_context(text: str) -> tuple[dict, list[dict]]:
+	"""What the AI may pick from when it reads text into the form: the templates, the catalogue's
+	modules and the hostings. Returns (context, templates)."""
+	from tbo_smart.lead_pipeline.proposals import templates
+
 	options = templates()
-	names = [row.module_name for row in catalogue()]
 	context = {
-		"requirements": text,
+		"text": text,
 		"templates": [
 			{"name": row["name"], "solution": row["solution_type"], "about": row["description"]}
 			for row in options
 		],
-		"modules": names,
+		"modules": [row.module_name for row in catalogue()],
 		"hosting": list(HOSTING),
 	}
-	answer = ai.call_ai(
-		EXTRACT_PROMPT, json.dumps(context, default=str), "Proposal requirements", ("Lead", lead)
-	)["response"]
-	answer = answer if isinstance(answer, dict) else {}
+	return context, options
+
+
+def checked_form(answer: dict, options: list[dict]) -> dict:
+	"""The AI's form answers kept to the choices: {template, scoping}."""
 	template = answer.get("template") if answer.get("template") in {row["name"] for row in options} else None
 	solution = next((row["solution_type"] for row in options if row["name"] == template), None)
+	names = {row.module_name for row in catalogue()}
 	answer["modules"] = [name for name in answer.get("modules") or [] if name in names]
 	bullets = [str(item).strip() for item in answer.get("customisations") or [] if str(item).strip()]
 	answer["customisation"] = 1 if bullets else 0
 	answer["customisations"] = [{"item": item, "days": 0} for item in bullets]
 	return {"template": template, "scoping": scoping_answers(answer, solution)}
+
+
+CHAT_PROFILE = ("about", "industry", "size", "locations", "current_software", "key_processes", "pain_points")
+LANGUAGES = ("English", "Malayalam", "Mixed")
+
+
+def read_chat_answer(lead: str, question: str, text: str) -> dict:
+	"""An answer in the start chat that isn't what the question expected (an intent, a list of
+	needs, Malayalam or mixed) read by one small AI call: its English, the language it was in,
+	and what it says for the client profile and the scoping form. Only what the text says comes
+	back: {language, english, profile, template, scoping} with `profile` and `scoping` holding just
+	the fields it gave, so the chat merges them over what is already known."""
+	text = clip(text, REQUIREMENTS_CHARS)
+	if not text:
+		frappe.throw(_("Type or say the answer first."))
+	require_ai_budget()
+	context, options = form_context(text)
+	context["question"] = clip(question, 300)
+	answer = ai.call_ai(
+		CHAT_PROMPT, json.dumps(context, default=str), "Proposal chat answer", ("Lead", lead)
+	)["response"]
+	answer = answer if isinstance(answer, dict) else {}
+	given = {key for key, value in answer.items() if value not in (None, "", [], {}, False, 0)}
+	form = checked_form(answer, options)
+	scoping = {key: value for key, value in form["scoping"].items() if key in given}
+	if "customisations" in given and form["scoping"]["customisations"]:
+		scoping["customisation"] = True
+	profile = answer.get("profile") if isinstance(answer.get("profile"), dict) else {}
+	language = answer.get("language") if answer.get("language") in LANGUAGES else "English"
+	return {
+		"language": language,
+		"english": tidy(answer.get("english"))[:REQUIREMENTS_CHARS] or text,
+		"profile": {
+			field: tidy(profile[field])[:500]
+			for field in CHAT_PROFILE
+			if isinstance(profile.get(field), str) and profile[field].strip()
+		},
+		"template": form["template"],
+		"scoping": scoping,
+	}
+
+
+CHAT_PROMPT = """A salesperson is answering a chat that collects what an IT services proposal needs
+(ERPNext, Frappe, web and Flutter apps). You get the chat's "question" and their answer ("text"),
+which may be in English, Malayalam or both mixed, and may answer something other than the
+question. Use only what the text says; leave anything it doesn't mention out.
+
+Answer only JSON: {"language": "English" | "Malayalam" | "Mixed", "english": "<the text in plain
+English>", "profile": {"about": "<what the client does>", "industry": "", "size": "", "locations":
+"", "current_software": "", "key_processes": "", "pain_points": "<their problems today, short
+lines>"}, "template": "<one of templates[].name, only if the text points to one>", "modules":
+["<only names from modules>"], "customisations": ["<each special request not covered by a module,
+as a short English line>"], "mobile_app": true/false, "web_app": true/false, "integrations":
+"<systems to connect>", "data_migration": true/false, "users": <number or "Unlimited">,
+"companies": <number or "Unlimited">, "hosting": "<one of hosting>", "amc": true/false,
+"timeline_weeks": <number>, "source_code": true/false}. Write every value in English."""
 
 
 EXTRACT_PROMPT = """You read a salesperson's notes on what a client needs and fill a scoping form for an IT

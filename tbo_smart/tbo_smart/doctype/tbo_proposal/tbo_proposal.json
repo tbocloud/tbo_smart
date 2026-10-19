@@ -39,6 +39,7 @@
   "is_latest",
   "tracking_section",
   "public_token",
+  "ready_on",
   "sent_on",
   "sent_to",
   "first_viewed_on",
@@ -296,6 +297,14 @@
    "no_copy": 1
   },
   {
+   "fieldname": "ready_on",
+   "fieldtype": "Datetime",
+   "label": "Ready on",
+   "read_only": 1,
+   "no_copy": 1,
+   "description": "Marked ready to send: the content and numbers are fixed until it is reopened."
+  },
+  {
    "fieldname": "sent_on",
    "fieldtype": "Datetime",
    "label": "Sent on",
@@ -371,7 +380,7 @@
   }
  ],
  "links": [],
- "modified": "2026-10-21 12:00:00.000000",
+ "modified": "2026-10-21 14:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Proposal",
