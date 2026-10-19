@@ -131,6 +131,9 @@ class TestLeadOverview(FrappeTestCase):
 		self.assertEqual(everyone["scope"], "all")
 		self.assertGreaterEqual(everyone["totals"]["won"], 2)
 		self.assertRaises(frappe.PermissionError, hub.get_overview, owner=BDE2, acting_user=BDE)
+		# dates alone are a custom range, as for the lists the numbers open
+		old = hub.get_overview(from_date="2020-01-01", to_date="2020-01-31", acting_user=BDE)
+		self.assertEqual((old["period"], old["totals"]["new"]), ("custom", 0))
 		just_bde2 = hub.get_overview(owner=BDE2, acting_user=MANAGER)
 		self.assertEqual((just_bde2["totals"]["new"], just_bde2["totals"]["won"]), (1, 1))
 

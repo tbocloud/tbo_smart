@@ -219,9 +219,9 @@ def list_leads(
 				frappe.throw(_("temperature must be one of {0}.").format(", ".join(TEMPERATURES)))
 			filters["tbo_temperature"] = temperature
 		if metric:
-			# dates without a period are a custom range
-			period = period or ("custom" if (from_date or to_date) else "month")
-			board, _allowed = overview_board(period, from_date, to_date, owner)
+			board, _allowed = overview_board(
+				resolve_period(period, from_date, to_date), from_date, to_date, owner
+			)
 			filters["name"] = ("in", board.metric_leads(metric) or [""])
 		or_filters = search_filters(search)
 		order_by = "modified desc"
@@ -345,6 +345,11 @@ def serialize_rows(rows: list) -> list[dict]:
 # ---------- the overview and the sales scoreboard ----------
 
 
+def resolve_period(period: str | None, from_date, to_date) -> str:
+	"""Dates without a period are a custom range; neither is this month."""
+	return period or ("custom" if (from_date or to_date) else "month")
+
+
 def overview_board(period: str, from_date, to_date, owner: str | None) -> tuple[LeadOverview, list | None]:
 	"""(the overview's figures, the scope's owners): the session user's sales scope (their own
 	leads, their team's, or everyone's: None), narrowed to `owner` when that person is in it."""
@@ -360,7 +365,7 @@ def overview_board(period: str, from_date, to_date, owner: str | None) -> tuple[
 
 @frappe.whitelist()
 def get_overview(
-	period: str = "month",
+	period: str | None = None,
 	from_date: str | None = None,
 	to_date: str | None = None,
 	owner: str | None = None,
@@ -368,8 +373,10 @@ def get_overview(
 ) -> dict:
 	"""The Leads overview for the acting user's sales scope: totals, the pipeline by stage with
 	its value, the funnel, lost reasons, hot leads, and figures by owner, segment and source.
-	`period`: week, month, quarter or custom (with `from_date` and `to_date`)."""
+	`period`: week, month, quarter or custom (with `from_date` and `to_date`; dates alone are
+	custom too)."""
 	with acting_as(acting_user):
+		period = resolve_period(period, from_date, to_date)
 		board, allowed = overview_board(period, from_date, to_date, owner)
 		result = board.build_overview()
 		result["period"] = period

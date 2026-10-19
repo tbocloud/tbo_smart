@@ -40,7 +40,7 @@ curl -s -X POST https://india.teambackoffice.com/api/method/tbo_smart.api.hub_le
 | --- | --- | --- | --- |
 | `get_options` | GET | `acting_user` | `{stages: [{name, label, type, color}], sources: [], segments: [], owners: [{email, full_name}], territories: [], industries: []}` |
 | `list_leads` | GET | `search?`, `stage?`, `owner?`, `segment?`, `source?`, `temperature?` (Hot / Warm / Cold), `metric?` with `period?` / `from_date?` / `to_date?` (§2.4), `view` (`all` / `mine` / `call_today` / `follow_up`, default `all`), `start` (0), `page_length` (20, at most 100), `acting_user` | `{rows: [Row], total}` |
-| `get_overview` | GET | `period` (`week` / `month` / `quarter` / `custom`, default `month`), `from_date?`, `to_date?` (custom), `owner?`, `acting_user` | Overview (§2.4) |
+| `get_overview` | GET | `period` (`week` / `month` / `quarter` / `custom`; default `month`, or `custom` when dates are sent), `from_date?`, `to_date?` (custom), `owner?`, `acting_user` | Overview (§2.4) |
 | `get_sales_activity` | GET | `from_date?`, `to_date?` (default this month), `acting_user?` (§2.5) | `{from_date, to_date, currency, people: [Activity]}` |
 | `get_lead` | GET | `name`, `acting_user` | `{lead: Lead, timeline: [Item], quotations: [Quotation], allowed_stages: [stage name]}` |
 | `create_lead` | POST | `data`, `acting_user` | as `get_lead` |
