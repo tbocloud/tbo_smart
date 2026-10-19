@@ -24,6 +24,9 @@ and every change to the API updates it in the same pull request.
   everything (`erpnext-lead-cutover.md` §3).
 - **Anyone else** calling these (a user's own session or key) acts as themselves; passing
   another user's `acting_user` is 403.
+- **TBO Smart** (the mobile app) reaches the overview and the AI methods through
+  `tbo_smart.api.mobile.leads`, which calls these as the signed-in person behind the app's `crm`
+  capability (`tbo-smart-api-ess-crm.md` §6.5).
 - **Writes are POST**, reads GET. Arguments are form or JSON fields; `data` is a JSON object
   (or its string). Errors are Frappe's: `exc_type` `PermissionError` (403), `ValidationError`
   (417), `DoesNotExistError` (404).

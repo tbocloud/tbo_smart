@@ -1,0 +1,252 @@
+{
+  "message": {
+    "from_date": "2026-10-01",
+    "to_date": "2026-10-19",
+    "stale_days": 21,
+    "currency": "INR",
+    "totals": {
+      "new": 12,
+      "contacted": 9,
+      "meetings": 4,
+      "mom_pending": 1,
+      "quotations_sent": 3,
+      "won": 2,
+      "won_value": 340000.0,
+      "lost": 1,
+      "stale": 3,
+      "overdue": 2,
+      "hot": 4,
+      "open": 31,
+      "open_value": 1250000.0,
+      "win_rate": 66.7,
+      "conversion_rate": 8.3
+    },
+    "pipeline": [
+      {
+        "stage": "New Lead",
+        "type": "Open",
+        "color": "gray",
+        "count": 8,
+        "value": 0
+      },
+      {
+        "stage": "Contacted",
+        "type": "Ongoing",
+        "color": "blue",
+        "count": 6,
+        "value": 0
+      },
+      {
+        "stage": "Meeting Scheduled",
+        "type": "Ongoing",
+        "color": "cyan",
+        "count": 4,
+        "value": 0
+      },
+      {
+        "stage": "First Meeting Completed",
+        "type": "Ongoing",
+        "color": "teal",
+        "count": 3,
+        "value": 0
+      },
+      {
+        "stage": "Second Meeting Completed",
+        "type": "Ongoing",
+        "color": "teal",
+        "count": 1,
+        "value": 0
+      },
+      {
+        "stage": "Third Meeting Completed",
+        "type": "Ongoing",
+        "color": "teal",
+        "count": 0,
+        "value": 0
+      },
+      {
+        "stage": "Proposal Sent",
+        "type": "Ongoing",
+        "color": "violet",
+        "count": 3,
+        "value": 650000.0
+      },
+      {
+        "stage": "Negotiation",
+        "type": "Ongoing",
+        "color": "orange",
+        "count": 2,
+        "value": 600000.0
+      },
+      {
+        "stage": "Positive / Interested",
+        "type": "Ongoing",
+        "color": "green",
+        "count": 2,
+        "value": 0
+      },
+      {
+        "stage": "Follow-up Required",
+        "type": "Ongoing",
+        "color": "amber",
+        "count": 1,
+        "value": 0
+      },
+      {
+        "stage": "On Hold",
+        "type": "On Hold",
+        "color": "gray",
+        "count": 1,
+        "value": 0
+      },
+      {
+        "stage": "Closed – Won",
+        "type": "Won",
+        "color": "green",
+        "count": 2,
+        "value": 340000.0
+      },
+      {
+        "stage": "Closed – Lost",
+        "type": "Lost",
+        "color": "red",
+        "count": 1,
+        "value": 0
+      }
+    ],
+    "funnel": [
+      {
+        "step": "created",
+        "count": 12,
+        "rate": 100.0
+      },
+      {
+        "step": "contacted",
+        "count": 9,
+        "rate": 75.0
+      },
+      {
+        "step": "meeting",
+        "count": 4,
+        "rate": 33.3
+      },
+      {
+        "step": "proposal",
+        "count": 2,
+        "rate": 16.7
+      },
+      {
+        "step": "won",
+        "count": 1,
+        "rate": 8.3
+      }
+    ],
+    "lost_reasons": [
+      {
+        "reason": "Price too high",
+        "count": 1
+      }
+    ],
+    "hot": {
+      "count": 4,
+      "rows": [
+        {
+          "name": "CRM-LEAD-2026-00141",
+          "lead_name": "Faisal Al Mansoori",
+          "organization": "Al Noor Trading LLC",
+          "status": "Positive / Interested",
+          "lead_score": 82,
+          "lead_owner": "ruvaishid@teambackoffice.com"
+        }
+      ]
+    },
+    "by_owner": [
+      {
+        "user": "ruvaishid@teambackoffice.com",
+        "full_name": "Ruvaishid",
+        "meetings_held": 4,
+        "mom_pending": 1,
+        "mom_rate": 75.0,
+        "quotations": 3,
+        "quotations_sent": 3,
+        "won": 2,
+        "new": 12,
+        "contacted": 9,
+        "open": 31
+      }
+    ],
+    "by_segment": [
+      {
+        "value": "Small",
+        "new": 7,
+        "open": 18,
+        "won": 1
+      },
+      {
+        "value": null,
+        "new": 5,
+        "open": 13,
+        "won": 1
+      }
+    ],
+    "by_source": [
+      {
+        "value": "Website",
+        "new": 6,
+        "open": 14,
+        "won": 1
+      },
+      {
+        "value": "Referral",
+        "new": 6,
+        "open": 17,
+        "won": 1
+      }
+    ],
+    "period": "month",
+    "scope": "own",
+    "people": [
+      {
+        "user": "ruvaishid@teambackoffice.com",
+        "full_name": "Ruvaishid"
+      }
+    ],
+    "ai": {
+      "enabled": true,
+      "ai_ready": true,
+      "plan": {
+        "user": "ruvaishid@teambackoffice.com",
+        "rows": [
+          {
+            "name": "CRM-LEAD-2026-00138",
+            "lead_name": "Ajith Kumar",
+            "company_name": "Thrissur Gold House",
+            "tbo_stage": "Contacted",
+            "score": 64,
+            "temperature": "Warm",
+            "why": "Follow-up was due 17-10-2026",
+            "next_action": "Call to fix the demo date",
+            "next_due": "2026-10-20",
+            "intent": "Medium"
+          },
+          {
+            "name": "CRM-LEAD-2026-00141",
+            "lead_name": "Faisal Al Mansoori",
+            "company_name": "Al Noor Trading LLC",
+            "tbo_stage": "Positive / Interested",
+            "score": 82,
+            "temperature": "Hot",
+            "why": "Hot lead",
+            "next_action": "Send the proposal for three branches",
+            "next_due": "2026-10-21",
+            "intent": "High"
+          }
+        ]
+      },
+      "high_intent": 3,
+      "unhappy": 1,
+      "stage_suggested": 2,
+      "read": 27
+    }
+  }
+}
