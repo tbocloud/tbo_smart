@@ -10,11 +10,12 @@ import os
 
 import frappe
 from frappe import _
+from frappe.utils.background_jobs import is_job_enqueued
 
 from tbo_smart.cutover import crm_to_erpnext
 
 JOB_ID = "tbo-crm-to-erpnext-cutover"
-LOCK_SECONDS = 2 * 3600
+TIMEOUT = 2 * 3600
 FAILED_KEY = "tbo_cutover_failed"
 
 
@@ -23,8 +24,13 @@ def require_system_manager() -> None:
 		frappe.throw(_("Only a System Manager can run the CRM cutover."), frappe.PermissionError)
 
 
-def lock_key() -> str:
-	return frappe.cache.make_key("tbo_cutover_running")
+def lock_name() -> str:
+	# a MariaDB named lock is server-wide, so it carries the site's database
+	return f"tbo_cutover:{frappe.conf.db_name}"
+
+
+def lock_held() -> bool:
+	return frappe.db.sql("SELECT IS_USED_LOCK(%s)", lock_name())[0][0] is not None
 
 
 @frappe.whitelist()
@@ -36,18 +42,21 @@ def dry_run() -> dict:
 
 @frappe.whitelist(methods=["POST"])
 def start() -> dict:
-	"""Queue the real run (it can take minutes); `status` says when it's done. One at a time:
-	the slot is taken atomically before queueing and freed when the run ends."""
+	"""Queue the real run (it can take minutes); `status` says when it's done."""
 	require_system_manager()
-	if not frappe.cache.set(lock_key(), frappe.session.user, nx=True, ex=LOCK_SECONDS):
+	if is_job_enqueued(JOB_ID) or lock_held():
 		return {"queued": False, "message": _("The cutover is already running.")}
 	frappe.cache.delete_value(FAILED_KEY)
-	frappe.enqueue("tbo_smart.api.cutover.run_and_release", queue="long", timeout=LOCK_SECONDS, job_id=JOB_ID)
+	frappe.enqueue("tbo_smart.api.cutover.run_once", queue="long", timeout=TIMEOUT, job_id=JOB_ID)
 	return {"queued": True, "message": _("The cutover is running. Check status in a few minutes.")}
 
 
-def run_and_release() -> None:
-	"""The queued run: frees the slot however it ends, and keeps a failure for `status`."""
+def run_once() -> None:
+	"""The queued run. It holds a MariaDB named lock on its own connection for as long as it
+	runs, so a second run that slipped through start() exits at once, and the lock goes when
+	the worker's connection does, however the run ends. A failure is kept for `status`."""
+	if not frappe.db.sql("SELECT GET_LOCK(%s, 0)", lock_name())[0][0]:
+		return
 	try:
 		crm_to_erpnext.run(dry_run=False)
 	except Exception:
@@ -56,7 +65,7 @@ def run_and_release() -> None:
 		)
 		raise
 	finally:
-		frappe.cache.delete(lock_key())
+		frappe.db.sql("SELECT RELEASE_LOCK(%s)", lock_name())
 
 
 @frappe.whitelist()
@@ -71,7 +80,7 @@ def status() -> dict:
 		with open(os.path.join(folder, reports[-1])) as file:  # the site's own report folder - nosemgrep
 			report = json.load(file)
 	return {
-		"running": bool(frappe.cache.get(lock_key())),
+		"running": is_job_enqueued(JOB_ID) or lock_held(),
 		"failed": frappe.cache.get_value(FAILED_KEY),
 		"last_report": report,
 	}
