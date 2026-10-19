@@ -30,7 +30,13 @@ from frappe.utils import cint, escape_html, formatdate, getdate, today
 from tbo_smart.lead_pipeline.meetings import meeting_digest_lines, meeting_people
 from tbo_smart.sales import lead_url
 from tbo_smart.sales.hierarchy import managers_of
-from tbo_smart.smart_leads import OPEN_STATUSES, SALES_HEAD_ROLE, follow_ups_enabled, setting
+from tbo_smart.smart_leads import (
+	OPEN_STATUSES,
+	SALES_HEAD_ROLE,
+	ai_leads_enabled,
+	follow_ups_enabled,
+	setting,
+)
 from tbo_smart.smart_leads.facts import LeadFacts
 from tbo_smart.smart_leads.notify import deliver, notify
 from tbo_smart.smart_leads.utils import WorkCalendar, enabled_users, on_leave, users_with_role
@@ -62,6 +68,8 @@ class FollowUp:
 	days_overdue: int = 0
 	recipients: set = field(default_factory=set)
 	cover_note: str | None = None
+	# the AI's next best action for the lead, with AI runs leads on (docs/smart-leads.md §11)
+	ai_action: str | None = None
 
 
 class FollowUpRun:
@@ -82,6 +90,8 @@ class FollowUpRun:
 		self.fallback = setting("lead_fallback_owner")
 		self.items: list[FollowUp] = []
 		self.needs_owner: list[str] = []
+		# each line names the AI's next action while AI runs leads
+		self.ai_actions = ai_leads_enabled()
 
 	def evaluate(self) -> list[FollowUp]:
 		filters = {"tbo_stage": ("in", OPEN_STATUSES)}
@@ -128,6 +138,8 @@ class FollowUpRun:
 		item = FollowUp(
 			name, lead.lead_name, lead.organization, NO_FOLLOW_UP, owner, int(lead.lead_score or 0)
 		)
+		if self.ai_actions:
+			item.ai_action = lead.tbo_ai_next_action
 		task = self.facts.next_follow_up(name)
 		if task:
 			due = getdate(task.due_date)
@@ -282,6 +294,8 @@ def item_line(item: FollowUp) -> str:
 		detail = _("no next follow-up")
 	if item.cover_note:
 		detail += f"; {item.cover_note}"
+	if item.ai_action:
+		detail += "; " + _("AI suggests: {0}").format(item.ai_action)
 	return f"{who}: {detail}"
 
 

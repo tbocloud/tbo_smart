@@ -39,6 +39,7 @@ LEAD_FIELDS = [
 	"tbo_ai_brief",
 	"tbo_ai_brief_hash",
 	"tbo_ai_brief_at",
+	"tbo_ai_next_action",
 ]
 NOTES_PER_LEAD = 8
 NOTE_CHARS = 300
