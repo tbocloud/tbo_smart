@@ -91,7 +91,8 @@ days, the notice, 30 s, the model and its price.
 4. **Once per call:** a **TBO Call** keyed by MyOperator's call ID (`payload.id`, unique) holds
    the call and its last payload. A repeat of an event already seen returns
    `{"ok": true, "duplicate": true}`. A `call.summary` after a `call.end` completes the stored
-   call. Two identical requests at once hit the unique key.
+   call. Two requests for the same call at once hit the unique key: the loser is a duplicate,
+   unless it is the `call.summary`, which then completes the stored call.
 5. `process_call` runs in the background, short queue. It runs again safely for the same call
    because it locks the call's row.
    - **Agent:** the click-to-call that started the call (its `reference_id`, remembered 6 hours).
@@ -136,7 +137,7 @@ TBO Call is readable by System Managers only, so the transcript and the raw payl
   A missing recording gets 404.
 - The app: `tbo_smart.api.mobile.leads.click_to_call(name, number?)` and
   `call_recording(call)` behind the `crm` capability. Capability `click_to_call` is true when
-  telephony is on and the person is mapped (`tbo-smart-api-ess-crm.md` §6.6).
+  telephony is on and the person has a sales role and is mapped (`tbo-smart-api-ess-crm.md` §6.6).
 - The hub: proxies in tbocloud/helpdesk `helpdesk/api/leads.py`, and Settings → Telephony
   (`docs/leads.md`).
 
@@ -172,7 +173,8 @@ the call **Pending**, and the summary job runs after the recording download.
    (`ai.transcribe`). The model is the transcription setting, and no language is sent, so the
    model detects Malayalam, English or both. A short prompt names the languages. The usage log
    row is "Call transcription", priced as minutes × price per minute. A paused or failing
-   OpenAI section marks the call **Failed**.
+   OpenAI section marks the call **Failed**. A wrong speech model (`config`) doesn't pause the
+   OpenAI section's chat features.
 3. **One chat call** through the usual provider order and failover (`ai.call_ai`, "Call summary").
    It returns `{summary, language, interest, sentiment, intent, objections, next_step}`. Every
    text goes through the number guard against the transcript, today and the call's length. A
@@ -191,9 +193,10 @@ the call **Pending**, and the summary job runs after the recording download.
 
 ## 6. Retention
 
-`tbo_smart.telephony.calls.purge_old_recordings` runs daily. While telephony is on, it deletes
-the recording Files of calls that started more than **Keep recordings** days ago, and clears
-their transcript. The TBO Call, the Event and the summary stay.
+`tbo_smart.telephony.calls.purge_old_recordings` runs daily, with telephony on or off. It
+deletes the recording Files and clears the transcripts of calls older than **Keep recordings**
+days, counted from the call's start (or the day it was stored, when MyOperator sent no start).
+The TBO Call, the Event and the summary stay.
 
 ## 7. What the owner does in MyOperator
 
