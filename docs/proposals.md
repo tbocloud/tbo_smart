@@ -111,7 +111,8 @@ next `revision_no` in its family, a fresh validity and a **new link**; it become
 - **Preview** (`?preview=1`, the hub's *Preview link*): any status including Draft, a "Preview"
   notice, no view recorded, no Accept or Decline.
 - **Viewed:** the page posts `record_view` once loaded (so a mail scanner fetching the link counts
-  nothing). Each view adds to `view_count` and sets `last_viewed_on`; the first moves Sent to
+  nothing); only a visitor who isn't signed in to the ERP site counts (staff checking the link
+  don't), and the count is taken under the row lock. Each view adds to `view_count` and sets `last_viewed_on`; the first moves Sent to
   **Viewed** with `first_viewed_on`, moves its quotation from Sent to Client to Viewed /
   Acknowledged, comments on the lead and tells the lead owner (in-app and push).
 - **Accept:** name and email required. The proposal becomes **Accepted** with who and when; its

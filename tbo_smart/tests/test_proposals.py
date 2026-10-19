@@ -370,6 +370,11 @@ class TestClientPage(ProposalTestCase):
 		call_as_guest(page.record_view, token)
 		doc = frappe.get_doc(p.DOCTYPE, name)
 		self.assertEqual((doc.status, doc.view_count), (p.VIEWED, 2))
+		# someone signed in here (staff checking the link) counts nothing
+		frappe.set_user(BDE)
+		page.record_view(token)
+		frappe.set_user(HUB)
+		self.assertEqual(frappe.db.get_value(p.DOCTYPE, name, "view_count"), 2)
 		self.assertTrue(doc.first_viewed_on and doc.last_viewed_on)
 		self.assertEqual(frappe.db.get_value("Quotation", doc.quotation, "tbo_quote_status"), q.VIEWED)
 		self.assertTrue(

@@ -19,9 +19,10 @@ def get_public(token: str, preview: bool = False):
 @frappe.whitelist(allow_guest=True, methods=["POST"])  # the token is the key - nosemgrep
 @rate_limit(limit=60, seconds=60 * 60)
 def record_view(token: str) -> dict:
-	"""The page was opened (not in preview): one more view, the first marks it Viewed."""
+	"""The page was opened (not in preview): one more view, the first marks it Viewed. Only the
+	client's views count: someone signed in on this site (staff checking the link) counts nothing."""
 	doc = get_public(token)
-	if doc.status in proposals.WITH_CLIENT:
+	if frappe.session.user == "Guest" and doc.status in proposals.WITH_CLIENT:
 		proposals.record_view(doc)
 	return {"status": doc.status}
 

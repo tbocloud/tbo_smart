@@ -687,8 +687,12 @@ def as_system():
 def record_view(doc) -> None:
 	"""One more view; the first moves Sent to Viewed (and its quotation to Viewed /
 	Acknowledged) and tells the lead's owner."""
-	values = {"view_count": cint(doc.view_count) + 1, "last_viewed_on": now_datetime()}
-	first = doc.status == SENT
+	# under the row lock, so two views at once both count and neither undoes an answer
+	locked = frappe.db.get_value(DOCTYPE, doc.name, ["status", "view_count"], as_dict=True, for_update=True)
+	if locked.status not in WITH_CLIENT:
+		return
+	values = {"view_count": cint(locked.view_count) + 1, "last_viewed_on": now_datetime()}
+	first = locked.status == SENT
 	if first:
 		values.update({"status": VIEWED, "first_viewed_on": values["last_viewed_on"]})
 	frappe.db.set_value(DOCTYPE, doc.name, values, update_modified=False)
