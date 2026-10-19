@@ -242,6 +242,7 @@ after_migrate = [
 	"tbo_smart.checkin.setup.setup_checkin_location",
 	"tbo_smart.smart_leads.setup.after_migrate",
 	"tbo_smart.lead_pipeline.setup.after_migrate",
+	"tbo_smart.telephony.setup.setup_telephony",
 ]
 
 scheduler_events = {
@@ -252,6 +253,8 @@ scheduler_events = {
 		"tbo_smart.smart_leads.scoring.score_all",
 		"tbo_smart.lead_pipeline.quotations.expire_quotations",
 		"tbo_smart.lead_pipeline.proposals.expire_proposals",
+		# Telephony: recordings and transcripts past their retention (docs/telephony-myoperator.md)
+		"tbo_smart.telephony.calls.purge_old_recordings",
 	],
 	"cron": {
 		# Phase 2 (receivables): digest at 08:00, reminders at 09:00, site time

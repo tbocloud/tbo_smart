@@ -744,7 +744,7 @@ def activity_changed(doc, method=None) -> None:
 	elif doc.doctype == "Communication":
 		if doc.reference_doctype == "Lead" and doc.communication_medium == "Email":
 			queue_insight(doc.reference_name)
-	elif doc.doctype == "Event":
+	elif doc.doctype == "Event" and not doc.flags.skip_ai_read:
 		for row in doc.get("event_participants") or []:
 			if row.reference_doctype == "Lead":
 				queue_insight(row.reference_docname)

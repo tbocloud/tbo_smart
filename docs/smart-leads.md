@@ -1,4 +1,4 @@
-# Smart leads: scoring, Call today, follow-ups, AI notes and AI runs leads (living spec, v1.3)
+# Smart leads: scoring, Call today, follow-ups, AI notes and AI runs leads (living spec, v1.4)
 
 **Status:** built 2026-10-15, every feature off by default; since v1.2 on **ERPNext's own Lead**
 instead of Frappe CRM's CRM Lead (`erpnext-lead-cutover.md`). This file is the living spec: it
@@ -436,6 +436,12 @@ a day (one atomic Redis counter per day, so jobs side by side can't pass it). Th
 scoring keeps its own cap (§4.2); together they are the AI's daily cost. A failed AI call writes nothing and is tried on the next
 change. Feature "Lead insight" in the usage log; "Lead email draft" for email drafts.
 
+**A call with an AI summary** (`telephony-myoperator.md` §5) feeds the read itself: its
+sentiment, intent and next step become the stored insight (with the current hash) and the
+follow-up, and its call Event is inserted with `flags.skip_ai_read`, so the lead isn't read a
+second time for it. The summary takes one of the day's `ai_daily_lead_limit` reads ("Call
+transcription" and "Call summary" in the usage log).
+
 **Number guard:** every text the AI writes (summary, signals, the action and its why, the stage
 reason, the message) passes `ai.guarded` against the lead's facts, the emails, today and the
 salesperson's name; a text with an invented number is dropped (a dropped message means no
@@ -488,6 +494,10 @@ and duplicates within the person's view; drafts never send; the overview's plan;
 nudges once; the digest line; the daily cap.
 
 ## Changelog
+
+- **v1.4 (2026-10-19):** MyOperator's AI call summary feeds AI runs leads (§11.1): no second
+  read for a summed-up call; `ai.transcribe` and `log_usage(cost=…)` for speech priced by the
+  minute (`telephony-myoperator.md`).
 
 - **v1.3 (2026-10-19):** AI runs leads (§11): the master switch, the lead insight on change
   with the next action as the follow-up, stage suggestions applied by a person, health,

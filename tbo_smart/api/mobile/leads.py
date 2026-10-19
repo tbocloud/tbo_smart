@@ -9,7 +9,7 @@ crm.log_activity (kind whatsapp or email), the same record the hub's log_message
 
 import frappe
 
-from tbo_smart.api import hub_leads
+from tbo_smart.api import hub_leads, telephony
 from tbo_smart.api.mobile.crm import get_lead, require_crm
 
 
@@ -55,3 +55,18 @@ def draft_lead_message(name: str, channel: str, language: str = "en") -> dict:
 	"""A WhatsApp or email text for me to edit and send from my own app. Nothing is sent."""
 	require_crm()
 	return hub_leads.draft_lead_message(name, channel, language)
+
+
+@frappe.whitelist(methods=["POST"])
+def click_to_call(name: str, number: str | None = None) -> dict:
+	"""MyOperator rings my phone, then the lead (`number`: one of the lead's numbers, default its
+	mobile): {ok, message, number, reference_id}. The app keeps its own tel: call as the fallback."""
+	require_crm()
+	return telephony.click_to_call(name, number)
+
+
+@frappe.whitelist()
+def call_recording(call: str) -> None:
+	"""A MyOperator call's recording (audio/mpeg), when I may read its lead."""
+	require_crm()
+	telephony.call_recording(call)

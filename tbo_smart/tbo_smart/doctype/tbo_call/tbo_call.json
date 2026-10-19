@@ -1,0 +1,215 @@
+{
+ "actions": [],
+ "autoname": "hash",
+ "creation": "2026-10-19 12:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "call_id",
+  "direction",
+  "status",
+  "customer_number",
+  "lead",
+  "event",
+  "column_break_who",
+  "agent",
+  "agent_ref",
+  "started_at",
+  "ended_at",
+  "duration",
+  "talk_seconds",
+  "reference_id",
+  "recording_section",
+  "recording_filename",
+  "recording",
+  "ai_status",
+  "column_break_summary",
+  "summary",
+  "transcript",
+  "webhook_section",
+  "last_event",
+  "payload"
+ ],
+ "fields": [
+  {
+   "fieldname": "call_id",
+   "fieldtype": "Data",
+   "label": "MyOperator call ID",
+   "unique": 1,
+   "reqd": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "direction",
+   "fieldtype": "Select",
+   "label": "Direction",
+   "options": "Incoming\nOutgoing",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Answered\nMissed\nVoicemail",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "customer_number",
+   "fieldtype": "Data",
+   "label": "Customer number",
+   "options": "Phone",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "lead",
+   "fieldtype": "Link",
+   "label": "Lead",
+   "options": "Lead",
+   "in_standard_filter": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "event",
+   "fieldtype": "Link",
+   "label": "Event",
+   "options": "Event",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_who",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "agent",
+   "fieldtype": "Link",
+   "label": "Agent",
+   "options": "User",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "agent_ref",
+   "fieldtype": "Data",
+   "label": "MyOperator agent",
+   "read_only": 1,
+   "description": "The agent's MyOperator user ID, extension or mobile, as the webhook sent it."
+  },
+  {
+   "fieldname": "started_at",
+   "fieldtype": "Datetime",
+   "label": "Started at",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "ended_at",
+   "fieldtype": "Datetime",
+   "label": "Ended at",
+   "read_only": 1
+  },
+  {
+   "fieldname": "duration",
+   "fieldtype": "Int",
+   "label": "Duration (seconds)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "talk_seconds",
+   "fieldtype": "Int",
+   "label": "Talk time (seconds)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reference_id",
+   "fieldtype": "Data",
+   "label": "Click-to-call reference",
+   "read_only": 1
+  },
+  {
+   "fieldname": "recording_section",
+   "fieldtype": "Section Break",
+   "label": "Recording and summary"
+  },
+  {
+   "fieldname": "recording_filename",
+   "fieldtype": "Data",
+   "label": "MyOperator recording file",
+   "read_only": 1
+  },
+  {
+   "fieldname": "recording",
+   "fieldtype": "Attach",
+   "label": "Recording",
+   "read_only": 1
+  },
+  {
+   "fieldname": "ai_status",
+   "fieldtype": "Select",
+   "label": "AI summary",
+   "options": "\nPending\nDone\nSkipped\nFailed",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_summary",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "summary",
+   "fieldtype": "JSON",
+   "label": "Summary",
+   "read_only": 1
+  },
+  {
+   "fieldname": "transcript",
+   "fieldtype": "Long Text",
+   "label": "Transcript",
+   "read_only": 1
+  },
+  {
+   "fieldname": "webhook_section",
+   "fieldtype": "Section Break",
+   "label": "Webhook",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "last_event",
+   "fieldtype": "Data",
+   "label": "Last webhook event",
+   "read_only": 1
+  },
+  {
+   "fieldname": "payload",
+   "fieldtype": "JSON",
+   "label": "Last webhook payload",
+   "read_only": 1
+  }
+ ],
+ "in_create": 1,
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-10-19 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tbo Smart",
+ "name": "TBO Call",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "delete": 1,
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager"
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "customer_number",
+ "track_changes": 0
+}
