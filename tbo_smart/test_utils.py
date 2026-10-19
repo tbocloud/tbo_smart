@@ -1206,6 +1206,16 @@ def delete_smart_lead_records(owners: list[str] | tuple) -> None:
 	frappe.db.commit()  # nosemgrep
 
 
+def delete_lead_pipeline_records(owners: list[str] | tuple) -> None:
+	"""Delete the leads of `owners` with their quotations, meetings and deals, and every note,
+	call, task and stage change on them (delete_smart_lead_records), and commit."""
+	leads = frappe.get_all("Lead", filters={"lead_owner": ("in", list(owners))}, pluck="name")
+	delete_lead_quotations(leads)
+	delete_lead_meetings(leads)
+	delete_lead_deals(leads)
+	delete_smart_lead_records(owners)
+
+
 def get_fixture(name: str) -> dict:
 	"""A response fixture from docs/fixtures (the mobile contract's examples)."""
 	path = frappe.get_app_path("tbo_smart", "..", "docs", "fixtures", f"{name}.json")
