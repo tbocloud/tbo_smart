@@ -48,6 +48,16 @@ class SiteUnreachable(frappe.ValidationError):
 	"""The website couldn't be read; presales types the profile instead."""
 
 
+# a domain as people type it: vasthubuilders.com, www.client.co.in
+DOMAIN = re.compile(r"^(?=.{4,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$", re.I)
+
+
+def unreachable(message: str) -> None:
+	"""Every reason the site can't be read reaches presales in words (frappe.throw, so the hub
+	shows it), never as a bare error."""
+	frappe.throw(message, SiteUnreachable, title=_("Couldn't read the website"))
+
+
 def clean_profile(raw) -> dict:
 	raw = frappe.parse_json(raw) if isinstance(raw, str) else (raw or {})
 	if not isinstance(raw, dict):
@@ -126,7 +136,7 @@ def read_website(lead: str, url: str | None = None, refresh: bool = False) -> di
 		frappe.throw(_("Give the client's website address."))
 	text = site_text(url)
 	if not text:
-		raise SiteUnreachable(_("The website had no readable text. Type the profile instead."))
+		unreachable(_("The website had no readable text. Type the profile instead."))
 	require_ai_budget()
 	answer = ai.call_ai(
 		PROMPT, json.dumps({"website": url, "site_text": text}), "Proposal client profile", ("Lead", lead)
@@ -160,11 +170,12 @@ mention", "key_processes": "their main operations, e.g. manufacturing, distribut
 
 
 def public_address(host: str) -> bool:
-	"""Every address the host resolves to is a public one."""
+	"""Every address the host resolves to is a public one (a host that doesn't resolve is
+	refused in words)."""
 	try:
 		infos = socket.getaddrinfo(host, None)
 	except (socket.gaierror, UnicodeError):
-		return False
+		unreachable(_("Couldn't find the website {0}. Check the address.").format(host))
 	addresses = {info[4][0] for info in infos}
 	if not addresses:
 		return False
@@ -177,13 +188,25 @@ def public_address(host: str) -> bool:
 
 def checked_url(url: str) -> str:
 	parsed = urlparse(url)
+	if parsed.hostname and not (DOMAIN.match(parsed.hostname) or is_ip(parsed.hostname)):
+		unreachable(
+			_("That doesn't look like a website. Type it like vasthubuilders.com, or go on without one.")
+		)
 	if parsed.scheme not in ("http", "https") or not parsed.hostname:
-		raise SiteUnreachable(_("Only http and https website addresses can be read."))
+		unreachable(_("Only http and https website addresses can be read."))
 	if parsed.username or parsed.password:
-		raise SiteUnreachable(_("That website address can't be read."))
+		unreachable(_("That website address can't be read."))
 	if not public_address(parsed.hostname):
-		raise SiteUnreachable(_("That website address isn't a public site, so it can't be read."))
+		unreachable(_("That website address isn't a public site, so it can't be read."))
 	return url
+
+
+def is_ip(host: str) -> bool:
+	try:
+		ipaddress.ip_address(host)
+	except ValueError:
+		return False
+	return True
 
 
 def fetch(url: str) -> tuple[str, str]:
@@ -200,22 +223,26 @@ def fetch(url: str) -> tuple[str, str]:
 				headers={"User-Agent": "TBO-Proposals/1.0 (+https://teambackoffice.com)"},
 			)
 		except requests.RequestException as e:
-			raise SiteUnreachable(_("Couldn't reach the website ({0}).").format(type(e).__name__)) from e
+			unreachable(
+				_("The website took too long to answer. Try again, or go on without it.")
+				if isinstance(e, requests.Timeout)
+				else _("Couldn't reach the website. Check the address, or go on without it.")
+			)
 		with response:
 			if response.is_redirect or response.status_code in (301, 302, 303, 307, 308):
 				url = urljoin(url, response.headers.get("Location") or "")
 				continue
 			if response.status_code >= 400:
-				raise SiteUnreachable(_("The website answered {0}.").format(response.status_code))
+				unreachable(_("The website answered {0}.").format(response.status_code))
 			if "html" not in (response.headers.get("Content-Type") or "text/html"):
-				raise SiteUnreachable(_("The website address isn't a web page."))
+				unreachable(_("The website address isn't a web page."))
 			body = b""
 			for chunk in response.iter_content(16_384):
 				body += chunk
 				if len(body) >= MAX_PAGE_BYTES:
 					break
 			return url, body[:MAX_PAGE_BYTES].decode(response.encoding or "utf-8", errors="replace")
-	raise SiteUnreachable(_("The website redirects too many times."))
+	unreachable(_("The website redirects too many times."))
 
 
 def page_text(html: str) -> tuple[str, list[str]]:
@@ -249,6 +276,8 @@ def site_text(url: str) -> str:
 		try:
 			parts.append(page_text(fetch(target)[1])[0])
 		except SiteUnreachable:
+			# an extra page that can't be read is skipped; its message mustn't reach presales
+			frappe.clear_last_message()
 			continue
 		if sum(len(part) for part in parts) >= MAX_TEXT:
 			break

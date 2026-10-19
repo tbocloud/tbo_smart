@@ -1,8 +1,10 @@
 import io
 import json
+import socket
 from unittest.mock import patch
 
 import frappe
+import requests
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, nowdate
 
@@ -1225,3 +1227,79 @@ class TestMaster(ProposalTestCase):
 		self.assertRaises(
 			frappe.ValidationError, hub.chat_edit, created["name"], "add Payroll", acting_user=BDE
 		)
+
+
+class TestChatFeedback(ProposalTestCase):
+	"""The live test's findings: the website step's errors in words; users and companies can be
+	Unlimited."""
+
+	def test_every_website_failure_comes_back_in_words(self):
+		from tbo_smart.lead_pipeline import proposal_profile as profile
+
+		frappe.set_user("Administrator")
+		enable_proposals(ai=True)
+		configure_ai_providers()
+		frappe.set_user(HUB)
+		public = [(2, 1, 6, "", ("93.184.216.34", 0))]
+		not_html = page_response("")
+		not_html.headers = {"Content-Type": "application/pdf"}
+		cases = (
+			("build propsol", None, None, "doesn't look like a website"),
+			("no-such-site.example", "dns", None, "Couldn't find the website"),
+			("client.example", public, requests.Timeout(), "took too long"),
+			("client.example", public, requests.ConnectionError(), "Couldn't reach the website"),
+			("client.example", public, not_html, "isn't a web page"),
+			("10.0.0.5", None, None, "isn't a public site"),
+		)
+		for url, resolved, answer, words in cases:
+			frappe.clear_messages()
+			dns = (
+				patch("socket.getaddrinfo", side_effect=socket.gaierror())
+				if resolved == "dns"
+				else patch("socket.getaddrinfo", return_value=resolved or [(2, 1, 6, "", (url, 0))])
+			)
+			get = patch(
+				"tbo_smart.lead_pipeline.proposal_profile.requests.get",
+				**({"side_effect": answer} if isinstance(answer, Exception) else {"return_value": answer}),
+			)
+			with dns, get, mock_ai() as post:
+				with self.assertRaises(profile.SiteUnreachable) as caught:
+					hub.read_client_website(self.lead, url, 1, acting_user=BDE)
+			self.assertIn(words, str(caught.exception), url)
+			# through frappe.throw: the message reaches the hub, not a bare 417
+			self.assertTrue(frappe.message_log, url)
+			post.assert_not_called()
+
+	def test_users_and_companies_can_be_unlimited(self):
+		proposal = make_hub_proposal(self.lead, BDE, TEMPLATE, 0, {"users": "Unlimited", "companies": 3})
+		self.assertEqual((proposal["scoping"]["users"], proposal["scoping"]["companies"]), ("Unlimited", 3))
+		bodies = {row["section_type"]: row["body"] for row in proposal["sections"]}
+		self.assertIn("Users and companies | Unlimited users, Up to 3 companies", bodies["Proposed Solution"])
+		self.assertIn("The price covers unlimited users, up to 3 companies.", bodies["Investment"])
+		self.assertIn("The set-up is sized for unlimited users, up to 3 companies.", bodies["Assumptions"])
+		one = make_hub_proposal(self.lead, BDE, TEMPLATE, 0, {"users": 40, "companies": "unlimited"})
+		self.assertEqual(one["scoping"]["companies"], "Unlimited")
+		self.assertEqual(builder.scale_text(one["scoping"]), "40 users, Unlimited companies")
+
+	def test_the_requirements_read_knows_unlimited_and_multi_company(self):
+		frappe.set_user("Administrator")
+		enable_proposals(ai=True)
+		configure_ai_providers()
+		frappe.set_user(HUB)
+
+		def answer(url, body):
+			self.assertIn("multi-company", body["messages"][0]["content"])
+			return openai_answer({"template": TEMPLATE, "users": "Unlimited", "companies": 2})
+
+		with mock_ai(answer):
+			form = hub.extract_requirements(self.lead, "Unlimited users, multi-company", acting_user=BDE)
+		self.assertEqual((form["scoping"]["users"], form["scoping"]["companies"]), ("Unlimited", 2))
+
+	def test_old_scoping_gains_companies(self):
+		from tbo_smart.patches.v1 import proposal_scoping_companies
+
+		proposal = make_hub_proposal(self.lead, BDE, TEMPLATE)
+		set_proposal_values(proposal["name"], scoping=json.dumps({"modules": ["Accounts"], "users": 25}))
+		proposal_scoping_companies.execute()
+		scoping = frappe.parse_json(frappe.db.get_value(p.DOCTYPE, proposal["name"], "scoping"))
+		self.assertEqual((scoping["users"], scoping["companies"]), (25, 0))
