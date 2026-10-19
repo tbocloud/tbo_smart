@@ -747,8 +747,8 @@ def decide(doc, accept: bool, name: str | None, email_address: str | None, reaso
 		frappe.throw(_("This proposal can't be answered any more. Ask us for the latest one."))
 	if doc.valid_till and getdate(doc.valid_till) < getdate(today()):
 		frappe.throw(_("This proposal has expired. Ask us for a new one."))
-	if accept and doc.quotation and not quotation_with_client(doc):
-		# its price has expired or was withdrawn; accepting would win the lead without it
+	if price_unavailable(doc):
+		# its price has expired or was withdrawn: there is nothing left to accept or decline
 		frappe.throw(_("The price in this proposal is no longer valid. Ask us for a new one."))
 	name = clean(name, MAX_HEADING)
 	email_address = clean(email_address, MAX_HEADING)
@@ -797,6 +797,11 @@ def quotation_with_client(doc):
 	if quotation.get("tbo_quote_status") not in q.WITH_CLIENT or price_expired(quotation):
 		return None
 	return quotation
+
+
+def price_unavailable(doc) -> bool:
+	"""The proposal is priced, but its quotation is no longer with the client or valid."""
+	return bool(doc.quotation) and not quotation_with_client(doc)
 
 
 def price_expired(quotation) -> bool:
@@ -860,6 +865,7 @@ def page_context(doc, preview: bool = False) -> dict:
 	)
 	expired = bool(doc.valid_till and getdate(doc.valid_till) < getdate(today()))
 	pricing = pricing_table(doc.quotation) if doc.quotation else None
+	price_gone = doc.status in WITH_CLIENT and price_unavailable(doc)
 	return {
 		"title": doc.title,
 		"theme": "graphite" if doc.theme == "Graphite" else "teal",
@@ -871,7 +877,12 @@ def page_context(doc, preview: bool = False) -> dict:
 		"status": doc.status,
 		"preview": preview,
 		"superseded": not cint(doc.is_latest),
-		"can_decide": not preview and doc.status in WITH_CLIENT and cint(doc.is_latest) and not expired,
+		"can_decide": not preview
+		and doc.status in WITH_CLIENT
+		and cint(doc.is_latest)
+		and not expired
+		and not price_gone,
+		"price_unavailable": price_gone,
 		"expired": expired or doc.status == EXPIRED,
 		"decided_by": doc.decided_by_name,
 		"decided_on": frappe.utils.formatdate(doc.decided_on, "d MMMM yyyy") if doc.decided_on else None,

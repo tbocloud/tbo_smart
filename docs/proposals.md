@@ -55,10 +55,11 @@ Quotation Packages, **TBO Proposal Template Package**).
 
 - A new proposal copies the template's blocks with their default text and is titled
   "<solution type> for <company>". Without a template: Cover, Solution, Pricing, Terms.
-- **Seeded** on install / migrate when the site has no template at all: ERPNext Implementation,
+- **Seeded** once per site on install / migrate (a marker in the site's defaults), when it has no
+  template yet: ERPNext Implementation,
   Helpdesk / Support, Custom Solution, Digital Marketing, each with an About us and Terms text and
   guidance for the rest, and no packages (packages are the site's own). After that they are the
-  editors' to change or delete; a migrate doesn't bring them back.
+  editors' to change or delete; a migrate doesn't bring them back, even when all were deleted.
 - Edited by the roles that edit presets and prices (`presets.can_edit_presets`), from the hub
   (`save_template`) or the desk.
 
@@ -122,7 +123,9 @@ next `revision_no` in its family, a fresh validity and a **new link**; it become
   and makes its deal (`lead-pipeline.md` §6, §9.3); without a quotation the lead moves to Closed –
   Won itself (`transitions.advance_lead`). Refused while its quotation is no longer with the
   client or its valid till has passed (even before the nightly job marks it Expired), or it was
-  closed or revised away: the price has gone, so it can't win the lead. The lead owner is told.
+  closed or revised away: the price has gone, so it can't win the lead. Decline is refused the
+  same way, and the page then shows "This price is no longer valid" instead of the decision
+  panel. The lead owner is told.
 - **Decline:** an optional reason. The proposal becomes **Declined**; its quotation **Rejected**
   with the reason; the lead stays open for the salesperson to decide. The owner is told.
 - **Once decided it stays decided:** the same answer again changes nothing; the other answer is

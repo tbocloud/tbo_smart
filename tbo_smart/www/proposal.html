@@ -139,6 +139,8 @@
 		<p class="notice danger" role="status"><strong>{{ _("Declined") }}</strong>&nbsp;{{ _("on {0}. Thank you for letting us know.").format(p.decided_on or "") | e }}</p>
 		{%- elif p.superseded %}
 		<p class="notice info" role="status"><strong>{{ _("A newer version exists.") }}</strong> {{ _("Ask us for the latest link.") }}</p>
+		{%- elif p.price_unavailable %}
+		<p class="notice info" role="status"><strong>{{ _("This price is no longer valid.") }}</strong> {{ _("Ask us for an updated proposal.") }}</p>
 		{%- elif p.expired %}
 		<p class="notice danger" role="status"><strong>{{ _("Expired.") }}</strong> {{ _("Ask us for a new proposal.") }}</p>
 		{%- endif %}

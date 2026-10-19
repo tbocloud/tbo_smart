@@ -390,6 +390,9 @@ class TestClientPage(ProposalTestCase):
 		)
 		self.assertRaises(frappe.ValidationError, call_as_guest, page.accept, token, "Asha", "a@b.example")
 		self.assertIn("was valid till", hub.get_proposal(name, acting_user=BDE)["send_blockers"][0])
+		self.assertRaises(frappe.ValidationError, call_as_guest, page.decline, token, "no")
+		context = p.page_context(frappe.get_doc(p.DOCTYPE, name))
+		self.assertEqual((context["can_decide"], context["price_unavailable"]), (False, True))
 		self.assertEqual(frappe.db.get_value(p.DOCTYPE, name, "status"), p.SENT)
 		self.assertNotEqual(frappe.db.get_value("Lead", self.lead, "tbo_stage"), CLOSED_WON)
 
