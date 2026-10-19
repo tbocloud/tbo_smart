@@ -78,11 +78,21 @@ def set_lead_stage(name: str, stage: str, lost_reason: str | None = None):
 	lead.tbo_stage = stage
 	if status_type(stage) == "Lost":
 		set_lost_reason(lead, lost_reason, _("Give a reason for losing the lead."))
-	# a stage move changes only the stage: a mandatory field left empty on an old or imported
-	# lead (e.g. Source made required on the site) mustn't block it
-	lead.flags.ignore_mandatory = True
-	lead.save()
+	system_save(lead)
 	return lead
+
+
+def system_save(lead, ignore_permissions: bool = False) -> None:
+	"""Save (or insert) a lead for a change the system makes, not a person editing its fields: a
+	stage move, an owner change, a status the pipeline sets, a lead made from a call. Only the
+	fields it set change, so a mandatory field left empty on an old or imported lead (e.g. Source
+	made required on the site) mustn't block it. A person editing the lead's own fields
+	(hub_leads.update_lead) goes through Lead.save as usual and is still asked for them."""
+	lead.flags.ignore_mandatory = True
+	if lead.is_new():
+		lead.insert(ignore_permissions=ignore_permissions)
+	else:
+		lead.save(ignore_permissions=ignore_permissions)
 
 
 def set_lost_reason(doc, lost_reason: str | None, missing: str) -> None:

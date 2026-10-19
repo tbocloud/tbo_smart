@@ -13,6 +13,7 @@ from frappe import _
 
 from tbo_smart.lead_pipeline import pipeline_enabled
 from tbo_smart.lead_pipeline.statuses import PROGRESS, is_closed
+from tbo_smart.sales.stages import system_save
 
 
 def moves_forward(current: str | None, target: str) -> bool:
@@ -41,5 +42,5 @@ def set_lead_status(lead: str, status: str, reason: str) -> None:
 	doc = frappe.get_doc("Lead", lead)
 	doc.tbo_stage = status
 	doc.flags.tbo_auto_status = True
-	doc.save(ignore_permissions=True)
+	system_save(doc, ignore_permissions=True)
 	doc.add_comment("Info", _("Status set to {0}: {1}").format(status, reason))
