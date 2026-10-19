@@ -1303,3 +1303,54 @@ class TestChatFeedback(ProposalTestCase):
 		proposal_scoping_companies.execute()
 		scoping = frappe.parse_json(frappe.db.get_value(p.DOCTYPE, proposal["name"], "scoping"))
 		self.assertEqual((scoping["users"], scoping["companies"]), (25, 0))
+
+	def test_malformed_and_international_addresses(self):
+		from tbo_smart.lead_pipeline import proposal_profile as profile
+
+		frappe.clear_messages()
+		with self.assertRaises(profile.SiteUnreachable) as caught:
+			profile.checked_url("http://[bad")
+		self.assertIn("doesn't look like a website", str(caught.exception))
+		public = [(2, 1, 6, "", ("93.184.216.34", 0))]
+		with patch("socket.getaddrinfo", return_value=public) as resolve:
+			for url in ("https://münchen.de", "https://xn--80aswg.xn--p1ai", "https://пример.рф/about"):
+				self.assertEqual(profile.checked_url(url), url)
+		# DNS is asked for the IDNA (ASCII) form
+		self.assertEqual(resolve.call_args_list[0].args[0], "xn--mnchen-3ya.de")
+
+	def test_a_stream_that_breaks_comes_back_in_words(self):
+		from tbo_smart.lead_pipeline import proposal_profile as profile
+
+		broken = page_response("")
+		broken.iter_content.side_effect = requests.exceptions.ChunkedEncodingError()
+		stalled = page_response("")
+		stalled.iter_content.side_effect = requests.exceptions.ReadTimeout()
+		public = [(2, 1, 6, "", ("93.184.216.34", 0))]
+		for response, words in ((broken, "Couldn't reach the website"), (stalled, "took too long")):
+			frappe.clear_messages()
+			with (
+				patch("socket.getaddrinfo", return_value=public),
+				patch("tbo_smart.lead_pipeline.proposal_profile.requests.get", return_value=response),
+			):
+				with self.assertRaises(profile.SiteUnreachable) as caught:
+					profile.fetch("https://client.example/")
+			self.assertIn(words, str(caught.exception))
+			self.assertTrue(frappe.message_log)
+
+	def test_templates_ask_for_companies(self):
+		from tbo_smart.lead_pipeline.proposal_templates import templates
+		from tbo_smart.patches.v1 import proposal_scoping_companies
+
+		self.assertIn("companies", p.QUESTIONS)
+		for template in templates():
+			keys = template["questions"].split("\n")
+			if "users" in keys:
+				self.assertEqual(keys[keys.index("users") + 1], "companies", template["template_name"])
+		frappe.set_user("Administrator")
+		frappe.db.set_value(p.TEMPLATE, TEMPLATE, "questions", "modules\nusers\nhosting")
+		proposal_scoping_companies.execute()
+		self.assertEqual(
+			frappe.db.get_value(p.TEMPLATE, TEMPLATE, "questions"), "modules\nusers\ncompanies\nhosting"
+		)
+		options = hub.get_proposal_options(acting_user=BDE)
+		self.assertIn("companies", options["questions"])

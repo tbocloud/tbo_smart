@@ -49,7 +49,10 @@ class SiteUnreachable(frappe.ValidationError):
 
 
 # a domain as people type it: vasthubuilders.com, www.client.co.in
-DOMAIN = re.compile(r"^(?=.{4,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$", re.I)
+# (checked in its IDNA form, so münchen.de and an xn-- top-level domain pass)
+DOMAIN = re.compile(
+	r"^(?=.{4,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59})$", re.I
+)
 
 
 def unreachable(message: str) -> None:
@@ -187,18 +190,48 @@ def public_address(host: str) -> bool:
 
 
 def checked_url(url: str) -> str:
-	parsed = urlparse(url)
-	if parsed.hostname and not (DOMAIN.match(parsed.hostname) or is_ip(parsed.hostname)):
-		unreachable(
-			_("That doesn't look like a website. Type it like vasthubuilders.com, or go on without one.")
-		)
-	if parsed.scheme not in ("http", "https") or not parsed.hostname:
+	try:
+		parsed = urlparse(url)
+		hostname = parsed.hostname
+	except ValueError:  # e.g. http://[bad: an unclosed IPv6 bracket
+		unreachable(not_a_website())
+	host = ascii_host(hostname) if hostname else None
+	if hostname and not (host and (DOMAIN.match(host) or is_ip(host))):
+		unreachable(not_a_website())
+	if parsed.scheme not in ("http", "https") or not host:
 		unreachable(_("Only http and https website addresses can be read."))
 	if parsed.username or parsed.password:
 		unreachable(_("That website address can't be read."))
-	if not public_address(parsed.hostname):
+	if not public_address(host):
 		unreachable(_("That website address isn't a public site, so it can't be read."))
 	return url
+
+
+def not_a_website() -> str:
+	return _("That doesn't look like a website. Type it like vasthubuilders.com, or go on without one.")
+
+
+def ascii_host(hostname: str) -> str | None:
+	"""The host in its IDNA (ASCII) form, None when it can't be encoded."""
+	try:
+		return hostname.encode("idna").decode("ascii")
+	except UnicodeError:
+		return None
+
+
+def safe_host(url: str) -> str | None:
+	try:
+		return urlparse(url).hostname
+	except ValueError:
+		return None
+
+
+def request_failed(e: Exception) -> None:
+	unreachable(
+		_("The website took too long to answer. Try again, or go on without it.")
+		if isinstance(e, requests.Timeout)
+		else _("Couldn't reach the website. Check the address, or go on without it.")
+	)
 
 
 def is_ip(host: str) -> bool:
@@ -223,11 +256,7 @@ def fetch(url: str) -> tuple[str, str]:
 				headers={"User-Agent": "TBO-Proposals/1.0 (+https://teambackoffice.com)"},
 			)
 		except requests.RequestException as e:
-			unreachable(
-				_("The website took too long to answer. Try again, or go on without it.")
-				if isinstance(e, requests.Timeout)
-				else _("Couldn't reach the website. Check the address, or go on without it.")
-			)
+			request_failed(e)
 		with response:
 			if response.is_redirect or response.status_code in (301, 302, 303, 307, 308):
 				url = urljoin(url, response.headers.get("Location") or "")
@@ -237,10 +266,14 @@ def fetch(url: str) -> tuple[str, str]:
 			if "html" not in (response.headers.get("Content-Type") or "text/html"):
 				unreachable(_("The website address isn't a web page."))
 			body = b""
-			for chunk in response.iter_content(16_384):
-				body += chunk
-				if len(body) >= MAX_PAGE_BYTES:
-					break
+			try:
+				# a server that sends its headers and then stalls or breaks fails here, not above
+				for chunk in response.iter_content(16_384):
+					body += chunk
+					if len(body) >= MAX_PAGE_BYTES:
+						break
+			except requests.RequestException as e:
+				request_failed(e)
 			return url, body[:MAX_PAGE_BYTES].decode(response.encoding or "utf-8", errors="replace")
 	unreachable(_("The website redirects too many times."))
 
@@ -262,15 +295,15 @@ def site_text(url: str) -> str:
 	final, html = fetch(url)
 	text, links = page_text(html)
 	parts = [text]
-	host = urlparse(final).hostname
+	host = safe_host(final)
 	extra = []
 	for link in links:
-		target = urljoin(final, link).split("#")[0]
-		if (
-			urlparse(target).hostname == host
-			and OBVIOUS.search(urlparse(target).path)
-			and target not in extra
-		):
+		try:
+			target = urljoin(final, link).split("#")[0]
+			path = urlparse(target).path
+		except ValueError:  # a malformed link on the page is ignored
+			continue
+		if safe_host(target) == host and OBVIOUS.search(path) and target not in extra:
 			extra.append(target)
 	for target in extra[: MAX_PAGES - 1]:
 		try:

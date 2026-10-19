@@ -27,6 +27,13 @@ def preset(
 	starts with all the master sections on; presales turns off what doesn't fit."""
 	from tbo_smart.lead_pipeline.proposals import MASTER_SECTIONS
 
+	# every template that asks for users asks for companies with it
+	if "users" in questions and "companies" not in questions:
+		questions = (
+			*questions[: questions.index("users") + 1],
+			"companies",
+			*questions[questions.index("users") + 1 :],
+		)
 	return {
 		"template_name": name,
 		"solution_type": name,
