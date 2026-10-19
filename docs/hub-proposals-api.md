@@ -1,4 +1,4 @@
-# Hub proposals API (`tbo_smart.api.hub_proposals`), v2.3
+# Hub proposals API (`tbo_smart.api.hub_proposals`), v2.4
 
 **Status:** built 2026-10-19. The TBO Support hub's proposal builder (tbocloud/helpdesk
 `docs/proposals.md`) calls these. What proposals are and do: `proposals.md`; the documents after
@@ -28,8 +28,12 @@ otherwise) and count against the day's limit (417 "Today's AI proposal runs are 
 | `extract_requirements` | POST | `lead`, `text`, `acting_user` | `{template, scoping: Scoping}` for presales to confirm; nothing saved |
 | `read_chat_answer` | POST | `lead`, `question`, `text`, `acting_user` | `{language ("English" / "Malayalam" / "Mixed"), english, profile: {only the Profile fields given}, template, scoping: {only the Scoping keys given}}`: an off-script start-chat answer, one small call; nothing saved |
 | `create_proposal` | POST | `lead`, `template?`, `ai_draft` (0/1), `scoping?` (JSON `Scoping`), `requirements?`, `client_profile` (JSON `Profile`, required: industry and pain_points), `chat?` (JSON `[ChatLine]`), `acting_user` | `{proposal: Proposal, warnings: [text]}` |
-| `create_document` | POST | `source` (the accepted document), `document_type` (`Quotation`, `Work Order`), `acting_user` | `{proposal: Proposal, warnings: [text]}` (`client-documents.md` §2) |
+| `create_document` | POST | `source` (the accepted document), `document_type` (`Quotation`, `Work Order`, `BRD`), `acting_user` | `{proposal: Proposal, warnings: [text]}` (`client-documents.md` §2) |
 | `get_document_chain` | GET | `lead`, `acting_user` | `Chain` |
+| `save_questions` | POST | `name` (a draft BRD), `questions` (JSON `[{section_type, question}]`), `acting_user` | `Proposal` (answered questions kept) |
+| `share_questionnaire` | POST | `name`, `acting_user` | `{proposal, url}`: the client's `/questions/<token>` link |
+| `send_questionnaire` | POST | `name`, `recipients?`, `message?`, `acting_user` | `{proposal, url}` (an email on the lead) |
+| `apply_answers` | POST | `name`, `acting_user` | `{proposal, sections: [headings rebuilt], warnings}` (417 with no new answers) |
 | `get_proposal` | GET | `name`, `acting_user` | `Proposal` |
 | `save_proposal` | POST | `name`, `data` (JSON: any of `title`, `letter_head` (blank: the default), `pricing_mode`, `valid_till`, `requirements`, `client_profile`, `scoping`, `modules`, `sections`, `start_date` (an agreement's); `theme` is ignored), `acting_user` | `Proposal` with `warnings: [text]` (why the quotation couldn't be priced again) |
 | `finalise_proposal` | POST | `name`, `ready` (1: Mark ready, 0: Reopen), `acting_user` | `Proposal` (`ready_on` set or cleared) |
@@ -73,7 +77,10 @@ Options = {enabled: true, ai, can_edit_templates,
 DocumentType = {name ("Proposal" / "Quotation" / "Work Order"), label ("Project Agreement" for
   the work order), accepted_label ("Accepted", "Signed"), follows, section_types,
   default_headings: {type: heading}, ai_sections, priced (its quotation is its price), signature
-  (the client signs with a designation)}
+  (the client signs with a designation), questionnaire (the BRD)}
+
+Questionnaire = {questions: [{name, section_type, question, answer, answered_on, applied,
+  asked_by}], url (null until shared), open, sent_on, answered_on, new_answers}
 
 Chain = {steps: [{document_type, label, name, title, status, status_label, done, view_count,
   quotation_status}], next: null | {action ("create_proposal" / "create" / "open"),
@@ -101,7 +108,7 @@ Row = {name, document_type, source_document, title, status, revision_no, is_late
   view_count, last_viewed_on, decided_on, modified}
 
 Proposal = {name, document_type, document_label, accepted_label, source_document, can_price,
-  signature, start_date, title, lead, lead_name, client, lead_email, template, solution_type,
+  signature, start_date, questionnaire: null | Questionnaire, title, lead, lead_name, client, lead_email, template, solution_type,
   page_guide, prepared_by (full name), status, ready_on (null: not marked ready), theme ("Ivory"),
   pricing_mode, scoping: Scoping,
   requirements, client_profile: Profile, chat: [ChatLine],
@@ -160,7 +167,8 @@ Library = {can_edit, modules: [Module + enabled, sort_order], items: [{name, lib
 `/proposal/<token>` (`?preview=1` for drafts, `?print=1` opens the print dialog) and the guest
 methods `tbo_smart.api.proposal_page.record_view`, `accept(token, name, email)`,
 `decline(token, reason?, name?, email?)` (POST; `accept` takes `designation` too, required to sign
-an agreement), `download_pdf(token, preview?)` and
+an agreement) and `save_answers(token, answers)` (POST, a BRD's questionnaire, JSON `{question row:
+text}`, 60 an hour), `download_pdf(token, preview?)` and
 `image(token, file)` (GET), all rate limited: `proposals.md` §5. The hub builds the PDF link from
 `preview_url`'s token: `/api/method/tbo_smart.api.proposal_page.download_pdf?token=…` (with
 `&preview=1` for a draft).
@@ -173,8 +181,10 @@ user with `acting_user`.
 
 ## Changelog
 
-- **v2.3 (2026-10-19):** `finalise_proposal`, `ready_on`; `save_proposal` returns `warnings`
+- **v2.4 (2026-10-19):** `finalise_proposal`, `ready_on`; `save_proposal` returns `warnings`
   and makes module and scoping edits flow through; `read_chat_answer`.
+- **v2.3 (2026-10-20):** the BRD: `save_questions`, `share_questionnaire`, `send_questionnaire`,
+  `apply_answers`, `questionnaire` on `Proposal`, `save_answers` on the client's side.
 - **v2.2 (2026-10-19):** `Scoping.companies`; users and companies may be "Unlimited";
   `read_client_website` errors always carry a readable message.
 - **v2.1 (2026-10-19):** `create_document`, `get_document_chain`, `documents` on the lead,

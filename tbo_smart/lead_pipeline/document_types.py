@@ -10,6 +10,7 @@ client profile, scoping and modules, so presales mostly reviews.
 """
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import frappe
@@ -19,7 +20,7 @@ from frappe.utils import add_days, flt, formatdate, getdate
 from tbo_smart.lead_pipeline import proposal_builder as builder
 from tbo_smart.lead_pipeline import setting
 
-PROPOSAL, QUOTATION, WORK_ORDER = "Proposal", "Quotation", "Work Order"
+PROPOSAL, QUOTATION, WORK_ORDER, BRD = "Proposal", "Quotation", "Work Order", "BRD"
 CLAUSE_LIBRARY = "Agreement Clause"
 
 # The Universal IT Proposal (docs/proposals.md §2): 23 sections in three parts, each with its
@@ -85,6 +86,24 @@ WORK_ORDER_SECTIONS = (
 	("Terms & Conditions", "General Terms"),
 	("Acceptance", "Signatures"),
 )
+# the business requirements: the AI drafts the narrative from the client's own words only
+BRD_SECTIONS = (
+	("Cover", "Cover"),
+	("Business Objectives", "Business Objectives"),
+	("Stakeholders", "Stakeholders"),
+	("Current Process", "Current Process (As-Is)"),
+	("Pain Points", "Pain Points"),
+	("Desired Process", "Desired Process (To-Be)"),
+	("Business Rules", "Business Rules"),
+	("Reports Needed", "Reports Needed"),
+	("Integrations", "Integrations"),
+	("Data Migration", "Data Migration"),
+	("Success Criteria", "Success Criteria"),
+	("Constraints", "Constraints"),
+	("Assumptions", "Assumptions"),
+	("Open Questions", "Open Questions"),
+	("Acceptance", "Approval"),
+)
 # the clause library's groups, one a section of the agreement
 CLAUSE_GROUPS = {
 	"Change Requests": "Change Requests",
@@ -116,6 +135,17 @@ class DocumentType:
 	contents: bool = True
 	# the client signs it with their designation too
 	signature: bool = False
+	# what Accepted reads as for this type
+	accepted_as: str = "Accepted"
+	# the AI's writer for `ai_sections`: writer(doc, kinds, feature, whole) -> warnings
+	writer: Callable | None = None
+	# the usage log's feature names: a whole draft, one section
+	draft_feature: str = "Proposal draft"
+	section_feature: str = "Proposal section"
+	# the client answers questions on their own page (the BRD)
+	questionnaire: bool = False
+	# called on a new document before its sections are built
+	prepare: Callable | None = None
 
 	@property
 	def headings(self) -> dict:
@@ -361,6 +391,7 @@ PROPOSAL_TYPE = DocumentType(
 	parts=PART_STARTS,
 	builders=builder.BUILDERS,
 	ai_sections=builder.AI_SECTIONS,
+	writer=builder.write_sections,
 	priced=True,
 )
 QUOTATION_TYPE = DocumentType(
@@ -404,9 +435,33 @@ WORK_ORDER_TYPE = DocumentType(
 	},
 	shows_price=True,
 	signature=True,
+	accepted_as="Signed",
 )
+
+
+def brd_type() -> DocumentType:
+	"""The BRD's type (its builders and writer live in brd.py)."""
+	from tbo_smart.lead_pipeline import brd
+
+	return DocumentType(
+		name=BRD,
+		prefix="BRD",
+		flag="enable_brds",
+		follows=WORK_ORDER,
+		sections=BRD_SECTIONS,
+		builders=brd.BUILDERS,
+		ai_sections=brd.AI_SECTIONS,
+		writer=brd.write_sections,
+		draft_feature="BRD draft",
+		section_feature="BRD section",
+		questionnaire=True,
+		prepare=lambda doc: brd.merge_questions(doc, brd.library_questions(doc)),
+		accepted_as="Approved",
+	)
+
+
 # in the order of the chain
-TYPES = {spec.name: spec for spec in (PROPOSAL_TYPE, QUOTATION_TYPE, WORK_ORDER_TYPE)}
+TYPES = {spec.name: spec for spec in (PROPOSAL_TYPE, QUOTATION_TYPE, WORK_ORDER_TYPE, brd_type())}
 ALL_SECTION_TYPES = tuple(dict.fromkeys(kind for spec in TYPES.values() for kind in spec.section_types))
 
 
@@ -430,7 +485,7 @@ def label(name: str) -> str:
 
 def accepted_label(name: str) -> str:
 	"""What Accepted reads as for this type."""
-	return _("Signed") if of(name).signature else _("Accepted")
+	return _(of(name).accepted_as)
 
 
 def default_sections(spec: DocumentType) -> list[dict]:
@@ -441,6 +496,33 @@ def default_sections(spec: DocumentType) -> list[dict]:
 
 def words(name: str) -> dict:
 	"""The words the client's page, the PDF and the email use for this type."""
+	if name == BRD:
+		return {
+			"kicker": _("Business Requirements Document"),
+			"noun": _("BRD"),
+			"for": _("Business requirements of {0}, from {1}"),
+			"decide_title": _("Approve your requirements"),
+			"decide_text": _(
+				"Approve this document when it says what your business needs. We'll write the functional specification from it."
+			),
+			"accept_button": _("Approve the BRD"),
+			"decline_summary": _("Something missing or wrong? Ask for changes"),
+			"decline_prompt": _("What should change? (optional)"),
+			"decline_button": _("Ask for changes"),
+			"accepted": _("Approved"),
+			"accepted_note": _("by {0} on {1}. Thank you, we'll write the functional specification next."),
+			"declined": _("Changes asked for"),
+			"ask_new": _("Ask us for the updated BRD."),
+			"agree_text": _(
+				"By approving below, the client confirms these are its business requirements for the project."
+			),
+			"accepted_online": _("Approved online"),
+			"email_intro": _(
+				"Your business requirements are written down. Read them, and approve them on the same page or tell us what to change."
+			),
+			"read_link": _("Read the business requirements: {0}"),
+			"subject": _("{0}: your business requirements"),
+		}
 	if name == WORK_ORDER:
 		return {
 			"kicker": _("Project Agreement / Work Order"),

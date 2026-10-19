@@ -1,0 +1,73 @@
+{
+ "actions": [],
+ "creation": "2026-10-20 12:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "section_type",
+  "question",
+  "answer",
+  "answered_on",
+  "applied",
+  "asked_by"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_type",
+   "fieldtype": "Data",
+   "label": "Section",
+   "in_list_view": 1,
+   "columns": 2,
+   "description": "The BRD section the answer feeds."
+  },
+  {
+   "fieldname": "question",
+   "fieldtype": "Small Text",
+   "label": "Question",
+   "reqd": 1,
+   "in_list_view": 1,
+   "columns": 4
+  },
+  {
+   "fieldname": "answer",
+   "fieldtype": "Text",
+   "label": "Client's answer",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 4
+  },
+  {
+   "fieldname": "answered_on",
+   "fieldtype": "Datetime",
+   "label": "Answered on",
+   "read_only": 1
+  },
+  {
+   "fieldname": "applied",
+   "fieldtype": "Check",
+   "label": "In the BRD",
+   "read_only": 1,
+   "description": "The BRD was rebuilt with this answer."
+  },
+  {
+   "fieldname": "asked_by",
+   "fieldtype": "Select",
+   "label": "Asked by",
+   "options": "Library\nAI\nPresales",
+   "default": "Presales",
+   "read_only": 1
+  }
+ ],
+ "istable": 1,
+ "editable_grid": 1,
+ "links": [],
+ "modified": "2026-10-20 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tbo Smart",
+ "name": "TBO Document Question",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

@@ -115,10 +115,34 @@ def create_document(source_name: str, document_type: str) -> tuple:
 	)
 	switch_off_unchosen(doc)
 	warnings = make_quotation(doc, source) if spec.priced else []
+	if spec.prepare:
+		spec.prepare(doc)
 	kinds.build_all(doc)
 	doc.flags.proposal_workflow = True
 	doc.insert()
+	if spec.writer and spec.follows and p.ai_enabled():
+		warnings += write_draft(doc, spec)
 	return doc, warnings
+
+
+def write_draft(doc, spec) -> list[str]:
+	"""The AI's narrative on a new document, in one call (after the insert, so the usage log
+	names it). When every provider fails it stays as the data built it, with a warning."""
+	from tbo_smart import ai
+
+	try:
+		warnings = spec.writer(doc, None, spec.draft_feature)
+	except frappe.ValidationError as e:
+		# a provider failure or the day's AI limit: the document is still made
+		frappe.clear_last_message()
+		reason = e.summary if isinstance(e, ai.AIProviderError) else str(e)
+		return [
+			_("The AI couldn't write the draft ({0}). It is built from the data; try Regenerate.").format(
+				reason
+			)
+		]
+	doc.save()
+	return warnings
 
 
 def root_title(doc) -> str:

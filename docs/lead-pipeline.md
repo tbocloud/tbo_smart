@@ -88,6 +88,15 @@ names them in this one module.
 - Each move is saved on the lead as a system change (`ignore_permissions`, since the person
   submitting a MOM may not own the lead), so the stage log keeps it, plus an Info comment on the
   timeline: "Status set to First Meeting Completed: MOM of the 1st meeting submitted".
+- **System saves skip unrelated mandatory fields.** Every change the system makes to a lead goes
+  through one helper, `sales.stages.system_save`, which sets `flags.ignore_mandatory`, so an old
+  or imported lead with an empty mandatory field (e.g. Source made required on the site) doesn't
+  block it: a stage move (`set_lead_stage`: the hub, the app, the MOM dialog, a lost quotation,
+  the autopilot), the pipeline's moves (`transitions.set_lead_status`: proposals shared, sent,
+  viewed and accepted, quotations, meetings, the deal at Closed – Won), a smart-leads status
+  and the lead triage's close (`smart_leads.notes.set_lead_status`), an owner change
+  (`reassign_leads`) and a caller's new lead (`telephony.calls.new_caller_lead`). A person
+  editing the lead's own fields (`hub_leads.update_lead`, the desk) is still asked for them.
 
 ## 3. The status migration (done)
 
@@ -520,6 +529,9 @@ deal); the print format rendering.
 
 ## Changelog
 
+- **v1.6 (2026-10-20):** every system save of a lead skips unrelated mandatory fields through
+  `sales.stages.system_save` (§2.2); a shared proposal no longer fails with "Value missing for
+  Lead: Source".
 - **v1.5 (2026-10-19):** proposals (`proposals.md`): a proposal's quotation goes out with it,
   its view moves the quotation to Viewed / Acknowledged, its acceptance to Accepted (the lead to
   Closed – Won) and its decline to Rejected.
