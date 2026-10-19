@@ -46,8 +46,8 @@ naming, so a REST insert can't name itself `WO-…`) and refuses changes to them
 Refused (417) unless: the type and every type before it are switched on; `source` is of the type
 it follows, **Accepted** and the latest revision; the person may write its lead. Refused (409)
 while the lead already has one of that type in play (Draft, Sent, Viewed or Accepted, the latest
-revision): open it or revise it. The source's row is locked first, so two requests at once
-can't both make one.
+revision): open it or revise it. The source's status is read under its row lock, so two
+requests at once can't both make one, and a revision made meanwhile is seen.
 
 It copies from the source: the client profile, the requirements, the scoping answers, the
 modules (the proposal's own lines and prices), the template, solution type, letter head and price

@@ -77,10 +77,13 @@ def create_document(source_name: str, document_type: str) -> tuple:
 				kinds.label(spec.name).lower(), kinds.label(spec.follows).lower()
 			)
 		)
-	if source.status != p.ACCEPTED or not cint(source.is_latest):
+	# read under the source's row lock: two requests at once wait here in turn (the second sees
+	# the first's document), and a revision made meanwhile is seen
+	locked = frappe.db.get_value(
+		p.DOCTYPE, source.name, ["status", "is_latest"], as_dict=True, for_update=True
+	)
+	if locked.status != p.ACCEPTED or not cint(locked.is_latest):
 		frappe.throw(_("Make it once the client has accepted {0}.").format(source.title))
-	# two requests at once wait here in turn, and the second sees the first's document
-	frappe.db.get_value(p.DOCTYPE, source.name, "name", for_update=True)
 	existing = in_play(source.lead, spec.name)
 	if existing:
 		frappe.throw(
