@@ -1,4 +1,4 @@
-# Proposals to a lead (living spec, v2.1)
+# Proposals to a lead (living spec, v2.2)
 
 **Status:** built 2026-10-19 (Phases 3 and 4 of the sales flow the owner approved on 2026-10-16;
 the Universal IT Proposal the owner set on 2026-10-19). Presales starts a proposal in the TBO
@@ -167,7 +167,9 @@ fields as they are. The data, in order:
    integrations, data migration, users, hosting, AMC, target weeks, source code. Nothing is saved.
 3. **Scoping form**, confirmed by presales: `modules`, `customisation` and `customisations`
    (`[{item, days, detail}]`: one-line bullets; `detail` is what the AI writes, §4.2),
-   `mobile_app`, `web_app`, `integrations`, `data_migration`, `users`, `hosting` (Frappe Cloud,
+   `mobile_app`, `web_app`, `integrations`, `data_migration`, `users` and `companies` (each a
+   number, 0 when not said, or **"Unlimited"**; shown as "Unlimited users, up to 3 companies" in
+   the Proposed Solution's table, the Investment notes and the Assumptions), `hosting` (Frappe Cloud,
    On-premise, Client's cloud, TBO hosting), `amc`, `timeline_weeks`, `source_code`,
    `architecture` (Simple / Detailed). The template decides which questions are asked.
 4. **Templates:** `timeline_template` (suggested: the shortest one of at least 1.6 calendar days
@@ -241,7 +243,10 @@ styles and forms are stripped, the text is cut to **6,000 characters** and given
 **Proposal client profile**), which fills about, industry, size, locations, current software and
 key processes. The summary is **kept on the lead** (`tbo_web_profile`, `tbo_web_profile_on`) and
 reused for its next proposals without reading the site again unless `refresh`. When the site
-can't be read, the error says so and presales types the profile. (Residual risk: DNS can answer
+can't be read, every reason comes back through `frappe.throw` in words (never a bare error): text
+that isn't a website ("That doesn't look like a website. Type it like vasthubuilders.com…"), a
+domain that doesn't resolve, a private address, a timeout, a page that isn't HTML, too many
+redirects; an extra page that fails is skipped silently. Presales then types the profile. (Residual risk: DNS can answer
 differently between the check and the request; the redirect check and the size and time caps
 bound it.)
 
@@ -443,6 +448,9 @@ focus ring, 44px targets.
 
 ## Changelog
 
+- **v2.2 (2026-10-20):** users and companies can be Unlimited (and companies are asked); every
+  website-read failure comes back in words; the patch `proposal_scoping_companies` normalises
+  existing scoping answers.
 - **v2.1 (2026-10-19):** the engine serves every client document (`client-documents.md`): the
   type's sections, words and pricing rules; the owner's note reads "… opened the proposal …".
 - **v2.0 (2026-10-19):** the Universal IT Proposal (23 sections in three parts), the scoping form
