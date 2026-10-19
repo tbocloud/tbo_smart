@@ -283,6 +283,7 @@ def setup_lead_pipeline() -> None:
 	ensure_hub_role()
 	sync_print_format()
 	seed_proposal_templates()
+	seed_agreement_clauses()
 
 
 def link_lead_records() -> None:
@@ -366,6 +367,22 @@ def seed_proposal_templates() -> None:
 			frappe.db.set_value("TBO Proposal Template", name, "enabled", 0)
 	frappe.db.set_default(TEMPLATES_SEEDED, 1)
 	frappe.db.set_default(MASTER_SEEDED, 1)
+
+
+CLAUSES_SEEDED = "tbo_agreement_clauses_seeded"
+
+
+def seed_agreement_clauses() -> None:
+	"""The project agreement's clauses (the Agreement Clause library), once per site and only when
+	the library has none: after that they are the editors' own (docs/client-documents.md §4)."""
+	from tbo_smart.lead_pipeline import proposal_templates as seed
+
+	if frappe.db.get_default(CLAUSES_SEEDED):
+		return
+	if not frappe.db.exists("TBO Proposal Library Item", {"library": seed.CLAUSE}):
+		for clause in seed.AGREEMENT_CLAUSES:
+			frappe.get_doc({"doctype": "TBO Proposal Library Item", **clause}).insert(ignore_permissions=True)
+	frappe.db.set_default(CLAUSES_SEEDED, 1)
 
 
 def after_migrate() -> None:

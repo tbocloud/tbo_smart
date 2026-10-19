@@ -7,6 +7,8 @@
   "title",
   "lead",
   "lead_name",
+  "document_type",
+  "source_document",
   "template",
   "solution_type",
   "prepared_by",
@@ -14,6 +16,7 @@
   "status",
   "quotation",
   "valid_till",
+  "start_date",
   "theme",
   "letter_head_override",
   "pricing_mode",
@@ -40,6 +43,7 @@
   "decided_on",
   "decided_by_name",
   "decided_by_email",
+  "decided_by_designation",
   "decline_reason"
  ],
  "fields": [
@@ -65,6 +69,24 @@
    "fieldtype": "Data",
    "label": "Lead name",
    "fetch_from": "lead.lead_name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "document_type",
+   "fieldtype": "Select",
+   "label": "Document type",
+   "options": "Proposal\nQuotation\nWork Order",
+   "default": "Proposal",
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "description": "Proposal, quotation or project agreement: each is made from the accepted one before it (docs/client-documents.md)."
+  },
+  {
+   "fieldname": "source_document",
+   "fieldtype": "Link",
+   "label": "Made from",
+   "options": "TBO Proposal",
    "read_only": 1
   },
   {
@@ -114,6 +136,13 @@
    "fieldname": "valid_till",
    "fieldtype": "Date",
    "label": "Valid till"
+  },
+  {
+   "fieldname": "start_date",
+   "fieldtype": "Date",
+   "label": "Project start date",
+   "depends_on": "eval:doc.document_type=='Work Order'",
+   "description": "The agreement's start: the timeline's dates follow from it."
   },
   {
    "fieldname": "theme",
@@ -290,6 +319,12 @@
    "no_copy": 1
   },
   {
+   "fieldname": "decided_by_designation",
+   "fieldtype": "Data",
+   "label": "Signed as",
+   "read_only": 1
+  },
+  {
    "fieldname": "decline_reason",
    "fieldtype": "Small Text",
    "label": "Reason given",
@@ -298,7 +333,7 @@
   }
  ],
  "links": [],
- "modified": "2026-10-20 09:00:00.000000",
+ "modified": "2026-10-20 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Proposal",

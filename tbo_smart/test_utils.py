@@ -1072,8 +1072,9 @@ def delete_lead_meetings(leads: list[str] | tuple) -> None:
 	frappe.db.commit()  # nosemgrep
 
 
-def make_gst_template(rate: float = 18, company: str | None = None) -> str:
-	"""A Sales Taxes and Charges Template "TBO GST <rate>%" on the net total, for the company."""
+def make_gst_template(rate: float = 18, company: str | None = None, is_default: bool = False) -> str:
+	"""A Sales Taxes and Charges Template "TBO GST <rate>%" on the net total, for the company; with
+	`is_default`, the company's default (what a new lead quotation starts with)."""
 	company = company or erpnext.get_default_company()
 	abbr = frappe.get_cached_value("Company", company, "abbr")
 	name = f"TBO GST {rate:g}% - {abbr}"
@@ -1093,6 +1094,7 @@ def make_gst_template(rate: float = 18, company: str | None = None) -> str:
 				],
 			}
 		).insert(ignore_permissions=True)
+	frappe.db.set_value("Sales Taxes and Charges Template", name, "is_default", int(is_default))
 	return name
 
 
@@ -1343,6 +1345,52 @@ def make_sent_proposal(lead: str, acting_user: str, template: str, item_code: st
 def proposal_token(name: str) -> str:
 	"""The proposal's link token."""
 	return frappe.db.get_value("TBO Proposal", name, "public_token")
+
+
+def enable_client_documents(quotations: bool = True, work_orders: bool = True) -> None:
+	"""TBO Smart Settings' switches for the documents after the proposal (docs/client-documents.md)."""
+	set_smart_lead_settings(enable_quotation_documents=int(quotations), enable_work_orders=int(work_orders))
+
+
+def disable_client_documents() -> None:
+	enable_client_documents(False, False)
+
+
+def accept_as_client(name: str, designation: str | None = None) -> None:
+	"""The client accepts (or, with `designation`, signs) the sent document on its page."""
+	from tbo_smart.api import proposal_page
+
+	call_as_guest(
+		proposal_page.accept, proposal_token(name), "Asha Menon", "asha@client.example", designation
+	)
+
+
+def make_accepted_proposal(lead: str, acting_user: str, template: str, item_code: str) -> str:
+	"""A proposal from `template`, priced with one line of `item_code`, sent (email mocked) and
+	accepted by the client; returns its name."""
+	name, _token = make_sent_proposal(lead, acting_user, template, item_code)
+	accept_as_client(name)
+	return name
+
+
+def make_accepted_quotation_document(lead: str, acting_user: str, template: str, item_code: str) -> dict:
+	"""An accepted proposal (`template`, one line of `item_code`), its Quotation document made, sent
+	(email mocked) and accepted by the client; returns the quotation document's payload."""
+	from tbo_smart.api import hub_proposals
+
+	proposal = make_accepted_proposal(lead, acting_user, template, item_code)
+	quote = make_hub_document(proposal, "Quotation", acting_user)["proposal"]["name"]
+	send_hub_proposal(quote, acting_user)
+	accept_as_client(quote)
+	return hub_proposals.get_proposal(quote, acting_user=acting_user)
+
+
+def make_hub_document(source: str, document_type: str, acting_user: str) -> dict:
+	"""The next client document from `source` through hub_proposals.create_document; returns
+	{proposal, warnings}."""
+	from tbo_smart.api import hub_proposals
+
+	return hub_proposals.create_document(source, document_type, acting_user=acting_user)
 
 
 def call_as_guest(fn, *args, **kwargs):

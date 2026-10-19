@@ -1,7 +1,8 @@
-# Hub proposals API (`tbo_smart.api.hub_proposals`), v2.0
+# Hub proposals API (`tbo_smart.api.hub_proposals`), v2.1
 
 **Status:** built 2026-10-19. The TBO Support hub's proposal builder (tbocloud/helpdesk
-`docs/proposals.md`) calls these. What proposals are and do: `proposals.md`. This file is the
+`docs/proposals.md`) calls these. What proposals are and do: `proposals.md`; the documents after
+them (quotation, project agreement): `client-documents.md`, through the same methods. This file is the
 contract: the hub builds against exactly this, and every change updates it in the same pull
 request.
 
@@ -26,8 +27,10 @@ otherwise) and count against the day's limit (417 "Today's AI proposal runs are 
 | `get_requirements_from_lead` | GET | `lead`, `acting_user` | `{text}`: the notes and minutes, newest first (no AI) |
 | `extract_requirements` | POST | `lead`, `text`, `acting_user` | `{template, scoping: Scoping}` for presales to confirm; nothing saved |
 | `create_proposal` | POST | `lead`, `template?`, `ai_draft` (0/1), `scoping?` (JSON `Scoping`), `requirements?`, `client_profile` (JSON `Profile`, required: industry and pain_points), `chat?` (JSON `[ChatLine]`), `acting_user` | `{proposal: Proposal, warnings: [text]}` |
+| `create_document` | POST | `source` (the accepted document), `document_type` (`Quotation`, `Work Order`), `acting_user` | `{proposal: Proposal, warnings: [text]}` (`client-documents.md` §2) |
+| `get_document_chain` | GET | `lead`, `acting_user` | `Chain` |
 | `get_proposal` | GET | `name`, `acting_user` | `Proposal` |
-| `save_proposal` | POST | `name`, `data` (JSON: any of `title`, `letter_head` (blank: the default), `pricing_mode`, `valid_till`, `requirements`, `client_profile`, `scoping`, `modules`, `sections`; `theme` is ignored), `acting_user` | `Proposal` |
+| `save_proposal` | POST | `name`, `data` (JSON: any of `title`, `letter_head` (blank: the default), `pricing_mode`, `valid_till`, `requirements`, `client_profile`, `scoping`, `modules`, `sections`, `start_date` (an agreement's); `theme` is ignored), `acting_user` | `Proposal` |
 | `regenerate_section` | POST | `name`, `index`, `force` (0/1), `acting_user` | `{proposal, warnings, confirm}`: `confirm` (a question) when the section was edited by hand and `force` wasn't given; nothing changed then |
 | `regenerate_proposal` | POST | `name`, `force` (0/1), `acting_user` | `{proposal, warnings, kept: [headings kept because edited by hand]}` |
 | `chat_edit` | POST | `name`, `message`, `acting_user` | `{proposal, reply, changes: [text], warnings}`: one small structured call; the transcript kept |
@@ -48,7 +51,8 @@ otherwise) and count against the day's limit (417 "Today's AI proposal runs are 
 | `upload_library_image` | POST | `filename`, `content` (base64), `data` (JSON: title, alt_text, sections, solution_types, modules), `acting_user` | `Library` (editors only; PNG / JPEG / WebP up to 5 MB; a public file) |
 | `draft_library_module` | POST | `module`, `acting_user` | `{draft}`: the AI's draft of the module's text for the editor to review (editors only; nothing saved) |
 
-`hub_leads.get_lead` also returns `proposals: [Row]` and timeline items of `kind: "proposal"`.
+`hub_leads.get_lead` also returns `proposals: [Row]` (every type), `documents: Chain` (null while
+Proposals is off) and timeline items of `kind: "proposal"`.
 
 ### 2.1 Shapes
 
@@ -61,7 +65,17 @@ Options = {enabled: true, ai, can_edit_templates,
   profile_required: ["industry", "pain_points"],
   timelines: [{title, days}], payment_terms: [titles], amc_plans: [titles],
   catalogue: [Module], images: [{name, title, alt_text, sections, solution_types, url}],
-  letter_heads: [{name, is_default}], default_letter_head, proposal_letter_head}
+  letter_heads: [{name, is_default}], default_letter_head, proposal_letter_head,
+  document_types: [DocumentType] (the switched-on ones, in the chain's order)}
+
+DocumentType = {name ("Proposal" / "Quotation" / "Work Order"), label ("Project Agreement" for
+  the work order), accepted_label ("Accepted", "Signed"), follows, section_types,
+  default_headings: {type: heading}, ai_sections, priced (its quotation is its price), signature
+  (the client signs with a designation)}
+
+Chain = {steps: [{document_type, label, name, title, status, status_label, done, view_count,
+  quotation_status}], next: null | {action ("create_proposal" / "create" / "open"),
+  document_type, label, source?, name?}}
 
 Template = {name, template_name, solution_type, description, enabled, page_guide,
   questions: [keys], default_modules: [names],
@@ -80,10 +94,11 @@ Scoping = {modules: [names], customisation, customisations: [{item, days, detail
 
 ChatLine = {role: "presales" | "assistant", text, at?}
 
-Row = {name, title, status, revision_no, is_latest, proposal_family, quotation, sent_on,
+Row = {name, document_type, source_document, title, status, revision_no, is_latest, proposal_family, quotation, sent_on,
   view_count, last_viewed_on, decided_on, modified}
 
-Proposal = {name, title, lead, lead_name, client, lead_email, template, solution_type,
+Proposal = {name, document_type, document_label, accepted_label, source_document, can_price,
+  signature, start_date, title, lead, lead_name, client, lead_email, template, solution_type,
   page_guide, prepared_by (full name), status, theme ("Ivory"), pricing_mode, scoping: Scoping,
   requirements, client_profile: Profile, chat: [ChatLine],
   modules: [{module, module_name, fit, features, description, effort_days, rate,
@@ -101,7 +116,9 @@ Proposal = {name, title, lead, lead_name, client, lead_email, template, solution
 Library = {can_edit, modules: [Module + enabled, sort_order], items: [{name, library, title,
   body, group, condition, weeks, amount, solution_types, sort_order, enabled}],
   images: [{name, image, url, title, alt_text, sections, solution_types, modules, enabled}],
-  libraries: [kinds], conditions: [conditions], fits, hosting, scope_groups}
+  libraries: [kinds], conditions: [conditions], fits, hosting, scope_groups,
+  clause_groups (an Agreement Clause's `group`: Change Requests, Intellectual Property,
+  Confidentiality, Termination, General)}
 ```
 
 ### 2.2 Rules
@@ -116,6 +133,11 @@ Library = {can_edit, modules: [Module + enabled, sort_order], items: [{name, lib
   whose text changed is marked `edited`). Payment Terms milestones must add up to 100 (417).
   `modules` replaces the module lines (at most 40); a line whose price wasn't set by hand takes
   the list price again. `letter_head` must be an enabled Letter Head.
+- `create_document`: 417 while the type (or one before it) is off, the source isn't of the type
+  it follows, or isn't accepted and the latest; 409 while the lead has one of that type in play.
+  `warnings` has "Not priced yet: …" when a quotation can't be priced from the modules.
+- `save_pricing`, `price_from_modules`: a proposal or a quotation only (417 for an agreement: its
+  price is the accepted quotation's). `chat_edit`: a proposal only.
 - `chat_edit`: values outside the choices are ignored; `changes` empty when nothing matched (the
   reply says so).
 - `share_proposal` and `send_proposal` are refused (417, the blockers joined) while any blocker
@@ -129,18 +151,23 @@ Library = {can_edit, modules: [Module + enabled, sort_order], items: [{name, lib
 
 `/proposal/<token>` (`?preview=1` for drafts, `?print=1` opens the print dialog) and the guest
 methods `tbo_smart.api.proposal_page.record_view`, `accept(token, name, email)`,
-`decline(token, reason?, name?, email?)` (POST), `download_pdf(token, preview?)` and
+`decline(token, reason?, name?, email?)` (POST; `accept` takes `designation` too, required to sign
+an agreement), `download_pdf(token, preview?)` and
 `image(token, file)` (GET), all rate limited: `proposals.md` §5. The hub builds the PDF link from
 `preview_url`'s token: `/api/method/tbo_smart.api.proposal_page.download_pdf?token=…` (with
 `&preview=1` for a draft).
 
 ## 4. Tests
 
-`tbo_smart/tests/test_proposals.py` (`proposals.md` §9) calls these methods as the integration
+`tbo_smart/tests/test_proposals.py` (`proposals.md` §9) and `test_client_documents.py`
+(`client-documents.md` §8) call these methods as the integration
 user with `acting_user`.
 
 ## Changelog
 
+- **v2.1 (2026-10-19):** `create_document`, `get_document_chain`, `documents` on the lead,
+  `document_types` in the options, `clause_groups` in the library, the type fields on `Proposal` and `Row`, `start_date`, and
+  `accept`'s `designation`.
 - **v2.0 (2026-10-19):** the Universal IT Proposal: `get_client_profile`, `read_client_website`,
   `get_requirements_from_lead`, `extract_requirements`, `regenerate_section`,
   `regenerate_proposal`, `chat_edit`, `price_from_modules`, `share_proposal`,

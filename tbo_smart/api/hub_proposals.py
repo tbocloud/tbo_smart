@@ -1,4 +1,5 @@
-"""Proposals for the TBO Support hub (docs/hub-proposals-api.md).
+"""Proposals and the client documents after them for the TBO Support hub
+(docs/hub-proposals-api.md, docs/client-documents.md).
 
 The same rules as tbo_smart.api.hub_leads: the hub's integration user names the person in
 `acting_user`, the call runs as them (`hub_leads.acting_as`), a proposal opens only when they
@@ -14,6 +15,8 @@ from frappe.utils import cint
 from tbo_smart.api import lead_quotation
 from tbo_smart.api.hub_leads import acting_as
 from tbo_smart.api.quotation_adjustment import request_adjustment
+from tbo_smart.lead_pipeline import client_documents as documents
+from tbo_smart.lead_pipeline import document_types as kinds
 from tbo_smart.lead_pipeline import presets, rate_card
 from tbo_smart.lead_pipeline import proposal_builder as builder
 from tbo_smart.lead_pipeline import proposal_library as library
@@ -32,6 +35,7 @@ TRACKING = (
 	"decided_on",
 	"decided_by_name",
 	"decided_by_email",
+	"decided_by_designation",
 	"decline_reason",
 )
 
@@ -67,8 +71,16 @@ def payload(doc) -> dict:
 			],
 		}
 	can_write = bool(frappe.has_permission("Lead", "write", doc.lead))  # a flag for the screen - nosemgrep
+	spec = kinds.of(doc)
 	return {
 		"name": doc.name,
+		"document_type": spec.name,
+		"document_label": kinds.label(spec.name),
+		"accepted_label": kinds.accepted_label(spec.name),
+		"source_document": doc.source_document,
+		"can_price": spec.priced,
+		"signature": spec.signature,
+		"start_date": doc.start_date,
 		"title": doc.title,
 		"lead": doc.lead,
 		"lead_name": doc.lead_name,
@@ -131,12 +143,13 @@ def ai_payload(doc) -> dict:
 
 
 def section_payload(doc, row) -> dict:
+	spec = kinds.of(doc)
 	return {
 		"section_type": row.section_type,
 		"enabled": cint(row.enabled),
 		"edited": cint(row.edited),
-		"ai": row.section_type in builder.AI_SECTIONS,
-		"rebuildable": row.section_type in builder.AI_SECTIONS or row.section_type in builder.BUILDERS,
+		"ai": row.section_type in spec.ai_sections,
+		"rebuildable": row.section_type in spec.ai_sections or row.section_type in spec.builders,
 		"heading": row.heading,
 		"body": row.body,
 		"image": row.image,
@@ -188,7 +201,23 @@ def get_proposal_options(acting_user: str | None = None) -> dict:
 			"letter_heads": media.letter_heads(),
 			"default_letter_head": media.default_letter_head(),
 			"proposal_letter_head": p.setting("proposal_letter_head"),
+			"document_types": [document_type_payload(spec) for spec in documents.enabled_types()],
 		}
+
+
+def document_type_payload(spec) -> dict:
+	"""A switched-on type of client document, as the hub's builder needs it."""
+	return {
+		"name": spec.name,
+		"label": kinds.label(spec.name),
+		"accepted_label": kinds.accepted_label(spec.name),
+		"follows": spec.follows,
+		"section_types": list(spec.section_types),
+		"default_headings": spec.headings,
+		"ai_sections": list(spec.ai_sections),
+		"priced": spec.priced,
+		"signature": spec.signature,
+	}
 
 
 @frappe.whitelist()
@@ -228,6 +257,25 @@ def create_proposal(
 		return {"proposal": payload(doc), "warnings": warnings}
 
 
+@frappe.whitelist(methods=["POST"])
+def create_document(source: str, document_type: str, acting_user: str | None = None) -> dict:
+	"""The next client document (a Quotation from an accepted proposal, a Work Order from an
+	accepted quotation), pre-filled from it. Returns {proposal, warnings}."""
+	with acting_as(acting_user):
+		p.require_proposals()
+		doc, warnings = documents.create_document(source, document_type)
+		return {"proposal": payload(doc), "warnings": warnings}
+
+
+@frappe.whitelist()
+def get_document_chain(lead: str, acting_user: str | None = None) -> dict:
+	"""The lead's documents in order, each with its status, and the one next action."""
+	with acting_as(acting_user):
+		p.require_proposals()
+		frappe.has_permission("Lead", "read", lead, throw=True)
+		return documents.chain(lead)
+
+
 @frappe.whitelist()
 def get_proposal(name: str, acting_user: str | None = None) -> dict:
 	with acting_as(acting_user):
@@ -237,7 +285,8 @@ def get_proposal(name: str, acting_user: str | None = None) -> dict:
 @frappe.whitelist(methods=["POST"])
 def save_proposal(name: str, data: dict | str, acting_user: str | None = None) -> dict:
 	"""A draft's `title`, `letter_head` (blank: the default), `pricing_mode`, `valid_till`,
-	`scoping`, `modules` and `sections` (each key optional; `theme` is ignored: there is one)."""
+	`start_date` (an agreement's), `scoping`, `modules` and `sections` (each key optional; `theme`
+	is ignored: there is one)."""
 	with acting_as(acting_user):
 		doc = get_doc(name, "write")
 		p.save_content(doc, parse(data))
