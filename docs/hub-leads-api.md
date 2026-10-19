@@ -213,7 +213,8 @@ LeadAI = {enabled, ai_ready, open, at (last read | null), stale (the lead change
     message: {channel (whatsapp | email), subject, text} | null} | null (never read),
   health: {status (healthy | watch | at_risk), signals: [{key, state, text}]} | null (closed),
   duplicates: [{name, lead_name, company_name, tbo_stage, lead_owner, owner_name,
-    match: ["phone" | "email" | "company"]}]}
+    match: ["phone" | "email" | "company"]}],
+  contact: {whatsapp (digits with the country code, for wa.me) | null, email | null}}
 ```
 
 `get_overview` adds `ai`: `{enabled: false}`, or `{enabled, ai_ready, plan: {user, rows:

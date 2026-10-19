@@ -469,6 +469,9 @@ def lead_ai(lead: str) -> dict:
 		],
 		as_dict=True,
 	)
+	contact = frappe.db.get_value(
+		"Lead", lead, ["mobile_no", "whatsapp_no", "phone", "email_id"], as_dict=True
+	)
 	insight = stored_insight(lead)
 	if insight and insight.get("suggested_stage") and insight["suggested_stage"] == facts.lead(lead).status:
 		insight["suggested_stage"] = None
@@ -488,6 +491,18 @@ def lead_ai(lead: str) -> dict:
 		else None,
 		"health": lead_health(facts, lead, row.tbo_ai_sentiment) if facts.is_open(lead) else None,
 		"duplicates": find_duplicates(lead),
+		# where the person sends a draft from their own WhatsApp or mail
+		"contact": {
+			"whatsapp": next(
+				(
+					normalise_phone(n)
+					for n in (contact.mobile_no, contact.whatsapp_no, contact.phone)
+					if normalise_phone(n)
+				),
+				None,
+			),
+			"email": contact.email_id,
+		},
 	}
 
 

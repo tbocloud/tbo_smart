@@ -137,6 +137,7 @@ class TestAILeads(FrappeTestCase):
 		suggestion = hub.get_lead_ai(self.lead, acting_user=BDE)
 		self.assertEqual(suggestion["insight"]["suggested_stage"], POSITIVE)
 		self.assertEqual(suggestion["health"]["status"], "healthy")
+		self.assertEqual(suggestion["contact"], {"whatsapp": "919847012345", "email": None})
 		payload = hub.apply_ai_stage(self.lead, acting_user=BDE)
 		self.assertEqual(payload["lead"]["tbo_stage"], POSITIVE)
 		self.assertEqual(
