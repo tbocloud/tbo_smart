@@ -202,6 +202,8 @@ class TestAILeads(FrappeTestCase):
 		self.assertEqual(plan[hot]["why"], "Hot lead")
 		set_smart_lead_settings(enable_ai_leads=0)
 		self.assertEqual(hub.get_overview(acting_user=BDE)["ai"], {"enabled": False})
+		# and what the AI read no longer opens a list
+		self.assertEqual(hub.list_leads(metric="stage_suggested", acting_user=BDE)["rows"], [])
 
 	def test_leads_gone_quiet_get_a_draft_and_the_owner_is_told_once(self):
 		enable_ai_leads()

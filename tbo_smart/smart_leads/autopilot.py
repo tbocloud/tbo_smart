@@ -156,12 +156,12 @@ def refresh_insight(lead: str, force: bool = False) -> dict | None:
 
 def take_daily_slot() -> bool:
 	"""At most `ai_daily_lead_limit` lead reads a day for the autopilot, so cost stays capped."""
-	key = DAILY_COUNTER.format(day=today())
-	used = cint(frappe.cache.get_value(key))
-	if used >= daily_limit():
-		return False
-	frappe.cache.set_value(key, used + 1, expires_in_sec=26 * 60 * 60)
-	return True
+	# one atomic increment, so jobs running side by side can't all slip under the cap
+	key = frappe.cache.make_key(DAILY_COUNTER.format(day=today()))
+	used = frappe.cache.incr(key)
+	if used == 1:
+		frappe.cache.expire(key, 26 * 60 * 60)
+	return used <= daily_limit()
 
 
 def ask_insight(facts: LeadFacts, lead: str, emails: list[dict], owner: str | None) -> dict | None:
@@ -718,13 +718,14 @@ def queue_insight(lead: str | None) -> None:
 
 
 def insight_job(lead: str) -> None:
-	"""Background job: score the lead (with the AI's adjustment when that is on) and read it."""
+	"""Background job: score the lead (its base score; the AI adjustment stays nightly, inside its
+	own cap) and read it."""
 	if not ai_leads_enabled() or not ai.ai_ready():
 		return
 	if scoring_enabled():
 		from tbo_smart.smart_leads.scoring import score_leads
 
-		score_leads([lead], use_ai=ai_scoring_enabled(), ai_limit=1 if ai_scoring_enabled() else 0)
+		score_leads([lead])
 	refresh_insight(lead)
 
 

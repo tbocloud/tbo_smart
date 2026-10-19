@@ -403,8 +403,7 @@ commit, so test users stay, and the suite creates more than 60 on a fresh site.
 ## 10. Known limits
 
 - The AI adjustment runs only at night; a note added today changes the AI part of the score
-  tomorrow (the base score changes at once). With AI runs leads on, a change also asks the AI
-  for that lead's adjustment at once.
+  tomorrow (the base score changes at once), with AI runs leads on too.
 - AI runs leads reads a lead only when it changes, so leads nobody touches are read only by the
   gone-quiet nudge; the first switch-on doesn't read all open leads at once (cost).
 - No per-person digest time; 09:30 site time for everyone.
@@ -423,7 +422,7 @@ a provider (§2). The other switches still decide their own parts (scoring, foll
 
 | When | What | Written |
 | --- | --- | --- |
-| A lead is created, its stage or owner changes, or a note, a call or logged activity (Event) or an email (Communication) is added (a background job per lead, deduplicated, after commit; not during an import) | With lead scoring on: scores it (`score_leads`, with the AI adjustment when **AI reads notes** is on). Then reads it (`refresh_insight`) | the score; `tbo_ai_*` |
+| A lead is created, its stage or owner changes, or a note, a call or logged activity (Event) or an email (Communication) is added (a background job per lead, deduplicated, after commit; not during an import) | With lead scoring on: scores it (`score_leads`, the base score; the AI adjustment stays nightly, §4.2). Then reads it (`refresh_insight`) | the score; `tbo_ai_*` |
 | The read | **Summary** (two sentences), **sentiment** and **buying intent** from the notes, calls and the three newest emails, up to four **signals** (phrases that show it), the **next best action** (what, why, channel: call / WhatsApp / email / meeting, by when: today to 30 days), a **stage to suggest** (an open stage only, with a reason) and a **message draft** (WhatsApp or email) for the next step | `tbo_ai_insight` and its fields |
 | The lead has no open follow-up | The next action becomes the owner's **Sales follow-up** ("AI: Call to fix the demo", on its day, with the why). A person's own follow-up always wins: nothing is added when one is open | a ToDo |
 | Every read | A line on the lead's timeline **by TBO AI**: "Read the lead: Positive sentiment, High intent. Suggests: … (by 21 Oct 2026). Scheduled it as the follow-up. Suggests moving it to …" | a Comment of type Info, `comment_by` "TBO AI" (not a note: it never counts as a touch and never wakes the AI again) |
@@ -433,7 +432,8 @@ a provider (§2). The other switches still decide their own parts (scoring, foll
 **Read once per change:** a read is skipped when nothing a person wrote or decided changed and
 no email came in since the last one (`tbo_ai_insight_hash`: the facts' content hash plus the
 emails), for a closed lead, and past the day's cap: at most `ai_daily_lead_limit` (200) reads
-a day (a Redis counter per day). A failed AI call writes nothing and is tried on the next
+a day (one atomic Redis counter per day, so jobs side by side can't pass it). The nightly
+scoring keeps its own cap (§4.2); together they are the AI's daily cost. A failed AI call writes nothing and is tried on the next
 change. Feature "Lead insight" in the usage log; "Lead email draft" for email drafts.
 
 **Number guard:** every text the AI writes (summary, signals, the action and its why, the stage

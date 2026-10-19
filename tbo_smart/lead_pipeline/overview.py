@@ -37,6 +37,7 @@ from tbo_smart.lead_pipeline.statuses import (
 )
 from tbo_smart.sales.activities import CANCELLED as TASK_CANCELLED
 from tbo_smart.sales.activities import DONE, OPEN
+from tbo_smart.smart_leads import ai_leads_enabled
 from tbo_smart.smart_leads.migration import NOTE_TITLE_PREFIX
 
 PERIODS = ("week", "month", "quarter", "custom")
@@ -135,7 +136,8 @@ class LeadOverview(PipelineDashboard):
 		if metric not in METRICS and metric not in AI_METRICS:
 			frappe.throw(_("metric must be one of {0}.").format(", ".join((*METRICS, *AI_METRICS))))
 		if metric in AI_METRICS:
-			return self.ai_leads(AI_METRICS[metric])
+			# what the AI read stays hidden while AI runs leads is off
+			return self.ai_leads(AI_METRICS[metric]) if ai_leads_enabled() else []
 		if metric == "new":
 			return list(self.created_leads())
 		if metric == "contacted":
