@@ -220,6 +220,11 @@ class TestBuilding(ProposalTestCase):
 			p.text_parts(sections[0]["body"]),
 			[{"kind": "text", "lines": ["Para one."]}, {"kind": "list", "items": ["first", "second"]}],
 		)
+		# two subheadings in a row keep the page's wrappers balanced
+		sections[0]["body"] = "Intro.\n\n## One\n\n## Two\n\nText."
+		hub.save_proposal(proposal["name"], json.dumps({"sections": sections}), acting_user=BDE)
+		html = p.render_html(frappe.get_doc(p.DOCTYPE, proposal["name"]), preview=True)
+		self.assertEqual(html.count("<div"), html.count("</div>"))
 		parts = p.text_parts("## Phases\nPhase | Days\nAnalysis | 5\n\nLead → Order → Invoice")
 		self.assertEqual([part["kind"] for part in parts], ["heading", "table", "chain"])
 		self.assertEqual(parts[1]["rows"], [["Analysis", "5"]])
@@ -1016,6 +1021,8 @@ class TestMaster(ProposalTestCase):
 		call_as_guest(page.accept, token, "Asha Menon", "asha@malabar.example")
 		acceptance = p.page_context(frappe.get_doc(p.DOCTYPE, name))["acceptance"]
 		self.assertEqual((acceptance["name"], acceptance["accepted"]), ("Asha Menon", True))
+		self.assertEqual(acceptance["email"], "a•••@malabar.example")  # never the full address
+		self.assertNotIn("asha@malabar.example", p.render_html(frappe.get_doc(p.DOCTYPE, name)))
 
 	def test_the_pdf_is_ivory_with_page_numbers(self):
 		from pypdf import PdfReader, PdfWriter
@@ -1078,6 +1085,9 @@ class TestMaster(ProposalTestCase):
 			call_as_guest(page.image, proposal_token(proposal["name"]), cover["image"])
 			picked = hub.use_library_image(proposal["name"], image, acting_user=BDE)
 			self.assertIn("proposal_page.image", picked["url"])
+			frappe.db.set_value("TBO Proposal Image", image, "enabled", 0)
+			options = hub.get_proposal_options(acting_user=BDE)
+			self.assertNotIn(image, [row["name"] for row in options["images"]])
 		finally:
 			frappe.set_user("Administrator")
 			frappe.delete_doc("TBO Proposal Image", image, force=True)
@@ -1108,6 +1118,7 @@ class TestMaster(ProposalTestCase):
 		):
 			read = hub.read_client_website(self.lead, "client.example", acting_user=BDE)
 			again = hub.read_client_website(self.lead, None, acting_user=BDE)
+			hub.read_client_website(self.lead, "client.example", acting_user=BDE)  # no scheme: still kept
 		self.assertEqual(read["profile"]["industry"], "Food export")
 		self.assertEqual(again["profile"], read["profile"])  # kept on the lead: read once
 		self.assertEqual(get.call_count, 2)  # the home page and its About page
@@ -1183,6 +1194,12 @@ class TestMaster(ProposalTestCase):
 				}
 			)
 
+		frappe.db.set_value(
+			"TBO Proposal Section",
+			{"parent": created["name"], "section_type": "Proposed Solution"},
+			"body",
+			"Component | What it does\nDatabase | MariaDB\n\n## Business benefits\n- Faster payroll",
+		)
 		with mock_ai(answer) as post:
 			result = hub.chat_edit(
 				created["name"], "add Payroll, make it 90 days, remove AMC", acting_user=BDE
@@ -1196,6 +1213,7 @@ class TestMaster(ProposalTestCase):
 		self.assertEqual(sections["AMC"]["enabled"], 0)
 		self.assertIn("Planned over 90 days.", sections["Project Timeline"]["body"])
 		self.assertEqual(sections["Terms & Conditions"]["body"], "Our own terms.")  # edited: kept
+		self.assertIn("- Faster payroll", sections["Proposed Solution"]["body"])  # the AI's benefits kept
 		self.assertTrue(result["reply"].startswith("Done:"))
 		self.assertEqual(proposal["chat"][-2]["text"], "add Payroll, make it 90 days, remove AMC")
 		with mock_ai(openai_answer({})):

@@ -328,7 +328,9 @@
 			{%- if block.modules and block.modules | length > 2 %}{{ cards(block.modules[2:]) }}{% endif %}
 			{%- set rest = shown if (block.timeline or block.modules) else shown[lead:] %}
 			{%- for part in rest %}
-			{%- if part.kind == "heading" %}<div class="keep">{{ render_part(part) }}{% if loop.last %}</div>{% endif %}
+			{#- a heading opens a keep-together wrapper closed by what follows it; a heading right after
+			    another closes the earlier one first #}
+			{%- if part.kind == "heading" %}{% if loop.previtem and loop.previtem.kind == "heading" %}</div>{% endif %}<div class="keep">{{ render_part(part) }}{% if loop.last %}</div>{% endif %}
 			{%- else %}{{ render_part(part) }}{% if loop.previtem and loop.previtem.kind == "heading" %}</div>{% endif %}
 			{%- endif %}
 			{%- endfor %}

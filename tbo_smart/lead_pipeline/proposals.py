@@ -685,7 +685,7 @@ def regenerate_all(doc, force: bool = False) -> dict:
 	for row in doc.sections:
 		if cint(row.edited) and not force:
 			continue
-		text = builder.build_section(doc, row.section_type)
+		text = builder.rebuilt_body(doc, row)
 		if text is not None:
 			row.body = text or None
 			row.edited = 0
@@ -1119,7 +1119,7 @@ def expire_proposals() -> int:
 def page_context(doc, preview: bool = False, pdf: bool = False) -> dict:
 	"""Everything the page and the PDF show, and nothing else: the cover, the contents, the
 	numbered sections in their parts with their images, tables and diagrams, the letter head, the
-	quotation's lines and totals, and the acceptance block. No emails, notes, owners or internal
+	quotation's lines and totals, and the acceptance block (the accepter's email masked). No other emails, notes, owners or internal
 	names. In the PDF the images are data URIs."""
 	company = (
 		frappe.db.get_value(
@@ -1179,7 +1179,7 @@ def page_context(doc, preview: bool = False, pdf: bool = False) -> dict:
 		"acceptance": {
 			"client": client_name(doc),
 			"name": doc.decided_by_name,
-			"email": doc.decided_by_email if doc.status == ACCEPTED else None,
+			"email": masked_email(doc.decided_by_email) if doc.status == ACCEPTED else None,
 			"date": frappe.utils.formatdate(doc.decided_on, "d MMMM yyyy")
 			if doc.status == ACCEPTED and doc.decided_on
 			else None,
@@ -1214,6 +1214,12 @@ def share_card(doc, company: str | None, logo: str | None, letter_head: dict | N
 		else logo or get_url(f"{BUNDLED_ICON}.png"),
 		"url": public_url(doc),
 	}
+
+
+def masked_email(email: str | None) -> str | None:
+	"""Who accepted, without showing their address to everyone with the link: a•••@client.example."""
+	local, at, domain = (email or "").partition("@")
+	return f"{local[:1]}•••@{domain}" if at and local else None
 
 
 def numbered_blocks(doc, pricing, pdf: bool) -> list[dict]:

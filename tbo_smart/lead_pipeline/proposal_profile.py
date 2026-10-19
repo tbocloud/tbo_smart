@@ -117,13 +117,13 @@ def read_website(lead: str, url: str | None = None, refresh: bool = False) -> di
 
 	row = frappe.db.get_value("Lead", lead, ["website", "tbo_web_profile"], as_dict=True)
 	url = (url or row.website or "").strip()
+	if url and not re.match(r"^https?://", url, re.I):
+		url = f"https://{url}"
 	cached = cached_web_profile(row.tbo_web_profile)
 	if cached and not refresh and (not url or cached.get("website") == url):
 		return cached
 	if not url:
 		frappe.throw(_("Give the client's website address."))
-	if not re.match(r"^https?://", url, re.I):
-		url = f"https://{url}"
 	text = site_text(url)
 	if not text:
 		raise SiteUnreachable(_("The website had no readable text. Type the profile instead."))

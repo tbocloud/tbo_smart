@@ -673,7 +673,7 @@ def library_images(solution_type: str | None = None, section: str | None = None)
 	return [
 		row
 		for row in rows
-		if (row.enabled or section is None)
+		if row.enabled
 		and (solution_type is None or suits(row, solution_type))
 		and (section is None or section in lines(row.sections))
 	]
@@ -1181,10 +1181,21 @@ def apply_edit(doc, ops: dict) -> list[str]:
 		for row in doc.sections:
 			if cint(row.edited):
 				continue
-			text = build_section(doc, row.section_type)
+			text = rebuilt_body(doc, row)
 			if text is not None:
 				row.body = text or None
 	return done
+
+
+def rebuilt_body(doc, row) -> str | None:
+	"""A section's text rebuilt from the data; the Proposed Solution keeps the AI's benefits
+	under the rebuilt component table (None: the section isn't built from data)."""
+	text = build_section(doc, row.section_type)
+	if text is None or row.section_type != "Proposed Solution":
+		return text
+	marker = f"## {_('Business benefits')}"
+	benefits = (row.body or "").partition(marker)[2].strip()
+	return with_data(doc, row.section_type, benefits) if benefits else text
 
 
 EDIT_PROMPT = """You turn a salesperson's request about an IT services proposal into structured

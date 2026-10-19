@@ -87,7 +87,7 @@ doesn't fit (off sections are kept, not shown). The part titles show in the cont
 | 13 | Project Timeline | B | The picked **Timeline** template (45 / 60 / 90 / 120 days, phase split in days), drawn as a bar |
 | 14 | Project Team & Responsibilities | B | Library **Role** (the "Large project" roles only above 40 person-days) |
 | 15 | Investment | C — Commercial Proposal | Library **Investment Note** + the quotation (itemised or consolidated) |
-| 16 | Payment Terms | C | The picked **Payment Terms** template ("milestone | %", adding up to 100); amounts computed from the total |
+| 16 | Payment Terms | C | The picked **Payment Terms** template ("milestone \| %", adding up to 100); amounts computed from the total |
 | 17 | Warranty & Post-Implementation Support | C | Library **Warranty** |
 | 18 | AMC | C | Library **AMC Plan** (Basic / Premium / Enterprise, features and yearly price): a comparison table, its price separate from the project; the recommended plan named |
 | 19 | Assumptions & Dependencies | C | Library **Assumption** + the modules' |
@@ -341,8 +341,8 @@ is sent.
   part's title before its first section, subheadings numbered n.1, n.2…; tables, workflow
   chains, the module cards, the timeline bar, payment amounts; the quotation's lines (itemised or
   consolidated), discount, taxes, total and total in words; the acceptance block. **Nothing
-  else:** no emails (but the accepting client's own on the accepted block), owners, notes, lead
-  or quotation names, internal statuses. Everything is escaped.
+  else:** no emails (the accepted block shows the accepting client's email masked, e.g.
+  a•••@client.example), owners, notes, lead or quotation names, internal statuses. Everything is escaped.
 - **Tab and share card:** the icon is Website Settings' favicon, else its app logo or the company
   logo, else the bundled TBO icon (`/assets/tbo_smart/images/tbo-proposal-icon.svg`, a PNG for
   `apple-touch-icon`); the title "<proposal title> · <company>"; `og:title`, `og:description`
