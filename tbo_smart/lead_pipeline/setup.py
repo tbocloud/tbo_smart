@@ -76,6 +76,24 @@ def get_pipeline_fields() -> dict:
 				"depends_on": "eval:doc.tbo_stage == 'Closed – Lost'",
 			},
 			{
+				# what the client's website says, read once for its proposals (proposal_profile)
+				"fieldname": "tbo_web_profile",
+				"fieldtype": "Long Text",
+				"label": "Website profile",
+				"insert_after": "website",
+				"read_only": 1,
+				"no_copy": 1,
+				"description": "Read from the client's website for proposals (JSON).",
+			},
+			{
+				"fieldname": "tbo_web_profile_on",
+				"fieldtype": "Datetime",
+				"label": "Website read on",
+				"insert_after": "tbo_web_profile",
+				"read_only": 1,
+				"no_copy": 1,
+			},
+			{
 				"fieldname": "tbo_stage_section",
 				"fieldtype": "Section Break",
 				"label": "Stage history",
@@ -317,19 +335,37 @@ def sync_print_format() -> None:
 
 
 TEMPLATES_SEEDED = "tbo_proposal_templates_seeded"
+MASTER_SEEDED = "tbo_proposal_master_seeded"
 
 
 def seed_proposal_templates() -> None:
-	"""A few proposal templates, once per site (a marker in the defaults): after that they are
-	the editors' own, and a migrate never brings back one they deleted."""
-	from tbo_smart.lead_pipeline.proposal_templates import TEMPLATES
+	"""The Universal IT Proposal's presets, the module catalogue and the section libraries, once
+	per site (a marker in the defaults): after that they are the editors' own, and a migrate never
+	brings back one they deleted. On a site that had the first templates (v1.0), the presets of
+	the same name are rewritten to the master structure and the other first ones disabled."""
+	from tbo_smart.lead_pipeline import proposal_templates as seed
 
-	if frappe.db.get_default(TEMPLATES_SEEDED):
+	if frappe.db.get_default(MASTER_SEEDED):
 		return
-	if not frappe.db.count("TBO Proposal Template"):
-		for template in TEMPLATES:
+	for module in seed.MODULES:
+		if not frappe.db.exists("TBO Proposal Module", module["module_name"]):
+			frappe.get_doc({"doctype": "TBO Proposal Module", **module}).insert(ignore_permissions=True)
+	if not frappe.db.count("TBO Proposal Library Item"):
+		for item in seed.LIBRARY:
+			frappe.get_doc({"doctype": "TBO Proposal Library Item", **item}).insert(ignore_permissions=True)
+	for template in seed.templates():
+		if frappe.db.exists("TBO Proposal Template", template["template_name"]):
+			doc = frappe.get_doc("TBO Proposal Template", template["template_name"])
+			doc.update({key: value for key, value in template.items() if key != "sections"})
+			doc.set("sections", template["sections"])
+			doc.save(ignore_permissions=True)
+		else:
 			frappe.get_doc({"doctype": "TBO Proposal Template", **template}).insert(ignore_permissions=True)
+	for name in seed.OLD_TEMPLATES:
+		if frappe.db.exists("TBO Proposal Template", name):
+			frappe.db.set_value("TBO Proposal Template", name, "enabled", 0)
 	frappe.db.set_default(TEMPLATES_SEEDED, 1)
+	frappe.db.set_default(MASTER_SEEDED, 1)
 
 
 def after_migrate() -> None:

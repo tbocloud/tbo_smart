@@ -1246,9 +1246,14 @@ def make_outgoing_email_account() -> str:
 
 
 def enable_proposals(ai: bool = False, **values) -> None:
-	"""Quotations on the lead and Proposals on (with `ai`, AI proposal drafts too)."""
+	"""Quotations on the lead and Proposals on (with `ai`, AI proposal drafts too), with a daily AI
+	limit no test run reaches unless `values` sets one."""
 	enable_lead_quotations(
-		enable_proposals=1, enable_proposal_ai=int(ai), proposal_validity_days=30, **values
+		enable_proposals=1,
+		enable_proposal_ai=int(ai),
+		proposal_validity_days=30,
+		# high, so a day of test runs never hits it (test_the_daily_limit sets its own)
+		**{"proposal_ai_daily_limit": 100000, **values},
 	)
 
 
@@ -1271,12 +1276,33 @@ def delete_lead_proposals(leads: list[str] | tuple) -> None:
 	frappe.db.commit()  # nosemgrep
 
 
-def make_hub_proposal(lead: str, acting_user: str, template: str | None = None, ai_draft: int = 0) -> dict:
-	"""A proposal for the lead through the hub API (hub_proposals.create_proposal) as `acting_user`;
-	returns the proposal's payload."""
+CLIENT_PROFILE = {
+	"website": "https://client.example",
+	"industry": "Spice export",
+	"size": "120 staff",
+	"locations": "Kochi",
+	"current_software": "Tally and Excel",
+	"key_processes": "Procurement, processing, export",
+	"pain_points": "Payroll by hand, GST in Excel",
+}
+
+
+def make_hub_proposal(
+	lead: str, acting_user: str, template: str | None = None, ai_draft: int = 0, scoping: dict | None = None
+) -> dict:
+	"""A proposal for the lead through the hub API (hub_proposals.create_proposal) as `acting_user`,
+	with a filled client profile (CLIENT_PROFILE) and `scoping`; returns the proposal's payload."""
 	from tbo_smart.api import hub_proposals
 
-	return hub_proposals.create_proposal(lead, template, ai_draft, acting_user=acting_user)["proposal"]
+	return hub_proposals.create_proposal(
+		lead,
+		template,
+		ai_draft,
+		json.dumps(scoping) if scoping else None,
+		None,
+		json.dumps(CLIENT_PROFILE),
+		acting_user=acting_user,
+	)["proposal"]
 
 
 def price_hub_proposal(
@@ -1379,6 +1405,43 @@ def clear_default_letter_heads() -> None:
 	"""No Letter Head is the default, and TBO Smart Settings → Proposal letter head is blank."""
 	frappe.db.set_value("Letter Head", {"is_default": 1}, "is_default", 0)
 	set_smart_lead_settings(proposal_letter_head=None)
+
+
+def make_library_image(title: str, sections: str = "Cover", **values) -> str:
+	"""A proposal library image (a public PNG) tagged for `sections` (one per line)."""
+	url = (
+		frappe.get_doc(
+			{"doctype": "File", "file_name": f"{title}.png", "is_private": 0, "content": make_image_bytes()}
+		)
+		.insert(ignore_permissions=True)
+		.file_url
+	)
+	return (
+		frappe.get_doc(
+			{
+				"doctype": "TBO Proposal Image",
+				"title": title,
+				"image": url,
+				"alt_text": f"{title} picture",
+				"sections": sections,
+				**values,
+			}
+		)
+		.insert(ignore_permissions=True)
+		.name
+	)
+
+
+def page_response(html: str, url: str = "https://client.example/") -> MagicMock:
+	"""A requests response streaming `html`, for reading a client's website."""
+	response = MagicMock()
+	response.__enter__.return_value = response
+	response.status_code = 200
+	response.is_redirect = False
+	response.headers = {"Content-Type": "text/html; charset=utf-8"}
+	response.encoding = "utf-8"
+	response.iter_content.return_value = [html.encode()]
+	return response
 
 
 def set_proposal_values(name: str, **values) -> None:

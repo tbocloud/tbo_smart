@@ -1,93 +1,891 @@
-"""The proposal templates seeded on a site that has none (docs/proposals.md §3). Kept short on
-purpose: each block says what it should cover, and the preset editors change them in the hub."""
+"""What a site starts with (docs/proposals.md §3): the Universal IT Proposal's solution-type
+presets, the module catalogue and the section libraries. Seeded once (setup.seed_proposal_master);
+after that they are the preset editors' own, changed in the hub's Settings → Rates and proposals.
 
-ABOUT_US = (
-	"TBO (Team Back Office) builds and runs business software for growing companies in Kerala and "
-	"beyond: ERPNext implementations, support desks and custom solutions, with a team that stays "
-	"with you after go-live."
-)
-TERMS = (
-	"This proposal is valid until the date above. Prices are as in the pricing block, with taxes "
-	"shown separately.\n\n- Work starts once the proposal is accepted.\n- Anything outside the scope "
-	"above is quoted separately.\n- Payments follow the schedule in the pricing block."
-)
+Plain English for the client to read. Nothing here is a price the owner hasn't set: modules and
+AMC plans start at 0 until the owner fills them in (or links an Item priced on the rate card).
+"""
+
+# ---------- the presets: which master sections are on, and what the scoping form asks ----------
+
+GUIDANCE = {
+	"Executive Summary": "One page: the client's business, their main problems, what we propose and what it will change for them.",
+	"Client Background": "Their current software and processes, what is hard today, the limits of the current system and what they want automated. Only what they told us.",
+	"Business Challenges": "Only the client's real challenges, from the notes and meetings. Fewer is better than invented.",
+	"Proposed Solution": "The business benefits of the solution, in the client's terms.",
+}
 
 
-def block(section_type: str, heading: str, guidance: str, body: str | None = None) -> dict:
-	return {"section_type": section_type, "heading": heading, "guidance": guidance, "body": body}
+def preset(
+	name: str,
+	description: str,
+	page_guide: str,
+	questions: tuple,
+	modules: tuple = (),
+) -> dict:
+	"""A solution type's preset: its scoping questions and default modules. Every new proposal
+	starts with all the master sections on; presales turns off what doesn't fit."""
+	from tbo_smart.lead_pipeline.proposals import MASTER_SECTIONS
+
+	return {
+		"template_name": name,
+		"solution_type": name,
+		"description": description,
+		"page_guide": page_guide,
+		"questions": "\n".join(questions),
+		"default_modules": "\n".join(modules),
+		"sections": [
+			{
+				"section_type": kind,
+				"enabled": 1,
+				"heading": heading,
+				"guidance": GUIDANCE.get(kind),
+			}
+			for kind, heading in MASTER_SECTIONS
+		],
+	}
 
 
-def common_start(challenge: str) -> list[dict]:
-	return [
-		block(
-			"Cover", "Introduction", "One short paragraph: who it is for and what it will change for them."
+ERP_MODULES = ("Accounts", "Selling & CRM", "Buying", "Stock & Inventory", "Reports & Dashboards", "Training")
+
+
+def templates() -> tuple:
+	from tbo_smart.lead_pipeline.proposals import QUESTIONS as ALL_QUESTIONS
+
+	return (
+		preset(
+			"ERPNext Implementation",
+			"ERPNext set up for the client: modules, data migration, training, go-live and support.",
+			"ERP (10–15 pages)",
+			ALL_QUESTIONS,
+			ERP_MODULES,
 		),
-		block("About us", "About TBO", "Who TBO is, in two or three sentences.", ABOUT_US),
-		block("Challenge", "Where you are today", challenge),
-	]
+		preset(
+			"ERPNext + Flutter Mobile App",
+			"ERPNext with a Flutter mobile app for the field team or customers, on one backend.",
+			"ERP + mobile (15–25 pages)",
+			ALL_QUESTIONS,
+			(*ERP_MODULES, "Flutter Mobile App"),
+		),
+		preset(
+			"Flutter Mobile App",
+			"A Flutter app for Android and iOS, with its backend and admin panel.",
+			"Small project (5–8 pages)",
+			("integrations", "users", "hosting", "amc", "timeline_weeks", "source_code", "architecture"),
+			("Flutter Mobile App", "Admin Panel"),
+		),
+		preset(
+			"Web Application",
+			"A web application built for the client's process, with its admin panel and reports.",
+			"ERP (10–15 pages)",
+			(
+				"integrations",
+				"data_migration",
+				"users",
+				"hosting",
+				"amc",
+				"timeline_weeks",
+				"source_code",
+				"architecture",
+			),
+			("Web Application", "Admin Panel", "Reports & Dashboards"),
+		),
+		preset(
+			"Custom Software Development",
+			"Software built for a need no product covers: discovery, design, build, launch.",
+			"ERP (10–15 pages)",
+			ALL_QUESTIONS,
+			("Web Application", "Admin Panel"),
+		),
+		preset(
+			"Frappe HR / HRMS",
+			"Frappe HR for employees, attendance, leave, payroll and appraisals.",
+			"ERP (10–15 pages)",
+			(
+				"modules",
+				"customisation",
+				"mobile_app",
+				"integrations",
+				"data_migration",
+				"users",
+				"hosting",
+				"amc",
+				"timeline_weeks",
+			),
+			("HR & Payroll", "Reports & Dashboards", "Training"),
+		),
+		preset(
+			"Helpdesk",
+			"A helpdesk for customer or staff support: tickets, SLAs, knowledge base and reports.",
+			"Small project (5–8 pages)",
+			("modules", "customisation", "integrations", "users", "hosting", "amc", "timeline_weeks"),
+			("Helpdesk", "Training"),
+		),
+		preset(
+			"CRM",
+			"A CRM for leads, deals, follow-ups and the sales pipeline.",
+			"Small project (5–8 pages)",
+			(
+				"modules",
+				"customisation",
+				"mobile_app",
+				"integrations",
+				"data_migration",
+				"users",
+				"hosting",
+				"amc",
+				"timeline_weeks",
+			),
+			("Selling & CRM", "Training"),
+		),
+		preset(
+			"Website / Digital",
+			"A website and its digital presence: design, content, SEO and hosting.",
+			"Small project (5–8 pages)",
+			("integrations", "hosting", "amc", "timeline_weeks"),
+			("Website & Portal",),
+		),
+		preset(
+			"AMC / Support",
+			"An annual maintenance contract for a system already running.",
+			"Small project (5–8 pages)",
+			("users", "hosting", "amc"),
+			(),
+		),
+	)
 
 
-def common_end() -> list[dict]:
-	return [
-		block("Pricing", "Investment", "A line on what the price covers; the quotation's lines follow."),
-		block("Terms", "Terms", "Validity, what is outside the scope, how payments run.", TERMS),
-	]
+# the first site templates (v1.0), superseded by the presets above and disabled once
+OLD_TEMPLATES = ("Helpdesk / Support", "Custom Solution", "Digital Marketing")
+
+# ---------- the module catalogue: pre-written once, assembled into every proposal ----------
+
+DA = "Development & Configuration"
+BA = "Business Analysis"
+TE = "Testing"
+DE = "Deployment"
+TR = "Training & Handover"
+ERP = ("ERPNext Implementation", "ERPNext + Flutter Mobile App")
+CUSTOM = ("Flutter Mobile App", "Web Application", "Custom Software Development")
 
 
-TEMPLATES = (
-	{
-		"template_name": "ERPNext Implementation",
-		"solution_type": "ERPNext Implementation",
-		"description": "ERPNext set up for the client's company: modules, data, training and go-live.",
-		"sections": [
-			*common_start("The processes and tools they use now, and what slows them down, in their words."),
-			block(
-				"Solution", "What we'll set up", "The ERPNext modules and how each fixes a pain point above."
-			),
-			block(
-				"Scope", "Scope", "Modules, data migration, integrations, training, and what is not included."
-			),
-			block("Timeline", "How we'll get there", "The phases from kick-off to go-live and support."),
-			*common_end(),
-		],
-	},
-	{
-		"template_name": "Helpdesk / Support",
-		"solution_type": "Helpdesk / Support",
-		"description": "A helpdesk or an ongoing support contract.",
-		"sections": [
-			*common_start("How their customers or staff ask for help today, and what gets lost."),
-			block(
-				"Solution", "How support will work", "Channels, response times, who handles what, reporting."
-			),
-			block("Scope", "What's covered", "Systems, hours and kinds of requests covered, and what isn't."),
-			*common_end(),
-		],
-	},
-	{
-		"template_name": "Custom Solution",
-		"solution_type": "Custom Solution",
-		"description": "Software built for a need no product covers.",
-		"sections": [
-			*common_start("The problem to solve and why off-the-shelf tools haven't solved it."),
-			block(
-				"Solution", "What we'll build", "The solution in plain words: who uses it and what it does."
-			),
-			block("Scope", "Scope", "Features in this phase, integrations, and what comes later."),
-			block("Timeline", "How we'll build it", "Discovery, build, testing and launch."),
-			*common_end(),
-		],
-	},
-	{
-		"template_name": "Digital Marketing",
-		"solution_type": "Digital Marketing",
-		"description": "Campaigns, content and social media for the client's brand.",
-		"sections": [
-			*common_start("Their audience, channels and goals, and what isn't working yet."),
-			block("Solution", "The plan", "Channels, content themes and how results will be measured."),
-			block("Scope", "Deliverables", "What is produced each month, and approvals."),
-			block("Timeline", "The first months", "Onboarding, the first campaigns, the first review."),
-			*common_end(),
-		],
-	},
+def module(
+	name: str,
+	solution_types: tuple,
+	description: str,
+	features: tuple,
+	effort: float,
+	fit: str = "Configured",
+	scope: tuple = (),
+	deliverables: tuple = (),
+	assumptions: tuple = (),
+	out_of_scope: tuple = (),
+	workflow: tuple = (),
+	order: int = 0,
+) -> dict:
+	"""A catalogue module with everything it adds to a proposal. Prices start at 0: the owner
+	sets them (or links an Item priced on the segment rate card)."""
+	return {
+		"module_name": name,
+		"solution_types": "\n".join(solution_types),
+		"description": description,
+		"features": "\n".join(features),
+		"effort_days": effort,
+		"fit": fit,
+		"default_price": 0,
+		"scope": "\n".join(scope),
+		"deliverables": "\n".join(deliverables),
+		"assumptions": "\n".join(assumptions),
+		"out_of_scope": "\n".join(out_of_scope),
+		"workflow": "\n".join(workflow),
+		"sort_order": order,
+	}
+
+
+MODULES = (
+	module(
+		"Accounts",
+		ERP,
+		"Complete books of account on ERPNext: the general ledger, receivables and payables, banking, "
+		"GST and the financial statements management reads every month.",
+		(
+			"Chart of accounts, cost centres and fiscal years",
+			"Sales and purchase invoices with GST",
+			"Receivables and payables with ageing",
+			"Payments, journal entries and bank reconciliation",
+			"GST: tax templates, e-invoice, e-way bill, GSTR-1 and GSTR-3B",
+			"Profit and loss, balance sheet, cash flow and trial balance",
+		),
+		10,
+		scope=(
+			f"{BA} | Study of the current chart of accounts, tax set-up and month-end close",
+			f"{DA} | Chart of accounts, cost centres, fiscal year and accounting dimensions",
+			f"{DA} | GST settings, tax templates, e-invoice and e-way bill",
+			f"{DA} | Bank accounts and bank reconciliation",
+			f"{DA} | Print formats for invoices, receipts and vouchers",
+			f"{TE} | Test of a full month: invoices, payments, GST returns and statements",
+		),
+		deliverables=("Accounts configured with GST, ready for daily entries",),
+		assumptions=("The client's auditor confirms the chart of accounts and opening balances.",),
+		out_of_scope=("Filing GST returns or audit work: the system prepares the reports.",),
+		workflow=("Sales to cash: Quotation → Sales Order → Invoice → Payment → Bank Reconciliation",),
+		order=1,
+	),
+	module(
+		"HR & Payroll",
+		("Frappe HR / HRMS", *ERP),
+		"Frappe HR for the whole employee life cycle: records, attendance and check-in, leave, payroll "
+		"with Indian statutory deductions, appraisals and expense claims.",
+		(
+			"Employee master with documents, onboarding and exit",
+			"Attendance with check-in, shifts and holiday lists",
+			"Leave types, policies, balances and approvals",
+			"Salary structures, monthly payroll and salary slips",
+			"Statutory PF, ESI and professional tax",
+			"Appraisals with goals and reviews",
+			"Expense claims and employee advances",
+		),
+		12,
+		scope=(
+			f"{BA} | Study of HR policies, leave rules and the salary structure",
+			f"{DA} | Employee master, departments, designations and the reporting line",
+			f"{DA} | Attendance, check-in, shifts and holiday lists",
+			f"{DA} | Leave types, leave policies and approval workflows",
+			f"{DA} | Salary components, structures, PF, ESI and professional tax",
+			f"{DA} | Appraisal templates, expense claims and advances",
+			f"{TE} | A parallel payroll run against the current month's salaries",
+		),
+		deliverables=("HR and payroll configured, with a verified parallel payroll run",),
+		assumptions=(
+			"The client gives the salary structure and statutory details (PF, ESI, PT registrations).",
+		),
+		out_of_scope=("Statutory filing with the PF and ESI portals: the system prepares the files.",),
+		workflow=("Hire to retire: Onboarding → Attendance → Leave → Payroll → Appraisal → Exit",),
+		order=2,
+	),
+	module(
+		"Selling & CRM",
+		(*ERP, "CRM"),
+		"From the first enquiry to the sales order: leads, opportunities, quotations, price lists and the "
+		"sales pipeline, in one place.",
+		(
+			"Leads, opportunities and follow-ups",
+			"Quotations and sales orders",
+			"Customers, contacts and price lists",
+			"Sales pipeline and sales analytics",
+		),
+		5,
+		scope=(
+			f"{DA} | Lead sources, sales stages and the opportunity pipeline",
+			f"{DA} | Customers, price lists, terms and the quotation print format",
+			f"{DA} | Sales orders, delivery and sales reports",
+		),
+		deliverables=("Selling and CRM configured with the client's price lists",),
+		workflow=("Lead to order: Lead → Opportunity → Quotation → Sales Order",),
+		order=3,
+	),
+	module(
+		"Buying",
+		ERP,
+		"Purchasing under control: material requests, supplier quotations, purchase orders, receipts and "
+		"supplier payments.",
+		(
+			"Material requests and approvals",
+			"Supplier quotations and comparison",
+			"Purchase orders and purchase receipts",
+			"Supplier ledger and payment terms",
+		),
+		5,
+		scope=(
+			f"{DA} | Suppliers, buying price lists and approval rules",
+			f"{DA} | Material requests, purchase orders and receipts",
+		),
+		deliverables=("Buying configured with approval rules",),
+		workflow=(
+			"Purchase to pay: Material Request → Purchase Order → Receipt → Purchase Invoice → Payment",
+		),
+		order=4,
+	),
+	module(
+		"Stock & Inventory",
+		ERP,
+		"Stock across warehouses with batches, serial numbers, reorder levels and valuation, so the books "
+		"and the godown agree.",
+		(
+			"Items, units of measure and item groups",
+			"Multiple warehouses and stock transfers",
+			"Batch and serial number tracking",
+			"Reorder levels and stock alerts",
+			"Stock ledger, valuation and ageing",
+		),
+		6,
+		scope=(
+			f"{DA} | Item master, units, item groups and warehouses",
+			f"{DA} | Batch and serial settings, reorder levels and valuation method",
+			f"{TE} | Stock reconciliation against a physical count",
+		),
+		deliverables=("Stock configured with opening stock per warehouse",),
+		assumptions=("A physical stock count is done before go-live for the opening stock.",),
+		order=5,
+	),
+	module(
+		"Manufacturing",
+		ERP,
+		"Production planned and tracked: bills of material, work orders, job cards and material "
+		"consumption.",
+		(
+			"Bills of material with sub-assemblies",
+			"Production plans and work orders",
+			"Job cards and workstations",
+			"Material consumption and finished goods",
+		),
+		8,
+		scope=(
+			f"{BA} | Study of products, routings and the production process",
+			f"{DA} | Bills of material, workstations and operations",
+			f"{DA} | Production planning and work orders",
+		),
+		deliverables=("Manufacturing configured for the client's products",),
+		workflow=("Make to order: Sales Order → Production Plan → Work Order → Job Card → Finished Goods",),
+		order=6,
+	),
+	module(
+		"Projects & Timesheets",
+		ERP,
+		"Projects, tasks and timesheets, with billing and profitability per project.",
+		(
+			"Projects, tasks and milestones",
+			"Timesheets and activity costs",
+			"Project billing",
+			"Project profitability",
+		),
+		4,
+		scope=(f"{DA} | Project templates, activity types, costing and billing",),
+		deliverables=("Projects and timesheets configured",),
+		order=7,
+	),
+	module(
+		"Assets",
+		ERP,
+		"Fixed assets with depreciation, movement and maintenance.",
+		(
+			"Asset register and categories",
+			"Depreciation schedules (straight line or written down value)",
+			"Asset movement, maintenance and disposal",
+		),
+		3,
+		scope=(f"{DA} | Asset categories, depreciation methods and the asset register",),
+		deliverables=("The asset register with depreciation schedules",),
+		assumptions=("The client gives the current asset register with book values.",),
+		order=8,
+	),
+	module(
+		"Helpdesk",
+		("Helpdesk", "AMC / Support", *ERP),
+		"A helpdesk for customers or staff: tickets from email and the portal, SLAs, a knowledge base and "
+		"support reports.",
+		(
+			"Ticket inbox from email and the portal",
+			"Assignment rules, SLAs and escalations",
+			"Canned replies and a knowledge base",
+			"Support reports and customer satisfaction",
+		),
+		5,
+		scope=(
+			f"{DA} | Teams, ticket types, SLAs and assignment rules",
+			f"{DA} | Email channels, the customer portal and the knowledge base",
+		),
+		deliverables=("The helpdesk live on the client's support email",),
+		workflow=("Ticket life cycle: Ticket → Assignment → Response → Resolution → Feedback",),
+		order=9,
+	),
+	module(
+		"Website & Portal",
+		("Website / Digital", *ERP),
+		"A fast, responsive website the client's team can update, with a customer portal on the same "
+		"system.",
+		(
+			"Responsive pages and a content editor",
+			"Customer portal for orders, invoices and tickets",
+			"Contact forms, SEO basics and analytics",
+		),
+		10,
+		"Customised",
+		scope=(
+			"System Design | Page designs and the site map",
+			f"{DA} | Pages, content editor, portal and forms",
+			f"{DE} | Domain, SSL and launch",
+		),
+		deliverables=("The website and portal live on the client's domain",),
+		assumptions=("The client gives the content and images for the pages.",),
+		out_of_scope=("Writing content and producing photography or video.",),
+		order=10,
+	),
+	module(
+		"Flutter Mobile App",
+		("ERPNext + Flutter Mobile App", "Flutter Mobile App"),
+		"A Flutter app for Android and iOS on the same backend: attendance, leave, approvals and sales "
+		"on the phone, with push notifications.",
+		(
+			"Sign-in with roles",
+			"Attendance check-in with location",
+			"Leave and expense requests",
+			"Approvals on the go",
+			"Sales orders and customer visits",
+			"Push notifications",
+		),
+		25,
+		"Customised",
+		scope=(
+			"System Design | Screen designs for the mobile app",
+			f"{DA} | Flutter app for Android and iOS on the system's API",
+			f"{TE} | Testing on Android and iOS devices",
+			f"{DE} | Play Store and App Store release",
+		),
+		deliverables=("The mobile app published on the Play Store and App Store",),
+		assumptions=("The Apple and Google developer accounts are in the client's name.",),
+		out_of_scope=("Features beyond the screens listed in this proposal.",),
+		workflow=("On the phone: Sign-in → Check-in → Request → Approve → Sync",),
+		order=11,
+	),
+	module(
+		"Web Application",
+		("Web Application", "Custom Software Development"),
+		"A web application built for the client's process, with role-based screens, workflows and "
+		"approvals.",
+		("Responsive screens", "Workflows and approvals", "Role-based access", "Audit trail"),
+		20,
+		"Customised",
+		scope=(
+			"System Design | Screen designs and the data model",
+			f"{DA} | The web application, its workflows and its API",
+		),
+		deliverables=("The web application live on the production server",),
+		workflow=("App flow: Sign-in → Dashboard → Create → Approve → Report",),
+		order=12,
+	),
+	module(
+		"Admin Panel",
+		CUSTOM,
+		"The web panel to manage users, content and settings.",
+		("User and role management", "Masters and settings", "Activity log"),
+		6,
+		"Customised",
+		scope=(f"{DA} | Admin panel for users, masters and settings",),
+		order=13,
+	),
+	module(
+		"Reports & Dashboards",
+		(*ERP, "Frappe HR / HRMS", "Web Application", "Custom Software Development"),
+		"The reports and dashboards management reads every day, and scheduled reports by email.",
+		("Standard reports", "Custom dashboards and charts", "Scheduled email reports"),
+		4,
+		scope=(f"{DA} | Dashboards and custom reports agreed in the requirement document",),
+		deliverables=("Dashboards for management",),
+		order=14,
+	),
+	module(
+		"Integrations",
+		(*ERP, *CUSTOM, "Frappe HR / HRMS", "Helpdesk", "CRM"),
+		"Connections with the client's other systems, so data moves without re-typing.",
+		("REST API and webhooks", "Scheduled sync", "Error logs and retries"),
+		5,
+		"Customised",
+		scope=(f"{DA} | Integrations with the systems listed in the scoping",),
+		deliverables=("Working integrations with their error logs",),
+		assumptions=("Third-party systems give API access, documentation and a test account.",),
+		out_of_scope=("Changes on the third-party systems' side.",),
+		order=15,
+	),
+	module(
+		"Data Migration",
+		(*ERP, "Frappe HR / HRMS", "CRM", "Helpdesk", "Web Application", "Custom Software Development"),
+		"Masters and opening balances moved from the current system, checked with the client before go-live.",
+		("Migration templates", "Trial load and checks", "Final load at go-live"),
+		4,
+		scope=(
+			f"{DE} | Migration of masters (customers, suppliers, items, employees) and opening balances",
+			f"{TE} | A trial load checked with the client before the final load",
+		),
+		deliverables=("Migrated master data and opening balances, signed off by the client",),
+		assumptions=("Data is given in the agreed templates, cleaned, two weeks before go-live.",),
+		out_of_scope=("Migrating past transactions; only opening balances move.",),
+		order=16,
+	),
+	module(
+		"Training",
+		(*ERP, "Frappe HR / HRMS", "Helpdesk", "CRM", *CUSTOM),
+		"Role-wise training for the client's users and an admin hand-over, with user guides.",
+		("Role-wise user training", "Admin training", "User guides"),
+		3,
+		"Standard",
+		scope=(
+			f"{TR} | Role-wise training sessions for the key users",
+			f"{TR} | Admin training and hand-over",
+		),
+		deliverables=("User guides and training sessions",),
+		assumptions=("Key users attend the training sessions.",),
+		order=17,
+	),
+)
+
+# a scoping answer that brings a module with it
+IMPLIED_MODULES = {
+	"data_migration": "Data Migration",
+	"integrations": "Integrations",
+	"mobile_app": "Flutter Mobile App",
+}
+
+
+# ---------- the libraries ----------
+
+
+def item(library: str, title: str, body: str = "", **values) -> dict:
+	return {"library": library, "title": title, "body": body, **values}
+
+
+SCOPE = "Scope of Work"
+ERP_LINE = "ERPNext Implementation\nERPNext + Flutter Mobile App"
+LIBRARY = (
+	# 3. Company Overview (boilerplate, not regenerated)
+	item(
+		"Company Overview",
+		"Who we are",
+		"TBO (Team Back Office) builds and runs business software for growing companies in Kerala "
+		"and beyond. We implement ERPNext and Frappe, build web and mobile applications, and stay "
+		"with our clients after go-live.",
+		sort_order=1,
+	),
+	item(
+		"Company Overview",
+		"What we do",
+		"- ERPNext and Frappe implementation\n- Custom web and mobile applications (Flutter)\n"
+		"- Helpdesk, CRM and HR systems\n- Annual maintenance and support",
+		sort_order=2,
+	),
+	item(
+		"Company Overview",
+		"Why choose us",
+		"- One team from analysis to support, so nothing is lost in hand-overs\n"
+		"- Open-source platforms: no per-user licence lock-in\n"
+		"- A local team, quick to respond and clear to work with",
+		sort_order=3,
+	),
+	# 6. Proposed Solution: the component table
+	item(
+		"Solution Component",
+		"ERP backend",
+		"ERPNext on the Frappe Framework: the system of record for every module.",
+		solution_types=f"{ERP_LINE}\nFrappe HR / HRMS\nHelpdesk\nCRM",
+		sort_order=1,
+	),
+	item(
+		"Solution Component",
+		"Application backend",
+		"A Frappe / Python backend with a REST API for the apps and integrations.",
+		solution_types="Flutter Mobile App\nWeb Application\nCustom Software Development",
+		sort_order=2,
+	),
+	item(
+		"Solution Component",
+		"Mobile app",
+		"A Flutter app for Android and iOS on the same backend.",
+		condition="Mobile app",
+		sort_order=3,
+	),
+	item(
+		"Solution Component",
+		"Web application",
+		"A responsive web application for desktop and tablet.",
+		condition="Web app",
+		sort_order=4,
+	),
+	item("Solution Component", "Database", "MariaDB, with daily backups.", sort_order=5),
+	item(
+		"Solution Component",
+		"Hosting",
+		"Hosted as agreed in this proposal, with SSL and monitoring.",
+		condition="Hosting",
+		sort_order=6,
+	),
+	item(
+		"Solution Component",
+		"Integrations",
+		"Connections to the client's other systems, as listed in the scope.",
+		condition="Integrations",
+		sort_order=7,
+	),
+	item(
+		"Solution Component",
+		"Reporting",
+		"Standard reports and dashboards, plus the custom ones in scope.",
+		sort_order=8,
+	),
+	# 7. Scope of Work, by subsection
+	item(SCOPE, "Requirement workshops with each department", group="Business Analysis", sort_order=1),
+	item(SCOPE, "Gap analysis and the agreed requirement document", group="Business Analysis", sort_order=2),
+	item(SCOPE, "Solution design and process mapping", group="System Design", sort_order=3),
+	item(SCOPE, "Configuration of the selected modules", group="Development & Configuration", sort_order=5),
+	item(
+		SCOPE,
+		"Customisations as listed in this proposal",
+		group="Development & Configuration",
+		condition="Customisation",
+		sort_order=6,
+	),
+	item(SCOPE, "Functional testing by our QA team", group="Testing", sort_order=9),
+	item(SCOPE, "User acceptance testing with the client's key users", group="Testing", sort_order=10),
+	item(SCOPE, "Production set-up and go-live", group="Deployment", sort_order=12),
+	# 9. Proposed Workflow: the default chain of each solution type
+	item(
+		"Workflow",
+		"Ticket life cycle",
+		"Ticket → Assignment → Response → Resolution → Feedback",
+		solution_types="AMC / Support",
+	),
+	# 10. Technical Architecture
+	item(
+		"Architecture", "Frontend", "Frappe desk and portal in the browser; Flutter for mobile.", sort_order=1
+	),
+	item("Architecture", "Backend", "Frappe Framework (Python) with role-based permissions.", sort_order=2),
+	item("Architecture", "Database", "MariaDB.", sort_order=3),
+	item(
+		"Architecture", "API", "REST API with token authentication for apps and integrations.", sort_order=4
+	),
+	item("Architecture", "Cloud", "Frappe Cloud or the client's own server, as agreed.", sort_order=5),
+	item(
+		"Architecture",
+		"Security",
+		"HTTPS everywhere, role permissions and an audit trail.",
+		condition="Detailed architecture",
+		sort_order=6,
+	),
+	item(
+		"Architecture",
+		"Backup",
+		"Daily automated backups, kept off-site.",
+		condition="Detailed architecture",
+		sort_order=7,
+	),
+	item(
+		"Architecture",
+		"Integrations",
+		"Webhooks and scheduled sync with the client's systems.",
+		condition="Integrations",
+		sort_order=8,
+	),
+	# 11. Deliverables
+	item("Deliverable", "The configured system on the production server", sort_order=1),
+	item("Deliverable", "Source code in the client's repository", condition="Source code", sort_order=4),
+	item("Deliverable", "Open-source platform: no licence fees for ERPNext or Frappe", sort_order=6),
+	# 12. Implementation plan: what happens in each phase
+	item(
+		"Phase",
+		"Analysis",
+		"Workshops with each department, the requirement document, sign-off",
+		sort_order=1,
+	),
+	item("Phase", "Design", "Solution design, process maps, screen designs", sort_order=2),
+	item(
+		"Phase",
+		"Development & Configuration",
+		"Module set-up, customisations, integrations, data migration trial",
+		sort_order=3,
+	),
+	item(
+		"Phase",
+		"Testing & UAT",
+		"Functional testing, user acceptance testing with key users, fixes",
+		sort_order=4,
+	),
+	item("Phase", "Deployment", "Production set-up, final data load, cut-over", sort_order=5),
+	item(
+		"Phase", "Training & Go-live", "Role-wise training, go-live and close support after it", sort_order=6
+	),
+	# 13. Project timeline: templates by length, each phase in days (presales picks one)
+	item(
+		"Timeline",
+		"45 days",
+		"Analysis | 5\nDesign | 5\nDevelopment & Configuration | 15\nTesting & UAT | 10\nDeployment | 5\nTraining & Go-live | 5",
+		weeks=45,
+		sort_order=1,
+	),
+	item(
+		"Timeline",
+		"60 days",
+		"Analysis | 7\nDesign | 7\nDevelopment & Configuration | 22\nTesting & UAT | 12\nDeployment | 5\nTraining & Go-live | 7",
+		weeks=60,
+		sort_order=2,
+	),
+	item(
+		"Timeline",
+		"90 days",
+		"Analysis | 10\nDesign | 10\nDevelopment & Configuration | 35\nTesting & UAT | 18\nDeployment | 7\nTraining & Go-live | 10",
+		weeks=90,
+		sort_order=3,
+	),
+	item(
+		"Timeline",
+		"120 days",
+		"Analysis | 14\nDesign | 14\nDevelopment & Configuration | 46\nTesting & UAT | 24\nDeployment | 10\nTraining & Go-live | 12",
+		weeks=120,
+		sort_order=4,
+	),
+	# 14. Team
+	item(
+		"Role", "Project Manager", "The plan, progress reports and the single point of contact", sort_order=1
+	),
+	item(
+		"Role",
+		"ERP Consultant / Business Analyst",
+		"Workshops, requirements, configuration and training",
+		sort_order=2,
+	),
+	item("Role", "Backend Developer", "Customisations, integrations and APIs", sort_order=3),
+	item(
+		"Role",
+		"Mobile Developer",
+		"The Flutter app for Android and iOS",
+		condition="Mobile app",
+		sort_order=4,
+	),
+	item(
+		"Role",
+		"QA Engineer",
+		"Test plans, functional testing and UAT support",
+		condition="Large project",
+		sort_order=5,
+	),
+	item(
+		"Role",
+		"DevOps Engineer",
+		"Servers, deployment, backups and monitoring",
+		condition="Large project",
+		sort_order=6,
+	),
+	# 15. Investment notes
+	item("Investment Note", "GST is extra, as shown in the totals.", sort_order=1),
+	item(
+		"Investment Note",
+		"Third-party licences, hosting and payment gateway or API charges are paid by the client at actuals.",
+		sort_order=2,
+	),
+	item("Investment Note", "Travel outside Kochi, if needed, is billed at actuals.", sort_order=3),
+	# 16. Payment terms presets
+	item(
+		"Payment Terms",
+		"30 / 30 / 30 / 10",
+		"Advance on signing | 30\nAfter development | 30\nAfter UAT | 30\nOn go-live | 10",
+		sort_order=1,
+	),
+	item(
+		"Payment Terms",
+		"50 / 40 / 10",
+		"Advance on signing | 50\nAfter UAT | 40\nOn go-live | 10",
+		sort_order=2,
+	),
+	# 17. Warranty
+	item(
+		"Warranty",
+		"Warranty",
+		"We fix any defect in what we delivered for 90 days after go-live, at no cost. The warranty "
+		"covers the agreed scope; new features and changes to agreed requirements are separate work, "
+		"quoted as change requests.",
+	),
+	# 18. AMC plans (their prices are the owner's to set)
+	item(
+		"AMC Plan",
+		"Basic",
+		"Bug fixes | Included\nSupport | Email, business hours\nHealth checks | Quarterly\n"
+		"Response | Next business day\nNew features | Quoted separately",
+		amount=0,
+		sort_order=1,
+	),
+	item(
+		"AMC Plan",
+		"Premium",
+		"Bug fixes | Included\nSupport | Email and phone, business hours\nHealth checks | Monthly\n"
+		"Response | 4 business hours\nNew features | 2 days a year included",
+		amount=0,
+		sort_order=2,
+	),
+	item(
+		"AMC Plan",
+		"Enterprise",
+		"Bug fixes | Included\nSupport | A dedicated contact, extended hours\n"
+		"Health checks | Monthly, with a report\nResponse | 2 hours for critical issues\n"
+		"New features | 6 days a year included",
+		amount=0,
+		sort_order=3,
+	),
+	# 19. Assumptions
+	item("Assumption", "The client names a project owner who can take decisions.", sort_order=1),
+	item("Assumption", "Key users are available for workshops, testing and training.", sort_order=2),
+	# 20. Out of scope
+	item("Out of Scope", "Hardware, networking and office IT.", sort_order=1),
+	item("Out of Scope", "Features not listed in this proposal.", sort_order=2),
+	item("Out of Scope", "Entering transactions beyond opening balances.", sort_order=3),
+	# 21. Risks
+	item(
+		"Risk",
+		"Key users not available",
+		"Agree a weekly slot with each department at kick-off.",
+		sort_order=1,
+	),
+	item(
+		"Risk",
+		"Requirements change during the build",
+		"Sign-off at the end of discovery; changes go through change requests.",
+		sort_order=2,
+	),
+	item(
+		"Risk",
+		"Late or unclean data",
+		"Templates and a trial load two weeks before go-live.",
+		condition="Data migration",
+		sort_order=3,
+	),
+	item(
+		"Risk",
+		"App store review delays",
+		"Submit early builds for review and keep a buffer week.",
+		condition="Mobile app",
+		sort_order=4,
+	),
+	# 22. Terms & Conditions (boilerplate)
+	item("Terms", "Validity", "This proposal is valid until the date on the cover.", sort_order=1),
+	item(
+		"Terms", "Confidentiality", "Both parties keep each other's information confidential.", sort_order=2
+	),
+	item(
+		"Terms",
+		"Intellectual property and source code",
+		"The client owns their data and configuration. The source code of custom work is handed "
+		"over when this proposal includes it and the payments are complete.",
+		sort_order=3,
+	),
+	item(
+		"Terms",
+		"Payments",
+		"Invoices are due within 7 days. Work may pause while a payment is overdue.",
+		sort_order=4,
+	),
+	item(
+		"Terms",
+		"Change requests",
+		"Work outside the agreed scope is estimated and approved before it starts.",
+		sort_order=5,
+	),
+	item(
+		"Terms",
+		"Suspension and termination",
+		"Either party may end the engagement with 30 days' notice; work done until then is billed.",
+		sort_order=6,
+	),
+	item(
+		"Terms",
+		"Hosting and third parties",
+		"Third-party services (hosting, gateways, app stores) are governed by their own terms.",
+		sort_order=7,
+	),
 )

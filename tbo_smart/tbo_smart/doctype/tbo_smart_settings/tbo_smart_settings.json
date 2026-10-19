@@ -116,6 +116,9 @@
   "column_break_proposals",
   "enable_proposal_ai",
   "proposal_letter_head",
+  "proposal_service_item",
+  "proposal_day_rate",
+  "proposal_ai_daily_limit",
   "checkin_section",
   "enforce_checkin_radius",
   "checkin_locations",
@@ -850,6 +853,29 @@
    "description": "The header and footer on every proposal's page and PDF, unless a proposal picks another. Blank: the Letter Head marked default; with no Letter Head at all, the company's logo."
   },
   {
+   "fieldname": "proposal_service_item",
+   "fieldtype": "Link",
+   "label": "Proposal service item",
+   "options": "Item",
+   "depends_on": "eval:doc.enable_proposals",
+   "description": "The quotation line for a module without an Item of its own, and for customisation days."
+  },
+  {
+   "fieldname": "proposal_day_rate",
+   "fieldtype": "Currency",
+   "label": "Day rate",
+   "depends_on": "eval:doc.enable_proposals",
+   "description": "Customisation and change requests, per person-day."
+  },
+  {
+   "fieldname": "proposal_ai_daily_limit",
+   "fieldtype": "Int",
+   "label": "AI proposal runs a day",
+   "default": "50",
+   "depends_on": "eval:doc.enable_proposal_ai",
+   "description": "At most this many AI writes (a whole draft or one section) a day, so cost stays capped."
+  },
+  {
    "fieldname": "checkin_section",
    "fieldtype": "Section Break",
    "label": "Check-in location"
@@ -905,7 +931,7 @@
  "index_web_pages_for_search": 0,
  "issingle": 1,
  "links": [],
- "modified": "2026-10-19 18:00:00.000000",
+ "modified": "2026-10-19 20:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Smart Settings",

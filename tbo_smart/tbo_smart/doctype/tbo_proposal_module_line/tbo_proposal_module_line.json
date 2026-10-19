@@ -1,0 +1,93 @@
+{
+ "actions": [],
+ "creation": "2026-10-19 20:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "module",
+  "module_name",
+  "fit",
+  "features",
+  "effort_days",
+  "rate",
+  "rate_overridden",
+  "item",
+  "description"
+ ],
+ "fields": [
+  {
+   "fieldname": "module",
+   "fieldtype": "Link",
+   "label": "Module",
+   "options": "TBO Proposal Module",
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "module_name",
+   "fieldtype": "Data",
+   "label": "Name",
+   "reqd": 1,
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "fit",
+   "fieldtype": "Select",
+   "label": "Fit",
+   "options": "Standard\nConfigured\nCustomised",
+   "default": "Configured",
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "features",
+   "fieldtype": "Small Text",
+   "label": "Key features",
+   "in_list_view": 1,
+   "columns": 3
+  },
+  {
+   "fieldname": "effort_days",
+   "fieldtype": "Float",
+   "label": "Effort (days)",
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "rate",
+   "fieldtype": "Currency",
+   "label": "Price",
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "rate_overridden",
+   "fieldtype": "Check",
+   "label": "Price set by hand"
+  },
+  {
+   "fieldname": "item",
+   "fieldtype": "Link",
+   "label": "Item",
+   "options": "Item"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description"
+  }
+ ],
+ "istable": 1,
+ "editable_grid": 1,
+ "links": [],
+ "modified": "2026-10-19 20:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tbo Smart",
+ "name": "TBO Proposal Module Line",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}
