@@ -109,6 +109,10 @@ never clashes with an ERPNext field.
 Overridden, it is not voided, the quotation's percentage is **at or below** the approved
 percentage, and the list value is the same as when it was decided.
 
+A row applied within someone's own limit (*Applied*, `within_limit`) records that limit, not an
+approval: it never covers a percentage above the saver's current limit, so when a limit drops (a
+lead segment's band is cut) the quotation needs a real approval again.
+
 **Voiding:** after an approval, any change that takes the percentage above the approved one
 or changes the list value (items, quantities, prices) voids it. A "Voided" step is logged,
 and lowering the percentage afterwards does not bring it back: a new request is needed.
@@ -240,6 +244,10 @@ Director and CEO (capability `approve_quotations`), through the thin wrappers in
 `tbo_smart/api/mobile/quotation.py` (contract `docs/tbo-smart-api-ess-crm.md` §5.2): *Waiting
 for me* and *I requested*, approve in full or a lower %, reject, forward, CEO override with a
 reason, and the trail. A notification about a request opens it in the app.
+
+**Segment discount band:** on a lead's quotation the discount limit is the higher of the
+person's level limit and the lead segment's band (`lead-pipeline.md` §9.8,
+`quotation_control.effective_limit`); everything above it follows this flow unchanged.
 
 **Quotations on the lead** (`lead-pipeline.md` §9) use the same control: the lead's
 Quotations tab shows the same chips and Request approval, a draft with an open request shows

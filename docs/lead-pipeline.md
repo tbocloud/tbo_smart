@@ -1,4 +1,4 @@
-# Lead pipeline: stages, meetings, MOM and quotations on the lead (living spec, v1.3)
+# Lead pipeline: stages, meetings, MOM and quotations on the lead (living spec, v1.4)
 
 **Status:** Phases 1 to 3 built 2026-10-16: the pipeline stages, meetings and minutes of meeting
 (MOM), automatic lead stages, the deal at Closed – Won, quotations on the lead (presets,
@@ -22,6 +22,7 @@ feature updates it in the same pull request. The screens are the TBO Support hub
 | 1 | Stages, meetings and MOM, automatic stages, deal at Closed – Won, mobile | Built (this file) |
 | 2 | Quotations on the lead: presets, builder, status tracking, revisions, PDF (§9) | Built |
 | 3 | Pipeline dashboard (§11) | Built |
+| Sales 2 | Segment rate card: a price list and a discount band per segment (§9.8) | Built |
 
 ## 1. Owner's decisions (2026-10-15)
 
@@ -101,7 +102,7 @@ has it (`erpnext-lead-cutover.md` §4).
 | Doctype | Field | Purpose |
 | --- | --- | --- |
 | Lead | `tbo_stage` (Select), `tbo_stage_log` (TBO Stage Change), `tbo_lost_reason`, `tbo_lost_notes` | §2 |
-| Lead | `tbo_segment` (Select Retail, Small, Medium, Large, Premium) | The client's segment; Phase 2 adds a price list per segment |
+| Lead | `tbo_segment` (Select Retail, Small, Medium, Large, Premium) | The client's segment: its price list and discount band (§9.8) |
 | Lead / Opportunity | `crm_lead_ref` / `crm_deal_ref` (hidden) | The Frappe CRM record a copy came from (`erpnext-lead-cutover.md`) |
 | Opportunity | `tbo_customer`, `tbo_next_step`, `tbo_closed_on` (won or lost on), `tbo_stage_log` | The deal (§6) |
 | Sales Stage | `tbo_stage_type` (Open, Ongoing, On Hold, Won, Lost), `tbo_probability`, `tbo_position` | The deal's stage; a Won and a Lost stage are created when none is typed so |
@@ -109,6 +110,7 @@ has it (`erpnext-lead-cutover.md` §4).
 | TBO Smart Settings | `meeting_reminder_minutes` (60, 15-1,440) | The reminder before a meeting |
 | TBO Smart Settings | `enable_lead_quotations`, `quotation_validity_days` (30), `quotation_follow_up_days` (3), `quotation_terms`, `quotation_payment_terms`, `quotation_print_format` (blank: TBO Quotation), `quotation_preset_roles` (Sales Manager, System Manager) | §9 |
 | TBO Smart Settings | `enable_pipeline_dashboard` | §11 |
+| TBO Smart Settings | `segment_rates` (table **TBO Segment Rate**: `segment`, `price_list`, `max_discount`) | §9.8 |
 | Quotation | `tbo_lead_meeting`, `tbo_package`, `tbo_quote_status`, `tbo_quote_family`, `tbo_revision_no`, `tbo_is_latest`, `tbo_sent_via`, `tbo_sent_on` | §9.1 |
 
 Masters: the Opportunity Lost Reason "Other" and the role **Hub Integration** are created on
@@ -393,7 +395,45 @@ to the lead** (`save_pdf`) stores it as a private file "<quotation>--<time>.pdf"
 | `create_revision(quotation)` / `get_revisions(quotation)` | POST / GET | write / read | §9.4 |
 | `save_pdf(quotation)` | POST | write | §9.6 |
 | `make_sales_order(quotation)` | POST | Sales Order create | §9.5 |
-| `get_catalogue` / `save_package(values)` / `set_service_rate(item_code, rate)` | GET / POST / POST | preset roles for the writes | §9.2 |
+| `get_catalogue(segment?)` / `save_package(values)` / `set_service_rate(item_code, rate)` | GET / POST / POST | preset roles for the writes | §9.2; the catalogue priced for `segment` (§9.8) |
+
+`get_quotation_form` also returns `pricing: {segment, price_list, discount_band}` for the lead,
+and its catalogue is priced from that price list.
+
+### 9.8 The segment rate card
+
+TBO Smart Settings → **Segment rate card** (`segment_rates`, one row per segment, table **TBO
+Segment Rate**). Code: `lead_pipeline/rate_card.py`. It reads as empty while Quotations on the
+lead is off.
+
+| Column | Meaning |
+| --- | --- |
+| `segment` | Retail, Small, Medium, Large or Premium (`Lead.tbo_segment`); once per segment |
+| `price_list` | An enabled **selling** ERPNext Price List; its **Item Price** rows are the segment's rates. Blank (or since disabled): Selling Settings' selling price list |
+| `max_discount` | The **discount band**: the discount % anyone may give on that segment's quotations without approval (0 to 100; blank or 0: none) |
+
+- **Price:** the builder's catalogue and package lines take each service's rate from the lead's
+  segment's list, item by item, falling back to the selling price list's rate where the
+  segment's list has none. A new lead quotation's `selling_price_list` is the segment's list.
+  A lead without a segment, or a segment not on the card, uses the selling price list.
+- **Band and approval:** the discount control (`quotation-discount-control.md`) reads the
+  discount limit on a lead's quotation as **the higher of** the person's level limit and the
+  segment's band (`quotation_control.effective_limit`). So a BDE with no limit set may give up
+  to the band; above it the quotation needs approval exactly as before (request, BDM → CEO,
+  voiding, Mark sent refused while pending); a level whose own limit is higher keeps it.
+  Commission is untouched. `get_quotation_adjustment_status` and `request_adjustment` use the
+  same limit, so the chips and "within your limit" agree with the save.
+- **The lead's segment is guarded:** it sets the band, so once a lead has a segment only the
+  preset editors move it to another (`rate_card.validate_lead_segment`, Lead validate; refused
+  with a message otherwise). A lead without one gets its first from whoever works it, as on
+  creation. Imports (the cutover) are not checked.
+- **Lookups:** the status of many quotations at once (`get_quotations_adjustment_status`) reads
+  their bands in a fixed number of queries (`rate_card.quotation_bands`).
+- **Who edits:** only the roles in "Roles that edit presets and prices"
+  (`presets.can_edit_presets`); everyone with quotations reads it. The settings check the rows
+  (a segment once, a selling list, a band from 0 to 100%).
+- **Hub:** `tbo_smart.api.hub_leads` `get_rate_card`, `save_rate_card`, `set_segment_rate`
+  (`hub-leads-api.md` §2.3), for the hub's Settings screen.
 
 ## 11. Pipeline dashboard (Phase 3)
 
@@ -456,6 +496,11 @@ BDE row, quotations and active value) without another BDE's leads, and the BDE f
 outside the scope; a manager's everyone view and the BDE, source and status filters; the cards
 for the dashboard's user; the switch.
 
+`tbo_smart/tests/test_segment_rate_card.py`: the card's rows and rates, only preset editors
+change it, rows checked, segment rates on their own list; the builder priced by segment; within
+the band no approval, a segment without a band keeps the levels' limits, above the band the
+approval chain (request, BDM approves, then Mark sent), a higher level limit kept.
+
 `tbo_smart/tests/test_lead_quotations.py`: the builder from a package with GST and a 10%
 discount (totals 70,000 → 63,000 + 11,340 = 74,340), party and package on the quotation; only
 preset roles edit rates and packages, duplicate package names; a quotation from a meeting;
@@ -468,6 +513,10 @@ Customer ERPNext made from the lead, the deal on the order and the order's custo
 deal); the print format rendering.
 
 ## Changelog
+
+- **v1.4 (2026-10-19):** the segment rate card (§9.8): a price list and a discount band per
+  segment, the builder priced by the lead's segment, the band in the discount control, and the
+  hub's rate card methods.
 
 - **v1.3 (2026-10-16):** on ERPNext's Lead and Opportunity instead of Frappe CRM's records
   (`erpnext-lead-cutover.md`): the stage is `Lead.tbo_stage` with its stage log, the deal an

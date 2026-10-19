@@ -108,8 +108,12 @@ class TestHubLeads(FrappeTestCase):
 		self.assertEqual((note["who"], note["text"]), (BDE, "From the hub's form"))
 		self.assertEqual(created["allowed_stages"], [stage for stage in STATUS_NAMES if stage != "New Lead"])
 
-		updated = hub.update_lead(name, {"job_title": "Owner", "segment": "Premium"}, acting_user=BDE)
-		self.assertEqual((updated["lead"]["job_title"], updated["lead"]["segment"]), ("Owner", "Premium"))
+		updated = hub.update_lead(name, {"job_title": "Owner", "segment": "Large"}, acting_user=BDE)
+		self.assertEqual((updated["lead"]["job_title"], updated["lead"]["segment"]), ("Owner", "Large"))
+		# the segment sets the discount band: only preset editors move it (lead-pipeline.md §9.8)
+		self.assertRaises(
+			frappe.ValidationError, hub.update_lead, name, {"segment": "Premium"}, acting_user=BDE
+		)
 		self.assertRaises(frappe.PermissionError, hub.update_lead, name, {"job_title": "x"}, acting_user=BDE2)
 		self.assertRaises(frappe.ValidationError, hub.update_lead, name, {"status": "Open"}, acting_user=BDE)
 		self.assertRaises(frappe.ValidationError, hub.update_lead, name, {"segment": "Huge"}, acting_user=BDE)

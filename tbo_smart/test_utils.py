@@ -1097,6 +1097,59 @@ def delete_lead_quotations(leads: list[str] | tuple) -> None:
 	frappe.db.commit()  # nosemgrep
 
 
+def delete_owner_lead_records(owners: list[str] | tuple) -> None:
+	"""Delete the quotations, smart-lead records and leads of these lead owners, and commit."""
+	leads = frappe.get_all("Lead", filters={"lead_owner": ("in", list(owners))}, pluck="name")
+	delete_lead_quotations(leads)
+	delete_smart_lead_records(owners)
+
+
+def save_lead_quotation(lead: str, item_code: str, rate: float, discount: float = 0, quotation=None) -> dict:
+	"""A lead quotation of one line through the builder (lead_quotation.save_quotation) as the
+	session user, `discount` the additional discount %, valid for 20 days. Returns its payload."""
+	from tbo_smart.api import lead_quotation
+
+	payload = {
+		"valid_till": add_days(nowdate(), 20),
+		"items": [quotation_line(item_code, 1, rate)],
+		"additional_discount_percentage": discount,
+	}
+	return lead_quotation.save_quotation(lead, json.dumps(payload), quotation)
+
+
+def make_selling_price_list(name: str, selling: int = 1) -> str:
+	"""A Price List in the company currency (selling, or buying only with `selling=0`)."""
+	if not frappe.db.exists("Price List", name):
+		frappe.get_doc(
+			{
+				"doctype": "Price List",
+				"price_list_name": name,
+				"currency": frappe.get_cached_value(
+					"Company", erpnext.get_default_company(), "default_currency"
+				),
+				"selling": selling,
+				"buying": 0 if selling else 1,
+				"enabled": 1,
+			}
+		).insert(ignore_permissions=True)
+	return name
+
+
+def set_segment_rates(rows: list[dict] | tuple = ()) -> None:
+	"""Replace TBO Smart Settings' segment rate card with `rows` ({segment, price_list,
+	max_discount}); no rows clears it."""
+	settings = frappe.get_single("TBO Smart Settings")
+	settings.set("segment_rates", [dict(row) for row in rows])
+	settings.save(ignore_permissions=True)
+
+
+def get_item_rate(item_code: str, price_list: str) -> float | None:
+	"""The item's selling rate on a price list, or None when it has none there."""
+	return frappe.db.get_value(
+		"Item Price", {"item_code": item_code, "price_list": price_list, "selling": 1}, "price_list_rate"
+	)
+
+
 def make_approved_leave(employee: str, leave_type: str, from_date, to_date=None, half_day: int = 0) -> str:
 	"""A submitted, Approved Leave Application (half_day on the first day when asked)."""
 	application = frappe.get_doc(
