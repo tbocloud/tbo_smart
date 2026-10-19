@@ -1,6 +1,7 @@
 import json
 
 import frappe
+from frappe.custom.doctype.property_setter.property_setter import make_property_setter
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, today
 
@@ -150,6 +151,16 @@ class TestHubLeads(FrappeTestCase):
 		sooner = add_days(today(), 1)
 		updated = hub.update_lead(name, {"next_follow_up": sooner}, acting_user=BDE)
 		self.assertEqual(str(updated["lead"]["next_follow_up"]), sooner)
+
+	def test_a_stage_move_ignores_an_unrelated_empty_mandatory_field(self):
+		make_property_setter("Lead", "source", "reqd", 1, "Check")
+		try:
+			frappe.clear_cache(doctype="Lead")
+			moved = hub.set_stage(self.mine, CONTACTED, acting_user=BDE)
+			self.assertEqual(moved["lead"]["tbo_stage"], CONTACTED)
+		finally:
+			frappe.delete_doc("Property Setter", "Lead-source-reqd", force=True, ignore_permissions=True)
+			frappe.clear_cache(doctype="Lead")
 
 	def test_owner_and_fields_are_checked(self):
 		self.assertRaises(

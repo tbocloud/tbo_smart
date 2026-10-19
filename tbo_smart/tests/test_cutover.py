@@ -3,6 +3,7 @@ import unittest
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from tbo_smart.api import cutover as cutover_api
 from tbo_smart.cutover import crm_to_erpnext as cutover
 from tbo_smart.test_utils import (
 	clear_crm_cutover,
@@ -132,6 +133,16 @@ class TestCRMCutover(FrappeTestCase):
 			)
 		finally:
 			frappe.delete_doc("TBO Lead Meeting", meeting, force=True, ignore_permissions=True)
+
+	def test_the_browser_methods_are_for_system_managers(self):
+		frappe.set_user(OWNER)
+		self.assertRaises(frappe.PermissionError, cutover_api.dry_run)
+		self.assertRaises(frappe.PermissionError, cutover_api.start)
+		self.assertRaises(frappe.PermissionError, cutover_api.verify)
+		frappe.set_user("Administrator")
+		self.assertEqual(cutover_api.dry_run()["counts"]["leads"]["crm"], 2)
+		self.assertFalse(frappe.db.exists("Lead", self.crm.lead))
+		self.assertIn("running", cutover_api.status())
 
 	def test_finalize_removes_the_old_links(self):
 		cutover.run(dry_run=False)

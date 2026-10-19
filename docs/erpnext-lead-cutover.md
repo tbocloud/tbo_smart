@@ -192,6 +192,18 @@ bench --site <site> execute tbo_smart.cutover.crm_to_erpnext.finalize
 
 Undo before step 7: restore the Press backup of step 1.
 
+**On Press (no bench shell):** the System Console runs scripts sandboxed, so `import` fails
+there. Steps 3–6 have System Manager-only methods in `tbo_smart.api.cutover`, called from the
+System Console (Python) one at a time:
+
+| Step | System Console |
+| --- | --- |
+| 3. Dry run | `print(frappe.call("tbo_smart.api.cutover.dry_run"))` |
+| 4. Run (queued on the long queue, one at a time) | `print(frappe.call("tbo_smart.api.cutover.start"))` |
+| 4. Progress and report | `print(frappe.call("tbo_smart.api.cutover.status"))` (`running`, then `last_report`) |
+| 5. Verify | `print(frappe.call("tbo_smart.api.cutover.verify"))` (`pass` must be `True`) |
+| 6. Finalize | `print(frappe.call("tbo_smart.api.cutover.finalize"))` |
+
 ## 6. Known differences
 
 - ERPNext refuses two leads with the same email unless CRM Settings → **Allow Lead Duplication

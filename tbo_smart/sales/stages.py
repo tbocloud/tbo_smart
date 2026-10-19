@@ -78,6 +78,9 @@ def set_lead_stage(name: str, stage: str, lost_reason: str | None = None):
 	lead.tbo_stage = stage
 	if status_type(stage) == "Lost":
 		set_lost_reason(lead, lost_reason, _("Give a reason for losing the lead."))
+	# a stage move changes only the stage: a mandatory field left empty on an old or imported
+	# lead (e.g. Source made required on the site) mustn't block it
+	lead.flags.ignore_mandatory = True
 	lead.save()
 	return lead
 
