@@ -1,4 +1,4 @@
-# Hub proposals API (`tbo_smart.api.hub_proposals`), v2.2
+# Hub proposals API (`tbo_smart.api.hub_proposals`), v2.3
 
 **Status:** built 2026-10-19. The TBO Support hub's proposal builder (tbocloud/helpdesk
 `docs/proposals.md`) calls these. What proposals are and do: `proposals.md`; the documents after
@@ -26,11 +26,13 @@ otherwise) and count against the day's limit (417 "Today's AI proposal runs are 
 | `read_client_website` | POST | `lead`, `url?` (blank: the lead's website), `refresh` (0/1), `acting_user` | `{profile}` (about, industry, size, locations, current_software, key_processes, website); kept on the lead; 30 an hour per IP |
 | `get_requirements_from_lead` | GET | `lead`, `acting_user` | `{text}`: the notes and minutes, newest first (no AI) |
 | `extract_requirements` | POST | `lead`, `text`, `acting_user` | `{template, scoping: Scoping}` for presales to confirm; nothing saved |
+| `read_chat_answer` | POST | `lead`, `question`, `text`, `acting_user` | `{language ("English" / "Malayalam" / "Mixed"), english, profile: {only the Profile fields given}, template, scoping: {only the Scoping keys given}}`: an off-script start-chat answer, one small call; nothing saved |
 | `create_proposal` | POST | `lead`, `template?`, `ai_draft` (0/1), `scoping?` (JSON `Scoping`), `requirements?`, `client_profile` (JSON `Profile`, required: industry and pain_points), `chat?` (JSON `[ChatLine]`), `acting_user` | `{proposal: Proposal, warnings: [text]}` |
 | `create_document` | POST | `source` (the accepted document), `document_type` (`Quotation`, `Work Order`), `acting_user` | `{proposal: Proposal, warnings: [text]}` (`client-documents.md` §2) |
 | `get_document_chain` | GET | `lead`, `acting_user` | `Chain` |
 | `get_proposal` | GET | `name`, `acting_user` | `Proposal` |
-| `save_proposal` | POST | `name`, `data` (JSON: any of `title`, `letter_head` (blank: the default), `pricing_mode`, `valid_till`, `requirements`, `client_profile`, `scoping`, `modules`, `sections`, `start_date` (an agreement's); `theme` is ignored), `acting_user` | `Proposal` |
+| `save_proposal` | POST | `name`, `data` (JSON: any of `title`, `letter_head` (blank: the default), `pricing_mode`, `valid_till`, `requirements`, `client_profile`, `scoping`, `modules`, `sections`, `start_date` (an agreement's); `theme` is ignored), `acting_user` | `Proposal` with `warnings: [text]` (why the quotation couldn't be priced again) |
+| `finalise_proposal` | POST | `name`, `ready` (1: Mark ready, 0: Reopen), `acting_user` | `Proposal` (`ready_on` set or cleared) |
 | `regenerate_section` | POST | `name`, `index`, `force` (0/1), `acting_user` | `{proposal, warnings, confirm}`: `confirm` (a question) when the section was edited by hand and `force` wasn't given; nothing changed then |
 | `regenerate_proposal` | POST | `name`, `force` (0/1), `acting_user` | `{proposal, warnings, kept: [headings kept because edited by hand]}` |
 | `chat_edit` | POST | `name`, `message`, `acting_user` | `{proposal, reply, changes: [text], warnings}`: one small structured call; the transcript kept |
@@ -100,7 +102,8 @@ Row = {name, document_type, source_document, title, status, revision_no, is_late
 
 Proposal = {name, document_type, document_label, accepted_label, source_document, can_price,
   signature, start_date, title, lead, lead_name, client, lead_email, template, solution_type,
-  page_guide, prepared_by (full name), status, theme ("Ivory"), pricing_mode, scoping: Scoping,
+  page_guide, prepared_by (full name), status, ready_on (null: not marked ready), theme ("Ivory"),
+  pricing_mode, scoping: Scoping,
   requirements, client_profile: Profile, chat: [ChatLine],
   modules: [{module, module_name, fit, features, description, effort_days, rate,
     rate_overridden, item}],
@@ -130,7 +133,10 @@ Library = {can_edit, modules: [Module + enabled, sort_order], items: [{name, lib
   priced (no Item and no service item).
 - `save_proposal`, `save_pricing`, `regenerate_*`, `chat_edit`, `price_from_modules`,
   `upload_proposal_image` and `use_library_image` change only a Draft (417 "Create a revision
-  instead."). `sections` replaces all sections (at most 30; an unknown type is 417; a section
+  instead.") that isn't marked ready (417 "…Reopen it to change it."). `finalise_proposal` with
+  `ready` 1 is refused (417, the share blockers joined) while any stands. A save with `modules`
+  or `scoping` rebuilds the data sections not edited by hand, re-suggests a suggested timeline and
+  reprices the quotation when its lines changed (`proposals.md` §4.5). `sections` replaces all sections (at most 30; an unknown type is 417; a section
   whose text changed is marked `edited`). Payment Terms milestones must add up to 100 (417).
   `modules` replaces the module lines (at most 40); a line whose price wasn't set by hand takes
   the list price again. `letter_head` must be an enabled Letter Head.
@@ -167,7 +173,9 @@ user with `acting_user`.
 
 ## Changelog
 
-- **v2.2 (2026-10-20):** `Scoping.companies`; users and companies may be "Unlimited";
+- **v2.3 (2026-10-19):** `finalise_proposal`, `ready_on`; `save_proposal` returns `warnings`
+  and makes module and scoping edits flow through; `read_chat_answer`.
+- **v2.2 (2026-10-19):** `Scoping.companies`; users and companies may be "Unlimited";
   `read_client_website` errors always carry a readable message.
 - **v2.1 (2026-10-19):** `create_document`, `get_document_chain`, `documents` on the lead,
   `document_types` in the options, `clause_groups` in the library, the type fields on `Proposal` and `Row`, `start_date`, and

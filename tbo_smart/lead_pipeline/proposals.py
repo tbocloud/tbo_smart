@@ -81,6 +81,7 @@ TRACKING_FIELDS = (
 	"decided_by_email",
 	"decided_by_designation",
 	"decline_reason",
+	"ready_on",
 )
 # a new proposal's workflow fields, whatever a caller sent (Proposal.check_locked_fields)
 NEW_PROPOSAL = {
@@ -564,16 +565,45 @@ def meeting_minutes(lead: str) -> list[dict]:
 
 
 def require_draft(doc) -> None:
+	"""A draft that isn't marked ready: marking it ready fixes its content and numbers until it
+	is reopened (finalise / reopen)."""
 	if doc.status != DRAFT:
 		frappe.throw(
 			_("A proposal that is {0} can't be changed. Create a revision instead.").format(_(doc.status))
 		)
+	if doc.get("ready_on"):
+		frappe.throw(_("It is marked ready to send. Reopen it to change it."))
 
 
-def save_content(doc, data: dict) -> None:
-	"""A draft's title, letter head, price shown, validity, scoping answers, modules and
-	sections. There is one theme, so a `theme` sent is ignored."""
+def finalise(doc) -> None:
+	"""Mark the draft ready: refused while anything stops it going out (send_blockers, without the
+	email account), and then its content and numbers stay as they are until it is reopened or
+	sent. Share and Send mark it ready themselves when presales didn't."""
 	require_draft(doc)
+	refuse_while_blocked(doc, by_email=False)
+	doc.ready_on = now_datetime()
+	doc.flags.proposal_workflow = True
+	doc.save()
+
+
+def reopen(doc) -> None:
+	"""A draft marked ready, editable again."""
+	if doc.status != DRAFT:
+		frappe.throw(
+			_("A proposal that is {0} can't be changed. Create a revision instead.").format(_(doc.status))
+		)
+	doc.ready_on = None
+	doc.flags.proposal_workflow = True
+	doc.save()
+
+
+def save_content(doc, data: dict) -> list[str]:
+	"""A draft's title, letter head, price shown, validity, scoping answers, modules and
+	sections. There is one theme, so a `theme` sent is ignored. When the modules or the scoping
+	change, the data sections follow (those edited by hand are kept), the suggested timeline is
+	suggested again, and the quotation is priced again when its lines changed. Returns warnings."""
+	require_draft(doc)
+	before = follow_state(doc)
 	if "title" in data:
 		doc.title = clean(data.get("title"), MAX_HEADING)
 		if not doc.title:
@@ -614,7 +644,51 @@ def save_content(doc, data: dict) -> None:
 	if redated:
 		# after the sections, so the hub's copy of them doesn't undo the new dates
 		redate(doc)
+	if "modules" in data or "scoping" in data:
+		# after the sections too: the hub sends its copy of them with the modules
+		follow_data(doc, before)
 	doc.save()
+	if before["pricing"] != pricing_signature(doc) and kinds.of(doc).priced and doc.modules:
+		return price_new_proposal(doc)
+	return []
+
+
+def follow_state(doc) -> dict:
+	"""What a save compares against: the timeline suggested for the saved effort, the one picked,
+	and the quotation's lines."""
+	return {
+		"suggested": builder.suggest_timeline(doc),
+		"timeline": builder.scoping_answers(doc.scoping, doc.solution_type)["timeline_template"],
+		"pricing": pricing_signature(doc),
+	}
+
+
+def pricing_signature(doc) -> tuple:
+	"""The module lines and customisation days the quotation is priced from."""
+	answers = builder.scoping_answers(doc.scoping, doc.solution_type)
+	return (
+		tuple((row.module_name, row.item, flt(row.rate)) for row in doc.modules),
+		sum(flt(row["days"]) for row in answers["customisations"]),
+	)
+
+
+def follow_data(doc, before: dict) -> None:
+	"""Edited modules or scoping flow into the proposal: a timeline that was the suggestion follows
+	the new effort, and every data section not edited by hand is built again (Modules & Features,
+	Scope, Timeline, Investment, Payment Terms…)."""
+	answers = builder.scoping_answers(doc.scoping, doc.solution_type)
+	if before["timeline"] == before["suggested"] and answers["timeline_template"] in (
+		None,
+		before["suggested"],
+	):
+		answers["timeline_template"] = builder.suggest_timeline(doc)
+		doc.scoping = frappe.as_json(answers)
+	for row in doc.sections:
+		if cint(row.edited):
+			continue
+		text = builder.rebuilt_body(doc, row)
+		if text is not None:
+			row.body = text or None
 
 
 DATED_SECTIONS = ("Purpose", "Project Timeline")
@@ -938,6 +1012,7 @@ def release(doc, via: str, to: str | None) -> None:
 	if doc.status == DRAFT:
 		doc.status = SENT
 	doc.sent_on = now_datetime()
+	doc.ready_on = doc.ready_on or doc.sent_on
 	doc.sent_to = to or doc.sent_to
 	doc.valid_till = doc.valid_till or add_days(today(), validity_days())
 	doc.flags.proposal_workflow = True
