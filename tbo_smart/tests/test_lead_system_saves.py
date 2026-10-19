@@ -9,6 +9,7 @@ from tbo_smart.api import hub_leads
 from tbo_smart.api import hub_proposals as hub
 from tbo_smart.api import smart_leads as smart_leads_api
 from tbo_smart.lead_pipeline import proposals as p
+from tbo_smart.lead_pipeline import quotations
 from tbo_smart.lead_pipeline.statuses import CLOSED_WON, CONTACTED, PROPOSAL_SENT
 from tbo_smart.lead_pipeline.transitions import advance_lead
 from tbo_smart.smart_leads import notes
@@ -83,6 +84,14 @@ class TestLeadSystemSaves(FrappeTestCase):
 		frappe.set_user(BDE)
 		with lead_source_required():
 			self.assertTrue(advance_lead(self.lead, CLOSED_WON, "accepted"))
+		self.assertEqual(self.stage(), CLOSED_WON)
+
+	def test_a_quotation_moves_the_lead(self):
+		# a quotation (or the agreement chain after it) moves its lead through move_lead
+		frappe.set_user(BDE)
+		quote = frappe._dict(quotation_to="Lead", party_name=self.lead, name="SAL-QTN-TEST")
+		with lead_source_required():
+			quotations.move_lead(quote, quotations.ACCEPTED)
 		self.assertEqual(self.stage(), CLOSED_WON)
 
 	def test_a_smart_leads_status(self):
