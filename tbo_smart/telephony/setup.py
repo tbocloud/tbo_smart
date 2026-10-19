@@ -1,4 +1,4 @@
-"""What telephony needs on every migrate (docs/telephony-myoperator.md §2, §3)."""
+"""What telephony needs on install and every migrate (docs/telephony-myoperator.md §2, §3)."""
 
 import frappe
 
@@ -17,7 +17,7 @@ DEFAULT_FIELDS = (
 )
 
 
-def after_migrate() -> None:
+def setup_telephony() -> None:
 	"""The Lead Source new caller leads get, and the settings' defaults."""
 	if not erpnext_installed():
 		return

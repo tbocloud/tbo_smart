@@ -24,6 +24,7 @@ from tbo_smart.test_utils import (
 	enable_ai_leads,
 	enable_telephony,
 	make_lead,
+	make_lead_source,
 	make_user,
 	mock_ai,
 	myoperator_event,
@@ -163,6 +164,7 @@ class TestMatching(TelephonyTestCase):
 		self.assertIsNone(calls.map_agent({"uuid": "unknown", "email": "stranger@example.com"}))
 
 	def test_an_unknown_caller_becomes_a_lead_of_the_agent(self):
+		make_lead_source("Phone call")
 		post_myoperator_webhook(myoperator_event("C-NEW", number=UNKNOWN_NUMBER, agent=AGENT))
 		call = self.call_of("C-NEW")
 		lead = frappe.get_doc("Lead", call.lead)
@@ -478,13 +480,13 @@ class TestCallSummary(TelephonyTestCase):
 class TestSetup(TelephonyTestCase):
 	def test_migrate_gives_an_existing_site_the_defaults_once(self):
 		frappe.db.delete("Singles", {"doctype": "TBO Smart Settings", "field": ("in", setup.DEFAULT_FIELDS)})
-		setup.after_migrate()
+		setup.setup_telephony()
 		self.assertEqual(frappe.db.get_single_value("TBO Smart Settings", "telephony_create_leads"), 1)
 		self.assertEqual(frappe.db.get_single_value("TBO Smart Settings", "telephony_recording_days"), 180)
 		self.assertTrue(frappe.db.exists("Lead Source", "Phone call"))
 		# a value someone saved is never overwritten
 		frappe.db.set_single_value("TBO Smart Settings", "telephony_create_leads", 0)
-		setup.after_migrate()
+		setup.setup_telephony()
 		self.assertEqual(frappe.db.get_single_value("TBO Smart Settings", "telephony_create_leads"), 0)
 
 

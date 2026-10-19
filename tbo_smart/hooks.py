@@ -242,7 +242,7 @@ after_migrate = [
 	"tbo_smart.checkin.setup.setup_checkin_location",
 	"tbo_smart.smart_leads.setup.after_migrate",
 	"tbo_smart.lead_pipeline.setup.after_migrate",
-	"tbo_smart.telephony.setup.after_migrate",
+	"tbo_smart.telephony.setup.setup_telephony",
 ]
 
 scheduler_events = {
