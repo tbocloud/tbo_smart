@@ -209,6 +209,9 @@ def update_call_event(doc) -> None:
 def settle_call_back(doc, owner: str | None) -> None:
 	"""A missed incoming call has its Call back task; one that turned out answered has it
 	cancelled, unless another missed call still waits on the same task."""
+	# calls on one lead settle their shared task one at a time: the lead's row is locked until
+	# this job commits, with the call's own link saved
+	frappe.db.get_value("Lead", doc.lead, "name", for_update=True)
 	missed = doc.status == MISSED and doc.direction == INCOMING
 	if missed and not doc.call_back:
 		doc.call_back = call_back_task(doc.lead, owner, doc.customer_number)
