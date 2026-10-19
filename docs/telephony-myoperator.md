@@ -109,7 +109,8 @@ days, the notice, 30 s, the model and its price.
      05s)", "Call to …", "Missed call from …" or "Unanswered call to …".
    - **A later `call.summary`** (after `call.end` already made them) keeps the one Event and
      brings it up to date: its subject, start and owner (the agent). A Call back made for a
-     call that turned out answered is cancelled (the task is kept on the TBO Call, `call_back`).
+     call that turned out answered is cancelled, unless another missed call shares it; the task
+     stays linked on the TBO Call (`call_back`).
    - **Missed incoming call:** one high-priority "Call back: +91…" follow-up due today for the
      lead owner (else the agent, else the fallback owner). It is skipped when one is already
      open for them today.

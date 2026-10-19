@@ -136,10 +136,19 @@ class TestWebhook(TelephonyTestCase):
 		event = frappe.db.get_value("Event", call.event, ["subject", "owner"], as_dict=True)
 		self.assertEqual((event.subject, event.owner), (f"Call from {NUMBER} (1m 35s)", BDE))
 		self.assertEqual(self.call_events(self.lead), [call.event])
-		self.assertIsNone(call.call_back)
+		# the cancelled task stays linked on the call
+		self.assertEqual(frappe.db.get_value("ToDo", call.call_back, "status"), "Cancelled")
 		self.assertEqual(
-			frappe.get_all("ToDo", filters={"reference_name": self.lead}, pluck="status"), ["Cancelled"]
+			frappe.get_all("ToDo", filters={"reference_name": self.lead}, pluck="name"), [call.call_back]
 		)
+
+	def test_a_call_back_another_missed_call_shares_stays_open(self):
+		post_myoperator_webhook(myoperator_event("C-M1", status="missed", duration=10))
+		post_myoperator_webhook(myoperator_event("C-M2", event_type="call.end", status="missed", duration=12))
+		first, second = self.call_of("C-M1"), self.call_of("C-M2")
+		self.assertEqual(first.call_back, second.call_back)
+		post_myoperator_webhook(myoperator_event("C-M2", agent=AGENT, duration=60))
+		self.assertEqual(frappe.db.get_value("ToDo", first.call_back, "status"), "Open")
 
 	def test_a_summary_that_loses_the_insert_race_still_completes_the_call(self):
 		post_myoperator_webhook(myoperator_event("C-RACE", event_type="call.end"))

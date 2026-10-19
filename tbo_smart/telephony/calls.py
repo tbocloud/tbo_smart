@@ -207,14 +207,22 @@ def update_call_event(doc) -> None:
 
 
 def settle_call_back(doc, owner: str | None) -> None:
-	"""A missed incoming call has its Call back task; one that turned out answered loses it."""
+	"""A missed incoming call has its Call back task; one that turned out answered has it
+	cancelled, unless another missed call still waits on the same task."""
 	missed = doc.status == MISSED and doc.direction == INCOMING
 	if missed and not doc.call_back:
 		doc.call_back = call_back_task(doc.lead, owner, doc.customer_number)
-	elif not missed and doc.call_back:
+	elif not missed and doc.call_back and not other_missed_call(doc):
+		# the task stays linked on the call, for the record; another missed call may still need it
 		if frappe.db.get_value("ToDo", doc.call_back, "status") == OPEN:
 			frappe.db.set_value("ToDo", doc.call_back, "status", CANCELLED)
-		doc.call_back = None
+
+
+def other_missed_call(doc) -> bool:
+	"""Another missed call shares this one's Call back task (one task a person a day)."""
+	return bool(
+		frappe.db.exists(DOCTYPE, {"call_back": doc.call_back, "name": ("!=", doc.name), "status": MISSED})
+	)
 
 
 def format_duration(seconds) -> str:
