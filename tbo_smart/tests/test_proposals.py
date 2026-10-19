@@ -9,12 +9,14 @@ from tbo_smart.api import hub_leads
 from tbo_smart.api import hub_proposals as hub
 from tbo_smart.api import proposal_page as page
 from tbo_smart.api.quotation_adjustment import decide_adjustment, get_pending_approvals
+from tbo_smart.lead_pipeline import proposal_media as media
 from tbo_smart.lead_pipeline import proposals as p
 from tbo_smart.lead_pipeline import quotations as q
 from tbo_smart.lead_pipeline.statuses import CLOSED_WON, PROPOSAL_SENT
 from tbo_smart.sales.opportunity import lead_opportunity
 from tbo_smart.test_utils import (
 	call_as_guest,
+	clear_default_letter_heads,
 	configure_ai_providers,
 	configure_quotation_approval,
 	delete_owner_lead_records,
@@ -24,11 +26,14 @@ from tbo_smart.test_utils import (
 	enable_proposals,
 	hours_from_now,
 	make_hub_proposal,
+	make_image_bytes,
 	make_lead,
 	make_lead_meeting,
 	make_lead_note,
+	make_letter_head,
 	make_outgoing_email_account,
 	make_pdf_bytes,
+	make_private_file,
 	make_quotation_item,
 	make_sent_proposal,
 	make_user,
@@ -41,12 +46,14 @@ from tbo_smart.test_utils import (
 	set_leaf_customer_group,
 	set_proposal_values,
 	set_segment_rates,
+	upload_hub_image,
 )
 
 HUB = "prop.hub@tbosmart.test"
 BDE = "prop.bde@tbosmart.test"
 BDE2 = "prop.bde2@tbosmart.test"
 BDM = "prop.bdm@tbosmart.test"
+EDITOR = "prop.editor@tbosmart.test"
 OWNERS = (BDE, BDE2, BDM)
 SERVICE = "TBO Smart Proposal Implementation"
 TEMPLATE = "ERPNext Implementation"
@@ -62,6 +69,7 @@ class ProposalTestCase(FrappeTestCase):
 		make_user(BDE, ["Sales User", "Business Development Executive"])
 		make_user(BDE2, ["Sales User", "Business Development Executive"])
 		make_user(BDM, ["Sales User", "Business Development Manager"])
+		make_user(EDITOR, ["Sales User", "Sales Manager"])
 		set_leaf_customer_group()
 		make_quotation_item(SERVICE)
 		make_outgoing_email_account()
@@ -463,3 +471,238 @@ class TestClientPage(ProposalTestCase):
 			call_as_guest(page.download_pdf, token)
 		self.assertEqual(frappe.local.response.type, "pdf")
 		self.assertIn("Malabar Spices", get_pdf.call_args.args[0])
+
+
+class TestImages(ProposalTestCase):
+	def add_image(self, name, block="Image", **row):
+		"""Upload a PNG and put it in a new block of `block` type; returns (payload, file)."""
+		uploaded = upload_hub_image(name, BDE, make_image_bytes())
+		sections = hub.get_proposal(name, acting_user=BDE)["sections"]
+		sections.append(
+			{"section_type": block, "image": uploaded["file"], "image_alt": "Our team at work", **row}
+		)
+		saved = hub.save_proposal(name, json.dumps({"sections": sections}), acting_user=BDE)
+		return saved, uploaded["file"]
+
+	def test_upload_checks_size_type_and_permission(self):
+		name = make_hub_proposal(self.lead, BDE, TEMPLATE)["name"]
+		uploaded = upload_hub_image(name, BDE, make_image_bytes("JPEG"), "team photo.png")
+		file = frappe.get_doc("File", uploaded["file"])
+		self.assertEqual((file.is_private, file.attached_to_name), (1, name))
+		self.assertEqual(file.file_name, "team photo.jpg")  # named by its bytes, not its name
+		self.assertIn("proposal_page.image?token=", uploaded["url"])
+		upload_hub_image(name, BDE, make_image_bytes("WEBP"), "a.webp")
+		svg = b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'
+		for bad in (svg, make_image_bytes("GIF"), b"not an image", b""):
+			self.assertRaises(frappe.ValidationError, upload_hub_image, name, BDE, bad, "x.png")
+		with patch.object(media, "MAX_IMAGE_BYTES", 10):
+			self.assertRaises(frappe.ValidationError, upload_hub_image, name, BDE, make_image_bytes())
+		self.assertRaises(
+			frappe.ValidationError,
+			hub.upload_proposal_image,
+			name,
+			"x.png",
+			"%%%not-base64",
+			acting_user=BDE,
+		)
+		# write on the lead is needed
+		self.assertRaises(frappe.PermissionError, upload_hub_image, name, BDE2, make_image_bytes())
+		# a sent proposal takes no new images
+		send_hub_proposal(name, BDE)
+		self.assertRaises(frappe.ValidationError, upload_hub_image, name, BDE, make_image_bytes())
+
+	def test_blocks_carry_only_their_own_images_with_alt_text(self):
+		name = make_hub_proposal(self.lead, BDE, TEMPLATE)["name"]
+		saved, file = self.add_image(name, image_caption="Kochi office", image_size="Half")
+		row = saved["sections"][-1]
+		self.assertEqual(
+			(row["image"], row["image_size"], row["image_caption"]), (file, "Half", "Kochi office")
+		)
+		self.assertIn(file, row["image_url"])
+		sections = saved["sections"]
+		# alt text is required
+		sections[-1]["image_alt"] = " "
+		self.assertRaises(
+			frappe.ValidationError,
+			hub.save_proposal,
+			name,
+			json.dumps({"sections": sections}),
+			acting_user=BDE,
+		)
+		# another proposal's image or any other file is refused
+		other = make_hub_proposal(self.lead, BDE, TEMPLATE)["name"]
+		foreign = upload_hub_image(other, BDE, make_image_bytes())["file"]
+		frappe.set_user("Administrator")
+		loose = make_private_file(make_image_bytes())
+		frappe.set_user(HUB)
+		for bad in (foreign, loose):
+			sections[-1].update(image=bad, image_alt="x")
+			self.assertRaises(
+				frappe.PermissionError,
+				hub.save_proposal,
+				name,
+				json.dumps({"sections": sections}),
+				acting_user=BDE,
+			)
+		# a text block drops an image
+		sections[-1].update(section_type="Solution", image=file)
+		saved = hub.save_proposal(name, json.dumps({"sections": sections}), acting_user=BDE)
+		self.assertIsNone(saved["sections"][-1]["image"])
+
+	def test_the_guest_endpoint_serves_only_this_proposals_images(self):
+		name, token = make_sent_proposal(self.lead, BDE, TEMPLATE, SERVICE)
+		draft = hub.create_revision(name, acting_user=BDE)["name"]
+		_saved, file = self.add_image(draft, block="Cover")
+		draft_token = proposal_token(draft)
+		other = make_hub_proposal(self.lead, BDE, TEMPLATE)["name"]
+		_other_saved, other_file = self.add_image(other)
+		frappe.set_user("Administrator")
+		loose = make_private_file(make_image_bytes())
+		frappe.set_user(HUB)
+
+		call_as_guest(page.image, draft_token, file)
+		self.assertEqual(frappe.local.response.type, "download")
+		self.assertEqual(frappe.local.response.content_type, "image/png")
+		self.assertEqual(frappe.local.response.display_content_as, "inline")
+		self.assertEqual(frappe.local.response.filecontent[:4], b"\x89PNG")
+		for bad_token, bad_file in (
+			(draft_token, other_file),  # another proposal's image
+			(token, file),  # the image of another revision, with the earlier one's link
+			(draft_token, loose),  # a private file attached to nothing
+			(draft_token, "no-such-file"),
+			("0" * 32, file),  # an unknown link
+		):
+			self.assertRaises(frappe.DoesNotExistError, call_as_guest, page.image, bad_token, bad_file)
+
+	def test_images_on_the_page_in_a_revision_and_in_the_pdf(self):
+		name = make_hub_proposal(self.lead, BDE, TEMPLATE)["name"]
+		_saved, cover = self.add_image(name, block="Cover")
+		_saved, file = self.add_image(name)
+		unused = upload_hub_image(name, BDE, make_image_bytes())["file"]
+		html = p.render_html(frappe.get_doc(p.DOCTYPE, name), preview=True)
+		self.assertIn(f"file={file}", html)
+		self.assertIn('alt="Our team at work"', html)
+		self.assertIn('class="sr-only">Image</h2>', html)  # no heading of its own
+		self.assertNotIn("/private/files/", html)
+		pdf_html = p.render_html(frappe.get_doc(p.DOCTYPE, name), pdf=True)
+		self.assertIn("data:image/png;base64,", pdf_html)
+		self.assertNotIn("proposal_page.image", pdf_html)
+		# sending deletes the uploads the proposal doesn't show
+		send_hub_proposal(name, BDE)
+		self.assertFalse(frappe.db.exists("File", unused))
+		self.assertTrue(frappe.db.exists("File", file))
+		# a revision shows the same images, as its own files
+		revision = hub.create_revision(name, acting_user=BDE)
+		copies = [row["image"] for row in revision["sections"] if row["image"]]
+		self.assertEqual(len(copies), 2)
+		self.assertFalse({cover, file} & set(copies))
+		for copy in copies:
+			copied = frappe.get_doc("File", copy)
+			self.assertEqual((copied.attached_to_name, copied.is_private), (revision["name"], 1))
+			self.assertEqual(
+				copied.file_url,
+				frappe.db.get_value("File", file if copy == copies[-1] else cover, "file_url"),
+			)
+			call_as_guest(page.image, proposal_token(revision["name"]), copy)
+		with patch("frappe.utils.pdf.get_pdf", return_value=make_pdf_bytes()) as get_pdf:
+			call_as_guest(page.download_pdf, proposal_token(revision["name"]), "1")
+		self.assertIn("data:image/png;base64,", get_pdf.call_args.args[0])
+
+
+class TestLetterHead(ProposalTestCase):
+	def setUp(self):
+		super().setUp()
+		frappe.set_user("Administrator")
+		clear_default_letter_heads()
+		self.site_default = make_letter_head(
+			"Prop LH Default", "<p>Site default header</p>", "<p>Site default footer</p>", is_default=1
+		)
+		self.chosen = make_letter_head(
+			"Prop LH Chosen",
+			'<p onclick="steal()">TBO letter head<script>alert(1)</script></p>',
+			"<p>Kochi · www.teambackoffice.com</p>",
+		)
+		self.other = make_letter_head("Prop LH Other", "<p>Other header</p>")
+		frappe.set_user(HUB)
+
+	def tearDown(self):
+		frappe.set_user("Administrator")
+		clear_default_letter_heads()
+		for name in (self.site_default, self.chosen, self.other):
+			frappe.delete_doc("Letter Head", name, force=True)
+		super().tearDown()
+
+	def context(self, name):
+		return p.page_context(frappe.get_doc(p.DOCTYPE, name))["letter_head"]
+
+	def test_fallback_order_and_override(self):
+		name = make_hub_proposal(self.lead, BDE, TEMPLATE)["name"]
+		# the Letter Head marked default
+		self.assertEqual(self.context(name)["name"], self.site_default)
+		# the setting wins over it; editors set it from the hub
+		self.assertRaises(frappe.PermissionError, hub.set_default_letter_head, self.chosen, acting_user=BDE)
+		options = hub.set_default_letter_head(self.chosen, acting_user=EDITOR)
+		self.assertEqual(options["default_letter_head"], self.chosen)
+		self.assertIn(self.other, [row["name"] for row in options["letter_heads"]])
+		self.assertEqual(self.context(name)["name"], self.chosen)
+		# the proposal's own pick wins over both
+		saved = hub.save_proposal(name, json.dumps({"letter_head": self.other}), acting_user=BDE)
+		self.assertEqual(saved["letter_head_preview"]["name"], self.other)
+		# blank: back to the default
+		saved = hub.save_proposal(name, json.dumps({"letter_head": None}), acting_user=BDE)
+		self.assertEqual(saved["letter_head_preview"]["name"], self.chosen)
+		# a disabled pick falls back; an unknown one is refused; no Letter Head at all is the logo
+		hub.save_proposal(name, json.dumps({"letter_head": self.other}), acting_user=BDE)
+		frappe.db.set_value("Letter Head", self.other, "disabled", 1)
+		self.assertEqual(self.context(name)["name"], self.chosen)
+		self.assertRaises(
+			frappe.ValidationError,
+			hub.save_proposal,
+			name,
+			json.dumps({"letter_head": "No Such Head"}),
+			acting_user=BDE,
+		)
+		frappe.set_user("Administrator")
+		clear_default_letter_heads()
+		frappe.db.set_value("Letter Head", self.site_default, "is_default", 0)
+		frappe.set_user(HUB)
+		self.assertIsNone(self.context(name))
+		self.assertIn('class="brand"', p.render_html(frappe.get_doc(p.DOCTYPE, name), preview=True))
+		self.assertIsNone(hub.get_proposal_options(acting_user=BDE)["default_letter_head"])
+
+	def test_the_html_is_sanitised_and_shown_on_the_page_and_pdf(self):
+		hub.set_default_letter_head(self.chosen, acting_user=EDITOR)
+		name, _token = make_sent_proposal(self.lead, BDE, TEMPLATE, SERVICE)
+		html = p.render_html(frappe.get_doc(p.DOCTYPE, name))
+		self.assertIn("TBO letter head", html)
+		self.assertIn("www.teambackoffice.com", html)
+		for unsafe in ("<script>alert", "onclick", "steal()"):
+			self.assertNotIn(unsafe, html)
+		self.assertNotIn('class="brand"', html)
+		pdf_html = p.render_html(frappe.get_doc(p.DOCTYPE, name), pdf=True)
+		self.assertIn('id="header-html"', pdf_html)
+		self.assertIn('id="footer-html"', pdf_html)
+
+	def test_a_private_letter_head_image_is_served_through_the_token(self):
+		frappe.set_user("Administrator")
+		file = make_private_file(make_image_bytes(), "header.png")
+		url = frappe.db.get_value("File", file, "file_url")
+		head = make_letter_head("Prop LH Image", source="Image", image=url)
+		frappe.set_user(HUB)
+		hub.set_default_letter_head(head, acting_user=EDITOR)
+		try:
+			name, token = make_sent_proposal(self.lead, BDE, TEMPLATE, SERVICE)
+			# served by a File of that URL (Letter Head may attach its own copy)
+			served = self.context(name)["header"]["image"].rsplit("file=", 1)[1]
+			self.assertEqual(frappe.db.get_value("File", served, "file_url"), url)
+			call_as_guest(page.image, token, served)
+			self.assertEqual(frappe.local.response.content_type, "image/png")
+			pdf_header = p.page_context(frappe.get_doc(p.DOCTYPE, name), pdf=True)["letter_head"]["header"]
+			self.assertTrue(pdf_header["image"].startswith("data:image/png;base64,"))
+			# once the proposal uses another letter head, that file is no longer served
+			hub.set_default_letter_head(self.chosen, acting_user=EDITOR)
+			self.assertRaises(frappe.DoesNotExistError, call_as_guest, page.image, token, served)
+		finally:
+			frappe.set_user("Administrator")
+			frappe.delete_doc("Letter Head", head, force=True)
+			frappe.delete_doc("File", file, force=True)

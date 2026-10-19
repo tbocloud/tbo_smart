@@ -21,6 +21,7 @@ from frappe import _
 from frappe.utils import add_days, cint, escape_html, get_url, getdate, now_datetime, today
 
 from tbo_smart import ai
+from tbo_smart.lead_pipeline import proposal_media as media
 from tbo_smart.lead_pipeline import quotations as q
 from tbo_smart.lead_pipeline import quotations_enabled, setting
 from tbo_smart.lead_pipeline.statuses import CLOSED_WON, PROPOSAL_SENT
@@ -47,6 +48,7 @@ SECTION_TYPES = (
 	"Timeline",
 	"Pricing",
 	"Terms",
+	"Image",
 	"Custom",
 )
 PRICING = "Pricing"
@@ -122,6 +124,8 @@ class Proposal:
 
 	def validate(self):
 		self.check_sections()
+		self.check_images()
+		self.check_letter_head()
 		self.check_quotation()
 		self.check_locked_fields()
 
@@ -137,6 +141,12 @@ class Proposal:
 		for row in self.sections:
 			row.heading = clean(row.heading, MAX_HEADING) or None
 			row.body = clean(row.body, MAX_BODY) or None
+
+	def check_images(self):
+		media.check_images(self)
+
+	def check_letter_head(self):
+		media.check_letter_head(self)
 
 	def check_quotation(self):
 		"""The pricing is the lead's own quotation, never another lead's (the client's page shows it)."""
@@ -314,6 +324,16 @@ def section_row(row, with_guidance: bool = False) -> dict:
 	}
 	if with_guidance:
 		values["guidance"] = clean(row.get("guidance"), MAX_BODY) or None
+	else:
+		# a proposal's block may carry an image (proposal_media.check_images keeps it honest)
+		values.update(
+			{
+				"image": row.get("image") or None,
+				"image_alt": row.get("image_alt"),
+				"image_caption": row.get("image_caption"),
+				"image_size": row.get("image_size") or media.IMAGE_SIZES[0],
+			}
+		)
 	return values
 
 
@@ -484,7 +504,7 @@ def require_draft(doc) -> None:
 
 
 def save_content(doc, data: dict) -> None:
-	"""The title, theme, validity and blocks of a draft."""
+	"""The title, theme, letter head, validity and blocks of a draft."""
 	require_draft(doc)
 	if "title" in data:
 		doc.title = clean(data.get("title"), MAX_HEADING)
@@ -494,6 +514,8 @@ def save_content(doc, data: dict) -> None:
 		if data.get("theme") not in THEMES:
 			frappe.throw(_("The theme is one of: {0}.").format(", ".join(THEMES)))
 		doc.theme = data["theme"]
+	if "letter_head" in data:
+		doc.letter_head_override = data.get("letter_head") or None
 	if "valid_till" in data:
 		valid_till = data.get("valid_till") or None
 		if valid_till and getdate(valid_till) < getdate(today()):
@@ -531,6 +553,10 @@ def create_revision(doc):
 	frappe.db.get_value(DOCTYPE, family, "name", for_update=True)
 	members = frappe.get_all(DOCTYPE, filters={"proposal_family": family}, fields=["name", "revision_no"])
 	revision = frappe.copy_doc(doc)
+	# its images are copied onto it once it has a name (proposal_media.copy_images)
+	images = [row.image for row in revision.sections]
+	for row in revision.sections:
+		row.image = None
 	revision.update(
 		{
 			"proposal_family": family,
@@ -544,6 +570,11 @@ def create_revision(doc):
 	)
 	revision.flags.proposal_workflow = True
 	revision.insert()
+	if any(images):
+		for row, image in zip(revision.sections, images, strict=True):
+			row.image = image
+		media.copy_images(doc, revision)
+		revision.save()
 	for row in members:
 		if row.name != revision.name:
 			frappe.db.set_value(DOCTYPE, row.name, "is_latest", 0, update_modified=False)
@@ -645,6 +676,7 @@ def send(doc, recipients: str | None = None, message: str | None = None, attach_
 	doc.valid_till = doc.valid_till or add_days(today(), validity_days())
 	doc.flags.proposal_workflow = True
 	doc.save()
+	media.drop_unused_images(doc)
 	email(doc, lead, to, message, attach_pdf)
 
 
@@ -854,9 +886,10 @@ def expire_proposals() -> int:
 # ---------- what the client sees ----------
 
 
-def page_context(doc, preview: bool = False) -> dict:
-	"""Everything the page and the PDF show, and nothing else: the blocks, the quotation's lines
-	and totals, the company and the client's name. No emails, notes, owners or internal names."""
+def page_context(doc, preview: bool = False, pdf: bool = False) -> dict:
+	"""Everything the page and the PDF show, and nothing else: the blocks with their images, the
+	letter head, the quotation's lines and totals, the company and the client's name. No emails,
+	notes, owners or internal names. In the PDF the images are data URIs."""
 	company = (
 		frappe.db.get_value(
 			"Company",
@@ -891,18 +924,26 @@ def page_context(doc, preview: bool = False) -> dict:
 		"expired": expired or doc.status == EXPIRED,
 		"decided_by": doc.decided_by_name,
 		"decided_on": frappe.utils.formatdate(doc.decided_on, "d MMMM yyyy") if doc.decided_on else None,
+		"letter_head": media.letter_head_context(doc, pdf),
 		"blocks": [
-			{
-				"type": row.section_type,
-				"heading": row.heading or _(row.section_type),
-				"parts": text_parts(row.body),
-			}
-			for row in doc.sections
+			block
+			for block in (page_block(doc, row, pdf) for row in doc.sections)
 			# an empty block shows nothing; the pricing block shows the quotation
-			if (row.body or "").strip() or (row.section_type == PRICING and pricing)
+			if block["parts"] or block["image"] or (block["type"] == PRICING and pricing)
 		],
 		"pricing": pricing,
 		"token": doc.public_token,
+	}
+
+
+def page_block(doc, row, pdf: bool) -> dict:
+	return {
+		"type": row.section_type,
+		"heading": row.heading or _(row.section_type),
+		# a Cover's heading, and an Image block's without one of its own, are for screen readers
+		"heading_hidden": row.section_type == "Cover" or (row.section_type == "Image" and not row.heading),
+		"parts": text_parts(row.body) if row.section_type != "Image" else [],
+		"image": media.image_payload(doc, row, pdf),
 	}
 
 
@@ -962,14 +1003,16 @@ def pricing_line(row, money) -> dict:
 
 def render_html(doc, preview: bool = False, pdf: bool = False) -> str:
 	return frappe.render_template(  # our own template; the values are escaped in it - nosemgrep
-		"tbo_smart/www/proposal.html", {"proposal": page_context(doc, preview), "pdf": pdf}
+		"tbo_smart/www/proposal.html", {"proposal": page_context(doc, preview, pdf), "pdf": pdf}
 	)
 
 
 def render_pdf(doc) -> bytes:
+	"""A4 with the letter head's header on top and footer at the bottom of every page (Frappe's
+	get_pdf repeats #header-html and #footer-html on each page)."""
 	from frappe.utils.pdf import get_pdf
 
-	return get_pdf(render_html(doc, pdf=True), {"margin-top": "12mm", "margin-bottom": "12mm"})
+	return get_pdf(render_html(doc, pdf=True), {"margin-top": "32mm", "margin-bottom": "24mm"})
 
 
 def lead_proposals(lead: str) -> list[dict]:
