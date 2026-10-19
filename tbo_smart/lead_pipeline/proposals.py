@@ -341,16 +341,18 @@ def create_proposal(lead: str, template: str | None = None, ai_draft: bool = Fal
 			"sections": [section_row(row) for row in (tpl["sections"] if tpl else default_sections())],
 		}
 	)
+	doc.insert()
 	warnings = []
 	if ai_draft:
+		# after the insert, so the AI usage log names the proposal
 		try:
 			warnings = draft_sections(doc, tpl)
+			doc.save()
 		except ai.AIProviderError as e:
 			# the proposal is still made, with the template's text, and the person told why
 			warnings = [
 				_("The AI couldn't draft it ({0}), so the template's text is in place.").format(e.summary)
 			]
-	doc.insert()
 	return doc, warnings
 
 
@@ -591,6 +593,12 @@ def send_blockers(doc) -> list[str]:
 				quotation.name, _(quotation.get("tbo_quote_status") or "Cancelled")
 			)
 		)
+	elif price_expired(quotation):
+		reasons.append(
+			_("Its quotation {0} was valid till {1}. Price it again.").format(
+				quotation.name, frappe.utils.formatdate(quotation.valid_till)
+			)
+		)
 	elif quotation.docstatus == 0:
 		for kind, percent, limit in QuotationControl(quotation).uncovered():
 			waiting = q.draft_status(quotation) == q.PENDING
@@ -781,10 +789,18 @@ def move_pipeline(doc, accept: bool) -> None:
 
 
 def quotation_with_client(doc):
+	"""The proposal's quotation while it is with the client and its price still valid (the
+	nightly expiry may not have run yet)."""
 	if not doc.quotation or not frappe.db.exists("Quotation", doc.quotation):
 		return None
 	quotation = frappe.get_doc("Quotation", doc.quotation)
-	return quotation if quotation.get("tbo_quote_status") in q.WITH_CLIENT else None
+	if quotation.get("tbo_quote_status") not in q.WITH_CLIENT or price_expired(quotation):
+		return None
+	return quotation
+
+
+def price_expired(quotation) -> bool:
+	return bool(quotation.valid_till and getdate(quotation.valid_till) < getdate(today()))
 
 
 def client_name(doc) -> str:

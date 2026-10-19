@@ -244,7 +244,12 @@ class TestAIDraft(ProposalTestCase):
 		self.assertIsNone(bodies["Cover"])
 		self.assertIsNone(bodies["Pricing"])
 		self.assertEqual(len(result["warnings"]), 1)
-		self.assertEqual(frappe.db.count("TBO AI Usage Log", {"feature": "Proposal draft"}) > 0, True)
+		self.assertTrue(
+			frappe.db.exists(
+				"TBO AI Usage Log",
+				{"feature": "Proposal draft", "reference_name": result["proposal"]["name"]},
+			)
+		)
 
 	def test_an_ai_failure_still_makes_the_proposal(self):
 		with mock_ai():
@@ -379,6 +384,12 @@ class TestClientPage(ProposalTestCase):
 		quotation = frappe.db.get_value(p.DOCTYPE, name, "quotation")
 		frappe.db.set_value("Quotation", quotation, "tbo_quote_status", q.EXPIRED)
 		self.assertRaises(frappe.ValidationError, call_as_guest, page.accept, token, "Asha", "a@b.example")
+		# also before the nightly job marks it: its valid till has passed
+		frappe.db.set_value(
+			"Quotation", quotation, {"tbo_quote_status": q.SENT, "valid_till": add_days(nowdate(), -1)}
+		)
+		self.assertRaises(frappe.ValidationError, call_as_guest, page.accept, token, "Asha", "a@b.example")
+		self.assertIn("was valid till", hub.get_proposal(name, acting_user=BDE)["send_blockers"][0])
 		self.assertEqual(frappe.db.get_value(p.DOCTYPE, name, "status"), p.SENT)
 		self.assertNotEqual(frappe.db.get_value("Lead", self.lead, "tbo_stage"), CLOSED_WON)
 

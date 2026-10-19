@@ -85,7 +85,8 @@ so the quotation the client had stays as it was.
 "Draft with AI" on a new proposal (`create_proposal(..., ai_draft=1)`) sends the lead's facts and
 notes (`smart_leads.facts.LeadFacts`), the minutes of its meetings with MOM Submitted, and each
 block's type, heading, guidance and default text to `tbo_smart.ai` (feature **Proposal draft** in
-the TBO AI Usage Log, with the providers' failover). The pricing block is never written by the
+the TBO AI Usage Log against the proposal, which is saved first; with the providers'
+failover). The pricing block is never written by the
 AI. A block whose text has a number that isn't in those facts is left as the template had it,
 with a warning (the number guard, `ai.invents_numbers`). When every provider fails, the proposal
 is still made with the template's text and a warning saying why. The proposal is a draft: the
@@ -120,8 +121,8 @@ next `revision_no` in its family, a fresh validity and a **new link**; it become
   quotation becomes **Accepted** (`quotations.set_status`), which moves the lead to Closed – Won
   and makes its deal (`lead-pipeline.md` §6, §9.3); without a quotation the lead moves to Closed –
   Won itself (`transitions.advance_lead`). Refused while its quotation is no longer with the
-  client (expired by the nightly job, closed, revised away): the price has gone, so it can't win
-  the lead. The lead owner is told.
+  client or its valid till has passed (even before the nightly job marks it Expired), or it was
+  closed or revised away: the price has gone, so it can't win the lead. The lead owner is told.
 - **Decline:** an optional reason. The proposal becomes **Declined**; its quotation **Rejected**
   with the reason; the lead stays open for the salesperson to decide. The owner is told.
 - **Once decided it stays decided:** the same answer again changes nothing; the other answer is
@@ -139,7 +140,7 @@ next `revision_no` in its family, a fresh validity and a **new link**; it become
 
 1. **Refused** with the reasons (`send_blockers`, also returned with every proposal so the hub
    can say why Send is off): not the latest revision; Accepted, Declined or Expired; no blocks;
-   validity passed; its quotation cancelled or closed; or **its pricing above the limit without
+   validity passed; its quotation cancelled, closed or past its own valid till; or **its pricing above the limit without
    an approval** ("The pricing's discount of 12% is above your limit (5%). Request approval…" /
    "…is waiting for approval").
 2. Its quotation goes out with it (`quotations.mark_sent(…, "Email")`): submitted (the discount
