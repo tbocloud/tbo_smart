@@ -588,7 +588,7 @@ Writes are normal inserts and saves under the session user.
 | Method | Verb | Params | Returns |
 | --- | --- | --- | --- |
 | `get_options` | GET | – | `{lead_sources[], lead_statuses[{name,type}], deal_stages[{name,type,probability}], lost_reasons[]}` |
-| `get_leads` | GET | `status?`, `scope?` (§4.1), `search?`, `include_converted?` (default false), `source?`, `temperature?` (Hot / Warm / Cold), `metric?` with `period?` (§6.5), `page`, `page_length` | page of Lead |
+| `get_leads` | GET | `status?`, `scope?` (§4.1), `search?`, `include_converted?` (default false), `source?`, `temperature?` (Hot / Warm / Cold), `metric?` with `period?` and `owner?` (§6.5), `page`, `page_length` | page of Lead |
 | `get_lead` | GET | `name` | Lead plus `notes[]`, `tasks[]`, `activities[]` |
 | `create_lead` | POST | `lead_name`, `organization?`, `email?`, `mobile_no?`, `source?`, `note?`, and for lead capture (§6.2) `follow_up_on?`, `follow_up_note?`, `assign_to?`, `source_channel?`, `card_image?`, `force?` | the new Lead (owner = me), as `get_lead`. Possible duplicates without `force`: 409 `DuplicateLead` |
 | `check_duplicates` | GET | `phone?`, `email?`, `organization?` | `{data: {matches: [Match]}}` (§6.2) |
@@ -782,6 +782,8 @@ Fixtures: `leads.get_overview.json`, `leads.get_lead_ai.json`.
   `unhappy` and `stage_suggested` (none while AI runs leads is off). Converted leads are
   included (a won lead has its deal). `scope`, `status`, `source`, `temperature` and `search`
   narrow it further. A stage of the pipeline opens with `status`, a source with `source`.
+- **`owner`** on `get_leads` is the overview's `owner`: one person in my sales scope (403 outside
+  it, as `get_overview` checks), so a number opened for that person keeps only their leads.
 - **Nothing is sent from the app or the site.** The app opens the person's own WhatsApp
   (`https://wa.me/<contact.whatsapp>?text=…`) or mail (`mailto:<contact.email>?subject=…&body=…`).
   Once they have sent it, **"I sent it"** is `crm.log_activity(doctype="lead", kind="whatsapp" |

@@ -5,22 +5,21 @@ from frappe.utils import add_days, nowdate
 from tbo_smart.api.mobile import crm, leads
 from tbo_smart.lead_pipeline.statuses import CLOSED_LOST, CLOSED_WON, CONTACTED, POSITIVE
 from tbo_smart.test_utils import (
-	ai_lead_insight,
 	change_lead_stage,
 	delete_lead_pipeline_records,
 	disable_sales_hierarchy,
 	disable_smart_leads,
-	enable_ai_leads,
 	get_all_keys,
 	get_fixture,
+	get_mobile_lead_names,
 	make_deal,
 	make_lead,
-	make_lead_note,
 	make_lead_source,
 	make_lead_task,
 	make_user,
 	mock_ai,
 	openai_answer,
+	read_lead_with_ai,
 	set_lead_values,
 	set_smart_lead_settings,
 )
@@ -28,6 +27,7 @@ from tbo_smart.test_utils import (
 BDE = "mobile.leads.bde@tbosmart.test"
 BDE2 = "mobile.leads.bde2@tbosmart.test"
 STAFF = "mobile.leads.staff@tbosmart.test"
+MANAGER = "mobile.leads.manager@tbosmart.test"
 OWNERS = (BDE, BDE2)
 SOURCE = "TBO Mobile Leads Expo"
 
@@ -40,7 +40,8 @@ class TestMobileLeads(FrappeTestCase):
 		make_user(BDE, ["Sales User"])
 		make_user(BDE2, ["Sales User"])
 		make_user(STAFF, ["Employee"])
-		disable_sales_hierarchy(OWNERS)
+		make_user(MANAGER, ["Sales Manager"])
+		disable_sales_hierarchy((*OWNERS, MANAGER))
 		make_lead_source(SOURCE)
 
 	def setUp(self):
@@ -53,12 +54,6 @@ class TestMobileLeads(FrappeTestCase):
 	def tearDown(self):
 		frappe.set_user("Administrator")
 		disable_smart_leads()
-
-	def read_lead(self) -> None:
-		"""Switch AI runs leads on and let the AI read self.lead after a note."""
-		enable_ai_leads()
-		with mock_ai(openai_answer(ai_lead_insight())):
-			make_lead_note(self.lead, "Asked for a demo of billing")
 
 	def test_only_crm_users_reach_the_overview_and_the_ai(self):
 		frappe.set_user(STAFF)
@@ -80,7 +75,7 @@ class TestMobileLeads(FrappeTestCase):
 		self.assertIn(ai["health"]["status"], ("healthy", "watch", "at_risk"))
 
 	def test_a_person_moves_the_lead_to_the_suggested_stage(self):
-		self.read_lead()
+		read_lead_with_ai(self.lead)
 		frappe.set_user(BDE)
 		self.assertEqual(leads.get_overview()["ai"]["stage_suggested"], 1)
 		listed = crm.get_leads(metric="stage_suggested", period="month")["data"]
@@ -97,7 +92,7 @@ class TestMobileLeads(FrappeTestCase):
 		self.assertEqual(crm.get_leads(metric="stage_suggested")["data"], [])
 
 	def test_dismiss_and_draft(self):
-		self.read_lead()
+		read_lead_with_ai(self.lead)
 		frappe.set_user(BDE)
 		self.assertIsNone(leads.dismiss_ai_stage(self.lead)["insight"]["suggested_stage"])
 		with mock_ai(openai_answer({"message": "Hello, shall we fix the demo? Anu"})):
@@ -115,10 +110,7 @@ class TestMobileLeads(FrappeTestCase):
 		change_lead_stage(won, CLOSED_WON)
 		make_deal(BDE, opportunity_from="Lead", party_name=won)
 		frappe.set_user(BDE)
-
-		def names(**filters) -> set:
-			return {row["name"] for row in crm.get_leads(page_length=100, **filters)["data"]}
-
+		names = get_mobile_lead_names
 		self.assertEqual(names(temperature="Hot"), {hot})
 		self.assertEqual(names(source=SOURCE), {hot})
 		self.assertRaises(frappe.ValidationError, crm.get_leads, temperature="Lukewarm")
@@ -128,6 +120,15 @@ class TestMobileLeads(FrappeTestCase):
 		row = next(row for row in crm.get_leads(page_length=100)["data"] if row["name"] == hot)
 		self.assertEqual((row["score"], row["temperature"]), (72, "Hot"))
 
+	def test_an_owner_narrows_the_list_within_my_scope(self):
+		theirs = make_lead(BDE2, "Elsewhere")
+		frappe.set_user(MANAGER)
+		self.assertEqual(get_mobile_lead_names(owner=BDE2), {theirs})
+		self.assertEqual(get_mobile_lead_names(owner=BDE, metric="new", period="month"), {self.lead})
+		# a salesperson can't open someone else's numbers
+		frappe.set_user(BDE)
+		self.assertRaises(frappe.PermissionError, crm.get_leads, owner=BDE2, metric="new")
+
 	def test_the_fixtures_match_the_responses(self):
 		hot = make_lead(BDE, "Keen")
 		set_lead_values(hot, tbo_score=80, tbo_temperature="Hot")
@@ -136,7 +137,7 @@ class TestMobileLeads(FrappeTestCase):
 		make_lead(BDE, "Anu again", company_name="Anu Textiles")
 		make_lead_task(self.lead, add_days(nowdate(), -1), BDE)
 		set_smart_lead_settings(enable_lead_scoring=1)
-		self.read_lead()
+		read_lead_with_ai(self.lead)
 		frappe.set_user(BDE)
 		self.assertLessEqual(
 			set(get_all_keys(get_fixture("leads.get_overview")["message"])),

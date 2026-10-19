@@ -181,17 +181,19 @@ def get_leads(
 	temperature: str | None = None,
 	metric: str | None = None,
 	period: str | None = None,
+	owner: str | None = None,
 ) -> dict:
 	"""Leads the session user may read in `scope` (mine / team / all; default: widest), newest first.
 
 	`source` and `temperature` (Hot / Warm / Cold) filter; `metric` with `period` keeps the leads
 	one number of the leads overview counts (`tbo_smart.api.mobile.leads.get_overview`), converted
-	ones included, as the hub's list does."""
+	ones included, as the hub's list does; `owner` (one person in my sales scope, as the overview
+	takes it) keeps that person's leads."""
 	capabilities = require_crm()
 	filters = scope_filter(capabilities, scope, "lead_owner")
 	if status:
 		filters["tbo_stage"] = status
-	filters.update(overview_filters(source, temperature, metric, period))
+	filters.update(overview_filters(source, temperature, metric, period, owner))
 	if not metric and not cint(include_converted):
 		converted = converted_leads_query().run(pluck=True)
 		if converted:
@@ -211,7 +213,11 @@ def get_leads(
 
 
 def overview_filters(
-	source: str | None, temperature: str | None, metric: str | None, period: str | None
+	source: str | None,
+	temperature: str | None,
+	metric: str | None,
+	period: str | None,
+	owner: str | None = None,
 ) -> dict:
 	"""get_list filters for the overview's lead lists, with the hub's own rules and figures."""
 	# hub_leads imports this module, so it is imported when it is needed
@@ -224,8 +230,13 @@ def overview_filters(
 		if temperature not in TEMPERATURES:
 			frappe.throw(_("temperature must be one of {0}.").format(", ".join(TEMPERATURES)))
 		filters["tbo_temperature"] = temperature
+	if not (metric or owner):
+		return filters
+	# the overview's own owner check: one person in my sales scope, else 403
+	board, _allowed = overview_board(resolve_period(period, None, None), None, None, owner)
+	if owner:
+		filters["lead_owner"] = owner
 	if metric:
-		board, _allowed = overview_board(resolve_period(period, None, None), None, None, None)
 		filters["name"] = ("in", board.metric_leads(metric) or [""])
 	return filters
 
