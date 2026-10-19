@@ -65,16 +65,21 @@ def effective_limit(settings, level, kind: str, band: float | None) -> float | N
 	return max(flt(limit, 2), band)
 
 
-def get_granted(quotation: str, kind: str) -> list:
-	"""Granted, not voided adjustments for a quotation and kind, newest first."""
+def get_granted(quotation: str, kind: str, approvals_only: bool = False) -> list:
+	"""Granted, not voided adjustments for a quotation and kind, newest first. `approvals_only`
+	leaves out the rows someone applied within their own limit: they record a limit, not an
+	approval, so they stop counting once that limit is lower (a segment band cut)."""
+	filters = {
+		"quotation": quotation,
+		"kind": kind,
+		"status": ("in", GRANTED_STATUSES),
+		"voided": 0,
+	}
+	if approvals_only:
+		filters["within_limit"] = 0
 	return frappe.get_all(
 		"TBO Quotation Adjustment",
-		filters={
-			"quotation": quotation,
-			"kind": kind,
-			"status": ("in", GRANTED_STATUSES),
-			"voided": 0,
-		},
+		filters=filters,
 		fields=["name", "approved_percent", "quotation_value"],
 		order_by="creation desc",
 		limit_page_length=0,
@@ -102,8 +107,10 @@ def covers(adjustment, percent: float, value: float) -> bool:
 	)
 
 
-def get_covering(quotation: str, kind: str, percent: float, value: float):
-	return next((row for row in get_granted(quotation, kind) if covers(row, percent, value)), None)
+def get_covering(quotation: str, kind: str, percent: float, value: float, approvals_only: bool = False):
+	return next(
+		(row for row in get_granted(quotation, kind, approvals_only) if covers(row, percent, value)), None
+	)
 
 
 def has_open_request(quotation: str, kind: str) -> bool:
@@ -175,7 +182,9 @@ class QuotationControl:
 			limit = effective_limit(self.settings, self.level, kind, self.band)
 			if self.settings.is_within(limit, percent):
 				continue
-			if not self.doc.is_new() and get_covering(self.doc.name, kind, percent, value):
+			if not self.doc.is_new() and get_covering(
+				self.doc.name, kind, percent, value, approvals_only=True
+			):
 				continue
 			rows.append((kind, percent, limit))
 		return rows

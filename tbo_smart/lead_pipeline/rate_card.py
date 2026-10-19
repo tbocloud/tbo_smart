@@ -36,9 +36,12 @@ def segment_rows() -> dict[str, frappe._dict]:
 
 
 def own_price_list(segment: str | None) -> str | None:
-	"""The segment's own price list, or None when it uses the selling price list."""
+	"""The segment's own price list, or None when it uses the selling price list (also when its
+	list has since been disabled)."""
 	row = segment_rows().get(segment) if segment and quotations_enabled() else None
-	return row.price_list if row and row.price_list else None
+	if not row or not row.price_list:
+		return None
+	return row.price_list if frappe.db.get_value("Price List", row.price_list, "enabled") else None
 
 
 def price_list_for(segment: str | None) -> str | None:

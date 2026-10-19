@@ -409,7 +409,7 @@ lead is off.
 | Column | Meaning |
 | --- | --- |
 | `segment` | Retail, Small, Medium, Large or Premium (`Lead.tbo_segment`); once per segment |
-| `price_list` | A **selling** ERPNext Price List; its **Item Price** rows are the segment's rates. Blank: Selling Settings' selling price list |
+| `price_list` | An enabled **selling** ERPNext Price List; its **Item Price** rows are the segment's rates. Blank (or since disabled): Selling Settings' selling price list |
 | `max_discount` | The **discount band**: the discount % anyone may give on that segment's quotations without approval (0 to 100; blank or 0: none) |
 
 - **Price:** the builder's catalogue and package lines take each service's rate from the lead's

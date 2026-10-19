@@ -150,7 +150,8 @@ def collect_statuses(names: list[str]) -> dict:
 	for row in adjustments:
 		key = (row.quotation, row.kind)
 		latest.setdefault(key, row)
-		if row.status in GRANTED_STATUSES and not cint(row.voided):
+		# a row applied within someone's own limit is not an approval (quotation_control.get_granted)
+		if row.status in GRANTED_STATUSES and not cint(row.voided) and not cint(row.within_limit):
 			granted.setdefault(key, []).append(row)
 	readable = set(
 		frappe.get_list(

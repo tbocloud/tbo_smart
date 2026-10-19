@@ -109,6 +109,10 @@ never clashes with an ERPNext field.
 Overridden, it is not voided, the quotation's percentage is **at or below** the approved
 percentage, and the list value is the same as when it was decided.
 
+A row applied within someone's own limit (*Applied*, `within_limit`) records that limit, not an
+approval: it never covers a percentage above the saver's current limit, so when a limit drops (a
+lead segment's band is cut) the quotation needs a real approval again.
+
 **Voiding:** after an approval, any change that takes the percentage above the approved one
 or changes the list value (items, quantities, prices) voids it. A "Voided" step is logged,
 and lowering the percentage afterwards does not bring it back: a new request is needed.

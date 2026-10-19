@@ -131,7 +131,7 @@ class TBOSmartSettings(Document):
 		self.quotation_preset_roles = self.clean_roles(self.quotation_preset_roles)
 
 	def validate_segment_rates(self):
-		"""One row per segment, a selling price list, a band from 0 to 100%."""
+		"""One row per segment, an enabled selling price list, a band from 0 to 100%."""
 		seen = set()
 		for row in self.get("segment_rates") or []:
 			if row.segment in seen:
@@ -141,8 +141,12 @@ class TBOSmartSettings(Document):
 				frappe.throw(
 					_("Segment rate card: the {0} band must be from 0 to 100%.").format(_(row.segment))
 				)
-			if row.price_list and not frappe.db.get_value("Price List", row.price_list, "selling"):
-				frappe.throw(_("Segment rate card: {0} is not a selling price list.").format(row.price_list))
+			if row.price_list and not frappe.db.exists(
+				"Price List", {"name": row.price_list, "selling": 1, "enabled": 1}
+			):
+				frappe.throw(
+					_("Segment rate card: {0} is not an enabled selling price list.").format(row.price_list)
+				)
 
 	def forget_ai_failures(self):
 		"""A fixed key or model is tried at once, not after the 30-minute pause."""

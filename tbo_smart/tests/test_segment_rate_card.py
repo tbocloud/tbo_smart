@@ -135,6 +135,20 @@ class TestRateCard(SegmentRateCardTestCase):
 		):
 			self.assertRaises(frappe.ValidationError, rate_card.save_rate_card, rows)
 
+	def test_a_disabled_list_is_refused_and_falls_back(self):
+		frappe.db.set_value("Price List", PREMIUM_LIST, "enabled", 0)
+		try:
+			self.assertEqual(rate_card.price_list_for("Premium"), rate_card.presets.price_list())
+			frappe.set_user(EDITOR)
+			self.assertRaises(
+				frappe.ValidationError,
+				rate_card.save_rate_card,
+				[{"segment": "Premium", "price_list": PREMIUM_LIST}],
+			)
+		finally:
+			frappe.set_user("Administrator")
+			frappe.db.set_value("Price List", PREMIUM_LIST, "enabled", 1)
+
 	def test_segment_rates_go_on_their_own_list(self):
 		frappe.set_user(EDITOR)
 		rate_card.set_segment_rate(SERVICE, 90000, "Premium")
@@ -210,6 +224,17 @@ class TestBandAndApproval(SegmentRateCardTestCase):
 		frappe.set_user(BDE)
 		api.mark_sent(saved["name"], "Manual")
 		self.assertEqual(frappe.db.get_value("Quotation", saved["name"], "tbo_quote_status"), q.SENT)
+
+	def test_a_band_cut_takes_back_what_it_allowed(self):
+		frappe.set_user(BDE)
+		saved = self.save(self.premium, discount=8)
+		self.assertEqual(saved["needs_approval"], [])
+		frappe.set_user("Administrator")
+		set_segment_rates([{"segment": "Premium", "price_list": PREMIUM_LIST, "max_discount": 5}])
+		frappe.set_user(BDE)
+		status = quotation_adjustment.get_quotation_adjustment_status(saved["name"])["kinds"][0]
+		self.assertEqual((status["limit"], status["within_limit"], status["approved"]), (5, False, False))
+		self.assertRaises(AdjustmentApprovalRequired, api.mark_sent, saved["name"], "Manual")
 
 	def test_a_level_with_a_higher_limit_keeps_it(self):
 		lead = make_lead(
