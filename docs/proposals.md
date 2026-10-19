@@ -40,7 +40,10 @@ proposal is open to whoever may read its lead under the sales rules; changing it
 the lead; only a System Manager deletes one.
 
 **Editing:** only a Draft changes (title, theme, validity, blocks, pricing). A sent one is
-changed through a revision.
+changed through a revision. The controller enforces it for every path (REST, `set_value`):
+`status`, `quotation`, the revision fields, the link token and the tracking fields change only
+through this module's workflow, a sent proposal's content not at all, and `quotation` must be a
+quotation of the proposal's own lead (the client's page shows it).
 
 ## 3. Templates (TBO Proposal Template)
 

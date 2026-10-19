@@ -58,6 +58,28 @@ MAX_BODY = 8000
 MAX_REASON = 1000
 TOKEN = re.compile(r"^[0-9a-f]{32}$")
 
+TRACKING_FIELDS = (
+	"public_token",
+	"sent_on",
+	"sent_to",
+	"first_viewed_on",
+	"last_viewed_on",
+	"decided_on",
+	"decided_by_name",
+	"decided_by_email",
+	"decline_reason",
+)
+# set only by this module's workflow (Proposal.check_locked_fields)
+LOCKED_FIELDS = (
+	"status",
+	"quotation",
+	"proposal_family",
+	"revision_no",
+	"is_latest",
+	"view_count",
+	*TRACKING_FIELDS,
+)
+
 
 def proposals_enabled() -> bool:
 	"""TBO Smart Settings → Proposals (needs Quotations on the lead)."""
@@ -90,6 +112,8 @@ class Proposal:
 
 	def validate(self):
 		self.check_sections()
+		self.check_quotation()
+		self.check_locked_fields()
 
 	def before_insert(self):
 		self.set_token()
@@ -103,6 +127,34 @@ class Proposal:
 		for row in self.sections:
 			row.heading = clean(row.heading, MAX_HEADING) or None
 			row.body = clean(row.body, MAX_BODY) or None
+
+	def check_quotation(self):
+		"""The pricing is the lead's own quotation, never another lead's (the client's page shows it)."""
+		if not self.quotation:
+			return
+		row = frappe.db.get_value(
+			"Quotation",
+			self.quotation,
+			["quotation_to", "party_name", "tbo_lead", "opportunity"],
+			as_dict=True,
+		)
+		if not row or q.lead_of(row) != self.lead:
+			frappe.throw(_("The pricing must be a quotation of this lead."), frappe.PermissionError)
+
+	def check_locked_fields(self):
+		"""Status, link, revision and tracking fields change only through this module
+		(`flags.proposal_workflow`), and a sent proposal's content only through a revision."""
+		before = None if self.is_new() else self.get_doc_before_save()
+		if not before or self.flags.proposal_workflow:
+			return
+		if any(self.get(field) != before.get(field) for field in LOCKED_FIELDS):
+			frappe.throw(_("Those fields are set by the proposal's workflow."), frappe.PermissionError)
+		if before.status != DRAFT:
+			frappe.throw(
+				_("A proposal that is {0} can't be changed. Create a revision instead.").format(
+					_(before.status)
+				)
+			)
 
 	def set_token(self):
 		"""The client's link: unguessable, and new for every revision."""
@@ -449,6 +501,7 @@ def save_pricing(doc, values: dict) -> None:
 	saved = lead_quotation.save_quotation(doc.lead, values, quotation)
 	if doc.quotation != saved["name"]:
 		doc.quotation = saved["name"]
+		doc.flags.proposal_workflow = True
 		doc.save()
 
 
@@ -474,19 +527,6 @@ def create_revision(doc):
 		if row.name != revision.name:
 			frappe.db.set_value(DOCTYPE, row.name, "is_latest", 0, update_modified=False)
 	return revision
-
-
-TRACKING_FIELDS = (
-	"public_token",
-	"sent_on",
-	"sent_to",
-	"first_viewed_on",
-	"last_viewed_on",
-	"decided_on",
-	"decided_by_name",
-	"decided_by_email",
-	"decline_reason",
-)
 
 
 def revisions(doc) -> list[dict]:
@@ -576,6 +616,7 @@ def send(doc, recipients: str | None = None, message: str | None = None, attach_
 	doc.sent_on = now_datetime()
 	doc.sent_to = to
 	doc.valid_till = doc.valid_till or add_days(today(), validity_days())
+	doc.flags.proposal_workflow = True
 	doc.save()
 	email(doc, lead, to, message, attach_pdf)
 

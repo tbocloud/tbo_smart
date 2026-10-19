@@ -36,6 +36,7 @@ from tbo_smart.test_utils import (
 	openai_answer,
 	price_hub_proposal,
 	proposal_token,
+	save_lead_quotation,
 	send_hub_proposal,
 	set_leaf_customer_group,
 	set_proposal_values,
@@ -130,6 +131,25 @@ class TestBuilding(ProposalTestCase):
 		disable_proposals()
 		self.assertEqual(hub.get_proposal_options(acting_user=BDE), {"enabled": False})
 		self.assertRaises(frappe.ValidationError, make_hub_proposal, self.lead, BDE, TEMPLATE)
+
+	def test_workflow_fields_cant_be_set_directly(self):
+		proposal = make_hub_proposal(self.lead, BDE, TEMPLATE)
+		other = make_lead(BDE, "Other Client", company_name=f"Other {frappe.generate_hash(length=6)}")
+		frappe.set_user(BDE)
+		elsewhere = save_lead_quotation(other, SERVICE, 5000)["name"]
+		doc = frappe.get_doc(p.DOCTYPE, proposal["name"])
+		doc.quotation = elsewhere
+		self.assertRaises(frappe.PermissionError, doc.save)
+		for field, value in (("status", p.ACCEPTED), ("view_count", 9), ("public_token", "0" * 32)):
+			doc = frappe.get_doc(p.DOCTYPE, proposal["name"])
+			doc.set(field, value)
+			self.assertRaises(frappe.PermissionError, doc.save)
+		frappe.set_user(HUB)
+		send_hub_proposal(proposal["name"], BDE)
+		frappe.set_user(BDE)
+		doc = frappe.get_doc(p.DOCTYPE, proposal["name"])
+		doc.title = "Changed after sending"
+		self.assertRaises(frappe.ValidationError, doc.save)
 
 	def test_editing_the_blocks(self):
 		proposal = make_hub_proposal(self.lead, BDE, TEMPLATE)
