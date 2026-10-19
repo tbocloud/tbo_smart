@@ -77,6 +77,9 @@ If a field turns out to be named differently, the only place to change is `myope
 | AI call summary | Off by default. Shortest call to sum up (blank: 30 s), transcription model (default `gpt-4o-transcribe`), price per minute (default $0.006, for the usage log). |
 
 Validation: no person twice, every row has a user ID or a mobile, and no negative numbers.
+A Single's defaults apply only to a new document, so the migrate gives an existing site these
+defaults once, for any field that was never saved (`telephony/setup.py`): create leads on, 180
+days, the notice, 30 s, the model and its price.
 
 ## 3. A call arriving (`tbo_smart.api.telephony.myoperator_webhook`)
 
@@ -271,6 +274,7 @@ their transcript. The TBO Call, the Event and the summary stay.
   - no "Lead insight" second call;
   - short calls make no AI call.
 - **Scoreboard:** answered calls and talk time per agent.
+- **Migrate:** the defaults reach an existing site once and never overwrite a saved value.
 
 ## Changelog
 

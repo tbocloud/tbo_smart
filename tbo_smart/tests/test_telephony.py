@@ -10,7 +10,7 @@ from tbo_smart.api import telephony as api
 from tbo_smart.api.mobile import crm
 from tbo_smart.api.mobile import leads as mobile_leads
 from tbo_smart.lead_pipeline.overview import SalesActivity
-from tbo_smart.telephony import calls, myoperator
+from tbo_smart.telephony import calls, myoperator, setup
 from tbo_smart.test_utils import (
 	TEST_MYOPERATOR_KEY,
 	TEST_MYOPERATOR_SECRET,
@@ -473,6 +473,19 @@ class TestCallSummary(TelephonyTestCase):
 			)
 		self.assertFalse([c for c in ai_post.call_args_list if "audio" in c.args[0]])
 		self.assertFalse(self.call_of("C-SHORT").ai_status)
+
+
+class TestSetup(TelephonyTestCase):
+	def test_migrate_gives_an_existing_site_the_defaults_once(self):
+		frappe.db.delete("Singles", {"doctype": "TBO Smart Settings", "field": ("in", setup.DEFAULT_FIELDS)})
+		setup.after_migrate()
+		self.assertEqual(frappe.db.get_single_value("TBO Smart Settings", "telephony_create_leads"), 1)
+		self.assertEqual(frappe.db.get_single_value("TBO Smart Settings", "telephony_recording_days"), 180)
+		self.assertTrue(frappe.db.exists("Lead Source", "Phone call"))
+		# a value someone saved is never overwritten
+		frappe.db.set_single_value("TBO Smart Settings", "telephony_create_leads", 0)
+		setup.after_migrate()
+		self.assertEqual(frappe.db.get_single_value("TBO Smart Settings", "telephony_create_leads"), 0)
 
 
 class TestSalesActivity(TelephonyTestCase):
