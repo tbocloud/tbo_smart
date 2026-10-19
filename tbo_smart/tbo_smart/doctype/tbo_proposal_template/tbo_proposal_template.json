@@ -9,6 +9,9 @@
   "enabled",
   "column_break_template",
   "description",
+  "page_guide",
+  "questions",
+  "default_modules",
   "sections_section",
   "sections",
   "packages"
@@ -47,6 +50,25 @@
    "label": "Description"
   },
   {
+   "fieldname": "page_guide",
+   "fieldtype": "Select",
+   "label": "Length guide",
+   "options": "Small project (5–8 pages)\nERP (10–15 pages)\nERP + mobile (15–25 pages)\nEnterprise (20–35 pages)",
+   "default": "ERP (10–15 pages)"
+  },
+  {
+   "fieldname": "questions",
+   "fieldtype": "Small Text",
+   "label": "Scoping questions",
+   "description": "The scoping form's questions this template asks, one key per line (docs/proposals.md §3.1)."
+  },
+  {
+   "fieldname": "default_modules",
+   "fieldtype": "Small Text",
+   "label": "Default modules",
+   "description": "Catalogue modules ticked on a new proposal, one per line."
+  },
+  {
    "fieldname": "sections_section",
    "fieldtype": "Section Break",
    "label": "Blocks"
@@ -66,7 +88,7 @@
   }
  ],
  "links": [],
- "modified": "2026-10-19 10:00:00.000000",
+ "modified": "2026-10-19 20:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Proposal Template",

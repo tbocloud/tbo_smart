@@ -1,3 +1,4 @@
+import io
 import json
 from unittest.mock import patch
 
@@ -9,12 +10,14 @@ from tbo_smart.api import hub_leads
 from tbo_smart.api import hub_proposals as hub
 from tbo_smart.api import proposal_page as page
 from tbo_smart.api.quotation_adjustment import decide_adjustment, get_pending_approvals
+from tbo_smart.lead_pipeline import proposal_builder as builder
 from tbo_smart.lead_pipeline import proposal_media as media
 from tbo_smart.lead_pipeline import proposals as p
 from tbo_smart.lead_pipeline import quotations as q
 from tbo_smart.lead_pipeline.statuses import CLOSED_WON, PROPOSAL_SENT
 from tbo_smart.sales.opportunity import lead_opportunity
 from tbo_smart.test_utils import (
+	CLIENT_PROFILE,
 	call_as_guest,
 	clear_default_letter_heads,
 	configure_ai_providers,
@@ -31,6 +34,7 @@ from tbo_smart.test_utils import (
 	make_lead_meeting,
 	make_lead_note,
 	make_letter_head,
+	make_library_image,
 	make_outgoing_email_account,
 	make_pdf_bytes,
 	make_private_file,
@@ -39,6 +43,7 @@ from tbo_smart.test_utils import (
 	make_user,
 	mock_ai,
 	openai_answer,
+	page_response,
 	price_hub_proposal,
 	proposal_token,
 	save_lead_quotation,
@@ -46,6 +51,7 @@ from tbo_smart.test_utils import (
 	set_leaf_customer_group,
 	set_proposal_values,
 	set_segment_rates,
+	set_smart_lead_settings,
 	upload_hub_image,
 )
 
@@ -91,6 +97,7 @@ class ProposalTestCase(FrappeTestCase):
 		frappe.set_user("Administrator")
 		delete_owner_lead_records(OWNERS)
 		enable_proposals()
+		set_smart_lead_settings(proposal_service_item=None, proposal_day_rate=0)
 		configure_quotation_approval(enabled=0)
 		set_segment_rates([{"segment": "Medium", "max_discount": 5}])
 		self.lead = make_lead(
@@ -111,11 +118,22 @@ class TestBuilding(ProposalTestCase):
 		proposal = make_hub_proposal(self.lead, BDE, TEMPLATE)
 		self.assertEqual(proposal["status"], p.DRAFT)
 		self.assertTrue(proposal["title"].startswith("ERPNext Implementation for Malabar Spices"))
+		# the Universal IT Proposal: all 23 sections, in order, every one on
 		self.assertEqual(
-			[row["section_type"] for row in proposal["sections"]],
-			["Cover", "About us", "Challenge", "Solution", "Scope", "Timeline", "Pricing", "Terms"],
+			[row["section_type"] for row in proposal["sections"]], [kind for kind, _h in p.MASTER_SECTIONS]
 		)
-		self.assertIn("Team Back Office", proposal["sections"][1]["body"])
+		self.assertTrue(all(row["enabled"] for row in proposal["sections"]))
+		bodies = {row["section_type"]: row["body"] for row in proposal["sections"]}
+		self.assertIn("Team Back Office", bodies["Company Overview"])
+		# the template's modules, assembled from the library with no AI
+		self.assertIn("Accounts", [row["module_name"] for row in proposal["modules"]])
+		self.assertIn("GST settings, tax templates, e-invoice and e-way bill", bodies["Scope of Work"])
+		self.assertIn("Accounts configured with GST", bodies["Deliverables"])
+		self.assertIsNone(bodies["Executive Summary"])
+		self.assertEqual(proposal["client_profile"]["industry"], "Spice export")
+		# the timeline and payment terms templates are picked for it
+		self.assertTrue(proposal["scoping"]["timeline_template"].endswith("days"))
+		self.assertEqual(proposal["scoping"]["payment_terms"], "30 / 30 / 30 / 10")
 		self.assertEqual((proposal["revision_no"], proposal["is_latest"]), (0, 1))
 		self.assertIsNone(proposal["public_url"])
 		self.assertRegex(proposal_token(proposal["name"]), p.TOKEN)
@@ -181,14 +199,15 @@ class TestBuilding(ProposalTestCase):
 		proposal = make_hub_proposal(self.lead, BDE, TEMPLATE)
 		sections = [
 			{"section_type": "Cover", "heading": "Hello", "body": "Para one.\n\n- first\n- second"},
-			{"section_type": "Pricing", "heading": "Investment"},
+			{"section_type": "Investment", "heading": "Investment"},
 		]
 		saved = hub.save_proposal(
 			proposal["name"],
 			json.dumps({"title": "Spice ERP", "theme": "Graphite", "sections": sections}),
 			acting_user=BDE,
 		)
-		self.assertEqual((saved["title"], saved["theme"]), ("Spice ERP", "Graphite"))
+		# one theme: a theme sent is ignored
+		self.assertEqual((saved["title"], saved["theme"]), ("Spice ERP", "Ivory"))
 		self.assertEqual([row["heading"] for row in saved["sections"]], ["Hello", "Investment"])
 		self.assertRaises(
 			frappe.ValidationError,
@@ -201,6 +220,15 @@ class TestBuilding(ProposalTestCase):
 			p.text_parts(sections[0]["body"]),
 			[{"kind": "text", "lines": ["Para one."]}, {"kind": "list", "items": ["first", "second"]}],
 		)
+		# two subheadings in a row keep the page's wrappers balanced
+		sections[0]["body"] = "Intro.\n\n## One\n\n## Two\n\nText."
+		hub.save_proposal(proposal["name"], json.dumps({"sections": sections}), acting_user=BDE)
+		html = p.render_html(frappe.get_doc(p.DOCTYPE, proposal["name"]), preview=True)
+		self.assertEqual(html.count("<div"), html.count("</div>"))
+		parts = p.text_parts("## Phases\nPhase | Days\nAnalysis | 5\n\nLead → Order → Invoice")
+		self.assertEqual([part["kind"] for part in parts], ["heading", "table", "chain"])
+		self.assertEqual(parts[1]["rows"], [["Analysis", "5"]])
+		self.assertEqual(parts[2]["steps"], ["Lead", "Order", "Invoice"])
 
 	def test_pricing_is_the_leads_quotation_with_the_band(self):
 		proposal = make_hub_proposal(self.lead, BDE, TEMPLATE)
@@ -234,36 +262,159 @@ class TestAIDraft(ProposalTestCase):
 		)
 		frappe.set_user(HUB)
 
-	def test_the_ai_drafts_the_blocks_but_pricing_and_invented_numbers(self):
-		def answer(url, body):
-			blocks = json.loads(body["messages"][1]["content"])["blocks"]
-			self.assertNotIn("Pricing", [row["type"] for row in blocks])
-			written = [
-				{"key": row["key"], "heading": row["heading"], "body": f"About {row['type']}: 3 warehouses."}
-				for row in blocks
-			]
-			written[0]["body"] = "You will save 40% of your time."
-			return openai_answer({"blocks": written})
+	def narrative(self, invent: bool = False):
+		"""An AI answer for the narrative call; it checks the brief is compact and complete."""
 
-		with mock_ai(answer):
-			result = hub.create_proposal(self.lead, TEMPLATE, 1, acting_user=BDE)
-		bodies = {row["section_type"]: row["body"] for row in result["proposal"]["sections"]}
-		self.assertEqual(bodies["Challenge"], "About Challenge: 3 warehouses.")
-		self.assertIsNone(bodies["Cover"])
-		self.assertIsNone(bodies["Pricing"])
-		self.assertEqual(len(result["warnings"]), 1)
+		def answer(url, body):
+			brief = json.loads(body["messages"][1]["content"])
+			self.assertLessEqual({row["key"] for row in brief["sections"]}, set(builder.AI_SECTIONS))
+			self.assertIn("Spice export", brief["client_profile"])
+			self.assertIn("Accounts", brief["modules"])
+			self.assertNotIn("features", json.dumps(brief))  # module names only, no catalogue text
+			self.assertLessEqual(len(brief["notes"]), builder.NOTES_CHARS)
+			sections = {row["key"]: f"About {row['key']}: 3 warehouses." for row in brief["sections"]}
+			if invent:
+				sections["Executive Summary"] = "You will save 40% of your time."
+			return openai_answer(
+				{
+					"sections": sections,
+					"customisations": {
+						item: f"{item}, done properly." for item in brief.get("customisations", [])
+					},
+				}
+			)
+
+		return answer
+
+	def test_one_call_writes_the_narrative_and_the_customisations(self):
+		scoping = {"customisation": 1, "customisations": [{"item": "Salary slip in our format", "days": 2}]}
+		with mock_ai(self.narrative(invent=True)) as post:
+			proposal = make_hub_proposal(self.lead, BDE, TEMPLATE, 1, scoping)
+		self.assertEqual(post.call_count, 1)
+		sent = json.loads(post.call_args.kwargs["json"]["messages"][1]["content"])
+		self.assertEqual([row["key"] for row in sent["sections"]], list(builder.AI_SECTIONS))
+		bodies = {row["section_type"]: row["body"] for row in proposal["sections"]}
+		self.assertEqual(bodies["Business Challenges"], "About Business Challenges: 3 warehouses.")
+		self.assertIsNone(bodies["Executive Summary"])  # an invented number is left out
+		# the benefits follow the data's component table
+		self.assertIn("Component | What it does", bodies["Proposed Solution"])
+		self.assertIn("About Proposed Solution", bodies["Proposed Solution"])
+		# the customisation bullet becomes a description in the Scope of Work; its effort stays
+		self.assertEqual(
+			proposal["scoping"]["customisations"][0]["detail"], "Salary slip in our format, done properly."
+		)
+		self.assertIn(
+			"Salary slip in our format | Salary slip in our format, done properly. | 2",
+			bodies["Scope of Work"],
+		)
 		self.assertTrue(
 			frappe.db.exists(
-				"TBO AI Usage Log",
-				{"feature": "Proposal draft", "reference_name": result["proposal"]["name"]},
+				"TBO AI Usage Log", {"feature": "Proposal draft", "reference_name": proposal["name"]}
 			)
 		)
+		self.assertIsNone(hub.get_proposal(proposal["name"], acting_user=BDE)["ai"])  # editors only
+		self.assertEqual(hub.get_proposal(proposal["name"], acting_user=EDITOR)["ai"]["runs"], 1)
+
+	def test_regenerate_asks_before_writing_over_an_edit(self):
+		proposal = make_hub_proposal(self.lead, BDE, TEMPLATE)
+		index = next(
+			i for i, row in enumerate(proposal["sections"]) if row["section_type"] == "Executive Summary"
+		)
+		sections = proposal["sections"]
+		sections[index]["body"] = "Written by presales."
+		saved = hub.save_proposal(proposal["name"], json.dumps({"sections": sections}), acting_user=BDE)
+		self.assertEqual(saved["sections"][index]["edited"], 1)
+		self.assertEqual(sum(row["edited"] for row in saved["sections"]), 1)
+		asked = hub.regenerate_section(proposal["name"], index, acting_user=BDE)
+		self.assertTrue(asked["confirm"])
+		self.assertEqual(asked["proposal"]["sections"][index]["body"], "Written by presales.")
+		with mock_ai(self.narrative()) as post:
+			done = hub.regenerate_section(proposal["name"], index, 1, acting_user=BDE)
+		self.assertEqual(post.call_count, 1)
+		self.assertEqual(
+			done["proposal"]["sections"][index]["body"], "About Executive Summary: 3 warehouses."
+		)
+		self.assertEqual(done["proposal"]["sections"][index]["edited"], 0)
+		# a data section resets to the library with no AI
+		scope = next(i for i, row in enumerate(sections) if row["section_type"] == "Scope of Work")
+		with mock_ai() as post:
+			reset = hub.regenerate_section(proposal["name"], scope, acting_user=BDE)
+		post.assert_not_called()
+		self.assertIn("## Business Analysis", reset["proposal"]["sections"][scope]["body"])
+
+	def test_regenerate_all_keeps_the_hand_edits(self):
+		proposal = make_hub_proposal(self.lead, BDE, TEMPLATE)
+		sections = proposal["sections"]
+		terms = next(i for i, row in enumerate(sections) if row["section_type"] == "Terms & Conditions")
+		sections[terms]["body"] = "Our own terms."
+		hub.save_proposal(
+			proposal["name"],
+			json.dumps(
+				{"sections": sections, "scoping": {**proposal["scoping"], "modules": ["HR & Payroll"]}}
+			),
+			acting_user=BDE,
+		)
+		with mock_ai(self.narrative()):
+			result = hub.regenerate_proposal(proposal["name"], acting_user=BDE)
+		self.assertIn("Terms & Conditions", result["kept"])
+		bodies = {row["section_type"]: row["body"] for row in result["proposal"]["sections"]}
+		self.assertEqual(bodies["Terms & Conditions"], "Our own terms.")
+		self.assertEqual(bodies["Executive Summary"], "About Executive Summary: 3 warehouses.")
+
+	def test_the_requirements_box_fills_the_form(self):
+		def answer(url, body):
+			context = json.loads(body["messages"][1]["content"])
+			self.assertIn("Accounts", context["modules"])
+			return openai_answer(
+				{
+					"template": TEMPLATE,
+					"modules": ["Accounts", "HR & Payroll", "Not A Module"],
+					"customisations": ["Salary slip in our format", "Expense approval above 10k"],
+					"users": 40,
+					"hosting": "Frappe Cloud",
+					"amc": True,
+				}
+			)
+
+		frappe.set_user("Administrator")
+		self.assertIn("Asha wants GST invoicing", builder.requirements_from_lead(self.lead))
+		frappe.set_user(HUB)
+		with mock_ai(answer):
+			form = hub.extract_requirements(self.lead, "Need HR and Accounts, 40 users", acting_user=BDE)
+		self.assertEqual(form["template"], TEMPLATE)
+		self.assertEqual(form["scoping"]["modules"], ["Accounts", "HR & Payroll"])
+		self.assertEqual(
+			[row["item"] for row in form["scoping"]["customisations"]],
+			["Salary slip in our format", "Expense approval above 10k"],
+		)
+		self.assertEqual((form["scoping"]["users"], form["scoping"]["hosting"]), (40, "Frappe Cloud"))
 
 	def test_an_ai_failure_still_makes_the_proposal(self):
 		with mock_ai():
-			result = hub.create_proposal(self.lead, TEMPLATE, 1, acting_user=BDE)
-		self.assertIn("The AI couldn't draft it", result["warnings"][0])
-		self.assertIn("Team Back Office", result["proposal"]["sections"][1]["body"])
+			result = hub.create_proposal(
+				self.lead, TEMPLATE, 1, None, None, json.dumps(CLIENT_PROFILE), acting_user=BDE
+			)
+		self.assertTrue(any("The AI couldn't write the narrative" in w for w in result["warnings"]))
+		self.assertIn(
+			"Team Back Office",
+			next(
+				row["body"]
+				for row in result["proposal"]["sections"]
+				if row["section_type"] == "Company Overview"
+			),
+		)
+
+	def test_the_daily_limit(self):
+		used = frappe.db.count(
+			"TBO AI Usage Log",
+			{"feature": ("in", list(builder.AI_FEATURES)), "creation": (">=", nowdate())},
+		)
+		frappe.set_user("Administrator")
+		enable_proposals(ai=True, proposal_ai_daily_limit=used + 1)
+		frappe.set_user(HUB)
+		with mock_ai(self.narrative()):
+			make_hub_proposal(self.lead, BDE, TEMPLATE, 1)
+		self.assertRaises(frappe.ValidationError, make_hub_proposal, self.lead, BDE, TEMPLATE, 1)
 
 	def test_ai_off_by_default(self):
 		frappe.set_user("Administrator")
@@ -271,6 +422,7 @@ class TestAIDraft(ProposalTestCase):
 		frappe.set_user(HUB)
 		self.assertFalse(hub.get_proposal_options(acting_user=BDE)["ai"])
 		self.assertRaises(frappe.ValidationError, make_hub_proposal, self.lead, BDE, TEMPLATE, 1)
+		self.assertRaises(frappe.ValidationError, hub.extract_requirements, self.lead, "x", acting_user=BDE)
 
 
 class TestSending(ProposalTestCase):
@@ -544,8 +696,8 @@ class TestImages(ProposalTestCase):
 				json.dumps({"sections": sections}),
 				acting_user=BDE,
 			)
-		# a text block drops an image
-		sections[-1].update(section_type="Solution", image=file)
+		# the Investment (the price) and the Acceptance carry none
+		sections[-1].update(section_type="Investment", image=file)
 		saved = hub.save_proposal(name, json.dumps({"sections": sections}), acting_user=BDE)
 		self.assertIsNone(saved["sections"][-1]["image"])
 
@@ -667,7 +819,7 @@ class TestLetterHead(ProposalTestCase):
 		frappe.db.set_value("Letter Head", self.site_default, "is_default", 0)
 		frappe.set_user(HUB)
 		self.assertIsNone(self.context(name))
-		self.assertIn('class="brand"', p.render_html(frappe.get_doc(p.DOCTYPE, name), preview=True))
+		self.assertIn('class="brand', p.render_html(frappe.get_doc(p.DOCTYPE, name), preview=True))
 		self.assertIsNone(hub.get_proposal_options(acting_user=BDE)["default_letter_head"])
 
 	def test_the_html_is_sanitised_and_shown_on_the_page_and_pdf(self):
@@ -678,7 +830,7 @@ class TestLetterHead(ProposalTestCase):
 		self.assertIn("www.teambackoffice.com", html)
 		for unsafe in ("<script>alert", "onclick", "steal()"):
 			self.assertNotIn(unsafe, html)
-		self.assertNotIn('class="brand"', html)
+		self.assertNotIn('class="brand', html)
 		pdf_html = p.render_html(frappe.get_doc(p.DOCTYPE, name), pdf=True)
 		self.assertIn('id="header-html"', pdf_html)
 		self.assertIn('id="footer-html"', pdf_html)
@@ -706,3 +858,370 @@ class TestLetterHead(ProposalTestCase):
 			frappe.set_user("Administrator")
 			frappe.delete_doc("Letter Head", head, force=True)
 			frappe.delete_doc("File", file, force=True)
+
+
+class TestMaster(ProposalTestCase):
+	"""The Universal IT Proposal: modules, templates, sharing, the page, the libraries, the client
+	profile."""
+
+	def test_modules_price_the_quotation(self):
+		frappe.set_user("Administrator")
+		set_smart_lead_settings(proposal_service_item=SERVICE, proposal_day_rate=6000)
+		for module, price in (("Accounts", 120000), ("HR & Payroll", 90000)):
+			self.addCleanup(
+				frappe.db.set_value,
+				"TBO Proposal Module",
+				module,
+				"default_price",
+				frappe.db.get_value("TBO Proposal Module", module, "default_price"),
+			)
+			frappe.db.set_value("TBO Proposal Module", module, "default_price", price)
+		frappe.set_user(HUB)
+		scoping = {
+			"modules": ["Accounts", "HR & Payroll"],
+			"customisation": 1,
+			"customisations": [{"item": "Salary slip in our format", "days": 2}],
+		}
+		proposal = make_hub_proposal(self.lead, BDE, TEMPLATE, 0, scoping)
+		lines = [
+			(row["description"], row["qty"], row["price_list_rate"]) for row in proposal["quotation"]["items"]
+		]
+		self.assertEqual(
+			lines,
+			[("Accounts", 1, 120000), ("HR & Payroll", 1, 90000), ("Customisation (2 person-days)", 2, 6000)],
+		)
+		# a price set by hand stays; the others take the list price again
+		modules = proposal["modules"]
+		modules[0].update(rate=100000, rate_overridden=1)
+		modules[1].update(rate=1)
+		saved = hub.save_proposal(proposal["name"], json.dumps({"modules": modules}), acting_user=BDE)
+		self.assertEqual([row["rate"] for row in saved["modules"]], [100000, 90000])
+		priced = hub.price_from_modules(proposal["name"], acting_user=BDE)
+		self.assertEqual(priced["quotation"]["items"][0]["price_list_rate"], 100000)
+		html = p.render_html(frappe.get_doc(p.DOCTYPE, proposal["name"]))
+		self.assertIn("HR &amp; Payroll", html)  # a service-item line is named by its module
+
+	def test_templates_timeline_payment_terms_and_amc(self):
+		proposal = make_hub_proposal(
+			self.lead, BDE, TEMPLATE, 0, {"timeline_template": "45 days", "amc": 1, "amc_plan": "Premium"}
+		)
+		bodies = {row["section_type"]: row["body"] for row in proposal["sections"]}
+		self.assertIn("Planned over 45 days.", bodies["Project Timeline"])
+		self.assertIn("We recommend Premium.", bodies["AMC"])
+		context = p.page_context(frappe.get_doc(p.DOCTYPE, proposal["name"]))
+		timeline = next(
+			block["timeline"] for block in context["blocks"] if block["type"] == "Project Timeline"
+		)
+		self.assertEqual((timeline["total"], timeline["unit"]), ("45", "Days"))
+		self.assertEqual(timeline["bars"][0]["left"], 0)
+		# the milestones add up to 100
+		sections = proposal["sections"]
+		terms = next(row for row in sections if row["section_type"] == "Payment Terms")
+		terms["body"] = "Milestone | Share\nAdvance | 50%\nGo-live | 40%"
+		self.assertRaises(
+			frappe.ValidationError,
+			hub.save_proposal,
+			proposal["name"],
+			json.dumps({"sections": sections}),
+			acting_user=BDE,
+		)
+		# a timeline template's phases add up to its days, payment terms to 100%
+		frappe.set_user("Administrator")
+		for library, body, days in (
+			("Timeline", "A | 10\nB | 10", 30),
+			("Payment Terms", "A | 60\nB | 30", 0),
+		):
+			doc = frappe.get_doc(
+				{
+					"doctype": "TBO Proposal Library Item",
+					"library": library,
+					"title": "Bad",
+					"body": body,
+					"weeks": days,
+				}
+			)
+			self.assertRaises(frappe.ValidationError, doc.insert)
+
+	def test_the_suggested_timeline_follows_the_effort(self):
+		small = make_hub_proposal(self.lead, BDE, TEMPLATE, 0, {"modules": ["Training"]})
+		large = make_hub_proposal(
+			self.lead, BDE, TEMPLATE, 0, {"modules": [m.module_name for m in builder.catalogue()]}
+		)
+		self.assertEqual(small["scoping"]["timeline_template"], "45 days")
+		self.assertEqual(large["scoping"]["timeline_template"], "120 days")
+
+	def test_the_client_profile_is_required(self):
+		self.assertRaises(
+			frappe.ValidationError,
+			hub.create_proposal,
+			self.lead,
+			TEMPLATE,
+			0,
+			None,
+			None,
+			json.dumps({"industry": "Spice export"}),
+			acting_user=BDE,
+		)
+		defaults = hub.get_client_profile(self.lead, acting_user=BDE)
+		self.assertTrue(defaults["profile"]["name"].startswith("Malabar Spices"))
+
+	def test_share_link_sends_a_draft_only_when_it_may_go(self):
+		frappe.set_user("Administrator")
+		configure_quotation_approval(enabled=1, limits={"BDM": (20, 0)})
+		frappe.set_user(HUB)
+		proposal = make_hub_proposal(self.lead, BDE, TEMPLATE)
+		token = proposal_token(proposal["name"])
+		self.assertIsNone(p.public_doc(token))  # a draft's link shows nothing
+		price_hub_proposal(proposal["name"], BDE, SERVICE, discount=12)
+		self.assertRaises(frappe.ValidationError, hub.share_proposal, proposal["name"], acting_user=BDE)
+		price_hub_proposal(proposal["name"], BDE, SERVICE, discount=2)
+		with (
+			patch("tbo_smart.lead_pipeline.proposals.has_outgoing_email", return_value=False),
+			patch(EMAIL) as make,
+		):
+			shared = hub.share_proposal(proposal["name"], acting_user=BDE)
+		make.assert_not_called()  # no email, and no email account needed
+		self.assertEqual(shared["proposal"]["status"], p.SENT)
+		self.assertEqual(shared["url"], shared["proposal"]["public_url"])
+		self.assertEqual(frappe.db.get_value("Lead", self.lead, "tbo_stage"), PROPOSAL_SENT)
+		self.assertIsNotNone(p.public_doc(token))
+		# sharing again just gives the link
+		self.assertEqual(hub.share_proposal(proposal["name"], acting_user=BDE)["url"], shared["url"])
+
+	def test_the_page_numbers_parts_contents_and_acceptance(self):
+		name, token = make_sent_proposal(self.lead, BDE, TEMPLATE, SERVICE)
+		context = p.page_context(frappe.get_doc(p.DOCTYPE, name))
+		numbered = [block for block in context["blocks"] if block["number"]]
+		self.assertEqual([block["number"] for block in numbered], list(range(1, len(numbered) + 1)))
+		self.assertEqual(numbered[0]["part"], "Part A — Business Proposal")
+		self.assertEqual(
+			[group["part"] for group in context["toc"]],
+			[
+				"Part A — Business Proposal",
+				"Part B — Technical & Implementation Proposal",
+				"Part C — Commercial Proposal",
+			],
+		)
+		scope = next(block for block in context["blocks"] if block["type"] == "Scope of Work")
+		self.assertTrue(scope["parts"][0]["number"].endswith(".1"))
+		cards = next(block["modules"] for block in context["blocks"] if block["type"] == "Modules & Features")
+		self.assertEqual(cards[0]["name"], "Accounts")
+		payment = next(block for block in context["blocks"] if block["type"] == "Payment Terms")
+		self.assertEqual(payment["parts"][0]["header"][-1], "Amount")
+		# the share card: title and client only, never a price
+		share = context["share"]
+		self.assertIn("Malabar Spices", share["description"])
+		for card in (share["title"], share["description"]):
+			self.assertNotIn("₹", card)
+		html = p.render_html(frappe.get_doc(p.DOCTYPE, name))
+		self.assertIn('rel="icon"', html)
+		self.assertIn('property="og:title"', html)
+		self.assertIn("tbo-proposal-icon", html)
+		# accepting fills the acceptance block
+		call_as_guest(page.accept, token, "Asha Menon", "asha@malabar.example")
+		acceptance = p.page_context(frappe.get_doc(p.DOCTYPE, name))["acceptance"]
+		self.assertEqual((acceptance["name"], acceptance["accepted"]), ("Asha Menon", True))
+		self.assertEqual(acceptance["email"], "a•••@malabar.example")  # never the full address
+		self.assertNotIn("asha@malabar.example", p.render_html(frappe.get_doc(p.DOCTYPE, name)))
+
+	def test_the_pdf_is_ivory_with_page_numbers(self):
+		from pypdf import PdfReader, PdfWriter
+
+		writer = PdfWriter()
+		for _n in range(3):
+			writer.add_blank_page(595, 842)
+		buffer = io.BytesIO()
+		writer.write(buffer)
+		pages = PdfReader(io.BytesIO(p.on_ivory(buffer.getvalue()))).pages
+		self.assertEqual(len(pages), 3)
+		self.assertNotIn("1 / 3", pages[0].extract_text())  # not on the cover
+		self.assertIn("2 / 3", pages[1].extract_text())
+
+	def test_libraries_are_for_editors(self):
+		data = json.dumps({"library": "Assumption", "title": "The client gives VPN access."})
+		self.assertRaises(frappe.PermissionError, hub.save_library_record, "item", data, acting_user=BDE)
+		library = hub.save_library_record("item", data, acting_user=EDITOR)
+		item = next(row for row in library["items"] if row["title"] == "The client gives VPN access.")
+		self.assertIn("Timeline", library["libraries"])
+		proposal = make_hub_proposal(self.lead, BDE, TEMPLATE)
+		bodies = {row["section_type"]: row["body"] for row in proposal["sections"]}
+		self.assertIn("The client gives VPN access.", bodies["Assumptions"])
+		self.assertRaises(
+			frappe.PermissionError, hub.delete_library_record, "item", item["name"], acting_user=BDE
+		)
+		hub.delete_library_record("item", item["name"], acting_user=EDITOR)
+		self.assertRaises(frappe.ValidationError, hub.save_library_record, "weird", data, acting_user=EDITOR)
+
+	def test_draft_with_ai_fills_a_module_once_and_saves_nothing(self):
+		frappe.set_user("Administrator")
+		enable_proposals(ai=True)
+		configure_ai_providers()
+		frappe.set_user(HUB)
+		draft = {
+			"description": "Fixed assets.",
+			"features": ["Register", "Depreciation"],
+			"scope": ["Development & Configuration | Asset categories"],
+		}
+		self.assertRaises(frappe.PermissionError, hub.draft_library_module, "Assets", acting_user=BDE)
+		with mock_ai(openai_answer(draft)):
+			result = hub.draft_library_module("Assets", acting_user=EDITOR)
+		self.assertEqual(result["draft"]["features"], "Register\nDepreciation")
+		self.assertNotEqual(
+			frappe.db.get_value("TBO Proposal Module", "Assets", "description"), "Fixed assets."
+		)
+
+	def test_library_images_are_picked_by_tag(self):
+		frappe.set_user("Administrator")
+		image = make_library_image("Kochi team", "Cover\nProject Team")
+		frappe.set_user(HUB)
+		try:
+			proposal = make_hub_proposal(self.lead, BDE, TEMPLATE)
+			cover = proposal["sections"][0]
+			self.assertTrue(cover["image"])
+			self.assertEqual(cover["image_alt"], "Kochi team picture")
+			self.assertEqual(
+				frappe.db.get_value("File", cover["image"], "attached_to_name"), proposal["name"]
+			)
+			call_as_guest(page.image, proposal_token(proposal["name"]), cover["image"])
+			picked = hub.use_library_image(proposal["name"], image, acting_user=BDE)
+			self.assertIn("proposal_page.image", picked["url"])
+			frappe.db.set_value("TBO Proposal Image", image, "enabled", 0)
+			options = hub.get_proposal_options(acting_user=BDE)
+			self.assertNotIn(image, [row["name"] for row in options["images"]])
+		finally:
+			frappe.set_user("Administrator")
+			frappe.delete_doc("TBO Proposal Image", image, force=True)
+
+	def test_reading_the_website_is_guarded_and_kept_on_the_lead(self):
+		from tbo_smart.lead_pipeline import proposal_profile as profile
+
+		for url in (
+			"ftp://client.example",
+			"http://127.0.0.1/",
+			"http://10.0.0.5/",
+			"http://169.254.169.254/",
+		):
+			self.assertRaises(profile.SiteUnreachable, profile.checked_url, url)
+		frappe.set_user("Administrator")
+		enable_proposals(ai=True)
+		configure_ai_providers()
+		frappe.set_user(HUB)
+		html = "<html><body><script>ignore()</script><p>We export spices.</p><a href='/about'>About</a></body></html>"
+		public = [(2, 1, 6, "", ("93.184.216.34", 0))]
+		summary = {"about": "Spice exporter", "industry": "Food export", "locations": "Kochi"}
+		with (
+			patch("socket.getaddrinfo", return_value=public),
+			patch(
+				"tbo_smart.lead_pipeline.proposal_profile.requests.get", return_value=page_response(html)
+			) as get,
+			mock_ai(openai_answer(summary)) as post,
+		):
+			read = hub.read_client_website(self.lead, "client.example", acting_user=BDE)
+			again = hub.read_client_website(self.lead, None, acting_user=BDE)
+			hub.read_client_website(self.lead, "client.example", acting_user=BDE)  # no scheme: still kept
+		self.assertEqual(read["profile"]["industry"], "Food export")
+		self.assertEqual(again["profile"], read["profile"])  # kept on the lead: read once
+		self.assertEqual(get.call_count, 2)  # the home page and its About page
+		self.assertEqual(post.call_count, 1)
+		sent = json.loads(post.call_args.kwargs["json"]["messages"][1]["content"])
+		self.assertNotIn("ignore()", sent["site_text"])
+		self.assertIn("untrusted", post.call_args.kwargs["json"]["messages"][0]["content"])
+		defaults = hub.get_client_profile(self.lead, acting_user=BDE)
+		self.assertTrue(defaults["from_web"])
+		# a redirect to a private address is refused
+		redirect = page_response("")
+		redirect.is_redirect = True
+		redirect.status_code = 302
+		redirect.headers = {"Location": "http://192.168.1.1/admin"}
+
+		def resolve(host, *args, **kwargs):
+			return [(2, 1, 6, "", ("192.168.1.1" if host == "192.168.1.1" else "93.184.216.34", 0))]
+
+		with (
+			patch("socket.getaddrinfo", side_effect=resolve),
+			patch("tbo_smart.lead_pipeline.proposal_profile.requests.get", return_value=redirect),
+		):
+			self.assertRaises(profile.SiteUnreachable, profile.fetch, "https://client.example/")
+
+	def test_old_proposals_move_to_the_master_sections(self):
+		from tbo_smart.patches.v1 import proposal_master_sections
+
+		proposal = make_hub_proposal(self.lead, BDE, TEMPLATE)
+		frappe.db.set_value(
+			"TBO Proposal Section",
+			{"parent": proposal["name"], "section_type": "Investment"},
+			"section_type",
+			"Pricing",
+		)
+		set_proposal_values(proposal["name"], theme="Graphite")
+		proposal_master_sections.execute()
+		self.assertTrue(
+			frappe.db.exists(
+				"TBO Proposal Section", {"parent": proposal["name"], "section_type": "Investment"}
+			)
+		)
+		self.assertEqual(frappe.db.get_value(p.DOCTYPE, proposal["name"], "theme"), "Ivory")
+
+	def test_the_assistant_edits_in_words_with_structured_changes(self):
+		frappe.set_user("Administrator")
+		enable_proposals(ai=True)
+		configure_ai_providers()
+		frappe.set_user(HUB)
+		chat = [
+			{"role": "assistant", "text": "What does the client need?"},
+			{"role": "presales", "text": "HR"},
+		]
+		created = hub.create_proposal(
+			self.lead, TEMPLATE, 0, None, None, json.dumps(CLIENT_PROFILE), json.dumps(chat), acting_user=BDE
+		)["proposal"]
+		self.assertEqual([row["text"] for row in created["chat"]], ["What does the client need?", "HR"])
+		terms = next(
+			i for i, row in enumerate(created["sections"]) if row["section_type"] == "Terms & Conditions"
+		)
+		created["sections"][terms]["body"] = "Our own terms."
+		hub.save_proposal(created["name"], json.dumps({"sections": created["sections"]}), acting_user=BDE)
+
+		def answer(url, body):
+			context = json.loads(body["messages"][1]["content"])
+			self.assertNotIn("chat", context["state"])  # the state, never the transcript
+			self.assertIn("HR & Payroll", context["state"]["catalogue"])
+			return openai_answer(
+				{
+					"add_modules": ["HR & Payroll", "Not A Module"],
+					"timeline_template": "90 days",
+					"amc": False,
+					"payment_terms": "No Such Terms",
+				}
+			)
+
+		frappe.db.set_value(
+			"TBO Proposal Section",
+			{"parent": created["name"], "section_type": "Proposed Solution"},
+			"body",
+			"Component | What it does\nDatabase | MariaDB\n\n## Business benefits\n- Faster payroll",
+		)
+		with mock_ai(answer) as post:
+			result = hub.chat_edit(
+				created["name"], "add Payroll, make it 90 days, remove AMC", acting_user=BDE
+			)
+		self.assertEqual(post.call_count, 1)
+		proposal = result["proposal"]
+		self.assertIn("HR & Payroll", [row["module_name"] for row in proposal["modules"]])
+		self.assertEqual(proposal["scoping"]["timeline_template"], "90 days")
+		self.assertEqual(proposal["scoping"]["payment_terms"], "30 / 30 / 30 / 10")  # not a choice: ignored
+		sections = {row["section_type"]: row for row in proposal["sections"]}
+		self.assertEqual(sections["AMC"]["enabled"], 0)
+		self.assertIn("Planned over 90 days.", sections["Project Timeline"]["body"])
+		self.assertEqual(sections["Terms & Conditions"]["body"], "Our own terms.")  # edited: kept
+		self.assertIn("- Faster payroll", sections["Proposed Solution"]["body"])  # the AI's benefits kept
+		self.assertTrue(result["reply"].startswith("Done:"))
+		self.assertEqual(proposal["chat"][-2]["text"], "add Payroll, make it 90 days, remove AMC")
+		with mock_ai(openai_answer({})):
+			nothing = hub.chat_edit(created["name"], "make it nicer", acting_user=BDE)
+		self.assertEqual(nothing["changes"], [])
+		frappe.set_user("Administrator")
+		enable_proposals()
+		frappe.set_user(HUB)
+		self.assertRaises(
+			frappe.ValidationError, hub.chat_edit, created["name"], "add Payroll", acting_user=BDE
+		)

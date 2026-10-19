@@ -1,0 +1,184 @@
+{
+ "actions": [],
+ "autoname": "field:module_name",
+ "creation": "2026-10-19 20:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "module_name",
+  "solution_types",
+  "enabled",
+  "column_break_module",
+  "item",
+  "default_price",
+  "effort_days",
+  "fit",
+  "sort_order",
+  "details_section",
+  "description",
+  "features",
+  "proposal_text_section",
+  "scope",
+  "deliverables",
+  "column_break_text",
+  "assumptions",
+  "out_of_scope",
+  "workflow",
+  "image_tag"
+ ],
+ "fields": [
+  {
+   "fieldname": "module_name",
+   "fieldtype": "Data",
+   "label": "Module",
+   "reqd": 1,
+   "unique": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "solution_types",
+   "fieldtype": "Small Text",
+   "label": "Solution types",
+   "description": "One solution type per line (blank: every solution type)."
+  },
+  {
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "label": "Enabled",
+   "default": "1",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "column_break_module",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "item",
+   "fieldtype": "Link",
+   "label": "Item",
+   "options": "Item",
+   "description": "Priced from this Item's rate on the lead segment's price list. Blank: the default price below, on the proposal service item."
+  },
+  {
+   "fieldname": "default_price",
+   "fieldtype": "Currency",
+   "label": "Default price",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "effort_days",
+   "fieldtype": "Float",
+   "label": "Standard effort (days)",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "fit",
+   "fieldtype": "Select",
+   "label": "Usually",
+   "options": "Standard\nConfigured\nCustomised",
+   "default": "Configured"
+  },
+  {
+   "fieldname": "sort_order",
+   "fieldtype": "Int",
+   "label": "Order"
+  },
+  {
+   "fieldname": "details_section",
+   "fieldtype": "Section Break",
+   "label": "What it is"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description"
+  },
+  {
+   "fieldname": "features",
+   "fieldtype": "Small Text",
+   "label": "Key features",
+   "description": "One per line."
+  },
+  {
+   "fieldname": "proposal_text_section",
+   "fieldtype": "Section Break",
+   "label": "What it adds to a proposal"
+  },
+  {
+   "fieldname": "scope",
+   "fieldtype": "Small Text",
+   "label": "Scope of work",
+   "description": "One line each, \"Subsection | what we do\" (Business Analysis, System Design, Development & Configuration, Testing, Deployment, Training & Handover; blank: Development & Configuration)."
+  },
+  {
+   "fieldname": "deliverables",
+   "fieldtype": "Small Text",
+   "label": "Deliverables",
+   "description": "One per line."
+  },
+  {
+   "fieldname": "column_break_text",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "assumptions",
+   "fieldtype": "Small Text",
+   "label": "Assumptions",
+   "description": "One per line."
+  },
+  {
+   "fieldname": "out_of_scope",
+   "fieldtype": "Small Text",
+   "label": "Out of scope",
+   "description": "One per line."
+  },
+  {
+   "fieldname": "workflow",
+   "fieldtype": "Small Text",
+   "label": "Workflow",
+   "description": "The process it adds, as \"Title: Step → Step → Step\" (one a line)."
+  },
+  {
+   "fieldname": "image_tag",
+   "fieldtype": "Data",
+   "label": "Image tag",
+   "description": "A library image tagged with this module's name or this tag illustrates it."
+  }
+ ],
+ "links": [],
+ "modified": "2026-10-19 21:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tbo Smart",
+ "name": "TBO Proposal Module",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1
+  },
+  {
+   "role": "Sales Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1
+  },
+  {
+   "role": "Sales User",
+   "read": 1,
+   "report": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "module_name",
+ "track_changes": 1
+}

@@ -5,23 +5,34 @@
  "engine": "InnoDB",
  "field_order": [
   "section_type",
+  "enabled",
   "heading",
   "body",
   "image",
   "image_alt",
   "image_caption",
-  "image_size"
+  "image_size",
+  "edited"
  ],
  "fields": [
   {
    "fieldname": "section_type",
    "fieldtype": "Select",
    "label": "Block",
-   "options": "Cover\nAbout us\nChallenge\nSolution\nScope\nTimeline\nPricing\nTerms\nImage\nCustom",
+   "options": "Cover\nExecutive Summary\nCompany Overview\nClient Background\nBusiness Challenges\nProposed Solution\nScope of Work\nModules & Features\nProposed Workflow\nTechnical Architecture\nDeliverables\nImplementation Plan\nProject Timeline\nProject Team\nInvestment\nPayment Terms\nWarranty & Support\nAMC\nAssumptions\nOut of Scope\nRisks & Mitigation\nTerms & Conditions\nAcceptance\nImage\nCustom",
    "default": "Custom",
    "reqd": 1,
    "in_list_view": 1,
    "columns": 2
+  },
+  {
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "label": "On",
+   "default": "1",
+   "in_list_view": 1,
+   "columns": 1,
+   "description": "Off: kept, but not on the page or the PDF."
   },
   {
    "fieldname": "heading",
@@ -62,10 +73,17 @@
    "label": "Image size",
    "options": "Full\nHalf",
    "default": "Full"
+  },
+  {
+   "fieldname": "edited",
+   "fieldtype": "Check",
+   "label": "Edited by hand",
+   "read_only": 1,
+   "description": "Regenerating asks before writing over it."
   }
  ],
  "links": [],
- "modified": "2026-10-19 18:00:00.000000",
+ "modified": "2026-10-19 22:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Proposal Section",

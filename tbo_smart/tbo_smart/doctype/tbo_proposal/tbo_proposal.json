@@ -8,14 +8,23 @@
   "lead",
   "lead_name",
   "template",
+  "solution_type",
+  "prepared_by",
   "column_break_main",
   "status",
   "quotation",
   "valid_till",
   "theme",
   "letter_head_override",
+  "pricing_mode",
   "sections_section",
   "sections",
+  "scoping_section",
+  "client_profile",
+  "requirements",
+  "scoping",
+  "chat",
+  "modules",
   "revision_section",
   "proposal_family",
   "revision_no",
@@ -66,6 +75,19 @@
    "read_only": 1
   },
   {
+   "fieldname": "solution_type",
+   "fieldtype": "Data",
+   "label": "Solution type",
+   "read_only": 1
+  },
+  {
+   "fieldname": "prepared_by",
+   "fieldtype": "Link",
+   "label": "Prepared by",
+   "options": "User",
+   "read_only": 1
+  },
+  {
    "fieldname": "column_break_main",
    "fieldtype": "Column Break"
   },
@@ -97,8 +119,10 @@
    "fieldname": "theme",
    "fieldtype": "Select",
    "label": "Theme",
-   "options": "TBO Teal\nGraphite",
-   "default": "TBO Teal"
+   "options": "Ivory",
+   "default": "Ivory",
+   "read_only": 1,
+   "description": "One theme: ivory paper, dark ink, the TBO teal for headings and rules."
   },
   {
    "fieldname": "letter_head_override",
@@ -106,6 +130,14 @@
    "label": "Letter head",
    "options": "Letter Head",
    "description": "Blank: the default letter head (TBO Smart Settings → Proposal letter head, else the Letter Head marked default). Not named letter_head: Frappe would fill that from the user's default letter head and pin it."
+  },
+  {
+   "fieldname": "pricing_mode",
+   "fieldtype": "Select",
+   "label": "Price shown",
+   "options": "Itemised\nConsolidated",
+   "default": "Itemised",
+   "description": "Itemised: every line of the quotation. Consolidated: one project price with what it includes."
   },
   {
    "fieldname": "sections_section",
@@ -117,6 +149,42 @@
    "fieldtype": "Table",
    "label": "Blocks",
    "options": "TBO Proposal Section"
+  },
+  {
+   "fieldname": "scoping_section",
+   "fieldtype": "Section Break",
+   "label": "Scoping",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "client_profile",
+   "fieldtype": "JSON",
+   "label": "Client profile",
+   "description": "Website, industry, size, locations, current software, key processes, pain points (docs/proposals.md §3.1)."
+  },
+  {
+   "fieldname": "requirements",
+   "fieldtype": "Text",
+   "label": "Customer requirements",
+   "description": "What the client asked for, in presales' words: the scoping form is read from it (docs/proposals.md §3.1)."
+  },
+  {
+   "fieldname": "scoping",
+   "fieldtype": "JSON",
+   "label": "Scoping answers",
+   "description": "The scoping form's answers (docs/proposals.md §3.1)."
+  },
+  {
+   "fieldname": "chat",
+   "fieldtype": "JSON",
+   "label": "Chat",
+   "description": "The proposal assistant's transcript [{role, text, at}] (docs/proposals.md §3.1). The AI never reads it: it gets the structured state."
+  },
+  {
+   "fieldname": "modules",
+   "fieldtype": "Table",
+   "label": "Modules",
+   "options": "TBO Proposal Module Line"
   },
   {
    "fieldname": "revision_section",
@@ -230,7 +298,7 @@
   }
  ],
  "links": [],
- "modified": "2026-10-19 18:00:00.000000",
+ "modified": "2026-10-20 09:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Proposal",

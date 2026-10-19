@@ -1,159 +1,258 @@
 <!doctype html>
 {%- set p = proposal -%}
+{%- set lh = p.letter_head -%}
+{%- macro render_part(part) -%}
+{%- if part.kind == "heading" %}
+<h3>{% if part.number %}<span class="n">{{ part.number }}</span>{% endif %}{{ part.text | e }}</h3>
+{%- elif part.kind == "list" %}
+<ul>{% for item in part["items"] %}<li>{{ item | e }}</li>{% endfor %}</ul>
+{%- elif part.kind == "table" %}
+<table>
+	<thead><tr>{% for cell in part.header %}<th scope="col"{% if part.numeric and not loop.first %} class="num"{% endif %}>{{ cell | e }}</th>{% endfor %}</tr></thead>
+	<tbody>{% for row in part.rows %}<tr>{% for cell in row %}<td{% if part.numeric and not loop.first %} class="num"{% endif %}>{{ cell | e }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+</table>
+{%- elif part.kind == "chain" %}
+<div class="chain" role="list" aria-label="{{ _('Workflow') }}">{% for step in part.steps %}<span class="step" role="listitem">{{ step | e }}</span>{% if not loop.last %}<span class="arrow" aria-hidden="true">→</span>{% endif %}{% endfor %}</div>
+{%- elif part.kind == "text" %}
+<p>{% for line in part.lines %}{{ line | e }}{% if not loop.last %}<br>{% endif %}{% endfor %}</p>
+{%- endif %}
+{%- endmacro -%}
+{%- macro cards(modules) -%}
+<div class="cards">
+	{%- for card in modules %}
+	<div class="card"><div class="in">
+		<span class="name">{{ card.name | e }}</span>{% if card.fit %}<span class="fit">{{ card.fit | e }}</span>{% endif %}
+		{%- if card.description %}<p class="about">{{ card.description | e }}</p>{% endif %}
+		{%- if card.features %}<ul>{% for f in card.features %}<li>{{ f | e }}</li>{% endfor %}</ul>{% endif %}
+	</div></div>
+	{%- endfor %}
+</div>
+{%- endmacro -%}
+{%- macro timeline(t) -%}
+<table class="timeline" aria-label="{{ _('Timeline') }}">
+	<thead><tr><th scope="col" class="phase">{{ _("Phase") }}</th><th scope="col">{{ _("{0} 0 to {1}").format(t.unit, t.total) }}</th><th scope="col" class="num weeks">{{ t.unit | e }}</th></tr></thead>
+	<tbody>
+	{%- for bar in t.bars %}
+	<tr><td class="phase">{{ bar.phase | e }}</td><td><div class="track"><div class="bar" style="left: {{ bar.left }}%; width: {{ bar.width }}%"></div></div></td><td class="num">{{ bar.length | e }}</td></tr>
+	{%- endfor %}
+	</tbody>
+	<tfoot><tr><td>{{ _("Total") }}</td><td></td><td class="num">{{ t.total | e }}</td></tr></tfoot>
+</table>
+{%- endmacro -%}
 <html lang="en"{% if pdf %} class="pdf"{% endif %}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>{{ p.title | e }}{% if p.company %} · {{ p.company | e }}{% endif %}</title>
+<title>{{ p.share.title | e }}</title>
+<link rel="icon" href="{{ p.share.icon | e }}">
+<link rel="apple-touch-icon" href="{{ p.share.touch_icon | e }}">
+{#- a shared link's card: the title and the client's name only, never a price #}
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="{{ p.share.brand | e }}">
+<meta property="og:title" content="{{ p.share.title | e }}">
+<meta property="og:description" content="{{ p.share.description | e }}">
+<meta property="og:image" content="{{ p.share.image | e }}">
+<meta property="og:url" content="{{ p.share.url | e }}">
+<meta name="twitter:card" content="summary">
 {%- if not pdf %}
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
 {%- endif %}
 <style>
-	:root {
-		--accent: #3a748d;
-		--accent-hover: #2a5766;
-		--accent-soft: #e6f0f4;
-		--accent-ink: #2c5f75;
-		--on-accent: #ffffff;
-		--ring: #c8641a;
-		--ink: #16181d;
-		--ink-2: #3b4049;
-		--ink-3: #626873;
-		--line: #e3e6ea;
-		--surface: #ffffff;
-		--page: #f6f7f9;
-		--success: #1f7a4d;
-		--success-soft: #e7f4ec;
-		--danger: #b42318;
-		--danger-soft: #fdecea;
-		--info-soft: #e8edfb;
-		--info: #2f56c6;
-	}
-	.theme-graphite { --accent: #2f3640; --accent-hover: #1f242b; --accent-soft: #eceef1; --accent-ink: #2f3640; }
-	@media (prefers-color-scheme: dark) {
-		:root:not(.pdf) {
-			--accent: #6fb4cf; --accent-hover: #8dc5da; --accent-soft: #15303b; --accent-ink: #a6d5e6;
-			--on-accent: #0b2129; --ring: #f59a4a; --ink: #eceef1; --ink-2: #c9cdd3; --ink-3: #9aa1ab;
-			--line: #2a2d33; --surface: #16171b; --page: #0f1013; --success: #6ccf9a; --success-soft: #12291d;
-			--danger: #ff8a80; --danger-soft: #3a1714; --info: #8da6ff; --info-soft: #16233f;
-		}
-		:root:not(.pdf) .theme-graphite { --accent: #c9cdd3; --accent-hover: #eceef1; --accent-soft: #23262c; --accent-ink: #eceef1; --on-accent: #16171b; }
-	}
+	/* One theme: ivory paper (#fbf8ef), dark ink (#1c1b19), the TBO teal (#3a748d) only for
+	   numbers, the headings' rule and the timeline. Readable in grayscale: nothing depends on the
+	   colour alone. Colours are written out, not CSS variables: wkhtmltopdf's WebKit has none. */
 	* { box-sizing: border-box; }
+	html { background: #fbf8ef; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 	body {
-		margin: 0; background: var(--page); color: var(--ink);
-		font: 16px/1.6 Geist, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+		margin: 0; background: #fbf8ef; color: #1c1b19;
+		font: 15px/1.65 Geist, "Helvetica Neue", Helvetica, Arial, sans-serif;
 	}
-	.pdf body { background: #fff; }
-	.wrap { max-width: 860px; margin: 0 auto; padding: 32px 16px 64px; }
-	.sheet { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
-	.pdf .sheet { border: 0; border-radius: 0; }
-	header.brand { display: flex; align-items: center; gap: 12px; padding: 20px 32px; border-bottom: 1px solid var(--line); }
-	header.brand img { max-height: 36px; max-width: 160px; }
-	header.brand .company { font-weight: 600; color: var(--ink-2); }
-	.cover { padding: 40px 32px 32px; border-bottom: 4px solid var(--accent); }
-	.eyebrow { margin: 0 0 8px; color: var(--accent-ink); font-weight: 500; font-size: 14px; letter-spacing: .02em; }
-	h1 { margin: 0 0 16px; font-size: 32px; line-height: 1.2; font-weight: 600; }
-	.meta { display: flex; flex-wrap: wrap; gap: 8px 24px; margin: 0; color: var(--ink-3); font-size: 14px; }
-	.meta dt { display: inline; }
-	.meta dd { display: inline; margin: 0 0 0 4px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
-	.notice { margin: 16px 32px 0; padding: 12px 16px; border-radius: 8px; font-size: 14px; display: flex; gap: 8px; align-items: flex-start; }
-	.notice.info { background: var(--info-soft); color: var(--info); }
-	.notice.success { background: var(--success-soft); color: var(--success); }
-	.notice.danger { background: var(--danger-soft); color: var(--danger); }
+	.wrap { max-width: 880px; margin: 0 auto; padding: 32px 16px 64px; }
+	.sheet { background: #fffdf7; border: 1px solid #e3ddcd; border-radius: 4px; }
+	.pdf .wrap { max-width: none; padding: 0; }
+	.pdf .sheet { background: transparent; border: 0; border-radius: 0; }
+	.pad { padding-left: 56px; padding-right: 56px; }
+	.pdf .pad { padding-left: 18mm; padding-right: 18mm; }
+
+	/* letter head */
+	.letter-head { padding-top: 20px; padding-bottom: 16px; border-bottom: 1px solid #e3ddcd; }
+	.letter-head-footer { padding-top: 12px; padding-bottom: 16px; border-top: 1px solid #e3ddcd; color: #67625a; font-size: 12px; }
+	.letter-head img, .letter-head-footer img { max-width: 100%; max-height: 90px; }
+	.pdf .letter-head { padding-top: 0; padding-bottom: 6px; }
+	.pdf .letter-head-footer { padding-top: 6px; padding-bottom: 0; }
+	.align-center { text-align: center; }
+	.align-right { text-align: right; }
+	header.brand { padding-top: 20px; padding-bottom: 16px; border-bottom: 1px solid #e3ddcd; }
+	header.brand img { max-height: 40px; max-width: 180px; vertical-align: middle; }
+	header.brand .company { font-weight: 600; color: #3d3a34; }
+
+	/* the cover */
+	.cover { padding-top: 72px; padding-bottom: 56px; }
+	.pdf .cover { padding-top: 34mm; height: 228mm; page-break-after: always; }
+	.cover .logo { max-height: 56px; max-width: 220px; margin-bottom: 48px; }
+	.kicker { margin: 0 0 16px; color: #2c5f75; font-size: 13px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; }
+	.cover h1 { margin: 0; font-size: 40px; line-height: 1.15; font-weight: 600; letter-spacing: -.01em; }
+	.cover .rule { width: 72px; height: 4px; background: #3a748d; margin: 28px 0; }
+	.cover .for { margin: 0 0 4px; color: #67625a; font-size: 14px; }
+	.cover .client { margin: 0; font-size: 22px; font-weight: 500; color: #1c1b19; }
+	.cover .tagline p { font-size: 17px; color: #3d3a34; margin-top: 20px; }
+	.cover figure { margin: 32px 0 0; }
+	.facts { width: 100%; margin-top: 48px; border-collapse: collapse; }
+	.facts td { width: 33%; padding: 12px 16px 12px 0; border-top: 1px solid #e3ddcd; border-bottom: 0; vertical-align: top; font-weight: 400; }
+	.facts .label { display: block; color: #67625a; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; }
+	.facts .value { display: block; margin-top: 2px; color: #1c1b19; font-variant-numeric: tabular-nums; }
+
+	/* notices (the web page only) */
+	.notice { margin: 16px 0 0; padding: 12px 16px; border-radius: 6px; font-size: 14px; }
+	.notice.info { background: #e7eff1; color: #2c5f75; }
+	.notice.success { background: #e5f1e8; color: #1f6b45; }
+	.notice.danger { background: #f8e5e1; color: #a32116; }
 	.notice strong { font-weight: 600; }
-	section.block { padding: 28px 32px; border-bottom: 1px solid var(--line); page-break-inside: avoid; }
-	section.block:last-of-type { border-bottom: 0; }
-	section.block h2 { margin: 0 0 12px; font-size: 20px; font-weight: 600; }
-	section.block.lead-in p { font-size: 18px; color: var(--ink-2); }
-	p { margin: 0 0 12px; color: var(--ink-2); }
-	ul { margin: 0 0 12px; padding-left: 20px; color: var(--ink-2); }
+
+	/* contents */
+	.toc { padding-top: 48px; padding-bottom: 40px; border-top: 1px solid #e3ddcd; }
+	.pdf .toc { border-top: 0; padding-top: 4mm; padding-bottom: 0; page-break-after: always; }
+	.pdf .toc li { padding: 2px 0; font-size: 13px; }
+	.toc h2 { margin: 0 0 12px; font-size: 24px; font-weight: 600; }
+	.toc .part-title { margin: 14px 0 4px; color: #2c5f75; font-size: 12px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; }
+	.toc ol { list-style: none; margin: 0; padding: 0; }
+	.toc li { padding: 3px 0; font-size: 14px; border-bottom: 1px dotted #cfc7b3; color: #3d3a34; }
+	.toc a { color: inherit; text-decoration: none; }
+	.toc .n { display: inline-block; width: 36px; color: #2c5f75; font-family: "Geist Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+
+	/* parts and sections */
+	.part { padding-top: 48px; padding-bottom: 8px; border-top: 1px solid #e3ddcd; }
+	.pdf .part { page-break-before: always; border-top: 0; padding-top: 4mm; }
+	.part p { margin: 0; color: #2c5f75; font-size: 12px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; }
+	section.block { padding-top: 32px; padding-bottom: 8px; }
+	/* a heading never ends a page: it is kept with the first thing under it */
+	.keep { page-break-inside: avoid; }
+	section.block h2 { margin: 0 0 16px; padding-bottom: 10px; border-bottom: 2px solid #3a748d; font-size: 22px; line-height: 1.3; font-weight: 600; page-break-after: avoid; }
+	section.block h2 .n { color: #2c5f75; margin-right: 12px; font-family: "Geist Mono", ui-monospace, monospace; font-weight: 500; }
+	h3 { margin: 22px 0 8px; font-size: 16px; font-weight: 600; color: #1c1b19; page-break-after: avoid; }
+	h3 .n { color: #2c5f75; margin-right: 8px; font-family: "Geist Mono", ui-monospace, monospace; font-weight: 500; }
+	p { margin: 0 0 12px; color: #3d3a34; }
+	ul { margin: 0 0 12px; padding-left: 20px; color: #3d3a34; }
 	li { margin-bottom: 4px; }
-	table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 15px; }
-	th { text-align: left; font-weight: 500; color: var(--ink-3); font-size: 13px; padding: 8px 8px 8px 0; border-bottom: 1px solid var(--line); }
-	td { padding: 12px 8px 12px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+
+	/* tables */
+	table { width: 100%; border-collapse: collapse; margin: 8px 0 16px; font-size: 14px; page-break-inside: avoid; }
+	thead { display: table-header-group; }
+	tr { page-break-inside: avoid; }
+	th { text-align: left; font-weight: 600; color: #67625a; font-size: 12px; letter-spacing: .04em; text-transform: uppercase; padding: 8px 12px 8px 0; border-bottom: 1px solid #cfc7b3; }
+	td { padding: 10px 12px 10px 0; border-bottom: 1px solid #e3ddcd; vertical-align: top; color: #3d3a34; }
+	td:first-child { color: #1c1b19; font-weight: 500; }
 	.num { text-align: right; font-family: "Geist Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; white-space: nowrap; padding-right: 0; }
 	th.num { font-family: inherit; }
-	td .desc { display: block; color: var(--ink-3); font-size: 14px; margin-top: 2px; }
-	.totals td { border-bottom: 0; padding: 6px 0; }
-	.totals tr.grand td { padding-top: 12px; border-top: 2px solid var(--ink); font-weight: 600; font-size: 17px; color: var(--ink); }
-	.words { margin-top: 8px; font-size: 14px; color: var(--ink-3); }
-	.decision { padding: 28px 32px; background: var(--accent-soft); }
+	td .desc { display: block; color: #67625a; font-size: 13px; font-weight: 400; margin-top: 2px; }
+	.totals { width: 55%; margin-left: 45%; }
+	.totals td { border-bottom: 0; padding: 5px 0; font-weight: 400; }
+	.totals tr.grand td { padding-top: 12px; border-top: 2px solid #1c1b19; font-weight: 600; font-size: 17px; color: #1c1b19; }
+	.words { font-size: 13px; color: #67625a; text-align: right; }
+
+	/* the module map */
+	.cards { margin: 4px -6px 12px; font-size: 0; }
+	.card { display: inline-block; vertical-align: top; width: 50%; padding: 6px; font-size: 14px; page-break-inside: avoid; }
+	.card .in { border: 1px solid #e3ddcd; border-top: 3px solid #3a748d; border-radius: 4px; background: #fffdf7; padding: 14px 16px; min-height: 128px; }
+	.card .name { font-weight: 600; color: #1c1b19; }
+	.card .fit { display: inline-block; margin-left: 6px; padding: 0 8px; border: 1px solid #cfc7b3; border-radius: 999px; font-size: 11px; color: #67625a; }
+	.card .about { margin: 8px 0 0; font-size: 13px; color: #3d3a34; }
+	.card ul { margin: 8px 0 0; font-size: 13px; }
+
+	/* the workflow chain */
+	.chain { margin: 8px 0 16px; font-size: 0; }
+	.step { display: inline-block; vertical-align: middle; margin: 4px 0; padding: 8px 12px; border: 1px solid #cfc7b3; border-radius: 4px; background: #fffdf7; font-size: 13px; font-weight: 500; color: #1c1b19; }
+	.arrow { display: inline-block; vertical-align: middle; width: 22px; text-align: center; color: #3a748d; font-size: 14px; }
+
+	/* the timeline bar */
+	.timeline td { padding: 8px 12px 8px 0; }
+	.timeline .track { position: relative; height: 16px; background: #f0eadc; border-radius: 3px; }
+	.timeline .bar { position: absolute; top: 0; bottom: 0; background: #3a748d; border-radius: 3px; }
+	.timeline .phase { width: 30%; }
+	.timeline .weeks { width: 12%; }
+	.timeline tfoot td { border-bottom: 0; font-weight: 600; color: #1c1b19; }
+
+	/* images */
+	figure { margin: 0 0 16px; page-break-inside: avoid; }
+	figure img { display: block; width: 100%; height: auto; border-radius: 4px; border: 1px solid #e3ddcd; }
+	figure.half { max-width: 50%; }
+	figcaption { margin-top: 6px; font-size: 13px; color: #67625a; }
+
+	/* acceptance */
+	.sign { width: 100%; border-collapse: separate; border-spacing: 0; margin: 8px 0 0; page-break-inside: avoid; }
+	.sign td { width: 50%; padding: 16px 20px; border: 1px solid #cfc7b3; vertical-align: top; font-weight: 400; }
+	.sign td + td { border-left: 0; }
+	.sign .who { margin: 0 0 8px; font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: #2c5f75; }
+	.sign .filled { display: block; margin-top: 14px; min-height: 20px; color: #1c1b19; font-size: 14px; font-weight: 500; }
+	.sign .line { display: block; padding-top: 4px; border-top: 1px solid #cfc7b3; font-size: 12px; color: #67625a; }
+	.accepted { display: inline-block; margin-top: 12px; padding: 2px 10px; border-radius: 999px; background: #e5f1e8; color: #1f6b45; font-size: 12px; font-weight: 600; }
+
+	/* deciding (the web page only) */
+	.decision { margin-top: 32px; padding-top: 28px; padding-bottom: 28px; background: #e7eff1; }
 	.decision h2 { margin: 0 0 4px; font-size: 20px; font-weight: 600; }
 	.decision > p { margin-bottom: 16px; }
 	.fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-	label { display: block; font-size: 14px; font-weight: 500; color: var(--ink-2); margin-bottom: 4px; }
-	input, textarea { width: 100%; font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; min-height: 44px; }
+	label { display: block; font-size: 14px; font-weight: 500; color: #3d3a34; margin-bottom: 4px; }
+	input, textarea { width: 100%; font: inherit; color: #1c1b19; background: #fff; border: 1px solid #cfc7b3; border-radius: 6px; padding: 10px 12px; min-height: 44px; }
 	textarea { min-height: 88px; }
 	.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 16px; }
-	button, .button { font: inherit; font-weight: 500; border-radius: 8px; padding: 10px 18px; min-height: 44px; cursor: pointer; border: 1px solid var(--line); background: var(--surface); color: var(--ink); text-decoration: none; display: inline-flex; align-items: center; }
-	button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
-	button.primary:hover { background: var(--accent-hover); }
+	button, .button { font: inherit; font-weight: 500; border-radius: 6px; padding: 10px 18px; min-height: 44px; cursor: pointer; border: 1px solid #cfc7b3; background: #fff; color: #1c1b19; text-decoration: none; display: inline-flex; align-items: center; }
+	button.primary { background: #3a748d; border-color: #3a748d; color: #ffffff; }
+	button.primary:hover { background: #2c5f75; }
 	button[disabled] { opacity: .6; cursor: progress; }
-	:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
-	details summary { cursor: pointer; color: var(--ink-2); min-height: 44px; display: inline-flex; align-items: center; }
-	.error { color: var(--danger); font-size: 14px; margin-top: 8px; }
-	footer { padding: 16px 32px; color: var(--ink-3); font-size: 13px; display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center; }
-	.letter-head { padding: 16px 32px; border-bottom: 1px solid var(--line); }
-	.letter-head-footer { padding: 12px 32px; border-top: 1px solid var(--line); }
-	.letter-head img, .letter-head-footer img { max-width: 100%; max-height: 120px; }
-	.align-center { text-align: center; }
-	.align-right { text-align: right; }
-	.pdf .letter-head, .pdf .letter-head-footer { padding: 0; border: 0; }
-	figure { margin: 0 0 12px; }
-	figure img { display: block; width: 100%; height: auto; border-radius: 8px; border: 1px solid var(--line); }
-	figure.half { max-width: 50%; }
-	figure.cover-image { margin-bottom: 20px; }
-	figcaption { margin-top: 8px; font-size: 14px; color: var(--ink-3); }
+	:focus-visible { outline: 2px solid #c8641a; outline-offset: 2px; }
+	details summary { cursor: pointer; color: #3d3a34; min-height: 44px; display: inline-flex; align-items: center; }
+	.error { color: #a32116; font-size: 14px; margin-top: 8px; }
+	.page-foot { padding-top: 16px; padding-bottom: 16px; color: #67625a; font-size: 13px; display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center; border-top: 1px solid #e3ddcd; }
 	.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-	@media (max-width: 640px) {
+	@media screen and (max-width: 640px) {
 		.wrap { padding: 0 0 32px; }
 		.sheet { border-radius: 0; border-left: 0; border-right: 0; }
-		header.brand, .cover, section.block, .decision, footer { padding-left: 16px; padding-right: 16px; }
-		.notice { margin-left: 16px; margin-right: 16px; }
-		h1 { font-size: 26px; }
-		.fields { grid-template-columns: 1fr; }
+		.pad { padding-left: 16px; padding-right: 16px; }
+		.cover { padding-top: 40px; }
+		.cover h1 { font-size: 30px; }
+		.facts td { display: block; width: 100%; }
+		.card { width: 100%; }
 		figure.half { max-width: 100%; }
-		.letter-head, .letter-head-footer { padding-left: 16px; padding-right: 16px; }
+		.fields { grid-template-columns: 1fr; }
+		.totals { width: 100%; margin-left: 0; }
 		th.hide-sm, td.hide-sm { display: none; }
+		.sign td { display: block; width: 100%; }
+		.sign td + td { border-left: 1px solid #cfc7b3; border-top: 0; }
 	}
 	@media print {
-		body, .wrap { background: #fff; padding: 0; }
-		.sheet { border: 0; }
-		.decision, footer .no-print, .notice.preview { display: none; }
+		html, body, .wrap { background: #fbf8ef; padding: 0; }
+		.sheet { border: 0; background: transparent; }
+		.decision, .no-print, .notice.preview { display: none; }
+		.cover, .toc { page-break-after: always; }
+		.part { page-break-before: always; }
 	}
 	@media (prefers-reduced-motion: no-preference) { button { transition: background-color .15s; } }
 </style>
 </head>
 <body>
-<main class="wrap theme-{{ p.theme | e }}">
+<main class="wrap">
 	<article class="sheet" aria-labelledby="proposal-title">
-		{%- set lh = p.letter_head %}
 		{%- if lh and lh.header %}
 		{#- in the PDF Frappe's get_pdf lifts #header-html out and repeats it on every page #}
 		<header{% if pdf %} id="header-html"{% endif %}>
-			<div class="letter-head{% if lh.header.align %} align-{{ lh.header.align | e }}{% endif %}">
+			<div class="letter-head pad{% if lh.header.align %} align-{{ lh.header.align | e }}{% endif %}">
 				{%- if lh.header.image %}<img src="{{ lh.header.image | e }}" alt="{{ (p.company or '') | e }}">
 				{%- else %}{{ lh.header.html | safe }}{% endif %}{#- sanitised in proposal_media.letter_head_part #}
 			</div>
 		</header>
-		{%- elif not lh %}
-		<header class="brand">
-			{%- if p.logo %}<img src="{{ p.logo | e }}" alt="{{ (p.company or '') | e }}">{% endif %}
-			{%- if p.company and not p.logo %}<span class="company">{{ p.company | e }}</span>{% endif %}
+		{%- else %}
+		<header class="brand pad"{% if pdf %} id="header-html"{% endif %}>
+			{%- if p.logo %}<img src="{{ p.logo | e }}" alt="{{ (p.company or '') | e }}">
+			{%- elif p.company %}<span class="company">{{ p.company | e }}</span>{% endif %}
 		</header>
 		{%- endif %}
-		<div class="cover">
-			<p class="eyebrow">{{ _("Proposal for {0}").format(p.client) | e }}</p>
-			<h1 id="proposal-title">{{ p.title | e }}</h1>
-			<dl class="meta">
-				{%- if p.valid_till %}<div><dt>{{ _("Valid till") }}</dt><dd>{{ p.valid_till | e }}</dd></div>{% endif %}
-				{%- if p.revision %}<div><dt>{{ _("Version") }}</dt><dd>{{ p.revision + 1 }}</dd></div>{% endif %}
-			</dl>
-		</div>
-		{%- if p.preview and not pdf %}
+
+		{%- if not pdf %}
+		<div class="pad">
+		{%- if p.preview %}
 		<p class="notice info preview" role="status"><strong>{{ _("Preview.") }}</strong> {{ _("This is how the client sees it. Opening it here counts no view, and it can't be accepted.") }}</p>
 		{%- endif %}
 		{%- if p.status == "Accepted" %}
@@ -167,25 +266,83 @@
 		{%- elif p.expired %}
 		<p class="notice danger" role="status"><strong>{{ _("Expired.") }}</strong> {{ _("Ask us for a new proposal.") }}</p>
 		{%- endif %}
+		</div>
+		{%- endif %}
+
+		<section class="cover pad" aria-labelledby="proposal-title">
+			{%- if p.logo and lh %}<img class="logo" src="{{ p.logo | e }}" alt="{{ (p.company or '') | e }}">{% endif %}
+			<p class="kicker">{{ (p.cover.solution or _("Proposal")) | e }}</p>
+			<h1 id="proposal-title">{{ p.title | e }}</h1>
+			<div class="rule" aria-hidden="true"></div>
+			<p class="for">{{ _("Prepared for") }}</p>
+			<p class="client">{{ p.client | e }}</p>
+			{%- if p.cover.tagline %}
+			<div class="tagline">{% for part in p.cover.tagline %}{% if part.kind == "text" %}<p>{{ part.lines | join(" ") | e }}</p>{% endif %}{% endfor %}</div>
+			{%- endif %}
+			{%- if p.cover.image %}
+			<figure><img src="{{ p.cover.image.src | e }}" alt="{{ p.cover.image.alt | e }}"></figure>
+			{%- endif %}
+			<table class="facts" role="presentation">
+				<tr>
+					<td><span class="label">{{ _("Prepared by") }}</span><span class="value">{{ (p.cover.prepared_by or p.company or "") | e }}</span></td>
+					<td><span class="label">{{ _("Date") }}</span><span class="value">{{ p.cover.date | e }}</span></td>
+					<td><span class="label">{{ _("Reference") }}</span><span class="value">{{ p.cover.reference | e }}</span></td>
+				</tr>
+				<tr>
+					<td><span class="label">{{ _("From") }}</span><span class="value">{{ (p.company or "") | e }}</span></td>
+					<td><span class="label">{{ _("Version") }}</span><span class="value">{{ p.cover.version }}</span></td>
+					<td>{% if p.valid_till %}<span class="label">{{ _("Valid till") }}</span><span class="value">{{ p.valid_till | e }}</span>{% endif %}</td>
+				</tr>
+			</table>
+		</section>
+
+		{%- if p.toc %}
+		<nav class="toc pad" aria-labelledby="toc-title">
+			<h2 id="toc-title">{{ _("Contents") }}</h2>
+			{%- for group in p.toc %}
+			{%- if group.part %}<p class="part-title">{{ group.part | e }}</p>{% endif %}
+			<ol>{% for item in group["items"] %}<li><a href="#block-{{ item.number }}"><span class="n">{{ item.number }}</span>{{ item.heading | e }}</a></li>{% endfor %}</ol>
+			{%- endfor %}
+		</nav>
+		{%- endif %}
 
 		{%- for block in p.blocks %}
-		<section class="block{% if block.type == 'Cover' %} lead-in{% endif %}" aria-labelledby="block-{{ loop.index }}">
-			<h2 id="block-{{ loop.index }}"{% if block.heading_hidden %} class="sr-only"{% endif %}>{{ block.heading | e }}</h2>
+		{%- if block.part %}
+		<div class="part pad"><p>{{ block.part | e }}</p></div>
+		{%- endif %}
+		<section class="block pad{% if block.type in ("Acceptance", "Payment Terms", "AMC", "Project Timeline") %} keep{% endif %}" id="block-{{ block.number or ('i' ~ loop.index) }}" aria-labelledby="h-{{ loop.index }}">
+			{%- set shown = block.parts | rejectattr("hidden") | list %}
+			{%- set lead = 2 if (shown and shown[0].kind == "heading") else 1 %}
+			<div class="keep">
+			<h2 id="h-{{ loop.index }}"{% if block.heading_hidden %} class="sr-only"{% endif %}>{% if block.number %}<span class="n">{{ block.number }}</span>{% endif %}{{ block.heading | e }}</h2>
 			{%- if block.image %}
-			<figure class="{{ block.image.size | e }}{% if block.type == 'Cover' %} cover-image{% endif %}">
+			<figure class="{{ block.image.size | e }}">
 				<img src="{{ block.image.src | e }}" alt="{{ block.image.alt | e }}" loading="lazy">
-				{%- if block.image.caption and block.type == "Image" %}<figcaption>{{ block.image.caption | e }}</figcaption>{% endif %}
+				{%- if block.image.caption %}<figcaption>{{ block.image.caption | e }}</figcaption>{% endif %}
 			</figure>
 			{%- endif %}
-			{%- for part in block.parts %}
-			{%- if part.kind == "list" %}
-			<ul>{% for item in part["items"] %}<li>{{ item | e }}</li>{% endfor %}</ul>
-			{%- else %}
-			<p>{% for line in part.lines %}{{ line | e }}{% if not loop.last %}<br>{% endif %}{% endfor %}</p>
+			{%- if block.timeline %}{{ timeline(block.timeline) }}
+			{%- elif block.modules %}{{ cards(block.modules[:2]) }}
+			{%- else %}{% for part in shown[:lead] %}{{ render_part(part) }}{% endfor %}{% endif %}
+			</div>
+			{%- if block.modules and block.modules | length > 2 %}{{ cards(block.modules[2:]) }}{% endif %}
+			{%- set rest = shown if (block.timeline or block.modules) else shown[lead:] %}
+			{%- for part in rest %}
+			{#- a heading opens a keep-together wrapper closed by what follows it; a heading right after
+			    another closes the earlier one first #}
+			{%- if part.kind == "heading" %}{% if loop.previtem and loop.previtem.kind == "heading" %}</div>{% endif %}<div class="keep">{{ render_part(part) }}{% if loop.last %}</div>{% endif %}
+			{%- else %}{{ render_part(part) }}{% if loop.previtem and loop.previtem.kind == "heading" %}</div>{% endif %}
 			{%- endif %}
 			{%- endfor %}
-			{%- if block.type == "Pricing" and p.pricing %}
+
+			{%- if block.type == "Investment" and p.pricing %}
 			{%- set pr = p.pricing %}
+			{%- if p.consolidated %}
+			<table>
+				<thead><tr><th scope="col">{{ _("Project") }}</th><th scope="col" class="num">{{ _("Amount") }}</th></tr></thead>
+				<tbody><tr><td>{{ p.title | e }}{% if p.included %}<span class="desc">{{ _("Includes: {0}").format(p.included | join(", ")) | e }}</span>{% endif %}</td><td class="num">{{ pr.net_total | e }}</td></tr></tbody>
+			</table>
+			{%- else %}
 			<table>
 				<thead><tr><th scope="col">{{ _("Item") }}</th><th scope="col" class="num hide-sm">{{ _("Qty") }}</th><th scope="col" class="num hide-sm">{{ _("Rate") }}</th><th scope="col" class="num">{{ _("Amount") }}</th></tr></thead>
 				<tbody>
@@ -194,25 +351,44 @@
 				{%- endfor %}
 				</tbody>
 			</table>
+			{%- endif %}
 			<table class="totals" aria-label="{{ _('Totals') }}">
-				<tr><td>{{ _("Subtotal") }}</td><td class="num">{{ pr.total | e }}</td></tr>
-				{%- if pr.discount %}<tr><td>{{ _("Discount") }}</td><td class="num">− {{ pr.discount | e }}</td></tr>{% endif %}
+				{%- if not p.consolidated %}<tr><td>{{ _("Subtotal") }}</td><td class="num">{{ pr.total | e }}</td></tr>{% endif %}
+				{%- if pr.discount and not p.consolidated %}<tr><td>{{ _("Discount") }}</td><td class="num">− {{ pr.discount | e }}</td></tr>{% endif %}
 				{%- for tax in pr.taxes %}<tr><td>{{ tax.label | e }}</td><td class="num">{{ tax.amount | e }}</td></tr>{% endfor %}
 				<tr class="grand"><td>{{ _("Total") }}</td><td class="num">{{ pr.grand_total | e }}</td></tr>
 			</table>
 			{%- if pr.in_words %}<p class="words">{{ pr.in_words | e }}</p>{% endif %}
-			{%- if pr.payment_terms %}
-			<table aria-label="{{ _('Payment schedule') }}">
-				<thead><tr><th scope="col">{{ _("Payment") }}</th><th scope="col">{{ _("Due") }}</th><th scope="col" class="num">{{ _("Amount") }}</th></tr></thead>
-				<tbody>{% for term in pr.payment_terms %}<tr><td>{{ term.label | e }}</td><td>{{ (term.due or "") | e }}</td><td class="num">{{ term.amount | e }}</td></tr>{% endfor %}</tbody>
-			</table>
 			{%- endif %}
+
+			{%- if block.type == "Acceptance" %}
+			{%- set a = p.acceptance %}
+			<p>{{ _("By signing below, both parties accept this proposal, its scope, price and terms.") }}</p>
+			<table class="sign" role="presentation">
+				<tr>
+					<td>
+						<p class="who">{{ _("For {0}").format(a.client) | e }}</p>
+						<span class="filled">{{ (a.name or "") | e }}</span><span class="line">{{ _("Authorised person") }}</span>
+						<span class="filled"></span><span class="line">{{ _("Designation") }}</span>
+						<span class="filled"></span><span class="line">{{ _("Signature") }}</span>
+						<span class="filled">{{ (a.date or "") | e }}</span><span class="line">{{ _("Date") }}</span>
+						{%- if a.accepted %}<span class="accepted">{{ _("Accepted online") }}{% if a.email %} · {{ a.email | e }}{% endif %}</span>{% endif %}
+					</td>
+					<td>
+						<p class="who">{{ _("For {0}").format(a.our_company or "") | e }}</p>
+						<span class="filled">{{ (a.our_signatory or "") | e }}</span><span class="line">{{ _("Authorised person") }}</span>
+						<span class="filled"></span><span class="line">{{ _("Designation") }}</span>
+						<span class="filled"></span><span class="line">{{ _("Signature") }}</span>
+						<span class="filled"></span><span class="line">{{ _("Date") }}</span>
+					</td>
+				</tr>
+			</table>
 			{%- endif %}
 		</section>
 		{%- endfor %}
 
 		{%- if p.can_decide and not pdf %}
-		<section class="decision" aria-labelledby="decide-title">
+		<section class="decision pad" aria-labelledby="decide-title">
 			<h2 id="decide-title">{{ _("Ready to go ahead?") }}</h2>
 			<p>{{ _("Accept the proposal and we'll start on the next steps with you.") }}</p>
 			<form id="accept-form" novalidate>
@@ -236,17 +412,20 @@
 			</details>
 		</section>
 		{%- endif %}
+
 		{%- if lh and lh.footer %}
-		<footer class="letter-head-footer{% if lh.footer.align %} align-{{ lh.footer.align | e }}{% endif %}"{% if pdf %} id="footer-html"{% endif %}>
+		<footer class="letter-head-footer pad{% if lh.footer.align %} align-{{ lh.footer.align | e }}{% endif %}"{% if pdf %} id="footer-html"{% endif %}>
 			{%- if lh.footer.image %}<img src="{{ lh.footer.image | e }}" alt="">
 			{%- else %}{{ lh.footer.html | safe }}{% endif %}{#- sanitised in proposal_media.letter_head_part #}
 		</footer>
+		{%- elif pdf %}
+		<footer class="letter-head-footer pad" id="footer-html"><span>{{ (p.company or "") | e }}</span></footer>
 		{%- endif %}
 		{%- if not pdf %}
-		<footer>
+		<div class="page-foot pad no-print">
 			<span>{{ (p.company or "") | e }}</span>
-			<a class="button no-print" href="/api/method/tbo_smart.api.proposal_page.download_pdf?token={{ p.token | e }}{% if p.preview %}&amp;preview=1{% endif %}">{{ _("Download PDF") }}</a>
-		</footer>
+			<a class="button" href="/api/method/tbo_smart.api.proposal_page.download_pdf?token={{ p.token | e }}{% if p.preview %}&amp;preview=1{% endif %}">{{ _("Download PDF") }}</a>
+		</div>
 		{%- endif %}
 	</article>
 </main>
@@ -282,6 +461,9 @@
 	wire("decline-form", "decline", ["reason"]);
 	{%- if not p.preview %}
 	post("record_view").catch(function () {});
+	{%- endif %}
+	{%- if print %}
+	window.addEventListener("load", function () { window.print(); });
 	{%- endif %}
 })();
 </script>

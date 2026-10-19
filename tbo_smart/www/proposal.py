@@ -1,7 +1,7 @@
 """The client's proposal page, /proposal/<token> (docs/proposals.md §5).
 
 Served without login: the token is the only key, and the page shows only what
-`proposals.page_context` gives it. `?preview=1` shows a draft too and records no view.
+`proposals.page_context` gives it. `?preview=1` shows a draft too and records no view; `?print=1` opens the print dialog.
 """
 
 import frappe
@@ -18,5 +18,7 @@ def get_context(context):
 		raise frappe.DoesNotExistError
 	context.proposal = proposals.page_context(doc, preview)
 	context.pdf = False
+	# the hub's Print opens the page with ?print=1: the browser's print dialog opens once it loads
+	context.print = bool(frappe.form_dict.get("print"))
 	context.csrf_token = frappe.sessions.get_csrf_token() if frappe.session.user != "Guest" else ""
 	return context

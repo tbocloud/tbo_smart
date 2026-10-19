@@ -7,3 +7,4 @@
 tbo_smart.patches.v1.setup_quotation_approval
 tbo_smart.patches.v1.set_smart_lead_defaults
 tbo_smart.patches.v1.rename_crm_deal_fields
+tbo_smart.patches.v1.proposal_master_sections

@@ -1,7 +1,7 @@
 """A proposal's images and letter head (docs/proposals.md §2.1, §2.2).
 
-Images are private Files attached to the proposal: an Image block's picture and a Cover block's
-cover image. The client's page and the hub's preview load them through the token-gated
+Images are Files attached to the proposal (an upload is private; a library image is its own
+File of the library's file): an Image block's picture, a cover image, or a section's picture. The client's page and the hub's preview load them through the token-gated
 `proposal_page.image`, which serves only a file this proposal shows; the PDF embeds them as
 data URIs, so nothing private is ever made public.
 
@@ -24,7 +24,8 @@ from tbo_smart.lead_pipeline import setting
 
 DOCTYPE = "TBO Proposal"
 LETTER_HEAD = "Letter Head"
-IMAGE_TYPES = ("Cover", "Image")
+# every section may carry an image but these two, which are the price and the signatures
+NO_IMAGE = ("Investment", "Acceptance")
 IMAGE_SIZES = ("Full", "Half")
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 MAX_ALT = 140
@@ -72,6 +73,14 @@ def upload_image(doc, filename: str | None, content: bytes) -> dict:
 	return {"file": file.name, "url": image_url(doc, file.name)}
 
 
+def decode(content: str | None) -> bytes:
+	"""An upload sent as base64."""
+	try:
+		return base64.b64decode(content or "", validate=True)
+	except ValueError:  # binascii.Error is a ValueError
+		frappe.throw(_("Send the image as base64."))
+
+
 def image_format(content: bytes) -> tuple[str, str]:
 	"""(extension, mime) of a PNG, JPEG or WebP image; anything else is refused."""
 	from PIL import Image, UnidentifiedImageError
@@ -88,11 +97,11 @@ def image_format(content: bytes) -> tuple[str, str]:
 
 
 def check_images(doc) -> None:
-	"""Only Cover and Image blocks carry an image; it is one of this proposal's own files, and
-	it has alt text."""
+	"""Any section but the Investment and the Acceptance may carry an image; it is one of this
+	proposal's own files, and it has alt text."""
 	own = set(attached_images(doc.name)) if doc.name else set()
 	for row in doc.sections:
-		if row.section_type not in IMAGE_TYPES:
+		if row.section_type in NO_IMAGE:
 			row.image = row.image_alt = row.image_caption = None
 		row.image_alt = clean(row.image_alt, MAX_ALT) or None
 		row.image_caption = clean(row.image_caption, MAX_CAPTION) or None
@@ -189,7 +198,7 @@ def data_uri(file) -> str | None:
 
 def image_payload(doc, row, pdf: bool = False) -> dict | None:
 	"""A block's image as the page shows it, or None."""
-	if not row.image or row.section_type not in IMAGE_TYPES:
+	if not row.image or row.section_type in NO_IMAGE:
 		return None
 	src = image_src(doc, row.image, pdf)
 	if not src:
