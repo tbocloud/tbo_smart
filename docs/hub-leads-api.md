@@ -1,4 +1,4 @@
-# Hub leads API (`tbo_smart.api.hub_leads`), v1.4
+# Hub leads API (`tbo_smart.api.hub_leads`), v1.5
 
 **Status:** built 2026-10-16. The TBO Support hub's lead page (tbocloud/helpdesk) shows and edits
 tboindia's leads through these methods. The leads are ERPNext's own **Lead**
@@ -41,7 +41,7 @@ curl -s -X POST https://india.teambackoffice.com/api/method/tbo_smart.api.hub_le
 
 | Method | Verb | Arguments | Returns |
 | --- | --- | --- | --- |
-| `get_options` | GET | `acting_user` | `{stages: [{name, label, type, color}], sources: [], segments: [], owners: [{email, full_name}], territories: [], industries: []}` |
+| `get_options` | GET | `acting_user` | `{stages: [{name, label, type, color}], sources: [], segments: [], owners: [{email, full_name}], territories: [], industries: [], can_call}` |
 | `list_leads` | GET | `search?`, `stage?`, `owner?`, `segment?`, `source?`, `temperature?` (Hot / Warm / Cold), `metric?` with `period?` / `from_date?` / `to_date?` (§2.4), `view` (`all` / `mine` / `call_today` / `follow_up`, default `all`), `start` (0), `page_length` (20, at most 100), `acting_user` | `{rows: [Row], total}` |
 | `get_overview` | GET | `period` (`week` / `month` / `quarter` / `custom`; default `month`, or `custom` when dates are sent), `from_date?`, `to_date?` (custom), `owner?`, `acting_user` | Overview (§2.4) |
 | `get_sales_activity` | GET | `from_date?`, `to_date?` (default this month), `acting_user?` (§2.5) | `{from_date, to_date, currency, people: [Activity]}` |
@@ -70,10 +70,13 @@ Lead = {name, lead_name, first_name, last_name, company_name, email_id, mobile_n
   whatsapp_no, job_title, website, source, territory, industry, segment, tbo_stage,
   status (ERPNext's own, read only), lead_owner, owner_name, tbo_score, tbo_temperature
   (Hot / Warm / Cold), tbo_score_reason, tbo_lost_reason, tbo_lost_notes, creation, modified,
-  next_follow_up (date | null), deal (the Opportunity once won | null), can_write}
+  next_follow_up (date | null), deal (the Opportunity once won | null), can_write,
+  can_call (the acting user may use MyOperator click-to-call)}
 
 Item = {kind: "note" | "call" | "activity" | "meeting" | "stage" | "quotation" | "ai" |
   "proposal", at, who (user | null), who_name, text, ref (the record's name)}
+  + for a call through MyOperator: {call, duration, direction, status, recording, summary}
+  (telephony-myoperator.md §4.1)
 
 Quotation = {name, docstatus, tbo_quote_status, transaction_date, valid_till, currency,
   grand_total, tbo_revision_no, tbo_is_latest}
@@ -195,7 +198,7 @@ signed in. With `acting_user` (or anyone else calling) it is that person's sales
 ```
 Activity = {user, full_name, contacted, meetings_held, moms_submitted, mom_pending,
   quotations_sent, follow_ups_done, follow_ups_on_time, follow_ups_overdue, new, won,
-  won_value, conversion}
+  won_value, conversion, calls, talk_seconds}
 ```
 
 Each counts for the **lead's owner**, follow-ups for whom they are allocated to: `contacted`
@@ -203,7 +206,9 @@ Each counts for the **lead's owner**, follow-ups for whom they are allocated to:
 cancelled), `moms_submitted` (MOM submitted in the range), `mom_pending` (now),
 `quotations_sent`, `follow_ups_done` (closed in the range) and `follow_ups_on_time` (closed by
 their day), `follow_ups_overdue` (open past their day now), `new` (created in the range), `won`
-and `won_value` (latest quotations' total), `conversion` (won of new, %).
+and `won_value` (latest quotations' total), `conversion` (won of new, %). `calls` and
+`talk_seconds` count for **the person who took the call**: answered MyOperator calls started in
+the range and their talk time (`telephony-myoperator.md` §4.2; 0 without telephony).
 
 ### 2.6 AI runs leads
 
@@ -229,6 +234,11 @@ intent}]}, high_intent, unhappy, stage_suggested, read}` for the scope (the plan
 `owner` picked, else the acting user's). `high_intent`, `unhappy` and `stage_suggested` are
 also `list_leads` metrics (open leads the AI read so, now; none while AI runs leads is off).
 
+### 2.7 Calls (MyOperator)
+
+Click-to-call, the recording player and the telephony settings are in
+`tbo_smart.api.telephony` (`telephony-myoperator.md` §4), with the same `acting_user` rule.
+
 ## 3. Links back to the hub
 
 Teams messages, emails and the morning digest link to the lead page when TBO Smart Settings →
@@ -249,6 +259,10 @@ returns to the integration user; field, owner and lost-reason rules; the follow-
 options. `tests/test_segment_rate_card.py`: the rate card methods (acting user, editors only).
 
 ## Changelog
+
+- **v1.5 (2026-10-19):** call timeline items carry MyOperator's call fields, `lead.can_call`
+  and `get_options`' `can_call`,
+  and `get_sales_activity`'s `calls` and `talk_seconds` (`telephony-myoperator.md`).
 
 - **v1.4 (2026-10-19):** `get_lead` returns `proposals` and `proposal` timeline items
   (`hub-proposals-api.md`).

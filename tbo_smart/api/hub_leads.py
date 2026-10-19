@@ -48,6 +48,7 @@ from tbo_smart.smart_leads import (
 	scoring_enabled,
 )
 from tbo_smart.smart_leads.call_today import build_call_today
+from tbo_smart.telephony.calls import call_details, can_call
 
 VIEWS = ("all", "mine", "call_today", "follow_up")
 TEMPERATURES = ("Hot", "Warm", "Cold")
@@ -188,6 +189,8 @@ def get_options(acting_user: str | None = None) -> dict:
 			"owners": [{"email": row.user, "full_name": row.full_name} for row in get_crm_users(None)],
 			"territories": frappe.get_all("Territory", pluck="name", order_by="name asc"),
 			"industries": frappe.get_all("Industry Type", pluck="name", order_by="name asc"),
+			# MyOperator click-to-call for the acting user (docs/telephony-myoperator.md)
+			"can_call": can_call(),
 		}
 
 
@@ -438,6 +441,7 @@ def lead_payload(name: str) -> dict:
 	lead.deal = lead_opportunity(name)
 	lead.next_follow_up = next_follow_ups("Lead", [name]).get(name)
 	lead.can_write = bool(frappe.has_permission("Lead", "write", name))  # a flag for the screen - nosemgrep
+	lead.can_call = can_call()
 	quotations = lead_quotations(name, QUOTATION_FIELDS)
 	proposals = lead_proposals(name) if proposals_enabled() else []
 	return {
@@ -466,13 +470,23 @@ def timeline(name: str, quotations: list, proposals: list) -> list[dict]:
 			}
 		)
 	query, Event, _participant = events_of("Lead", [name])
-	for event in query.select(
+	events = query.select(
 		Event.name, Event.event_category, Event.subject, Event.description, Event.starts_on, Event.owner
-	).run(as_dict=True):
+	).run(as_dict=True)
+	# a call through MyOperator: its length, direction, status, recording and AI summary
+	telephony = call_details([event.name for event in events if event.event_category == "Call"])
+	for event in events:
 		kind = "call" if event.event_category == "Call" else "activity"
 		text = plain_text(event.description if kind == "call" else event.subject) or plain_text(event.subject)
 		items.append(
-			{"kind": kind, "at": event.starts_on, "who": event.owner, "text": text, "ref": event.name}
+			{
+				"kind": kind,
+				"at": event.starts_on,
+				"who": event.owner,
+				"text": text,
+				"ref": event.name,
+				**telephony.get(event.name, {}),
+			}
 		)
 	for meeting in frappe.get_all(
 		MEETING,

@@ -15,6 +15,7 @@ from tbo_smart.sales.hierarchy import get_sales_team, in_hierarchy
 from tbo_smart.tbo_smart.doctype.tbo_quotation_approval_settings.tbo_quotation_approval_settings import (
 	get_settings,
 )
+from tbo_smart.telephony.calls import can_call
 
 HR_APPROVER_ROLES = {"HR Manager", "HR User"}
 CRM_ROLES = {"Sales User", "Sales Manager", "System Manager"}
@@ -73,6 +74,8 @@ def get_capabilities() -> frappe._dict:
 			"crm_scopes": allowed_crm_scopes(user, crm_scope),
 			"sales_insights": crm_manager,
 			"approve_quotations": can_approve_quotations(user),
+			# MyOperator click-to-call (docs/telephony-myoperator.md)
+			"click_to_call": crm and can_call(user),
 		}
 	)
 

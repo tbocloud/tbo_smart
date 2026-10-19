@@ -78,6 +78,7 @@ class TBOSmartSettings(Document):
 		self.validate_smart_lead_numbers()
 		self.validate_pipeline_numbers()
 		self.validate_segment_rates()
+		self.validate_telephony()
 
 	def on_update(self):
 		self.grant_finance_crm_read()
@@ -147,6 +148,23 @@ class TBOSmartSettings(Document):
 				frappe.throw(
 					_("Segment rate card: {0} is not an enabled selling price list.").format(row.price_list)
 				)
+
+	def validate_telephony(self):
+		"""One mapping row per person, each with a MyOperator user ID or a mobile to ring."""
+		seen = set()
+		for row in self.get("telephony_agents") or []:
+			if row.user in seen:
+				frappe.throw(_("MyOperator users: {0} is there twice.").format(row.user))
+			seen.add(row.user)
+			if not ((row.myoperator_user_id or "").strip() or (row.mobile or "").strip()):
+				frappe.throw(
+					_("MyOperator users: give {0} a MyOperator user ID or a mobile.").format(row.user)
+				)
+		for fieldname in ("telephony_recording_days", "call_summary_min_seconds"):
+			if cint(self.get(fieldname)) < 0:
+				frappe.throw(_("{0} can't be negative.").format(_(self.meta.get_label(fieldname))))
+		if flt(self.transcription_price_per_minute) < 0:
+			frappe.throw(_("The transcription price can't be negative."))
 
 	def forget_ai_failures(self):
 		"""A fixed key or model is tried at once, not after the 30-minute pause."""
