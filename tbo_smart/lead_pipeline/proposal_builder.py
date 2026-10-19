@@ -61,6 +61,8 @@ AI_FEATURES = (
 	"Proposal client profile",
 	"Proposal edit",
 	"Proposal module draft",
+	"BRD draft",
+	"BRD section",
 )
 
 

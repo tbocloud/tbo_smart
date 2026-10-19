@@ -28,6 +28,11 @@
   "scoping",
   "chat",
   "modules",
+  "questionnaire_section",
+  "questions",
+  "questions_token",
+  "questions_sent_on",
+  "questions_answered_on",
   "revision_section",
   "proposal_family",
   "revision_no",
@@ -75,12 +80,12 @@
    "fieldname": "document_type",
    "fieldtype": "Select",
    "label": "Document type",
-   "options": "Proposal\nQuotation\nWork Order",
+   "options": "Proposal\nQuotation\nWork Order\nBRD",
    "default": "Proposal",
    "read_only": 1,
    "in_list_view": 1,
    "in_standard_filter": 1,
-   "description": "Proposal, quotation or project agreement: each is made from the accepted one before it (docs/client-documents.md)."
+   "description": "Proposal, quotation, project agreement or BRD: each is made from the accepted one before it (docs/client-documents.md)."
   },
   {
    "fieldname": "source_document",
@@ -216,6 +221,39 @@
    "options": "TBO Proposal Module Line"
   },
   {
+   "fieldname": "questionnaire_section",
+   "fieldtype": "Section Break",
+   "label": "Client questionnaire",
+   "depends_on": "eval:doc.document_type=='BRD'"
+  },
+  {
+   "fieldname": "questions",
+   "fieldtype": "Table",
+   "label": "Questions",
+   "options": "TBO Document Question"
+  },
+  {
+   "fieldname": "questions_token",
+   "fieldtype": "Data",
+   "label": "Questionnaire link key",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "questions_sent_on",
+   "fieldtype": "Datetime",
+   "label": "Questionnaire sent on",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "questions_answered_on",
+   "fieldtype": "Datetime",
+   "label": "Last answer on",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
    "fieldname": "revision_section",
    "fieldtype": "Section Break",
    "label": "Revisions",
@@ -333,7 +371,7 @@
   }
  ],
  "links": [],
- "modified": "2026-10-20 12:00:00.000000",
+ "modified": "2026-10-21 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Proposal",

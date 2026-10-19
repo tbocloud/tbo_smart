@@ -81,6 +81,9 @@ TRACKING_FIELDS = (
 	"decided_by_email",
 	"decided_by_designation",
 	"decline_reason",
+	"questions_token",
+	"questions_sent_on",
+	"questions_answered_on",
 )
 # a new proposal's workflow fields, whatever a caller sent (Proposal.check_locked_fields)
 NEW_PROPOSAL = {
@@ -224,8 +227,11 @@ class Proposal:
 			self.name = make_autoname(f"{prefix}-.YYYY.-.#####", self.doctype)
 
 	def set_token(self):
-		"""The client's link: unguessable, and new for every revision."""
+		"""The client's link: unguessable, and new for every revision (and the questionnaire's,
+		for a document that has one)."""
 		self.public_token = frappe.generate_hash(length=32)
+		if kinds.of(self).questionnaire:
+			self.questions_token = frappe.generate_hash(length=32)
 
 	def start_family(self):
 		"""A new proposal starts its own family, revision 0, the latest."""
@@ -663,10 +669,11 @@ def rebuild_section(doc, index: int, force: bool = False) -> dict:
 			),
 		}
 	warnings = []
-	if row.section_type in kinds.of(doc).ai_sections:
-		if not ai_enabled():
-			frappe.throw(_("AI proposal drafts are not switched on."))
-		warnings = builder.write_sections(doc, [row.section_type], "Proposal section")
+	spec = kinds.of(doc)
+	if row.section_type in spec.ai_sections and ai_enabled():
+		warnings = spec.writer(doc, [row.section_type], spec.section_feature)
+	elif row.section_type in spec.ai_sections and spec.name == kinds.PROPOSAL:
+		frappe.throw(_("AI proposal drafts are not switched on."))
 	else:
 		text = kinds.build_section(doc, row.section_type)
 		if text is None:
@@ -701,7 +708,7 @@ def regenerate_all(doc, force: bool = False) -> dict:
 			if row.section_type in ai_sections and (force or not cint(row.edited))
 		]
 		try:
-			warnings = builder.write_sections(doc, written, whole=True)
+			warnings = kinds.of(doc).writer(doc, written, kinds.of(doc).draft_feature, whole=True)
 		except ai.AIProviderError as e:
 			warnings = [_("The AI couldn't write the narrative ({0}).").format(e.summary)]
 		for row in doc.sections:
@@ -849,6 +856,11 @@ def send_blockers(doc, by_email: bool = True) -> list[str]:
 	if by_email and not has_outgoing_email():
 		reasons.append(_("The ERP site has no outgoing email account yet. Ask an admin to set one up."))
 	spec = kinds.of(doc)
+	if spec.questionnaire:
+		from tbo_smart.lead_pipeline.brd import unapplied
+
+		if unapplied(doc):
+			reasons.append(_("The client sent new answers. Update the document from them first."))
 	if spec.signature and not doc.get("start_date"):
 		reasons.append(_("Set the project's start date: the timeline's dates follow from it."))
 	if spec.shows_price:
