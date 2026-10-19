@@ -1,5 +1,5 @@
-"""The client's side of a proposal (docs/proposals.md §5): what the page at /proposal/<token>
-calls. No login: the token is the only key, each call is rate limited, and every answer is the
+"""The client's side of a proposal and the documents after it (docs/proposals.md §5,
+docs/client-documents.md): what the page at /proposal/<token> calls. No login: the token is the only key, each call is rate limited, and every answer is the
 same "not found" for a token that is malformed, unknown, a draft or switched off."""
 
 import frappe
@@ -13,7 +13,7 @@ from tbo_smart.lead_pipeline import proposals
 def get_public(token: str, preview: bool = False):
 	doc = proposals.public_doc(token, preview)
 	if not doc:
-		frappe.throw(_("This proposal isn't available."), frappe.DoesNotExistError)
+		frappe.throw(_("This document isn't available."), frappe.DoesNotExistError)
 	return doc
 
 
@@ -30,10 +30,11 @@ def record_view(token: str) -> dict:
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])  # the token is the key - nosemgrep
 @rate_limit(limit=10, seconds=60 * 60)
-def accept(token: str, name: str, email: str) -> dict:
-	"""The client accepts, with their name and email. Accepting again changes nothing."""
+def accept(token: str, name: str, email: str, designation: str | None = None) -> dict:
+	"""The client accepts (or signs the agreement), with their name and email (and designation
+	when signing). Accepting again changes nothing."""
 	doc = get_public(token)
-	proposals.decide(doc, True, name, email)
+	proposals.decide(doc, True, name, email, designation=designation)
 	return {"status": doc.status}
 
 

@@ -1347,6 +1347,8 @@ class TestChatFeedback(ProposalTestCase):
 			if "users" in keys:
 				self.assertEqual(keys[keys.index("users") + 1], "companies", template["template_name"])
 		frappe.set_user("Administrator")
+		original = frappe.db.get_value(p.TEMPLATE, TEMPLATE, "questions")
+		self.addCleanup(frappe.db.set_value, p.TEMPLATE, TEMPLATE, "questions", original)
 		frappe.db.set_value(p.TEMPLATE, TEMPLATE, "questions", "modules\nusers\nhosting")
 		proposal_scoping_companies.execute()
 		self.assertEqual(

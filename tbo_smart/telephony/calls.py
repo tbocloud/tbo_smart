@@ -19,7 +19,7 @@ from frappe.query_builder.functions import Coalesce, Count, Sum
 from frappe.utils import add_days, cint, getdate, today
 
 from tbo_smart.lead_pipeline.statuses import OPEN_STATUSES
-from tbo_smart.sales.activities import CALL, OPEN, add_event, add_follow_up_task
+from tbo_smart.sales.activities import CALL, CANCELLED, OPEN, add_event, add_follow_up_task
 from tbo_smart.smart_leads import FOLLOW_UP_TYPE
 from tbo_smart.smart_leads.utils import normalise_phone
 from tbo_smart.telephony import (
@@ -126,12 +126,15 @@ def process_call(call: str) -> None:
 		doc.lead = started.get("lead") or find_lead(doc.customer_number)
 	if not doc.lead and doc.direction == INCOMING and cint(setting("telephony_create_leads")):
 		doc.lead = new_caller_lead(doc.customer_number, doc.agent or fallback_owner())
-	if doc.lead and not doc.event:
+	if doc.lead:
 		owner = frappe.db.get_value("Lead", doc.lead, "lead_owner")
 		with run_as(doc.agent or owner or "Administrator"):
-			doc.event = log_call_event(doc).name
-			if doc.status == MISSED and doc.direction == INCOMING:
-				call_back_task(doc.lead, owner or doc.agent or fallback_owner(), doc.customer_number)
+			if doc.event:
+				# a call.summary after call.end: the one Event and task follow the final call
+				update_call_event(doc)
+			else:
+				doc.event = log_call_event(doc).name
+			settle_call_back(doc, owner or doc.agent or fallback_owner())
 	if wants_summary(doc) and not doc.ai_status:
 		doc.ai_status = "Pending"
 	doc.save(ignore_permissions=True)
@@ -164,22 +167,64 @@ def pending_call(reference_id: str | None) -> dict:
 	return frappe.cache.get_value(REFERENCE_KEY.format(reference_id)) or {}
 
 
-def log_call_event(doc):
-	"""The call Event on the lead: "Call from …" / "Call to …" / "Missed call from …"."""
+def call_subject(doc) -> str:
+	""" "Call from …" / "Call to …" / "Missed call from …" / "Unanswered call to …"."""
 	number = doc.customer_number or _("an unknown number")
 	if doc.status != ANSWERED:
-		subject = (
+		return (
 			_("Missed call from {0}").format(number)
 			if doc.direction == INCOMING
 			else _("Unanswered call to {0}").format(number)
 		)
-	elif doc.direction == INCOMING:
-		subject = _("Call from {0} ({1})").format(number, format_duration(doc.talk_seconds or doc.duration))
-	else:
-		subject = _("Call to {0} ({1})").format(number, format_duration(doc.talk_seconds or doc.duration))
+	length = format_duration(doc.talk_seconds or doc.duration)
+	if doc.direction == INCOMING:
+		return _("Call from {0} ({1})").format(number, length)
+	return _("Call to {0} ({1})").format(number, length)
+
+
+def log_call_event(doc):
+	"""The call Event on the lead, as the session user (the agent)."""
 	# the AI summary feeds the lead's autopilot itself: no second read for this call
 	return add_event(
-		"Lead", doc.lead, CALL, subject, None, starts_on=doc.started_at, ai_read=not wants_summary(doc)
+		"Lead",
+		doc.lead,
+		CALL,
+		call_subject(doc),
+		None,
+		starts_on=doc.started_at,
+		ai_read=not wants_summary(doc),
+	)
+
+
+def update_call_event(doc) -> None:
+	"""The call's Event as the final payload has it: subject, start and the agent who took it."""
+	values = {"subject": call_subject(doc)}
+	if doc.started_at:
+		values["starts_on"] = doc.started_at
+	if doc.agent:
+		values["owner"] = doc.agent
+	frappe.db.set_value("Event", doc.event, values, update_modified=False)
+
+
+def settle_call_back(doc, owner: str | None) -> None:
+	"""A missed incoming call has its Call back task; one that turned out answered has it
+	cancelled, unless another missed call still waits on the same task."""
+	# calls on one lead settle their shared task one at a time: the lead's row is locked until
+	# this job commits, with the call's own link saved
+	frappe.db.get_value("Lead", doc.lead, "name", for_update=True)
+	missed = doc.status == MISSED and doc.direction == INCOMING
+	if missed and not doc.call_back:
+		doc.call_back = call_back_task(doc.lead, owner, doc.customer_number)
+	elif not missed and doc.call_back and not other_missed_call(doc):
+		# the task stays linked on the call, for the record; another missed call may still need it
+		if frappe.db.get_value("ToDo", doc.call_back, "status") == OPEN:
+			frappe.db.set_value("ToDo", doc.call_back, "status", CANCELLED)
+
+
+def other_missed_call(doc) -> bool:
+	"""Another missed call shares this one's Call back task (one task a person a day)."""
+	return bool(
+		frappe.db.exists(DOCTYPE, {"call_back": doc.call_back, "name": ("!=", doc.name), "status": MISSED})
 	)
 
 
@@ -188,10 +233,11 @@ def format_duration(seconds) -> str:
 	return f"{seconds // 60}m {seconds % 60:02d}s" if seconds >= 60 else f"{seconds}s"
 
 
-def call_back_task(lead: str, owner: str | None, number: str | None) -> None:
-	"""A high-priority "Call back" for today, unless one is already open for the person today."""
+def call_back_task(lead: str, owner: str | None, number: str | None) -> str | None:
+	"""A high-priority "Call back" for today, unless one is already open for the person today:
+	the task's name."""
 	if not owner:
-		return
+		return None
 	ToDo = frappe.qb.DocType("ToDo")
 	open_today = (
 		frappe.qb.from_(ToDo)
@@ -207,8 +253,8 @@ def call_back_task(lead: str, owner: str | None, number: str | None) -> None:
 		.limit(1)
 	).run()
 	if open_today:
-		return
-	add_follow_up_task(
+		return open_today[0][0]
+	return add_follow_up_task(
 		"Lead",
 		lead,
 		today(),
@@ -216,7 +262,7 @@ def call_back_task(lead: str, owner: str | None, number: str | None) -> None:
 		assigned_to=owner,
 		task_type=FOLLOW_UP_TYPE,
 		priority="High",
-	)
+	).name
 
 
 def fallback_owner() -> str | None:
