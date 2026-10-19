@@ -682,6 +682,8 @@ def overview_ai(owners: list[str] | None, user: str) -> dict:
 	scope's open leads (high intent, unhappy customers, stage moves waiting for a person)."""
 	if not ai_leads_enabled():
 		return {"enabled": False}
+	from tbo_smart.lead_pipeline.overview import AI_METRICS
+
 	Lead = frappe.qb.DocType("Lead")
 	criterion = Lead.tbo_stage.isin(OPEN_STATUSES)
 	if owners is not None:
@@ -694,9 +696,7 @@ def overview_ai(owners: list[str] | None, user: str) -> dict:
 		"enabled": True,
 		"ai_ready": ai.ai_ready(),
 		"plan": daily_plan(user),
-		"high_intent": count(Lead.tbo_ai_intent == "High"),
-		"negative": count(Lead.tbo_ai_sentiment == "Negative"),
-		"stage_suggestions": count(Lead.tbo_ai_stage.isnotnull() & (Lead.tbo_ai_stage != "")),
+		**{metric: count(rule(Lead)) for metric, rule in AI_METRICS.items()},
 		"read": count(Lead.tbo_ai_insight_at.isnotnull()),
 	}
 

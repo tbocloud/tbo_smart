@@ -192,7 +192,10 @@ class TestAILeads(FrappeTestCase):
 		set_lead_values(hot, tbo_temperature="Hot", tbo_score=80)
 		frappe.set_user(HUB)
 		result = hub.get_overview(acting_user=BDE)["ai"]
-		self.assertEqual((result["high_intent"], result["stage_suggestions"]), (1, 1))
+		self.assertEqual((result["high_intent"], result["stage_suggested"], result["unhappy"]), (1, 1, 0))
+		# each count opens its leads
+		listed = hub.list_leads(metric="stage_suggested", acting_user=BDE)["rows"]
+		self.assertEqual([row["name"] for row in listed], [self.lead])
 		plan = {row["name"]: row for row in result["plan"]["rows"]}
 		self.assertEqual(set(plan), {self.lead, hot})
 		self.assertEqual(plan[self.lead]["next_action"], "Call to fix the demo")

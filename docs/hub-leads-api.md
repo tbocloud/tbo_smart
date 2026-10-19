@@ -219,8 +219,9 @@ LeadAI = {enabled, ai_ready, open, at (last read | null), stale (the lead change
 
 `get_overview` adds `ai`: `{enabled: false}`, or `{enabled, ai_ready, plan: {user, rows:
 [{name, lead_name, company_name, tbo_stage, score, temperature, why, next_action, next_due,
-intent}]}, high_intent, negative, stage_suggestions, read}` for the scope (the plan is the
-`owner` picked, else the acting user's).
+intent}]}, high_intent, unhappy, stage_suggested, read}` for the scope (the plan is the
+`owner` picked, else the acting user's). `high_intent`, `unhappy` and `stage_suggested` are
+also `list_leads` metrics (open leads the AI read so, now).
 
 ## 3. Links back to the hub
 
