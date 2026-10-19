@@ -124,6 +124,7 @@
   "column_break_client_documents",
   "enable_work_orders",
   "enable_brds",
+  "enable_srs",
   "telephony_section",
   "enable_telephony",
   "myoperator_company_id",
@@ -939,6 +940,14 @@
    "description": "After a signed agreement: the business requirements, drafted by the AI from what the client told us (never invented: gaps become questions), with a questionnaire link the client answers."
   },
   {
+   "fieldname": "enable_srs",
+   "fieldtype": "Check",
+   "label": "SRS (functional specifications)",
+   "default": "0",
+   "depends_on": "eval:doc.enable_brds",
+   "description": "After an approved BRD: the functional specification per module, with numbered requirements and their acceptance criteria, from the module library (at most one small AI call a module)."
+  },
+  {
    "fieldname": "telephony_section",
    "fieldtype": "Section Break",
    "label": "Telephony (MyOperator)",
@@ -1153,7 +1162,7 @@
  "index_web_pages_for_search": 0,
  "issingle": 1,
  "links": [],
- "modified": "2026-10-21 12:00:00.000000",
+ "modified": "2026-10-22 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Smart Settings",

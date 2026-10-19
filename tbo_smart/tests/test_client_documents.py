@@ -8,7 +8,7 @@ from frappe.utils import add_days, getdate, nowdate
 from tbo_smart.api import hub_leads
 from tbo_smart.api import hub_proposals as hub
 from tbo_smart.api import proposal_page as page
-from tbo_smart.lead_pipeline import brd
+from tbo_smart.lead_pipeline import brd, srs
 from tbo_smart.lead_pipeline import document_types as kinds
 from tbo_smart.lead_pipeline import proposals as p
 from tbo_smart.lead_pipeline import quotations as q
@@ -27,6 +27,7 @@ from tbo_smart.test_utils import (
 	enable_proposals,
 	make_accepted_proposal,
 	make_accepted_quotation_document,
+	make_approved_brd,
 	make_gst_template,
 	make_hub_document,
 	make_hub_proposal,
@@ -42,6 +43,7 @@ from tbo_smart.test_utils import (
 	set_leaf_customer_group,
 	set_segment_rates,
 	set_smart_lead_settings,
+	srs_answer,
 )
 
 HUB = "docs.hub@tbosmart.test"
@@ -192,7 +194,7 @@ class TestQuotation(ClientDocumentTestCase):
 		self.assertEqual(frappe.db.get_value(p.DOCTYPE, quote["name"], "status"), p.ACCEPTED)
 		self.assertEqual(frappe.db.get_value("Quotation", revision.name, "tbo_quote_status"), q.ACCEPTED)
 		chain = hub.get_document_chain(self.lead, acting_user=BDE)
-		self.assertEqual([step["done"] for step in chain["steps"]], [True, True, False, False])
+		self.assertEqual([step["done"] for step in chain["steps"]][:3], [True, True, False])
 		self.assertEqual(chain["next"]["document_type"], kinds.WORK_ORDER)
 
 	def test_only_from_an_accepted_proposal(self):
@@ -294,7 +296,7 @@ class TestWorkOrder(ClientDocumentTestCase):
 		self.assertIn("Signed", p.render_html(doc))
 		chain = hub.get_document_chain(self.lead, acting_user=BDE)
 		self.assertEqual(chain["steps"][2]["status_label"], "Signed")
-		self.assertEqual([step["done"] for step in chain["steps"]], [True, True, True, False])
+		self.assertEqual([step["done"] for step in chain["steps"]][:4], [True, True, True, False])
 		self.assertEqual((chain["next"]["document_type"], chain["next"]["source"]), (kinds.BRD, doc.name))
 		self.assertEqual(hub_leads.get_lead(self.lead, acting_user=BDE)["documents"], chain)
 
@@ -477,3 +479,82 @@ class TestBRD(ClientDocumentTestCase):
 			[(row["question"], row["asked_by"]) for row in doc["questionnaire"]["questions"]],
 			[("Which bank do you use?", "Presales")],
 		)
+
+
+class TestSRS(ClientDocumentTestCase):
+	def test_built_from_the_approved_brd_without_ai(self):
+		brd_name = make_approved_brd(self.lead, BDE, TEMPLATE, SERVICE)
+		spec = make_hub_document(brd_name, kinds.SRS, BDE)["proposal"]
+		self.assertTrue(spec["name"].startswith("SRS-"))
+		kinds_shown = [row["section_type"] for row in spec["sections"]]
+		modules = [row["module_name"] for row in spec["modules"]]
+		self.assertEqual(kinds_shown[:3], ["Cover", "Introduction", "User Roles"])
+		self.assertEqual(kinds_shown[-2:], ["Non-functional Requirements", "Acceptance"])
+		self.assertEqual(
+			[row["heading"] for row in spec["sections"] if row["section_type"] == srs.MODULE_SECTION], modules
+		)
+		bodies = {row["heading"]: row["body"] for row in spec["sections"]}
+		self.assertIn(brd_name, bodies["Introduction"])
+		self.assertIn("FR-ACC-01 | Keep the chart of accounts", bodies["Accounts"])
+		self.assertIn("## Validations", bodies["Accounts"])
+		self.assertIn("Accounts Manager", bodies["User Roles & Permissions"])
+		self.assertIn("Daily backups", bodies["Non-functional Requirements"])
+		found = srs.functional_requirements(frappe.get_doc(p.DOCTYPE, spec["name"]))
+		self.assertEqual(found[0]["id"], "FR-ACC-01")
+		self.assertTrue(found[0]["acceptance"])
+		self.assertEqual(len({row["id"] for row in found}), len(found))
+		# a section a module is rebuilt from the library with no AI
+		index = kinds_shown.index(srs.MODULE_SECTION)
+		with mock_ai() as post:
+			reset = hub.regenerate_section(spec["name"], index, acting_user=BDE)
+		post.assert_not_called()
+		self.assertEqual(reset["proposal"]["sections"][index]["body"], spec["sections"][index]["body"])
+
+	def test_only_from_an_approved_brd(self):
+		order = make_signed_agreement(self.lead, BDE, TEMPLATE, SERVICE)
+		brd_name = make_hub_document(order, kinds.BRD, BDE)["proposal"]["name"]
+		self.assertRaises(frappe.ValidationError, make_hub_document, brd_name, kinds.SRS, BDE)
+
+	def test_one_ai_call_a_module_the_brd_speaks_of(self):
+		brd_name = make_approved_brd(self.lead, BDE, TEMPLATE, SERVICE)
+		frappe.set_user("Administrator")
+		enable_proposals(ai=True)
+		configure_ai_providers()
+		frappe.set_user(HUB)
+		answers = [
+			srs_answer(
+				[
+					(
+						"Post GST credit notes against invoices",
+						"A credit note reduces the invoice's GST in GSTR-1",
+					)
+				]
+			),
+			*[srs_answer([]) for _i in range(20)],
+		]
+		with mock_ai(*answers) as post:
+			result = make_hub_document(brd_name, kinds.SRS, BDE)
+		spec = result["proposal"]
+		calls = [json.loads(call.kwargs["json"]["messages"][1]["content"]) for call in post.call_args_list]
+		self.assertEqual(len(calls), len({call["module"] for call in calls}), "one call a module")
+		self.assertLessEqual(len(calls), len(spec["modules"]))
+		first = calls[0]["module"]
+		body = next(row["body"] for row in spec["sections"] if row["heading"] == first)
+		self.assertIn("Post GST credit notes against invoices", body)
+		self.assertTrue(
+			frappe.db.exists("TBO AI Usage Log", {"feature": "SRS draft", "reference_name": spec["name"]})
+		)
+
+	def test_an_invented_number_is_left_out(self):
+		brd_name = make_approved_brd(self.lead, BDE, TEMPLATE, SERVICE)
+		spec = make_hub_document(brd_name, kinds.SRS, BDE)["proposal"]
+		frappe.set_user("Administrator")
+		enable_proposals(ai=True)
+		configure_ai_providers()
+		frappe.set_user(HUB)
+		index = next(i for i, row in enumerate(spec["sections"]) if row["heading"] == "Accounts")
+		with mock_ai(srs_answer([("Close payroll in 37 minutes", "Payroll closes in 37 minutes")])) as post:
+			result = hub.regenerate_section(spec["name"], index, 1, acting_user=BDE)
+		self.assertEqual(post.call_count, 1)
+		self.assertNotIn("37 minutes", result["proposal"]["sections"][index]["body"])
+		self.assertTrue(result["warnings"])

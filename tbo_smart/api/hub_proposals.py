@@ -176,7 +176,9 @@ def section_payload(doc, row) -> dict:
 		"enabled": cint(row.enabled),
 		"edited": cint(row.edited),
 		"ai": row.section_type in spec.ai_sections,
-		"rebuildable": row.section_type in spec.ai_sections or row.section_type in spec.builders,
+		"rebuildable": row.section_type in spec.ai_sections
+		or row.section_type in spec.builders
+		or row.section_type in spec.row_builders,
 		"heading": row.heading,
 		"body": row.body,
 		"image": row.image,
