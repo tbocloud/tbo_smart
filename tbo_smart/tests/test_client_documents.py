@@ -1,4 +1,5 @@
 import json
+from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -25,6 +26,7 @@ from tbo_smart.test_utils import (
 	make_hub_proposal,
 	make_lead,
 	make_outgoing_email_account,
+	make_pdf_bytes,
 	make_quotation_item,
 	make_user,
 	price_hub_proposal,
@@ -271,7 +273,9 @@ class TestWorkOrder(ClientDocumentTestCase):
 		html = p.render_html(doc)
 		self.assertIn("Sign the agreement", html)
 		self.assertIn('id="accept-designation"', html)
-		self.assertTrue(p.render_pdf(doc).startswith(b"%PDF"))
+		with patch("frappe.utils.pdf.get_pdf", return_value=make_pdf_bytes()) as get_pdf:
+			self.assertTrue(p.render_pdf(doc).startswith(b"%PDF"))
+		self.assertIn("Project Agreement / Work Order", get_pdf.call_args.args[0])
 		# signing needs the designation, and changes nothing on the quotation
 		self.assertRaises(frappe.ValidationError, accept_as_client, order["name"])
 		accept_as_client(order["name"], "Director")
