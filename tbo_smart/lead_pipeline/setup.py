@@ -264,6 +264,7 @@ def setup_lead_pipeline() -> None:
 	ensure_other_reason()
 	ensure_hub_role()
 	sync_print_format()
+	seed_proposal_templates()
 
 
 def link_lead_records() -> None:
@@ -313,6 +314,22 @@ def sync_print_format() -> None:
 			"html": html,
 		}
 	).insert(ignore_permissions=True)
+
+
+TEMPLATES_SEEDED = "tbo_proposal_templates_seeded"
+
+
+def seed_proposal_templates() -> None:
+	"""A few proposal templates, once per site (a marker in the defaults): after that they are
+	the editors' own, and a migrate never brings back one they deleted."""
+	from tbo_smart.lead_pipeline.proposal_templates import TEMPLATES
+
+	if frappe.db.get_default(TEMPLATES_SEEDED):
+		return
+	if not frappe.db.count("TBO Proposal Template"):
+		for template in TEMPLATES:
+			frappe.get_doc({"doctype": "TBO Proposal Template", **template}).insert(ignore_permissions=True)
+	frappe.db.set_default(TEMPLATES_SEEDED, 1)
 
 
 def after_migrate() -> None:

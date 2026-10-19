@@ -22,6 +22,7 @@ from tbo_smart.lead_pipeline import rate_card, require_quotations, setting
 from tbo_smart.lead_pipeline.dashboard import people, scope_owners
 from tbo_smart.lead_pipeline.meetings import DOCTYPE as MEETING
 from tbo_smart.lead_pipeline.overview import LeadOverview, SalesActivity, period_range
+from tbo_smart.lead_pipeline.proposals import lead_proposals, proposals_enabled
 from tbo_smart.lead_pipeline.quotations import lead_quotations
 from tbo_smart.lead_pipeline.setup import HUB_ROLE, SEGMENTS
 from tbo_smart.lead_pipeline.statuses import STATUS_NAMES, stage_options, status_type
@@ -438,18 +439,21 @@ def lead_payload(name: str) -> dict:
 	lead.next_follow_up = next_follow_ups("Lead", [name]).get(name)
 	lead.can_write = bool(frappe.has_permission("Lead", "write", name))  # a flag for the screen - nosemgrep
 	quotations = lead_quotations(name, QUOTATION_FIELDS)
+	proposals = lead_proposals(name) if proposals_enabled() else []
 	return {
 		"lead": lead,
-		"timeline": timeline(name, quotations),
+		"timeline": timeline(name, quotations, proposals),
 		"quotations": [{key: row.get(key) for key in QUOTATION_FIELDS} for row in quotations],
+		"proposals": proposals,
 		"allowed_stages": [stage for stage in STATUS_NAMES if stage != lead.tbo_stage]
 		if lead.can_write
 		else [],
 	}
 
 
-def timeline(name: str, quotations: list) -> list[dict]:
-	"""Notes, calls and logged activity, meetings, stage changes and quotations, newest first."""
+def timeline(name: str, quotations: list, proposals: list) -> list[dict]:
+	"""Notes, calls and logged activity, meetings, stage changes, quotations and proposals,
+	newest first."""
 	items = []
 	for note in notes_of("Lead", [name]).get(name, []):
 		items.append(
@@ -518,6 +522,16 @@ def timeline(name: str, quotations: list) -> list[dict]:
 				"who": None,
 				"text": plain_text(note.content),
 				"ref": note.name,
+			}
+		)
+	for proposal in proposals:
+		items.append(
+			{
+				"kind": "proposal",
+				"at": proposal.decided_on or proposal.last_viewed_on or proposal.sent_on or proposal.modified,
+				"who": None,
+				"text": f"{proposal.title}: {proposal.status}",
+				"ref": proposal.name,
 			}
 		)
 	names = get_full_names({item["who"] for item in items if item["who"]})

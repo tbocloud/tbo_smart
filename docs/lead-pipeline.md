@@ -1,4 +1,4 @@
-# Lead pipeline: stages, meetings, MOM and quotations on the lead (living spec, v1.4)
+# Lead pipeline: stages, meetings, MOM and quotations on the lead (living spec, v1.5)
 
 **Status:** Phases 1 to 3 built 2026-10-16: the pipeline stages, meetings and minutes of meeting
 (MOM), automatic lead stages, the deal at Closed – Won, quotations on the lead (presets,
@@ -23,6 +23,7 @@ feature updates it in the same pull request. The screens are the TBO Support hub
 | 2 | Quotations on the lead: presets, builder, status tracking, revisions, PDF (§9) | Built |
 | 3 | Pipeline dashboard (§11) | Built |
 | Sales 2 | Segment rate card: a price list and a discount band per segment (§9.8) | Built |
+| Sales 3-4 | Proposals: builder, templates, AI draft, the client's page, send, accept (`proposals.md`) | Built |
 
 ## 1. Owner's decisions (2026-10-15)
 
@@ -519,6 +520,9 @@ deal); the print format rendering.
 
 ## Changelog
 
+- **v1.5 (2026-10-19):** proposals (`proposals.md`): a proposal's quotation goes out with it,
+  its view moves the quotation to Viewed / Acknowledged, its acceptance to Accepted (the lead to
+  Closed – Won) and its decline to Rejected.
 - **v1.4 (2026-10-19):** the segment rate card (§9.8): a price list and a discount band per
   segment, the builder priced by the lead's segment, the band in the discount control, and the
   hub's rate card methods.

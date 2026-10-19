@@ -251,6 +251,7 @@ scheduler_events = {
 		"tbo_smart.finance.reconciliation.flag_unmatched_lines",
 		"tbo_smart.smart_leads.scoring.score_all",
 		"tbo_smart.lead_pipeline.quotations.expire_quotations",
+		"tbo_smart.lead_pipeline.proposals.expire_proposals",
 	],
 	"cron": {
 		# Phase 2 (receivables): digest at 08:00, reminders at 09:00, site time
@@ -276,6 +277,7 @@ permission_query_conditions = {
 	"Opportunity": "tbo_smart.sales.permissions.get_opportunity_query_conditions",
 	"TBO Finance Exception": "tbo_smart.finance.access.exception_query_conditions",
 	"TBO Lead Meeting": "tbo_smart.lead_pipeline.meetings.get_permission_query_conditions",
+	"TBO Proposal": "tbo_smart.lead_pipeline.proposals.get_permission_query_conditions",
 }
 
 has_permission = {
@@ -283,6 +285,7 @@ has_permission = {
 	"Opportunity": "tbo_smart.sales.permissions.has_opportunity_permission",
 	"TBO Finance Exception": "tbo_smart.finance.access.has_exception_permission",
 	"TBO Lead Meeting": "tbo_smart.lead_pipeline.meetings.has_permission",
+	"TBO Proposal": "tbo_smart.lead_pipeline.proposals.has_permission",
 }
 
 # doc_events = {
@@ -316,6 +319,9 @@ has_permission = {
 
 # Testing
 # -------
+
+# The client's proposal page (docs/proposals.md §5)
+website_route_rules = [{"from_route": "/proposal/<token>", "to_route": "proposal"}]
 
 before_tests = "tbo_smart.test_utils.before_tests"
 
