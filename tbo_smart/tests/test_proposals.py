@@ -325,6 +325,25 @@ class TestClientPage(ProposalTestCase):
 		for private in (lead.email_id, lead.lead_owner, "pay late", self.lead):
 			self.assertNotIn(private, html)
 
+	def test_line_descriptions_are_plain_text(self):
+		name, _token = make_sent_proposal(self.lead, BDE, TEMPLATE, SERVICE)
+		quotation = frappe.db.get_value(p.DOCTYPE, name, "quotation")
+		frappe.db.set_value(
+			"Quotation Item", {"parent": quotation}, "description", "<p>Setup&nbsp;&amp; training</p>"
+		)
+		lines = p.pricing_table(quotation)["lines"]
+		self.assertEqual(lines[0]["description"], "Setup\xa0& training")
+		frappe.db.set_value("Quotation Item", {"parent": quotation}, "description", f"<div>{SERVICE}</div>")
+		self.assertIsNone(p.pricing_table(quotation)["lines"][0]["description"])
+
+	def test_an_expired_price_cant_be_accepted(self):
+		name, token = make_sent_proposal(self.lead, BDE, TEMPLATE, SERVICE)
+		quotation = frappe.db.get_value(p.DOCTYPE, name, "quotation")
+		frappe.db.set_value("Quotation", quotation, "tbo_quote_status", q.EXPIRED)
+		self.assertRaises(frappe.ValidationError, call_as_guest, page.accept, token, "Asha", "a@b.example")
+		self.assertEqual(frappe.db.get_value(p.DOCTYPE, name, "status"), p.SENT)
+		self.assertNotEqual(frappe.db.get_value("Lead", self.lead, "tbo_stage"), CLOSED_WON)
+
 	def test_views_are_counted_and_the_first_marks_it_viewed(self):
 		name, token = make_sent_proposal(self.lead, BDE, TEMPLATE, SERVICE)
 		call_as_guest(page.record_view, token)

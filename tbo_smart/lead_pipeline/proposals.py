@@ -25,6 +25,7 @@ from tbo_smart.lead_pipeline import quotations as q
 from tbo_smart.lead_pipeline import quotations_enabled, setting
 from tbo_smart.lead_pipeline.statuses import CLOSED_WON, PROPOSAL_SENT
 from tbo_smart.lead_pipeline.transitions import advance_lead
+from tbo_smart.sales.activities import plain_text
 
 DOCTYPE = "TBO Proposal"
 TEMPLATE = "TBO Proposal Template"
@@ -157,34 +158,39 @@ def get_permission_query_conditions(user=None) -> str:
 
 
 def template_payload(name: str) -> dict:
-	doc = frappe.get_doc(TEMPLATE, name)
-	return {
-		"name": doc.name,
-		"template_name": doc.template_name,
-		"solution_type": doc.solution_type,
-		"description": doc.description,
-		"enabled": cint(doc.enabled),
-		"sections": [
-			{
-				"section_type": row.section_type,
-				"heading": row.heading,
-				"guidance": row.guidance,
-				"body": row.body,
-			}
-			for row in doc.sections
-		],
-		"packages": [row.package for row in doc.packages],
-	}
+	return templates(include_disabled=True, names=[name])[0]
 
 
-def templates(include_disabled: bool = False) -> list[dict]:
-	names = frappe.get_all(
+def templates(include_disabled: bool = False, names: list[str] | None = None) -> list[dict]:
+	"""Templates with their blocks and packages, by name, in three queries however many."""
+	filters = {} if include_disabled else {"enabled": 1}
+	if names is not None:
+		filters["name"] = ("in", names or [""])
+	parents = frappe.get_all(
 		TEMPLATE,
-		filters=None if include_disabled else {"enabled": 1},
-		pluck="name",
+		filters=filters,
+		fields=["name", "template_name", "solution_type", "description", "enabled"],
 		order_by="template_name asc",
 	)
-	return [template_payload(name) for name in names]
+	payloads = {
+		row.name: {**row, "enabled": cint(row.enabled), "sections": [], "packages": []} for row in parents
+	}
+	children = {"parent": ("in", list(payloads) or [""]), "parenttype": TEMPLATE}
+	for row in frappe.get_all(
+		"TBO Proposal Template Section",
+		filters={**children, "parentfield": "sections"},
+		fields=["parent", "section_type", "heading", "guidance", "body"],
+		order_by="idx asc",
+	):
+		payloads[row.pop("parent")]["sections"].append(row)
+	for row in frappe.get_all(
+		"TBO Proposal Template Package",
+		filters={**children, "parentfield": "packages"},
+		fields=["parent", "package"],
+		order_by="idx asc",
+	):
+		payloads[row.parent]["packages"].append(row.package)
+	return list(payloads.values())
 
 
 def save_template(values: dict) -> str:
@@ -669,6 +675,9 @@ def decide(doc, accept: bool, name: str | None, email_address: str | None, reaso
 		frappe.throw(_("This proposal can't be answered any more. Ask us for the latest one."))
 	if doc.valid_till and getdate(doc.valid_till) < getdate(today()):
 		frappe.throw(_("This proposal has expired. Ask us for a new one."))
+	if accept and doc.quotation and not quotation_with_client(doc):
+		# its price has expired or was withdrawn; accepting would win the lead without it
+		frappe.throw(_("The price in this proposal is no longer valid. Ask us for a new one."))
 	name = clean(name, MAX_HEADING)
 	email_address = clean(email_address, MAX_HEADING)
 	if accept and not (name and email_address):
@@ -824,18 +833,7 @@ def pricing_table(quotation: str) -> dict | None:
 		return frappe.utils.fmt_money(value, currency=doc.currency)
 
 	return {
-		"lines": [
-			{
-				"item": row.item_name or row.item_code,
-				"description": frappe.utils.strip_html(row.description or "").strip()
-				if (row.description or "").strip() != (row.item_name or "").strip()
-				else None,
-				"qty": frappe.utils.fmt_money(row.qty, precision=0) if row.qty == int(row.qty) else row.qty,
-				"rate": money(row.rate),
-				"amount": money(row.amount),
-			}
-			for row in doc.items
-		],
+		"lines": [pricing_line(row, money) for row in doc.items],
 		"total": money(doc.total),
 		"discount": money(doc.discount_amount) if doc.discount_amount else None,
 		"net_total": money(doc.net_total),
@@ -850,6 +848,19 @@ def pricing_table(quotation: str) -> dict | None:
 			}
 			for row in doc.get("payment_schedule") or []
 		],
+	}
+
+
+def pricing_line(row, money) -> dict:
+	"""One quotation line as the page shows it: the description as plain text, left out when it
+	only repeats the item's name."""
+	description = plain_text(row.description)
+	return {
+		"item": row.item_name or row.item_code,
+		"description": description if description and description != (row.item_name or "").strip() else None,
+		"qty": frappe.utils.fmt_money(row.qty, precision=0) if row.qty == int(row.qty) else row.qty,
+		"rate": money(row.rate),
+		"amount": money(row.amount),
 	}
 
 

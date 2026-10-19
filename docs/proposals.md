@@ -98,7 +98,8 @@ next `revision_no` in its family, a fresh validity and a **new link**; it become
 
 `website_route_rules` → `www/proposal.py`. No login; `no_cache`; `noindex`.
 
-- **Shown:** the company's name and logo, "Proposal for <client company or name>", the title, valid
+- **Shown** (line descriptions as plain text, left out when they only repeat the item's name):
+  the company's name and logo, "Proposal for <client company or name>", the title, valid
   till, version, the blocks (empty ones left out), the pricing block's quotation lines, discount,
   taxes, total, total in words and payment schedule. **Nothing else:** no emails, owners, notes,
   lead or quotation names, internal statuses. Everything is escaped.
@@ -113,7 +114,9 @@ next `revision_no` in its family, a fresh validity and a **new link**; it become
 - **Accept:** name and email required. The proposal becomes **Accepted** with who and when; its
   quotation becomes **Accepted** (`quotations.set_status`), which moves the lead to Closed – Won
   and makes its deal (`lead-pipeline.md` §6, §9.3); without a quotation the lead moves to Closed –
-  Won itself (`transitions.advance_lead`). The lead owner is told.
+  Won itself (`transitions.advance_lead`). Refused while its quotation is no longer with the
+  client (expired by the nightly job, closed, revised away): the price has gone, so it can't win
+  the lead. The lead owner is told.
 - **Decline:** an optional reason. The proposal becomes **Declined**; its quotation **Rejected**
   with the reason; the lead stays open for the salesperson to decide. The owner is told.
 - **Once decided it stays decided:** the same answer again changes nothing; the other answer is
