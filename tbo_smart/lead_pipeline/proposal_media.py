@@ -14,6 +14,7 @@ is sanitised before a guest sees it.
 import base64
 import io
 import os
+import pathlib
 
 import frappe
 from frappe import _
@@ -28,6 +29,14 @@ LETTER_HEAD = "Letter Head"
 NO_IMAGE = ("Investment", "Acceptance")
 IMAGE_SIZES = ("Full", "Half")
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
+# the PDF's page: A4 less 18 mm on each side; a letter head image spans the content width, and
+# one taller than HEADER_MAX_MM is narrowed instead, so it is never clipped
+CONTENT_WIDTH_MM = 174
+HEADER_MAX_MM = 30
+# Geist (SIL OFL, public/fonts/OFL.txt), cut to Latin with tabular figures as the default, because
+# wkhtmltopdf can't switch the tnum feature on and can't load Google Fonts at render time. Two
+# weights: its WebKit takes 500 for 400, so a Medium face would replace the Regular one.
+FONT_WEIGHTS = {400: "Regular", 600: "SemiBold"}
 MAX_ALT = 140
 MAX_CAPTION = 280
 # what an uploaded image may be, told by its bytes (never by its name); SVG is refused: it can
@@ -288,7 +297,9 @@ def letter_head_part(doc, source, image, html, align, pdf: bool) -> dict | None:
 	align = (align or "Left").lower()
 	if source == "Image":
 		src = letter_head_image_src(doc, image, pdf)
-		return {"image": src, "align": align} if src else None
+		if not src:
+			return None
+		return {"image": src, "align": align, "height": image_height(src) if pdf else None}
 	html = sanitize_html(html or "", always_sanitize=True).strip()
 	return {"html": html} if html else None
 
@@ -304,6 +315,40 @@ def letter_head_image_src(doc, file_url: str | None, pdf: bool) -> str | None:
 	if file_url.startswith("/files/"):
 		return get_url(file_url)
 	return image_url(doc, file_name) if file_name else None
+
+
+def image_height(uri: str) -> float | None:
+	"""A data-URI letter head image's height in mm at the content width, at most HEADER_MAX_MM;
+	None when the file isn't an image Pillow reads."""
+	from PIL import Image
+
+	try:
+		with Image.open(io.BytesIO(base64.b64decode(uri.partition(",")[2]))) as image:
+			width, height = image.size
+	except OSError:
+		return None
+	return round(min(CONTENT_WIDTH_MM * height / width, HEADER_MAX_MM), 1)
+
+
+def font_data(weight: int = 400) -> bytes:
+	"""A bundled Geist face (a fixed file of the app, never a name from a request)."""
+	return pathlib.Path(
+		frappe.get_app_path("tbo_smart", "public", "fonts", f"Geist-{FONT_WEIGHTS[weight]}.ttf")
+	).read_bytes()
+
+
+def font_faces(pdf: bool) -> list[dict]:
+	"""[{weight, src}] for the page's @font-face rules: the bundled files on the web page, data
+	URIs in the PDF (wkhtmltopdf runs with local file access off)."""
+	if not pdf:
+		return [
+			{"weight": weight, "src": f"/assets/tbo_smart/fonts/Geist-{name}.ttf"}
+			for weight, name in FONT_WEIGHTS.items()
+		]
+	return [
+		{"weight": weight, "src": f"data:font/ttf;base64,{base64.b64encode(font_data(weight)).decode()}"}
+		for weight in FONT_WEIGHTS
+	]
 
 
 def set_default_letter_head(name: str | None) -> None:

@@ -1,7 +1,7 @@
 import io
 import json
 import socket
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import frappe
 import requests
@@ -853,6 +853,8 @@ class TestLetterHead(ProposalTestCase):
 			self.assertEqual(frappe.local.response.content_type, "image/png")
 			pdf_header = p.page_context(frappe.get_doc(p.DOCTYPE, name), pdf=True)["letter_head"]["header"]
 			self.assertTrue(pdf_header["image"].startswith("data:image/png;base64,"))
+			# a square image at the content's width would be too tall: it is narrowed instead
+			self.assertEqual(pdf_header["height"], media.HEADER_MAX_MM)
 			# once the proposal uses another letter head, that file is no longer served
 			hub.set_default_letter_head(self.chosen, acting_user=EDITOR)
 			self.assertRaises(frappe.DoesNotExistError, call_as_guest, page.image, token, served)
@@ -1038,6 +1040,50 @@ class TestMaster(ProposalTestCase):
 		self.assertEqual(len(pages), 3)
 		self.assertNotIn("1 / 3", pages[0].extract_text())  # not on the cover
 		self.assertIn("2 / 3", pages[1].extract_text())
+		fonts = [font.get_object()["/BaseFont"] for font in pages[1]["/Resources"]["/Font"].values()]
+		self.assertIn("/Geist-Regular", fonts)  # the page's own font, embedded
+
+	def test_the_pdf_page_is_a4_with_18_mm_margins(self):
+		self.assertEqual(
+			p.pdf_page({"header": {"image": "data:", "height": 14.5}}),
+			{"header": 14.5, "top": 40.5, "bottom": 27, "cover": 227.5},
+		)
+		self.assertEqual(p.pdf_page(None)["top"], p.MARGIN_MM + p.BRAND_HEADER_MM + p.HEADER_GAP_MM)
+		options = p.pdf_options(p.pdf_page(None))
+		self.assertEqual(
+			(options["page-size"], options["margin-bottom"], options["margin-left"]), ("A4", "27mm", "0mm")
+		)
+
+	def test_the_contents_take_each_page_after_the_contents(self):
+		toc = [
+			{"part": None, "items": [{"number": 1, "heading": "Summary"}, {"number": 2, "heading": "Scope"}]}
+		]
+		texts = ["1 Summary", "Contents 1 Summary . . . 2 Scope", "1  Summary of it", "", "2\nScope"]
+		reader = MagicMock(pages=[MagicMock(**{"extract_text.return_value": text}) for text in texts])
+		with patch("pypdf.PdfReader", return_value=reader):
+			self.assertTrue(p.number_contents(toc, b""))
+		self.assertEqual([item["page"] for item in toc[0]["items"]], [3, 5])
+
+	def test_the_pdf_contents_have_page_numbers_and_dot_leaders(self):
+		doc = frappe.get_doc(p.DOCTYPE, make_hub_proposal(self.lead, BDE, TEMPLATE)["name"])
+
+		def found(toc, _pdf):
+			toc[0]["items"][0]["page"] = 3
+			return True
+
+		with (
+			patch("frappe.utils.pdf.get_pdf", return_value=make_pdf_bytes()) as get_pdf,
+			patch.object(p, "number_contents", side_effect=found),
+		):
+			self.assertTrue(p.render_pdf(doc).startswith(b"%PDF"))
+		first, second = (call.args[0] for call in get_pdf.call_args_list)
+		self.assertNotIn('<span class="pg">', first)
+		self.assertIn('<ol class="leaders">', second)
+		self.assertIn('<span class="pg">3</span>', second)
+		self.assertNotIn('href="#block-', second)  # in the PDF a link would open the web page
+		self.assertIn("data:font/ttf;base64,", second)  # the font travels inside the PDF
+		self.assertEqual(get_pdf.call_args.args[1]["margin-right"], "0mm")
+		self.assertNotIn("fonts.googleapis.com", p.render_html(doc))
 
 	def test_libraries_are_for_editors(self):
 		data = json.dumps({"library": "Assumption", "title": "The client gives VPN access."})

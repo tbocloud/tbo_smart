@@ -1,4 +1,4 @@
-# Proposals to a lead (living spec, v2.2)
+# Proposals to a lead (living spec, v2.4)
 
 **Status:** built 2026-10-19 (Phases 3 and 4 of the sales flow the owner approved on 2026-10-16;
 the Universal IT Proposal the owner set on 2026-10-19). Presales starts a proposal in the TBO
@@ -137,7 +137,9 @@ A disabled pick falls back to the next one; an unknown pick is refused. **HTML**
 footers are run through `frappe.utils.html_utils.sanitize_html` before a guest sees them; Jinja in
 them is not rendered. **Image** ones show the image: a public `/files/` image by its URL, a
 private one through the token-gated `proposal_page.image`, and in the PDF as a data URI. In the
-**PDF** the header sits at the top and the footer at the bottom of **every page**.
+**PDF** the header sits at the top of **every page**, scaled to the content's width (one taller
+than 30 mm is narrowed instead, so it is never clipped), and its footer is the footer line of
+every page but the cover (§5.1).
 
 ### 2.4 Section text
 
@@ -377,12 +379,33 @@ only for section numbers, the headings' rule, the timeline bar and the module ca
 no other colours, no gradients; nothing depends on colour alone, so it reads in grayscale. The
 colours are written out in the CSS (wkhtmltopdf's WebKit has no CSS variables).
 
-**The PDF** (`render_pdf`): A4, full bleed (the side margins are padding, so the ivory reaches the
-edges); the letter head's header and footer on every page; the cover alone on page 1 and the
-contents on page 2; each part starts a new page; a heading is kept with the first thing under it
-and tables, cards, rows and the signature block don't split; then `on_ivory` lays every page on
-an ivory sheet (wkhtmltopdf paints white below the content of the last page) and prints "n / N"
-at the bottom right of every page but the cover. The browser's print keeps the ivory
+**The PDF** (`render_pdf`), A4 on one grid:
+
+- **The page frame** (`pdf_page`, `pdf_options`): 18 mm from every edge on every page. The top
+  margin holds the letter head (18 mm + its height + 8 mm) and the bottom one the footer line
+  (18 mm + 9 mm); the sides are full bleed with 18 mm of padding, so the ivory reaches the edges.
+- **The cover** fills page 1: the kicker and the title in its upper third, then the facts grid
+  (client, prepared for — the lead's contact when the client is a company —, prepared by, date,
+  valid till, reference) and its own footer line (company, version). It has no running footer.
+- **The contents** on page 2, with dot leaders to each section's page. The PDF is rendered
+  twice: `number_contents` finds each section's page in the first render (its number and heading,
+  after the contents), and the second render prints them; the numbers move nothing. In the PDF
+  the contents carry no links (they would open the web page).
+- **Type:** one family, **Geist** (SIL OFL), shipped in `public/fonts` cut to Latin with
+  **tabular figures as the default** (wkhtmltopdf can neither load Google Fonts at render time
+  nor switch the `tnum` feature on), in Regular and SemiBold only (its WebKit takes 500 for 400,
+  so a Medium face would replace Regular). The PDF embeds them as data URIs (`font_faces`;
+  wkhtmltopdf runs with local file access off); the web page loads the same files from
+  `/assets/tbo_smart/fonts/`. Body 10.5 pt at 1.45, the title 22 pt, section headings 14.5 pt,
+  subheadings 12 pt, tables 9.5 pt; numbers right-aligned; section, subsection and contents
+  numbers in one 12 mm column.
+- **Breaks:** each part starts a new page; a heading is kept with the first thing under it;
+  cards, rows and the signature block don't split; a long table breaks between rows and repeats
+  its header.
+- **After rendering**, `on_ivory` lays every page on an ivory sheet (wkhtmltopdf paints white
+  below the content of the last page), paints over the cover's running footer, and prints
+  "n / N" in Geist (embedded) at the right end of the footer line of every other page, on the
+  same baseline as the letter head's footer on the left. The browser's print keeps the ivory
 (`print-color-adjust: exact`) and the same page breaks. Responsive on a phone (one column), dark
 mode follows the page's own ivory (the document is paper), keyboard reachable with a visible
 focus ring, 44px targets.
@@ -439,7 +462,8 @@ focus ring, 44px targets.
   their validation); the suggested timeline follows the effort; the profile is required; Share
   link (blocked until approved, no email needed, link then works); the page's numbering, parts,
   contents, cards, payment amounts, share card without prices, favicon, acceptance filled on
-  accept; the ivory PDF with page numbers; libraries for editors only; Draft with AI saves
+  accept; the ivory PDF with page numbers in Geist, its 18 mm frame, the contents' page numbers
+  and dot leaders; libraries for editors only; Draft with AI saves
   nothing; library images picked by tag and served; the website read guarded (schemes, private
   addresses, a redirect to a private address) and kept on the lead; the v1.0 patch; the assistant
   (the transcript kept, the edit call reads the state not the transcript, only valid choices
@@ -448,6 +472,11 @@ focus ring, 44px targets.
 
 ## Changelog
 
+- **v2.4 (2026-10-19):** the premium A4 PDF layout: an 18 mm frame on every page, the letter
+  head scaled to the content's width and never clipped, a designed cover with a facts grid and
+  its own footer line, the contents with dot leaders and page numbers, one bundled font (Geist
+  with tabular figures) on the PDF and the page, the type scale, and the footer line with
+  "n / N" on every page but the cover.
 - **v2.2 (2026-10-20):** users and companies can be Unlimited (and companies are asked); every
   website-read failure comes back in words; the patch `proposal_scoping_companies` normalises
   existing scoping answers.
