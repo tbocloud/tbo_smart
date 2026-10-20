@@ -20,7 +20,7 @@
 {%- endmacro -%}
 {%- macro cards(modules) -%}
 <div class="cards">
-	{%- for card in modules %}
+	{%- for card in modules -%}
 	<div class="card"><div class="in">
 		<span class="name">{{ card.name | e }}</span>{% if card.fit %}<span class="fit">{{ card.fit | e }}</span>{% endif %}
 		{%- if card.description %}<p class="about">{{ card.description | e }}</p>{% endif %}
@@ -56,10 +56,6 @@
 <meta property="og:image" content="{{ p.share.image | e }}">
 <meta property="og:url" content="{{ p.share.url | e }}">
 <meta name="twitter:card" content="summary">
-{%- if not pdf %}
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
-{%- endif %}
 {% include "tbo_smart/templates/includes/client_document_style.html" %}
 </head>
 <body>
@@ -86,30 +82,41 @@
 		</div>
 		{%- endif %}
 
+		{#- the cover: the title in its upper third, the facts at its foot, then its own footer line
+		    (in the PDF it fills the first page, which has no running footer) #}
+		{%- set facts = [
+			(_("Client"), p.client),
+			(_("Prepared for"), p.cover.contact),
+			(_("Prepared by"), p.cover.prepared_by or p.company),
+			(_("Date"), p.cover.date),
+			(_("Valid till"), p.valid_till),
+			(_("Reference"), p.cover.reference),
+		] | selectattr(1) | list %}
 		<section class="cover pad" aria-labelledby="proposal-title">
-			{%- if p.logo and lh %}<img class="logo" src="{{ p.logo | e }}" alt="{{ (p.company or '') | e }}">{% endif %}
-			<p class="kicker">{{ (p.cover.solution or w.kicker) | e }}</p>
-			<h1 id="proposal-title">{{ p.title | e }}</h1>
-			<div class="rule" aria-hidden="true"></div>
-			<p class="for">{{ _("Prepared for") }}</p>
-			<p class="client">{{ p.client | e }}</p>
-			{%- if p.cover.tagline %}
-			<div class="tagline">{% for part in p.cover.tagline %}{% if part.kind == "text" %}<p>{{ part.lines | join(" ") | e }}</p>{% endif %}{% endfor %}</div>
-			{%- endif %}
-			{%- if p.cover.image %}
-			<figure><img src="{{ p.cover.image.src | e }}" alt="{{ p.cover.image.alt | e }}"></figure>
-			{%- endif %}
-			<table class="facts" role="presentation">
-				<tr>
-					<td><span class="label">{{ _("Prepared by") }}</span><span class="value">{{ (p.cover.prepared_by or p.company or "") | e }}</span></td>
-					<td><span class="label">{{ _("Date") }}</span><span class="value">{{ p.cover.date | e }}</span></td>
-					<td><span class="label">{{ _("Reference") }}</span><span class="value">{{ p.cover.reference | e }}</span></td>
-				</tr>
-				<tr>
-					<td><span class="label">{{ _("From") }}</span><span class="value">{{ (p.company or "") | e }}</span></td>
-					<td><span class="label">{{ _("Version") }}</span><span class="value">{{ p.cover.version }}</span></td>
-					<td>{% if p.valid_till %}<span class="label">{{ _("Valid till") }}</span><span class="value">{{ p.valid_till | e }}</span>{% endif %}</td>
-				</tr>
+			<table class="cover-grid" role="presentation"{% if pdf %} style="height: {{ p.page.cover }}mm"{% endif %}>
+				<tr><td class="top">
+					{%- if p.logo and lh %}<img class="logo" src="{{ p.logo | e }}" alt="{{ (p.company or '') | e }}">{% endif %}
+					<p class="kicker">{{ (p.cover.solution or w.kicker) | e }}</p>
+					<h1 id="proposal-title">{{ p.title | e }}</h1>
+					<div class="rule" aria-hidden="true"></div>
+					{%- if p.cover.tagline %}
+					<div class="tagline">{% for part in p.cover.tagline %}{% if part.kind == "text" %}<p>{{ part.lines | join(" ") | e }}</p>{% endif %}{% endfor %}</div>
+					{%- endif %}
+					{%- if p.cover.image %}
+					<figure><img src="{{ p.cover.image.src | e }}" alt="{{ p.cover.image.alt | e }}"></figure>
+					{%- endif %}
+				</td></tr>
+				<tr><td class="bottom">
+					<table class="facts" role="presentation">
+						{%- for row in facts | batch(3) %}
+						<tr>{% for label, value in row %}<td><span class="label">{{ label }}</span><span class="value">{{ value | e }}</span></td>{% endfor %}{% for _n in range(3 - row | length) %}<td></td>{% endfor %}</tr>
+						{%- endfor %}
+					</table>
+					<table class="cover-foot" role="presentation"><tr>
+						<td>{{ (p.company or "") | e }}</td>
+						<td class="num">{{ _("Version {0}").format(p.cover.version) }}</td>
+					</tr></table>
+				</td></tr>
 			</table>
 		</section>
 
@@ -118,7 +125,12 @@
 			<h2 id="toc-title">{{ _("Contents") }}</h2>
 			{%- for group in p.toc %}
 			{%- if group.part %}<p class="part-title">{{ group.part | e }}</p>{% endif %}
+			{%- if pdf %}
+			{#- dot leaders to the page number (proposals.number_contents); the links would point at the web page #}
+			<ol class="leaders">{% for item in group["items"] %}<li><span class="t"><span class="n">{{ item.number }}</span>{{ item.heading | e }}</span>{% if item.page %}<span class="pg">{{ item.page }}</span>{% endif %}</li>{% endfor %}</ol>
+			{%- else %}
 			<ol>{% for item in group["items"] %}<li><a href="#block-{{ item.number }}"><span class="n">{{ item.number }}</span>{{ item.heading | e }}</a></li>{% endfor %}</ol>
+			{%- endif %}
 			{%- endfor %}
 		</nav>
 		{%- endif %}
@@ -233,13 +245,19 @@
 		</section>
 		{%- endif %}
 
-		{%- if lh and lh.footer %}
-		<footer class="letter-head-footer pad{% if lh.footer.align %} align-{{ lh.footer.align | e }}{% endif %}"{% if pdf %} id="footer-html"{% endif %}>
-			{%- if lh.footer.image %}<img src="{{ lh.footer.image | e }}" alt="">
-			{%- else %}{{ lh.footer.html | safe }}{% endif %}{#- sanitised in proposal_media.letter_head_part #}
+		{%- set foot = lh.footer if lh else None %}
+		{%- macro foot_part() -%}
+		{%- if foot.image %}<img src="{{ foot.image | e }}" alt="">
+		{%- else %}{{ foot.html | safe }}{% endif %}{#- sanitised in proposal_media.letter_head_part #}
+		{%- endmacro %}
+		{%- if pdf %}
+		{#- the footer line on every page: the letter head's footer (or the company) on the left, and
+		    room on the right for "n / N", drawn after (proposals.on_ivory) #}
+		<footer id="footer-html">
+			<div class="letter-head-footer running-foot"><div class="in">{% if foot %}{{ foot_part() }}{% else %}{{ (p.company or "") | e }}{% endif %}</div></div>
 		</footer>
-		{%- elif pdf %}
-		<footer class="letter-head-footer pad" id="footer-html"><span>{{ (p.company or "") | e }}</span></footer>
+		{%- elif foot %}
+		<footer class="letter-head-footer pad{% if foot.align %} align-{{ foot.align | e }}{% endif %}">{{ foot_part() }}</footer>
 		{%- endif %}
 		{%- if not pdf %}
 		<div class="page-foot pad no-print">

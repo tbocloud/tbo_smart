@@ -16,6 +16,7 @@ from tbo_smart.smart_leads import notes
 from tbo_smart.telephony.calls import new_caller_lead
 from tbo_smart.test_utils import (
 	delete_owner_lead_records,
+	disable_lead_quotations,
 	disable_proposals,
 	enable_proposals,
 	lead_source_required,
@@ -48,6 +49,8 @@ class TestLeadSystemSaves(FrappeTestCase):
 		frappe.set_user("Administrator")
 		delete_owner_lead_records(OWNERS)
 		disable_proposals()
+		# enable_proposals switched the pipeline and quotations on too: later modules expect them off
+		disable_lead_quotations()
 		frappe.db.commit()  # nosemgrep
 		super().tearDownClass()
 

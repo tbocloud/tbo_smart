@@ -1,15 +1,25 @@
 {#- the letter head's header, else the company's logo (docs/proposals.md §2.3); needs lh, p, pdf #}
-		{%- if lh and lh.header %}
-		{#- in the PDF Frappe's get_pdf lifts #header-html out and repeats it on every page #}
-		<header{% if pdf %} id="header-html"{% endif %}>
-			<div class="letter-head pad{% if lh.header.align %} align-{{ lh.header.align | e }}{% endif %}">
-				{%- if lh.header.image %}<img src="{{ lh.header.image | e }}" alt="{{ (p.company or '') | e }}">
-				{%- else %}{{ lh.header.html | safe }}{% endif %}{#- sanitised in proposal_media.letter_head_part #}
+		{%- set head = lh.header if lh else None %}
+		{%- macro brand() -%}
+		{%- if p.logo %}<img src="{{ p.logo | e }}" alt="{{ (p.company or '') | e }}"{% if pdf %} style="height: {{ p.page.header }}mm"{% endif %}>
+		{%- elif p.company %}<span class="company">{{ p.company | e }}</span>{% endif %}
+		{%- endmacro %}
+		{%- macro head_part() -%}
+		{%- if head.image %}<img src="{{ head.image | e }}" alt="{{ (p.company or '') | e }}"{% if pdf %} style="height: {{ p.page.header }}mm"{% endif %}>
+		{%- else %}{{ head.html | safe }}{% endif %}{#- sanitised in proposal_media.letter_head_part #}
+		{%- endmacro %}
+		{%- if pdf %}
+		{#- Frappe's get_pdf lifts #header-html out and repeats what is inside it on every page, in the
+		    top margin (proposals.pdf_page): 18 mm from the edges, at the content's width #}
+		<header id="header-html">
+			<div class="letter-head running-head{% if head and head.align %} align-{{ head.align | e }}{% endif %}">
+				<div class="in" style="height: {{ p.page.header }}mm">{% if head %}{{ head_part() }}{% else %}{{ brand() }}{% endif %}</div>
 			</div>
 		</header>
-		{%- else %}
-		<header class="brand pad"{% if pdf %} id="header-html"{% endif %}>
-			{%- if p.logo %}<img src="{{ p.logo | e }}" alt="{{ (p.company or '') | e }}">
-			{%- elif p.company %}<span class="company">{{ p.company | e }}</span>{% endif %}
+		{%- elif head %}
+		<header>
+			<div class="letter-head pad{% if head.align %} align-{{ head.align | e }}{% endif %}">{{ head_part() }}</div>
 		</header>
+		{%- else %}
+		<header class="brand pad">{{ brand() }}</header>
 		{%- endif %}
