@@ -50,6 +50,11 @@ def document_enabled(name: str) -> bool:
 
 
 def require_document(name: str) -> None:
+	if name == kinds.QUOTATION and kinds.proposal_is_quotation():
+		frappe.throw(
+			_("The proposal is the quotation: make the project agreement from the accepted proposal."),
+			frappe.ValidationError,
+		)
 	if not document_enabled(name):
 		frappe.throw(
 			_("{0} isn't switched on in TBO Smart Settings.").format(kinds.label(name)),

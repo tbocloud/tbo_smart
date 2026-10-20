@@ -407,7 +407,8 @@ class TestProposalIsQuotation(ClientDocumentTestCase):
 		quotation = frappe.db.get_value(p.DOCTYPE, proposal, "quotation")
 		self.assertEqual(frappe.db.get_value("Quotation", quotation, "tbo_quote_status"), q.ACCEPTED)
 		# no quotation document: the agreement is next, made from the proposal
-		self.assertRaises(frappe.ValidationError, make_hub_document, proposal, kinds.QUOTATION, BDE)
+		with self.assertRaisesRegex(frappe.ValidationError, "The proposal is the quotation"):
+			make_hub_document(proposal, kinds.QUOTATION, BDE)
 		chain = hub.get_document_chain(self.lead, acting_user=BDE)
 		self.assertEqual(
 			(chain["next"]["action"], chain["next"]["document_type"], chain["next"]["source"]),

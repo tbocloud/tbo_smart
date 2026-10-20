@@ -62,7 +62,8 @@ documents → **The proposal is the quotation** (Check, default on; the patch
 - **Accepting the proposal** accepts its Quotation and moves the lead to Closed – Won, as
   before; the Sales Order is made from that accepted quotation as before.
 - **The Quotation type is off** whatever `enable_quotation_documents` says (`document_enabled`):
-  hidden from the options and the chain, `create_document` refuses it (417). The **Project
+  hidden from the options and the chain, `create_document` refuses it (417 "The proposal is the
+  quotation: make the project agreement from the accepted proposal."). The **Project
   Agreement is made from the accepted proposal** (`document_types.made_from`), showing that
   proposal's quotation's lines and taxes read only; its Price section reads "The price is the one
   in the proposal PROP-… the Client accepted."; Send needs that quotation still Accepted ("Revise
@@ -78,6 +79,11 @@ documents → **The proposal is the quotation** (Check, default on; the patch
 
 Off: everything as below (the Quotation document after the proposal, the agreement from the
 accepted quotation), unchanged.
+
+Switching it on mid-way: a lead whose Quotation document is already made keeps it, but the chain
+no longer shows it and the agreement is made from the accepted proposal with **the proposal's**
+price. For such a lead, make the agreement before switching on, or revise the proposal to the
+agreed price first.
 
 `document_type` and `source_document` ("Made from") are set only when a document is made
 (`client_documents.create_document`); the controller resets them on any other insert (before
