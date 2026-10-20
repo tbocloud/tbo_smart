@@ -1,4 +1,4 @@
-# Hub proposals API (`tbo_smart.api.hub_proposals`), v2.6
+# Hub proposals API (`tbo_smart.api.hub_proposals`), v2.7
 
 **Status:** built 2026-10-19. The TBO Support hub's proposal builder (tbocloud/helpdesk
 `docs/proposals.md`) calls these. What proposals are and do: `proposals.md`; the documents after
@@ -32,6 +32,7 @@ otherwise) and count against the day's limit (417 "Today's AI proposal runs are 
 | `get_document_chain` | GET | `lead`, `acting_user` | `Chain` |
 | `get_project_plan` | GET | `name` (an approved plan), `acting_user` | `{plan, lead, client, project_name, solution_type, start, end, hub_project, phases: [{phase, start, end, tasks: [{subject, start, end, milestone}]}]}` (417 while not approved or undated) |
 | `link_project` | POST | `name`, `project`, `url?`, `acting_user` | `Chain` (the plan's project, once; another name is 417) |
+| `get_uat_cases` | GET | `name` (an approved plan), `acting_user` | `{srs, cases: [{fr, module, title, steps, expected}]}` (each FR of the approved SRS) |
 | `record_uat` | POST | `name`, `status`, `signed_by?`, `acting_user` | `Chain` (Signed sets who and when, and the warranty's start the day after) |
 | `save_questions` | POST | `name` (a draft BRD), `questions` (JSON `[{section_type, question}]`), `acting_user` | `Proposal` (answered questions kept) |
 | `share_questionnaire` | POST | `name`, `acting_user` | `{proposal, url}`: the client's `/questions/<token>` link |
@@ -186,6 +187,7 @@ user with `acting_user`.
 
 ## Changelog
 
+- **v2.7 (2026-10-20):** `get_uat_cases`.
 - **v2.6 (2026-10-20):** the plan: `get_project_plan`, `link_project`, `record_uat`, the chain's
   Project and UAT steps, `dated` and `delivery` on `Proposal`.
 - **v2.5 (2026-10-20):** the SRS: `create_document` makes one; the module's SRS fields in the

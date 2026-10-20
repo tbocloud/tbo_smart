@@ -384,6 +384,23 @@ def record_uat(name: str, status: str, signed_by: str | None = None, acting_user
 		return documents.chain(doc.lead)
 
 
+@frappe.whitelist()
+def get_uat_cases(name: str, acting_user: str | None = None) -> dict:
+	"""The UAT test cases for an approved plan's project, from its approved SRS: {srs, cases:
+	[{fr, module, title, steps, expected}]}."""
+	from tbo_smart.lead_pipeline import srs
+
+	with acting_as(acting_user):
+		doc = get_plan_doc(name)
+		found = next((row.name for row in kinds.lineage(doc) if row.document_type == kinds.SRS), None)
+		if not found:
+			frappe.throw(_("The plan has no SRS to test against."))
+		spec = frappe.get_doc(p.DOCTYPE, found)
+		if spec.status != p.ACCEPTED:
+			frappe.throw(_("Test against an approved SRS: {0} isn't approved yet.").format(spec.name))
+		return {"srs": spec.name, "cases": srs.uat_cases(spec)}
+
+
 def get_plan_doc(name: str):
 	doc = get_doc(name, "write")
 	if kinds.of(doc).name != kinds.PLAN:

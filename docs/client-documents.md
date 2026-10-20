@@ -1,17 +1,15 @@
-# Client documents after the proposal (living spec, v1.3)
+# Client documents after the proposal (living spec, v1.4)
 
-**Status:** built 2026-10-19 (the owner's sales-to-delivery chain of 2026-10-19), steps 1 to 4
-of 5: the **Quotation**, the **Project Agreement / Work Order**, the **BRD** with its client
-questionnaire, the **SRS** and the **Implementation Plan** with the hub's project. The ERP site
-already records the UAT sign-off (`record_uat`, the chain's UAT step); the hub's UAT sign-off and
-its test cases follow in their own pull requests. The proposal itself
-is `proposals.md`; the hub's
+**Status:** built 2026-10-19 (the owner's sales-to-delivery chain of 2026-10-19), all 5 steps:
+the **Quotation**, the **Project Agreement / Work Order**, the **BRD** with its client
+questionnaire, the **SRS**, the **Implementation Plan** with the hub's project, and the **UAT
+sign-off** on that project. The proposal itself is `proposals.md`; the hub's
 contract is `hub-proposals-api.md`; the hub's side is tbocloud/helpdesk `docs/proposals.md`
 §Documents.
 
 The chain, one document after the next, each made from the accepted one before it:
 
-**Proposal → Quotation → Project Agreement (Work Order) → BRD → SRS → Plan → Project** → (UAT)
+**Proposal → Quotation → Project Agreement (Work Order) → BRD → SRS → Plan → Project → UAT**
 
 - **Code:** `lead_pipeline/document_types.py` (the types: sections, headings, builders, words),
   `lead_pipeline/brd.py` (the BRD's sections, its AI call and the questionnaire),
@@ -253,7 +251,22 @@ Signed (Reopened) withdraws the signature and the warranty date.
 A timeline template may name its phases its own way: the modules' work goes to the standard
 phase of its subsection by name, else to the phase at the same position.
 
-## 8. The chain on the lead (`client_documents.chain`)
+## 8. The UAT sign-off
+
+The client's acceptance tests, on the hub's **existing project sign-off** (tbocloud/helpdesk
+`docs/project-signoff.md`, UAT), extended rather than duplicated: the token link with the email
+code, the answers, the issues as tasks, the signature, the signed PDF on the project. What the
+ERP site gives it:
+
+- `get_uat_cases(name)` (the approved plan): from the plan's **approved SRS**,
+  `srs.uat_cases`: **each FR becomes a test case**: `{fr, module, title ("FR-ACC-01: <the
+  requirement>"), steps ("1. Sign in as a user who works in <module>. 2. <the requirement>.
+  3. Check the result against the expected result."), expected (its acceptance criterion)}`. 417
+  while the SRS isn't approved.
+- `record_uat(name, status, signed_by)` (§7): the hub records Signed (or Reopened); Signed starts
+  the warranty the day after, shown on the plan and in the chain's UAT step.
+
+## 9. The chain on the lead (`client_documents.chain`)
 
 `hub_leads.get_lead` returns `documents` (and `hub_proposals.get_document_chain(lead)` the same):
 
@@ -270,7 +283,7 @@ link) and the **UAT** sign-off (done once Signed). The next actions add `create_
 (`source` the approved plan) and `uat` (`name` the hub project). `next` is the one primary action: the first step in progress (open it),
 else make the next document from the accepted one, else none (the chain is done).
 
-## 9. What the client sees
+## 10. What the client sees
 
 The same page and PDF (`proposals.md` §5) with the type's own words (`document_types.words`):
 the cover's kicker (Quotation, Project Agreement / Work Order), the decision panel (Accept
@@ -279,7 +292,7 @@ Changes asked for), the acceptance sentence, the share card ("Agreement with <cl
 <company>"), the email's subject, greeting and link. Nothing else changes: no emails, owners,
 notes or internal names; the token is the only key; preview, print and PDF as for a proposal.
 
-## 10. What the owner sets up
+## 11. What the owner sets up
 
 1. Deploy and `bench migrate` (the fields, the section types, the Agreement Clause library).
 2. TBO Smart Settings → **Client documents after the proposal**: **Quotations**, then **Project
@@ -292,7 +305,7 @@ notes or internal names; the token is the only key; preview, print and PDF as fo
    proposals → library, or the desk).
 5. The company's **address and GSTIN** on the Company (the agreement's Parties).
 
-## 11. Tests
+## 12. Tests
 
 `tbo_smart/tests/test_client_documents.py` (helpers `enable_client_documents`,
 `make_accepted_proposal`, `accept_as_client`, `make_hub_document` in `test_utils.py`): each type
@@ -318,10 +331,12 @@ after the library's, usage logged; an invented number left out); the plan (dated
 agreement's start, milestones, deliverables by phase, the RACI, the client's dated part; no
 project from a draft; approved: the project plan with its phases, tasks and milestones, linked
 once, the chain's Project and UAT steps and their actions, the UAT recorded with the warranty's
-start).
+start); the UAT's test cases (a case an FR of the approved SRS, its steps and expected result;
+refused for anything but a plan).
 
 ## Changelog
 
+- **v1.4 (2026-10-19):** the UAT test cases from the SRS for the hub's sign-off.
 - **v1.3 (2026-10-19):** the Project Implementation Plan and the hub's project from it.
 - **v1.2 (2026-10-19):** the SRS: a section a module, numbered FRs and their acceptance criteria
   from the module library, at most one AI call a module group.
