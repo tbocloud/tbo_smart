@@ -120,6 +120,7 @@ QUOTATION_FIELDS = [
 	"grand_total",
 	"tbo_revision_no",
 	"tbo_is_latest",
+	"tbo_proposal",
 ]
 
 
@@ -448,7 +449,14 @@ def lead_payload(name: str) -> dict:
 	return {
 		"lead": lead,
 		"timeline": timeline(name, quotations, proposals),
-		"quotations": [{key: row.get(key) for key in QUOTATION_FIELDS} for row in quotations],
+		# staff only: the internal ERPNext Quotation, its desk link and the proposal it prices
+		"quotations": [
+			{
+				**{key: row.get(key) for key in QUOTATION_FIELDS},
+				"url": frappe.utils.get_url_to_form("Quotation", row.name),
+			}
+			for row in quotations
+		],
 		"proposals": proposals,
 		"documents": document_chain(name) if proposals_enabled() else None,
 		"allowed_stages": [stage for stage in STATUS_NAMES if stage != lead.tbo_stage]

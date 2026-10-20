@@ -10,7 +10,7 @@ Settings → Proposals.
 import frappe
 from frappe import _
 from frappe.rate_limiter import rate_limit
-from frappe.utils import cint
+from frappe.utils import cint, flt
 
 from tbo_smart.api import lead_quotation
 from tbo_smart.api.hub_leads import acting_as
@@ -64,6 +64,10 @@ def payload(doc) -> dict:
 		qdoc = frappe.get_doc("Quotation", doc.quotation)
 		quotation = {
 			**lead_quotation.serialize(qdoc),
+			# staff only: the internal ERPNext Quotation on the desk (the client sees the proposal)
+			"desk_url": frappe.utils.get_url_to_form("Quotation", qdoc.name),
+			# each tax line as the client's page shows it ("GST 18%")
+			"taxes": [{"label": row.description, "amount": flt(row.tax_amount)} for row in qdoc.taxes],
 			"needs_approval": [
 				{"kind": kind, "percent": percent, "limit": limit}
 				for kind, percent, limit in (
@@ -242,6 +246,7 @@ def get_proposal_options(acting_user: str | None = None) -> dict:
 			"default_letter_head": media.default_letter_head(),
 			"proposal_letter_head": p.setting("proposal_letter_head"),
 			"document_types": [document_type_payload(spec) for spec in documents.enabled_types()],
+			"proposal_is_quotation": kinds.proposal_is_quotation(),
 		}
 
 
@@ -251,7 +256,7 @@ def document_type_payload(spec) -> dict:
 		"name": spec.name,
 		"label": kinds.label(spec.name),
 		"accepted_label": kinds.accepted_label(spec.name),
-		"follows": spec.follows,
+		"follows": kinds.made_from(spec),
 		"section_types": list(spec.section_types),
 		"default_headings": spec.headings,
 		"ai_sections": list(spec.ai_sections),

@@ -2,10 +2,11 @@ import json
 from unittest.mock import patch
 
 import frappe
+from erpnext.selling.doctype.sales_order.sales_order import make_sales_invoice
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, getdate, nowdate
 
-from tbo_smart.api import hub_leads
+from tbo_smart.api import hub_leads, lead_quotation
 from tbo_smart.api import hub_proposals as hub
 from tbo_smart.api import proposal_page as page
 from tbo_smart.lead_pipeline import brd, srs
@@ -29,6 +30,7 @@ from tbo_smart.test_utils import (
 	make_accepted_quotation_document,
 	make_approved_brd,
 	make_approved_document,
+	make_customised_proposal,
 	make_gst_template,
 	make_hub_document,
 	make_hub_proposal,
@@ -52,6 +54,8 @@ HUB = "docs.hub@tbosmart.test"
 BDE = "docs.bde@tbosmart.test"
 OWNERS = (BDE,)
 SERVICE = "TBO Smart Document Implementation"
+# the customisation days' service item in ERPNext's Day, which takes fractions (Nos doesn't)
+DAY_SERVICE = "TBO Smart Document Day"
 TEMPLATE = "ERPNext Implementation"
 
 
@@ -64,6 +68,7 @@ class ClientDocumentTestCase(FrappeTestCase):
 		make_user(BDE, ["Sales User", "Business Development Executive"])
 		set_leaf_customer_group()
 		make_quotation_item(SERVICE)
+		make_quotation_item(DAY_SERVICE, uom="Day")
 		make_outgoing_email_account()
 		cls.gst = make_gst_template(18, is_default=True)
 		frappe.db.commit()  # nosemgrep
@@ -325,6 +330,178 @@ class TestWorkOrder(ClientDocumentTestCase):
 			(revision["document_type"], revision["source_document"], revision["revision_no"]),
 			(kinds.WORK_ORDER, quote["name"], 1),
 		)
+
+
+class TestProposalIsQuotation(ClientDocumentTestCase):
+	"""TBO Smart Settings → The proposal is the quotation (docs/client-documents.md §1)."""
+
+	def setUp(self):
+		super().setUp()
+		frappe.set_user("Administrator")
+		enable_client_documents(proposal_is_quotation=True)
+		set_smart_lead_settings(proposal_service_item=SERVICE, proposal_day_rate=10000)
+		frappe.set_user(HUB)
+
+	def test_the_chain_skips_the_quotation(self):
+		options = hub.get_proposal_options(acting_user=BDE)
+		self.assertTrue(options["proposal_is_quotation"])
+		types = {row["name"]: row for row in options["document_types"]}
+		self.assertEqual(list(types), [kinds.PROPOSAL, kinds.WORK_ORDER, kinds.BRD, kinds.SRS, kinds.PLAN])
+		self.assertEqual(types[kinds.WORK_ORDER]["follows"], kinds.PROPOSAL)
+		chain = hub.get_document_chain(self.lead, acting_user=BDE)
+		self.assertEqual(
+			[step["document_type"] for step in chain["steps"]],
+			[kinds.PROPOSAL, kinds.WORK_ORDER, kinds.BRD, kinds.SRS, kinds.PLAN, "Project", "UAT"],
+		)
+
+	def test_the_proposal_carries_the_final_price(self):
+		proposal = make_customised_proposal(self.lead, BDE, TEMPLATE)
+		doc = frappe.get_doc(p.DOCTYPE, proposal["name"])
+		quotation = frappe.get_doc("Quotation", doc.quotation)
+		# the default GST and the proposal's validity on its own ERPNext Quotation
+		self.assertEqual(quotation.taxes_and_charges, self.gst)
+		self.assertTrue(quotation.taxes)
+		self.assertEqual(getdate(quotation.valid_till), getdate(doc.valid_till))
+		self.assertEqual(quotation.tbo_proposal, doc.name)
+		# 3.5 days on Nos (whole numbers only): one unit at 3.5 times the day rate
+		line = quotation.items[-1]
+		self.assertEqual((line.qty, line.rate), (1, 35000))
+		self.assertIn("3.5 person-days", line.description)
+		self.assertEqual(quotation.grand_total, 41300)
+
+		context = p.page_context(doc)
+		self.assertEqual(context["pricing"]["grand_total_value"], 41300)
+		self.assertEqual([row["label"] for row in context["pricing"]["taxes"]], ["GST 18%"])
+		html = p.render_html(doc, preview=True)
+		self.assertIn(context["pricing"]["grand_total"], html)
+		self.assertIn("GST 18%", html)
+
+	def test_the_customer_never_sees_the_quotation_number(self):
+		proposal = make_customised_proposal(self.lead, BDE, TEMPLATE)["name"]
+		quotation = frappe.db.get_value(p.DOCTYPE, proposal, "quotation")
+		_result, make = send_hub_proposal(proposal, BDE, attach_pdf=0)
+		self.assertNotIn(quotation, make.call_args.kwargs["content"])
+		self.assertNotIn(quotation, make.call_args.kwargs["subject"])
+		accept_as_client(proposal)
+		doc = frappe.get_doc(p.DOCTYPE, proposal)
+		html = p.render_html(doc)
+		self.assertIn(proposal, html)
+		self.assertNotIn(quotation, html)
+		self.assertNotIn(quotation, p.render_html(doc, pdf=True))
+		with patch("frappe.utils.pdf.get_pdf", return_value=make_pdf_bytes()) as get_pdf:
+			p.render_pdf(doc)
+		self.assertNotIn(quotation, get_pdf.call_args.args[0])
+		# staff see it in the hub, with its desk link
+		payload = hub.get_proposal(proposal, acting_user=BDE)
+		self.assertEqual(payload["quotation"]["name"], quotation)
+		self.assertIn(f"/app/quotation/{quotation}", payload["quotation"]["desk_url"])
+		rows = hub_leads.get_lead(self.lead, acting_user=BDE)["quotations"]
+		row = next(row for row in rows if row["name"] == quotation)
+		self.assertEqual(row["tbo_proposal"], proposal)
+		self.assertTrue(row["url"].endswith(f"/app/quotation/{quotation}"))
+
+	def test_the_agreement_from_the_accepted_proposal(self):
+		proposal = make_customised_proposal(self.lead, BDE, TEMPLATE)["name"]
+		send_hub_proposal(proposal, BDE)
+		accept_as_client(proposal)
+		quotation = frappe.db.get_value(p.DOCTYPE, proposal, "quotation")
+		self.assertEqual(frappe.db.get_value("Quotation", quotation, "tbo_quote_status"), q.ACCEPTED)
+		# no quotation document: the agreement is next, made from the proposal
+		with self.assertRaisesRegex(frappe.ValidationError, "The proposal is the quotation"):
+			make_hub_document(proposal, kinds.QUOTATION, BDE)
+		chain = hub.get_document_chain(self.lead, acting_user=BDE)
+		self.assertEqual(
+			(chain["next"]["action"], chain["next"]["document_type"], chain["next"]["source"]),
+			("create", kinds.WORK_ORDER, proposal),
+		)
+		order = make_hub_document(proposal, kinds.WORK_ORDER, BDE)["proposal"]
+		self.assertEqual((order["source_document"], order["quotation"]["name"]), (proposal, quotation))
+		self.assertFalse(order["can_price"])
+		bodies = {row["section_type"]: row["body"] for row in order["sections"]}
+		self.assertIn(f"the proposal {proposal}", bodies["Investment"])
+		self.assertIn(proposal, bodies["Purpose"])
+		self.assertNotIn(quotation, bodies["Investment"] + bodies["Purpose"])
+		with self.assertRaisesRegex(frappe.ValidationError, "revised proposal"):
+			hub.price_from_modules(order["name"], acting_user=BDE)
+		order = hub.save_proposal(order["name"], json.dumps({"start_date": nowdate()}), acting_user=BDE)
+		self.assertEqual(order["send_blockers"], [])
+		send_hub_proposal(order["name"], BDE)
+		accept_as_client(order["name"], "Director")
+		chain = hub.get_document_chain(self.lead, acting_user=BDE)
+		self.assertEqual([step["done"] for step in chain["steps"]][:3], [True, True, False])
+		self.assertEqual(
+			(chain["next"]["document_type"], chain["next"]["source"]), (kinds.BRD, order["name"])
+		)
+		brd_doc = make_hub_document(order["name"], kinds.BRD, BDE)["proposal"]
+		self.assertEqual(brd_doc["source_document"], order["name"])
+
+		# the Sales Order made from the accepted quotation carries the proposal
+		frappe.set_user("Administrator")
+		order_name = lead_quotation.make_sales_order(quotation)["sales_order"]
+		self.assertEqual(frappe.db.get_value("Sales Order", order_name, "tbo_proposal"), proposal)
+		# and on to the Sales Invoice made from the order
+		sales_order = frappe.get_doc("Sales Order", order_name)
+		sales_order.submit()
+		self.assertEqual(make_sales_invoice(order_name).tbo_proposal, proposal)
+
+	def test_an_unpriced_proposal_is_not_sent(self):
+		frappe.set_user("Administrator")
+		set_smart_lead_settings(proposal_service_item=None)
+		frappe.set_user(HUB)
+		proposal = make_hub_proposal(self.lead, BDE, TEMPLATE)
+		self.assertIsNone(proposal["quotation"])
+		self.assertIn("Price the proposal first.", proposal["send_blockers"])
+		# priced by hand, with no tax given: the commercial defaults still apply
+		proposal = price_hub_proposal(proposal["name"], BDE, SERVICE)
+		self.assertNotIn("Price the proposal first.", proposal["send_blockers"])
+		self.assertEqual(proposal["quotation"]["taxes_and_charges"], self.gst)
+
+	def test_off_keeps_the_quotation_step(self):
+		frappe.set_user("Administrator")
+		enable_client_documents()
+		frappe.set_user(HUB)
+		options = hub.get_proposal_options(acting_user=BDE)
+		self.assertFalse(options["proposal_is_quotation"])
+		types = {row["name"]: row for row in options["document_types"]}
+		self.assertEqual(list(types)[:3], [kinds.PROPOSAL, kinds.QUOTATION, kinds.WORK_ORDER])
+		self.assertEqual(types[kinds.WORK_ORDER]["follows"], kinds.QUOTATION)
+		# the proposal's quotation is priced as before: no default taxes added
+		proposal = make_customised_proposal(self.lead, BDE, TEMPLATE)["name"]
+		quotation = frappe.get_doc("Quotation", frappe.db.get_value(p.DOCTYPE, proposal, "quotation"))
+		self.assertFalse(quotation.taxes_and_charges)
+		send_hub_proposal(proposal, BDE)
+		accept_as_client(proposal)
+		self.assertRaises(frappe.ValidationError, make_hub_document, proposal, kinds.WORK_ORDER, BDE)
+		self.assertEqual(
+			hub.get_document_chain(self.lead, acting_user=BDE)["next"]["document_type"], kinds.QUOTATION
+		)
+
+
+class TestFractionalDays(ClientDocumentTestCase):
+	"""Customisation days on the service item's UOM (docs/proposals.md §4.1)."""
+
+	def test_create_quotation_with_half_days_on_nos(self):
+		# the owner's case: an unpriced accepted proposal, then Create quotation with 3.5 days
+		proposal = make_customised_proposal(self.lead, BDE, TEMPLATE)["name"]
+		send_hub_proposal(proposal, BDE)
+		accept_as_client(proposal)
+		frappe.set_user("Administrator")
+		set_smart_lead_settings(proposal_service_item=SERVICE, proposal_day_rate=10000)
+		frappe.set_user(HUB)
+		result = make_hub_document(proposal, kinds.QUOTATION, BDE)
+		self.assertEqual(result["warnings"], [])
+		line = result["proposal"]["quotation"]["items"][-1]
+		self.assertEqual((line["qty"], line["price_list_rate"]), (1, 35000))
+		self.assertIn("3.5 person-days at", line["description"])
+
+	def test_a_day_uom_keeps_the_days_as_the_quantity(self):
+		frappe.set_user("Administrator")
+		set_smart_lead_settings(proposal_service_item=DAY_SERVICE, proposal_day_rate=10000)
+		frappe.set_user(HUB)
+		proposal = make_customised_proposal(self.lead, BDE, TEMPLATE)
+		line = proposal["quotation"]["items"][-1]
+		self.assertEqual((line["qty"], line["price_list_rate"]), (3.5, 10000))
+		self.assertEqual(line["description"], "Customisation (3.5 person-days)")
 
 
 class TestBRD(ClientDocumentTestCase):

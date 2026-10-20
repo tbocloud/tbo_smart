@@ -43,10 +43,18 @@ def document_enabled(name: str) -> bool:
 		return False
 	if spec.flag is None:
 		return True
-	return bool(cint(setting(spec.flag))) and document_enabled(spec.follows)
+	if spec.name == kinds.QUOTATION and kinds.proposal_is_quotation():
+		# the proposal carries the final price: no separate quotation step
+		return False
+	return bool(cint(setting(spec.flag))) and document_enabled(kinds.made_from(spec))
 
 
 def require_document(name: str) -> None:
+	if name == kinds.QUOTATION and kinds.proposal_is_quotation():
+		frappe.throw(
+			_("The proposal is the quotation: make the project agreement from the accepted proposal."),
+			frappe.ValidationError,
+		)
 	if not document_enabled(name):
 		frappe.throw(
 			_("{0} isn't switched on in TBO Smart Settings.").format(kinds.label(name)),
@@ -65,17 +73,18 @@ def create_document(source_name: str, document_type: str) -> tuple:
 	"""The next document, as the session user, from the accepted document before it. Returns
 	(document, warnings)."""
 	spec = kinds.of(document_type)
-	if not spec.follows:
+	follows = kinds.made_from(spec)
+	if not follows:
 		frappe.throw(_("A proposal starts from the lead's requirements, not from another document."))
 	require_document(spec.name)
 	if not isinstance(source_name, str) or not frappe.db.exists(p.DOCTYPE, source_name):
 		frappe.throw(_("Document {0} not found.").format(source_name), frappe.DoesNotExistError)
 	source = frappe.get_doc(p.DOCTYPE, source_name)
 	source.check_permission("write")
-	if kinds.of(source).name != spec.follows:
+	if kinds.of(source).name != follows:
 		frappe.throw(
 			_("A {0} is made from an accepted {1}.").format(
-				kinds.label(spec.name).lower(), kinds.label(spec.follows).lower()
+				kinds.label(spec.name).lower(), kinds.label(follows).lower()
 			)
 		)
 	# read under the source's row lock: two requests at once wait here in turn (the second sees
@@ -121,7 +130,9 @@ def create_document(source_name: str, document_type: str) -> tuple:
 	kinds.build_all(doc)
 	doc.flags.proposal_workflow = True
 	doc.insert()
-	if spec.writer and spec.follows and p.ai_enabled():
+	if spec.priced:
+		p.tag_quotation(doc)
+	if spec.writer and follows and p.ai_enabled():
 		warnings += write_draft(doc, spec)
 	return doc, warnings
 
@@ -243,7 +254,8 @@ def latest(lead: str, document_type: str) -> frappe._dict | None:
 
 def chain(lead: str) -> dict:
 	"""{steps, next}: each switched-on type in order (Proposal → Quotation → Project Agreement →
-	…) with its document's status, and the one next action (make the proposal, make the next
+	…, or Proposal → Project Agreement → … while the proposal is the quotation) with its document's
+	status, and the one next action (make the proposal, make the next
 	document from the accepted one, or carry on with the one in progress)."""
 	steps, action, before = [], None, None
 	for spec in enabled_types():

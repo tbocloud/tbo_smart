@@ -1,4 +1,4 @@
-# Lead pipeline: stages, meetings, MOM and quotations on the lead (living spec, v1.5)
+# Lead pipeline: stages, meetings, MOM and quotations on the lead (living spec, v1.7)
 
 **Status:** Phases 1 to 3 built 2026-10-16: the pipeline stages, meetings and minutes of meeting
 (MOM), automatic lead stages, the deal at Closed – Won, quotations on the lead (presets,
@@ -121,7 +121,8 @@ has it (`erpnext-lead-cutover.md` §4).
 | TBO Smart Settings | `enable_lead_quotations`, `quotation_validity_days` (30), `quotation_follow_up_days` (3), `quotation_terms`, `quotation_payment_terms`, `quotation_print_format` (blank: TBO Quotation), `quotation_preset_roles` (Sales Manager, System Manager) | §9 |
 | TBO Smart Settings | `enable_pipeline_dashboard` | §11 |
 | TBO Smart Settings | `segment_rates` (table **TBO Segment Rate**: `segment`, `price_list`, `max_discount`) | §9.8 |
-| Quotation | `tbo_lead_meeting`, `tbo_package`, `tbo_quote_status`, `tbo_quote_family`, `tbo_revision_no`, `tbo_is_latest`, `tbo_sent_via`, `tbo_sent_on` | §9.1 |
+| Quotation | `tbo_lead_meeting`, `tbo_package`, `tbo_quote_status`, `tbo_quote_family`, `tbo_revision_no`, `tbo_is_latest`, `tbo_sent_via`, `tbo_sent_on`, `tbo_proposal` | §9.1 |
+| Sales Order, Sales Invoice | `tbo_proposal` (read only) | §9.5 |
 
 Masters: the Opportunity Lost Reason "Other" and the role **Hub Integration** are created on
 migrate.
@@ -308,6 +309,7 @@ control (`quotation-discount-control.md`) all apply.
 | `tbo_quote_status` | §9.3 (allow on submit; history in Version and timeline comments) |
 | `tbo_quote_family`, `tbo_revision_no`, `tbo_is_latest` | §9.4 |
 | `tbo_sent_via`, `tbo_sent_on` | How and when it went to the client |
+| `tbo_proposal` | The client document it prices (a TBO Proposal: the proposal, or a quotation document), set when it is priced and sent; the client's reference (§9.5) |
 
 ### 9.2 The catalogue (presets)
 
@@ -380,6 +382,12 @@ description changed.
   that Customer first, so no second Customer is made. The order carries the deal
   (`opportunity`), and the deal records the order's Customer as `tbo_customer`. The finance
   workflow's pending-approval guard runs on its validate.
+- **The proposal reference on the order:** the quotation's `tbo_proposal` (Link, not `no_copy`)
+  is copied by ERPNext's mapper to the Sales Order's and on to the Sales Invoice's own
+  `tbo_proposal`, so accounts trace an order or an invoice to the proposal the client accepted.
+  Chosen over `po_no`: that is the client's own purchase order number, printed on the invoice as
+  theirs, and a proposal number there would be wrong once the client sends a PO; a Link field
+  also opens the proposal from the desk.
 
 ### 9.6 The PDF: print format "TBO Quotation"
 
@@ -529,6 +537,8 @@ deal); the print format rendering.
 
 ## Changelog
 
+- **v1.7 (2026-10-20):** `tbo_proposal` on the Quotation, the Sales Order and the Sales Invoice:
+  the client document the price was accepted on (§9.5).
 - **v1.6 (2026-10-20):** every system save of a lead skips unrelated mandatory fields through
   `sales.stages.system_save` (§2.2); a shared proposal no longer fails with "Value missing for
   Lead: Source".

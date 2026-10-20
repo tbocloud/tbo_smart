@@ -1,4 +1,4 @@
-# Hub proposals API (`tbo_smart.api.hub_proposals`), v2.7
+# Hub proposals API (`tbo_smart.api.hub_proposals`), v2.8
 
 **Status:** built 2026-10-19. The TBO Support hub's proposal builder (tbocloud/helpdesk
 `docs/proposals.md`) calls these. What proposals are and do: `proposals.md`; the documents after
@@ -28,7 +28,7 @@ otherwise) and count against the day's limit (417 "Today's AI proposal runs are 
 | `extract_requirements` | POST | `lead`, `text`, `acting_user` | `{template, scoping: Scoping}` for presales to confirm; nothing saved |
 | `read_chat_answer` | POST | `lead`, `question`, `text`, `acting_user` | `{language ("English" / "Malayalam" / "Mixed"), english, profile: {only the Profile fields given}, template, scoping: {only the Scoping keys given}}`: an off-script start-chat answer, one small call; nothing saved |
 | `create_proposal` | POST | `lead`, `template?`, `ai_draft` (0/1), `scoping?` (JSON `Scoping`), `requirements?`, `client_profile` (JSON `Profile`, required: industry and pain_points), `chat?` (JSON `[ChatLine]`), `acting_user` | `{proposal: Proposal, warnings: [text]}` |
-| `create_document` | POST | `source` (the accepted document), `document_type` (`Quotation`, `Work Order`, `BRD`, `SRS`, `Implementation Plan`), `acting_user` | `{proposal: Proposal, warnings: [text]}` (`client-documents.md` §2) |
+| `create_document` | POST | `source` (the accepted document), `document_type` (`Quotation` (not while the proposal is the quotation), `Work Order`, `BRD`, `SRS`, `Implementation Plan`), `acting_user` | `{proposal: Proposal, warnings: [text]}` (`client-documents.md` §2) |
 | `get_document_chain` | GET | `lead`, `acting_user` | `Chain` |
 | `get_project_plan` | GET | `name` (an approved plan), `acting_user` | `{plan, lead, client, project_name, solution_type, start, end, hub_project, phases: [{phase, start, end, tasks: [{subject, start, end, milestone}]}]}` (417 while not approved or undated) |
 | `link_project` | POST | `name`, `project`, `url?`, `acting_user` | `Chain` (the plan's project, once; another name is 417) |
@@ -62,7 +62,8 @@ otherwise) and count against the day's limit (417 "Today's AI proposal runs are 
 | `draft_library_module` | POST | `module`, `acting_user` | `{draft}`: the AI's draft of the module's text for the editor to review (editors only; nothing saved) |
 
 `hub_leads.get_lead` also returns `proposals: [Row]` (every type), `documents: Chain` (null while
-Proposals is off) and timeline items of `kind: "proposal"`.
+Proposals is off) and timeline items of `kind: "proposal"`; each of its `quotations` carries
+`tbo_proposal` (the client document it prices) and `url` (its desk form), for staff only.
 
 ### 2.1 Shapes
 
@@ -76,10 +77,13 @@ Options = {enabled: true, ai, can_edit_templates,
   timelines: [{title, days}], payment_terms: [titles], amc_plans: [titles],
   catalogue: [Module], images: [{name, title, alt_text, sections, solution_types, url}],
   letter_heads: [{name, is_default}], default_letter_head, proposal_letter_head,
-  document_types: [DocumentType] (the switched-on ones, in the chain's order)}
+  document_types: [DocumentType] (the switched-on ones, in the chain's order),
+  proposal_is_quotation (true: no Quotation step, the proposal's price is final;
+  `client-documents.md` §1.1)}
 
 DocumentType = {name ("Proposal" / "Quotation" / "Work Order"), label ("Project Agreement" for
-  the work order), accepted_label ("Accepted", "Signed"), follows, section_types,
+  the work order), accepted_label ("Accepted", "Signed"), follows (the type it is made from:
+  "Proposal" for the work order while the proposal is the quotation), section_types,
   default_headings: {type: heading}, ai_sections, priced (its quotation is its price), signature
   (the client signs with a designation), dated (Send needs the start date), questionnaire (the BRD)}
 
@@ -123,7 +127,9 @@ Proposal = {name, document_type, document_label, accepted_label, source_document
   letter_head, letter_head_preview: null | {name, header, footer}, valid_till,
   sections: [{section_type, enabled, edited, ai (written by the AI), rebuildable, heading,
     body, image, image_url, image_alt, image_caption, image_size}],
-  quotation: null | {…lead_quotation serialize, needs_approval}, pricing: {segment,
+  quotation: null | {…lead_quotation serialize, needs_approval, taxes: [{label, amount}] (each tax
+    line as the page shows it, e.g. "GST 18%"), desk_url (the internal ERPNext Quotation's desk
+    form, for staff; the client never sees its number)}, pricing: {segment,
     price_list, discount_band}, public_url (null while Draft), preview_url,
   revision_no, is_latest, revisions, tracking, can_write,
   send_blockers: [text], share_blockers: [text] (the same without the email account),
@@ -157,7 +163,10 @@ Library = {can_edit, modules: [Module + enabled, sort_order], items: [{name, lib
   it follows, or isn't accepted and the latest; 409 while the lead has one of that type in play.
   `warnings` has "Not priced yet: …" when a quotation can't be priced from the modules.
 - `save_pricing`, `price_from_modules`: a proposal or a quotation only (417 for an agreement: its
-  price is the accepted quotation's). `chat_edit`: a proposal only.
+  price is the accepted quotation's, or the accepted proposal's while the proposal is the
+  quotation). While the proposal is the quotation a proposal's new quotation starts with the
+  default GST, terms, payment terms template and the proposal's validity (the values given win),
+  and Send / Share refuse an unpriced proposal ("Price the proposal first."). `chat_edit`: a proposal only.
 - `chat_edit`: values outside the choices are ignored; `changes` empty when nothing matched (the
   reply says so).
 - `share_proposal` and `send_proposal` are refused (417, the blockers joined) while any blocker
@@ -187,6 +196,9 @@ user with `acting_user`.
 
 ## Changelog
 
+- **v2.8 (2026-10-20):** the proposal is the quotation: `proposal_is_quotation` in the options,
+  `follows` the effective type, the Quotation type refused while it is on; `desk_url` and `taxes` on
+  the proposal's quotation; `tbo_proposal` and `url` on the lead's quotations.
 - **v2.7 (2026-10-20):** `get_uat_cases`.
 - **v2.6 (2026-10-20):** the plan: `get_project_plan`, `link_project`, `record_uat`, the chain's
   Project and UAT steps, `dated` and `delivery` on `Proposal`.
