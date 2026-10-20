@@ -1,4 +1,4 @@
-# Proposals to a lead (living spec, v2.4)
+# Proposals to a lead (living spec, v2.5)
 
 **Status:** built 2026-10-19 (Phases 3 and 4 of the sales flow the owner approved on 2026-10-16;
 the Universal IT Proposal the owner set on 2026-10-19). Presales starts a proposal in the TBO
@@ -138,8 +138,11 @@ footers are run through `frappe.utils.html_utils.sanitize_html` before a guest s
 them is not rendered. **Image** ones show the image: a public `/files/` image by its URL, a
 private one through the token-gated `proposal_page.image`, and in the PDF as a data URI. In the
 **PDF** the header sits at the top of **every page**, scaled to the content's width (one taller
-than 30 mm is narrowed instead, so it is never clipped), and its footer is the footer line of
-every page but the cover (§5.1).
+than 30 mm is narrowed instead, so it is never clipped). Its footer: a **footer picture** (an
+Image footer, or an HTML footer around a picture — Frappe writes an attached footer image as HTML
+at a small fixed width) spans the content's width on every page, the cover included, without the
+HTML's text beside it (one taller than 30 mm, narrower than about 6:1, is narrowed instead); any
+other footer is the footer line of every page but the cover (§5.1). The web page shows the same picture.
 
 ### 2.4 Section text
 
@@ -420,11 +423,13 @@ colours are written out in the CSS (wkhtmltopdf's WebKit has no CSS variables).
 **The PDF** (`render_pdf`), A4 on one grid:
 
 - **The page frame** (`pdf_page`, `pdf_options`): 18 mm from every edge on every page. The top
-  margin holds the letter head (18 mm + its height + 8 mm) and the bottom one the footer line
+  margin holds the letter head (18 mm + its height + 8 mm). The bottom one holds a footer picture
+  under a 5 mm line for the page number (18 mm + its height + 5 mm + 3 mm), else the footer line
   (18 mm + 9 mm); the sides are full bleed with 18 mm of padding, so the ivory reaches the edges.
 - **The cover** fills page 1: the kicker and the title in its upper third, then the facts grid
   (client, prepared for — the lead's contact when the client is a company —, prepared by, date,
-  valid till, reference) and its own footer line (company, version). It has no running footer.
+  valid till, reference) and its own footer line (company, version). It has no running footer
+  line or page number; a footer picture shows there as on every page.
 - **The contents** on page 2, with dot leaders to each section's page. The PDF is rendered
   twice: `number_contents` finds each section's page in the first render (its number and heading,
   after the contents), and the second render prints them; the numbers move nothing. In the PDF
@@ -441,9 +446,10 @@ colours are written out in the CSS (wkhtmltopdf's WebKit has no CSS variables).
   cards, rows and the signature block don't split; a long table breaks between rows and repeats
   its header.
 - **After rendering**, `on_ivory` lays every page on an ivory sheet (wkhtmltopdf paints white
-  below the content of the last page), paints over the cover's running footer, and prints
-  "n / N" in Geist (embedded) at the right end of the footer line of every other page, on the
-  same baseline as the letter head's footer on the left. The browser's print keeps the ivory
+  below the content of the last page), paints over the cover's running footer line, and prints
+  "n / N" in Geist (embedded) right-aligned at the 18 mm margin of every other page: on its own
+  line above a footer picture, else at the right end of the footer line, on the same baseline as
+  the letter head's footer on the left. The browser's print keeps the ivory
 (`print-color-adjust: exact`) and the same page breaks. Responsive on a phone (one column), dark
 mode follows the page's own ivory (the document is paper), keyboard reachable with a visible
 focus ring, 44px targets.
@@ -515,6 +521,9 @@ focus ring, 44px targets.
 
 ## Changelog
 
+- **v2.5 (2026-10-20):** a footer picture spans the content's width (at most 30 mm high) on
+  every page and the cover, with the bottom margin taken from its height and "n / N" on a line
+  above it; an HTML footer around a picture shows just the picture.
 - **v2.4 (2026-10-19):** the premium A4 PDF layout: an 18 mm frame on every page, the letter
   head scaled to the content's width and never clipped, a designed cover with a facts grid and
   its own footer line, the contents with dot leaders and page numbers, one bundled font (Geist

@@ -33,6 +33,8 @@ MAX_IMAGE_BYTES = 5 * 1024 * 1024
 # one taller than HEADER_MAX_MM is narrowed instead, so it is never clipped
 CONTENT_WIDTH_MM = 174
 HEADER_MAX_MM = 30
+# a footer picture is a band about 6:1 (29 mm at the content width): allow that much before narrowing
+FOOTER_MAX_MM = 30
 # Geist (SIL OFL, public/fonts/OFL.txt), cut to Latin with tabular figures as the default, because
 # wkhtmltopdf can't switch the tnum feature on and can't load Google Fonts at render time. Two
 # weights: its WebKit takes 500 for 400, so a Medium face would replace the Regular one.
@@ -286,20 +288,28 @@ def letter_head_context(doc, pdf: bool = False) -> dict | None:
 	if not name:
 		return None
 	head = frappe.get_doc(LETTER_HEAD, name)
-	header = letter_head_part(doc, head.source, head.image, head.content, head.align, pdf)
-	footer = letter_head_part(doc, head.footer_source, head.footer_image, head.footer, head.footer_align, pdf)
+	header = letter_head_part(doc, head.source, head.image, head.content, head.align, pdf, HEADER_MAX_MM)
+	# an HTML footer around a picture (Frappe writes one from an attached footer image) is that
+	# picture: shown at the content's width, without the text beside it
+	footer_image = head.footer_image if head.footer_source == "Image" else html_image(head.footer)
+	if footer_image:
+		footer = letter_head_part(doc, "Image", footer_image, None, head.footer_align, pdf, FOOTER_MAX_MM)
+	else:
+		footer = letter_head_part(doc, head.footer_source, None, head.footer, head.footer_align, pdf)
 	if not header and not footer:
 		return None
 	return {"name": name, "header": header, "footer": footer}
 
 
-def letter_head_part(doc, source, image, html, align, pdf: bool) -> dict | None:
+def letter_head_part(
+	doc, source, image, html, align, pdf: bool, max_mm: float = HEADER_MAX_MM
+) -> dict | None:
 	align = (align or "Left").lower()
 	if source == "Image":
 		src = letter_head_image_src(doc, image, pdf)
 		if not src:
 			return None
-		return {"image": src, "align": align, "height": image_height(src) if pdf else None}
+		return {"image": src, "align": align, "height": image_height(src, max_mm) if pdf else None}
 	html = sanitize_html(html or "", always_sanitize=True).strip()
 	return {"html": html} if html else None
 
@@ -317,9 +327,20 @@ def letter_head_image_src(doc, file_url: str | None, pdf: bool) -> str | None:
 	return image_url(doc, file_name) if file_name else None
 
 
-def image_height(uri: str) -> float | None:
-	"""A data-URI letter head image's height in mm at the content width, at most HEADER_MAX_MM;
-	None when the file isn't an image Pillow reads."""
+def html_image(html: str | None) -> str | None:
+	"""The site file shown by the first picture in a letter head's HTML, or None."""
+	from urllib.parse import urlparse
+
+	from bs4 import BeautifulSoup
+
+	img = BeautifulSoup(html or "", "html.parser").find("img")
+	path = urlparse(img.get("src") or "").path if img else ""
+	return path if path.startswith(("/files/", "/private/files/")) else None
+
+
+def image_height(uri: str, max_mm: float = HEADER_MAX_MM) -> float | None:
+	"""A data-URI letter head image's height in mm at the content width, at most `max_mm` (a
+	taller one is narrowed instead); None when the file isn't an image Pillow reads."""
 	from PIL import Image
 
 	try:
@@ -327,7 +348,7 @@ def image_height(uri: str) -> float | None:
 			width, height = image.size
 	except OSError:
 		return None
-	return round(min(CONTENT_WIDTH_MM * height / width, HEADER_MAX_MM), 1)
+	return round(min(CONTENT_WIDTH_MM * height / width, max_mm), 1)
 
 
 def font_data(weight: int = 400) -> bytes:
