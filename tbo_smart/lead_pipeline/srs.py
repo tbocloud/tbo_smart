@@ -366,3 +366,24 @@ customisations, give one acceptance criterion per customisation, in their order.
 
 Answer only JSON: {"requirements": [{"requirement": "<sentence>", "acceptance": "<sentence>"}, ...]}
 with at most 8 items (none when the BRD shows nothing new)."""
+
+
+def uat_cases(doc) -> list[dict]:
+	"""The UAT checklist from an SRS: each FR a test case, its steps from the requirement and its
+	expected result the acceptance criterion (docs/client-documents.md §8)."""
+	return [
+		{
+			"fr": row["id"],
+			"module": row["module"],
+			"title": f"{row['id']}: {row['requirement']}"[:300],
+			"steps": "\n".join(
+				[
+					_("1. Sign in as a user who works in {0}.").format(row["module"]),
+					_("2. {0}.").format(row["requirement"].rstrip(".")),
+					_("3. Check the result against the expected result."),
+				]
+			),
+			"expected": row["acceptance"],
+		}
+		for row in functional_requirements(doc)
+	]

@@ -661,3 +661,23 @@ class TestImplementationPlan(ClientDocumentTestCase):
 		self.assertEqual(found["Development & Configuration"], "Build")
 		self.assertEqual(found["Training & Handover"], "Hypercare")
 		self.assertLessEqual(set(found.values()), set(names))
+
+
+class TestUAT(ClientDocumentTestCase):
+	def test_each_fr_becomes_a_test_case(self):
+		plan_doc = make_plan_document(self.lead, BDE, TEMPLATE, SERVICE)
+		# a draft plan has no tests yet
+		self.assertRaises(frappe.ValidationError, hub.get_uat_cases, plan_doc["name"], acting_user=BDE)
+		send_hub_proposal(plan_doc["name"], BDE)
+		accept_as_client(plan_doc["name"])
+		plan_name = plan_doc["name"]
+		srs_name = frappe.db.get_value(p.DOCTYPE, plan_name, "source_document")
+		found = hub.get_uat_cases(plan_name, acting_user=BDE)
+		self.assertEqual(found["srs"], srs_name)
+		frs = srs.functional_requirements(frappe.get_doc(p.DOCTYPE, srs_name))
+		self.assertEqual([case["fr"] for case in found["cases"]], [row["id"] for row in frs])
+		first = found["cases"][0]
+		self.assertTrue(first["title"].startswith("FR-ACC-01: Keep the chart of accounts"))
+		self.assertIn("2. Keep the chart of accounts", first["steps"])
+		self.assertEqual(first["expected"], frs[0]["acceptance"])
+		self.assertRaises(frappe.ValidationError, hub.get_uat_cases, srs_name, acting_user=BDE)
