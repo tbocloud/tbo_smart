@@ -277,8 +277,17 @@ def letter_heads() -> list[dict]:
 
 
 def letter_head_files(name: str) -> set[str]:
-	values = frappe.db.get_value(LETTER_HEAD, name, ["image", "footer_image"], as_dict=True) or {}
-	return {url for url in values.values() if url}
+	"""The files a letter head shows: its images, and the picture its HTML footer is (letter_head_context)."""
+	values = (
+		frappe.db.get_value(
+			LETTER_HEAD, name, ["image", "footer_image", "footer_source", "footer"], as_dict=True
+		)
+		or {}
+	)
+	shown = {values.get("image"), values.get("footer_image")}
+	if values.get("footer_source") != "Image":
+		shown.add(html_image(values.get("footer")))
+	return {url for url in shown if url}
 
 
 def letter_head_context(doc, pdf: bool = False) -> dict | None:
@@ -291,11 +300,14 @@ def letter_head_context(doc, pdf: bool = False) -> dict | None:
 	header = letter_head_part(doc, head.source, head.image, head.content, head.align, pdf, HEADER_MAX_MM)
 	# an HTML footer around a picture (Frappe writes one from an attached footer image) is that
 	# picture: shown at the content's width, without the text beside it
+	# picture: shown at the content's width, without the text beside it (the HTML stays when the
+	# picture can't be shown)
 	footer_image = head.footer_image if head.footer_source == "Image" else html_image(head.footer)
-	if footer_image:
-		footer = letter_head_part(doc, "Image", footer_image, None, head.footer_align, pdf, FOOTER_MAX_MM)
-	else:
-		footer = letter_head_part(doc, head.footer_source, None, head.footer, head.footer_align, pdf)
+	footer = footer_image and letter_head_part(
+		doc, "Image", footer_image, None, head.footer_align, pdf, FOOTER_MAX_MM
+	)
+	if not footer and head.footer_source != "Image":
+		footer = letter_head_part(doc, "HTML", None, head.footer, head.footer_align, pdf)
 	if not header and not footer:
 		return None
 	return {"name": name, "header": header, "footer": footer}
@@ -328,14 +340,18 @@ def letter_head_image_src(doc, file_url: str | None, pdf: bool) -> str | None:
 
 
 def html_image(html: str | None) -> str | None:
-	"""The site file shown by the first picture in a letter head's HTML, or None."""
+	"""The first file of this site a letter head's HTML shows as a picture (by its path, or by a
+	URL on this site's host), or None."""
 	from urllib.parse import urlparse
 
 	from bs4 import BeautifulSoup
 
-	img = BeautifulSoup(html or "", "html.parser").find("img")
-	path = urlparse(img.get("src") or "").path if img else ""
-	return path if path.startswith(("/files/", "/private/files/")) else None
+	site = urlparse(get_url()).netloc
+	for img in BeautifulSoup(html or "", "html.parser").find_all("img"):
+		src = urlparse(img.get("src") or "")
+		if src.netloc in ("", site) and src.path.startswith(("/files/", "/private/files/")):
+			return src.path
+	return None
 
 
 def image_height(uri: str, max_mm: float = HEADER_MAX_MM) -> float | None:

@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import frappe
 import requests
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import add_days, nowdate
+from frappe.utils import add_days, get_url, nowdate
 
 from tbo_smart.api import hub_leads
 from tbo_smart.api import hub_proposals as hub
@@ -46,6 +46,7 @@ from tbo_smart.test_utils import (
 	mock_ai,
 	openai_answer,
 	page_response,
+	pdf_text_positions,
 	price_hub_proposal,
 	proposal_token,
 	save_lead_quotation,
@@ -857,8 +858,16 @@ class TestLetterHead(ProposalTestCase):
 			self.assertIn('style="height: 29.0mm"', pdf_html)
 			self.assertNotIn("From TBO", pdf_html)
 			self.assertNotIn("From TBO", p.render_html(doc, preview=True))
-			self.assertEqual(media.html_image(f'<img src="https://erp.example{url}">'), url)
-			self.assertIsNone(media.html_image('<img src="https://elsewhere.example/a.png">'))
+			# the web page serves it through the token
+			call_as_guest(page.image, proposal_token(name), file)
+			# the first picture of this site, by path or by this site's URL; never another host's
+			self.assertEqual(
+				media.html_image(f'<img src="https://elsewhere.example{url}"><img src="{get_url(url)}">'), url
+			)
+			self.assertIsNone(media.html_image('<img src="https://elsewhere.example/files/a.png">'))
+			# a picture that can't be shown leaves the HTML footer as it is
+			frappe.db.set_value("Letter Head", head, "footer", '<p>From TBO</p><img src="/files/gone.png">')
+			self.assertIn("From TBO", p.page_context(doc, pdf=True)["letter_head"]["footer"]["html"])
 		finally:
 			frappe.set_user("Administrator")
 			frappe.delete_doc("Letter Head", head, force=True)
@@ -1100,11 +1109,7 @@ class TestMaster(ProposalTestCase):
 		writer.write(buffer)
 		frame = p.pdf_page({"footer": {"image": "data:", "height": 29}})
 		page = PdfReader(io.BytesIO(p.on_ivory(buffer.getvalue(), frame))).pages[1]
-		found = []
-		page.extract_text(
-			visitor_text=lambda text, _cm, tm, *_rest: text.strip() and found.append((text, tm))
-		)
-		label, tm = found[0]
+		label, tm = pdf_text_positions(page)[0]
 		self.assertEqual(label, "2 / 2")
 		self.assertAlmostEqual(tm[5], frame["number"] * p.PT_PER_MM, places=0)  # above the picture
 		margin = p.MARGIN_MM * p.PT_PER_MM

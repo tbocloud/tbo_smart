@@ -1131,6 +1131,14 @@ def make_pdf_bytes() -> bytes:
 	return buffer.getvalue()
 
 
+def pdf_text_positions(page) -> list[tuple]:
+	"""The text drawn on a pypdf page, in order: [(text, text matrix)], the matrix's last two
+	values being the text's x and y in points from the bottom left."""
+	found = []
+	page.extract_text(visitor_text=lambda text, _cm, tm, *_rest: text.strip() and found.append((text, tm)))
+	return found
+
+
 def enable_lead_quotations(**values) -> None:
 	set_smart_lead_settings(
 		enable_lead_pipeline=1,
