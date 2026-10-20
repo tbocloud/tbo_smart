@@ -284,7 +284,8 @@ modules on Generate, or later) starts with the commercial defaults: the company'
 Taxes and Charges Template (GST), the quotation terms and payment terms template from TBO Smart
 Settings, and the proposal's own valid till. The Investment then shows the lines, discount, GST,
 grand total and total in words, and the Payment Terms each milestone's amount of the grand total.
-Off: a proposal's new quotation starts without them, as before.
+This holds however it is priced (from the modules or by hand; values given win). Off: a proposal's
+new quotation starts without them, and an unpriced proposal may go out, as before.
 
 **Customisation days and whole-number UOMs** (`builder.customisation_line`): the days are the
 line's quantity in the service item's UOM (its sales UOM, else its stock UOM). When that UOM is
@@ -478,7 +479,8 @@ focus ring, 44px targets.
 `send_proposal` (the hub's *Send*):
 
 1. **Refused** with the reasons (`send_blockers`, returned with every proposal): not the latest
-   revision; Accepted, Declined or Expired; no sections; validity passed; its quotation
+   revision; Accepted, Declined or Expired; no sections; validity passed; no price while the
+   proposal is the quotation ("Price the proposal first."); its quotation
    cancelled, closed or past its own valid till; its pricing above the limit without an
    approval; no outgoing email account (`share_blockers` is the same list without that one).
 2. Its quotation goes out with it (`quotations.mark_sent(…, "Email")`); without one the lead moves

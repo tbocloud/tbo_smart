@@ -1258,20 +1258,23 @@ def make_outgoing_email_account() -> str:
 	)
 
 
-def enable_proposals(ai: bool = False, **values) -> None:
+def enable_proposals(ai: bool = False, proposal_is_quotation: bool = False, **values) -> None:
 	"""Quotations on the lead and Proposals on (with `ai`, AI proposal drafts too), with a daily AI
-	limit no test run reaches unless `values` sets one."""
+	limit no test run reaches unless `values` sets one. "The proposal is the quotation" is off
+	unless asked (`enable_client_documents` sets it too), so a proposal may go out unpriced."""
 	enable_lead_quotations(
 		enable_proposals=1,
 		enable_proposal_ai=int(ai),
 		proposal_validity_days=30,
+		proposal_is_quotation=int(proposal_is_quotation),
 		# high, so a day of test runs never hits it (test_the_daily_limit sets its own)
 		**{"proposal_ai_daily_limit": 100000, **values},
 	)
 
 
 def disable_proposals() -> None:
-	set_smart_lead_settings(enable_proposals=0, enable_proposal_ai=0)
+	"""Proposals and their AI off, and "The proposal is the quotation" back on (the site's default)."""
+	set_smart_lead_settings(enable_proposals=0, enable_proposal_ai=0, proposal_is_quotation=1)
 
 
 def delete_lead_proposals(leads: list[str] | tuple) -> None:

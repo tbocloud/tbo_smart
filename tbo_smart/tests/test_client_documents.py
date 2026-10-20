@@ -444,6 +444,18 @@ class TestProposalIsQuotation(ClientDocumentTestCase):
 		sales_order.submit()
 		self.assertEqual(make_sales_invoice(order_name).tbo_proposal, proposal)
 
+	def test_an_unpriced_proposal_is_not_sent(self):
+		frappe.set_user("Administrator")
+		set_smart_lead_settings(proposal_service_item=None)
+		frappe.set_user(HUB)
+		proposal = make_hub_proposal(self.lead, BDE, TEMPLATE)
+		self.assertIsNone(proposal["quotation"])
+		self.assertIn("Price the proposal first.", proposal["send_blockers"])
+		# priced by hand, with no tax given: the commercial defaults still apply
+		proposal = price_hub_proposal(proposal["name"], BDE, SERVICE)
+		self.assertNotIn("Price the proposal first.", proposal["send_blockers"])
+		self.assertEqual(proposal["quotation"]["taxes_and_charges"], self.gst)
+
 	def test_off_keeps_the_quotation_step(self):
 		frappe.set_user("Administrator")
 		enable_client_documents()

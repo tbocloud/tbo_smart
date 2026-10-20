@@ -165,7 +165,8 @@ Library = {can_edit, modules: [Module + enabled, sort_order], items: [{name, lib
 - `save_pricing`, `price_from_modules`: a proposal or a quotation only (417 for an agreement: its
   price is the accepted quotation's, or the accepted proposal's while the proposal is the
   quotation). While the proposal is the quotation a proposal's new quotation starts with the
-  default GST, terms, payment terms template and the proposal's validity. `chat_edit`: a proposal only.
+  default GST, terms, payment terms template and the proposal's validity (the values given win),
+  and Send / Share refuse an unpriced proposal ("Price the proposal first."). `chat_edit`: a proposal only.
 - `chat_edit`: values outside the choices are ignored; `changes` empty when nothing matched (the
   reply says so).
 - `share_proposal` and `send_proposal` are refused (417, the blockers joined) while any blocker

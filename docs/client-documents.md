@@ -58,7 +58,9 @@ documents → **The proposal is the quotation** (Check, default on; the patch
   **default Sales Taxes and Charges Template** (GST), TBO Smart Settings' quotation **terms** and
   **payment terms template**, valid as long as the proposal. The Investment section shows the
   lines, the discount, the GST, the grand total and the total in words; the Payment Terms
-  section each milestone's amount of the grand total.
+  section each milestone's amount of the grand total. Defaults apply however it is priced (from
+  the modules, or by hand through `save_pricing`; values given win), and **Send and Share need a
+  price** ("Price the proposal first."), since the client accepts it.
 - **Accepting the proposal** accepts its Quotation and moves the lead to Closed – Won, as
   before; the Sales Order is made from that accepted quotation as before.
 - **The Quotation type is off** whatever `enable_quotation_documents` says (`document_enabled`):

@@ -502,7 +502,7 @@ def client_label(lead: str) -> str:
 def price_new_proposal(doc) -> list[str]:
 	"""The modules priced into the lead's quotation, when there are any; what stops it is a
 	warning, not an error (the proposal is made either way)."""
-	if not doc.modules:
+	if not doc.modules and not builder.scoping_answers(doc.scoping, doc.solution_type)["customisations"]:
 		return []
 	try:
 		price_from_modules(doc)
@@ -823,13 +823,8 @@ def edit_by_chat(doc, message: str) -> dict:
 
 def price_from_modules(doc) -> None:
 	"""The quotation's lines from the modules and the customisation days (builder.pricing_values),
-	through the quotation builder, so the band and the approvals apply. A final price's new ERPNext
-	Quotation (a quotation document's, or a proposal's while the proposal is the quotation) starts
-	with the commercial defaults."""
-	values = builder.pricing_values(doc)
-	if not doc.quotation and kinds.final_price(doc):
-		values = {**commercial_defaults(doc), **values}
-	save_pricing(doc, values)
+	through the quotation builder, so the band and the approvals apply."""
+	save_pricing(doc, builder.pricing_values(doc))
 
 
 def commercial_defaults(doc) -> dict:
@@ -853,6 +848,10 @@ def save_pricing(doc, values: dict) -> None:
 	require_draft(doc)
 	require_priced(doc)
 	quotation = doc.quotation if doc.quotation and frappe.db.exists("Quotation", doc.quotation) else None
+	if not quotation and kinds.final_price(doc):
+		# a final price's new ERPNext Quotation (a quotation document's, or a proposal's while the
+		# proposal is the quotation) starts with the commercial defaults; given values win
+		values = {**commercial_defaults(doc), **values}
 	if quotation and frappe.db.get_value("Quotation", quotation, "docstatus") != 0:
 		quotation = q.create_revision(frappe.get_doc("Quotation", quotation)).name
 	saved = lead_quotation.save_quotation(doc.lead, values, quotation)
@@ -966,6 +965,9 @@ def send_blockers(doc, by_email: bool = True) -> list[str]:
 	if not doc.quotation:
 		if spec.name == kinds.QUOTATION:
 			reasons.append(_("Price the quotation first."))
+		elif kinds.final_price(doc):
+			# the proposal is the quotation: the client accepts its price, so it needs one
+			reasons.append(_("Price the proposal first."))
 		return reasons
 	quotation = frappe.get_doc("Quotation", doc.quotation)
 	if quotation.docstatus == 2 or quotation.get("tbo_quote_status") in q.CLOSED:
