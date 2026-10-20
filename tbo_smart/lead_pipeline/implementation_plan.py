@@ -12,7 +12,7 @@ import math
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, formatdate, getdate, now_datetime
+from frappe.utils import add_days, cint, flt, formatdate, getdate, now_datetime
 
 from tbo_smart.lead_pipeline import proposal_builder as builder
 
@@ -107,13 +107,31 @@ def deliverables_by_phase(doc) -> dict[str, list[str]]:
 	for row in builder.library("Phase", doc):
 		if row.title in found and row.body:
 			found[row.title].append(row.body.strip())
+	phase_of = phase_of_group(list(found))
 	for entry in builder.chosen_modules(doc):
 		for line in builder.lines(entry.get("scope")):
 			group, sep, text = line.partition("|")
-			phase = PHASE_OF_GROUP.get(group.strip()) if sep else None
+			phase = phase_of.get(group.strip()) if sep else None
 			if phase in found:
 				found[phase].append(f"{entry.module_name}: {text.strip()}")
 	return {phase: builder.unique(items) for phase, items in found.items()}
+
+
+def phase_of_group(names: list[str]) -> dict[str, str]:
+	"""{scope subsection: the timeline phase its work falls in}: by name for the standard phases,
+	else by position, so a template with its own phase names ("Discovery") keeps every
+	module's work."""
+	if not names:
+		return {}
+	groups = list(builder.SCOPE_GROUPS)
+	found = {}
+	for index, group in enumerate(groups):
+		standard = PHASE_OF_GROUP.get(group)
+		if standard in names:
+			found[group] = standard
+		else:
+			found[group] = names[round(index * (len(names) - 1) / max(len(groups) - 1, 1))]
+	return found
 
 
 def phase_deliverables(doc) -> str:
@@ -195,12 +213,11 @@ def project_plan(doc) -> dict:
 	its tasks (the phase's deliverables) and its milestone, dated."""
 	from tbo_smart.lead_pipeline.proposals import ACCEPTED, client_name
 
-	if doc.status != ACCEPTED:
-		frappe.throw(_("Make the project once the client has approved the plan."))
-	found = phases(doc)
+	require_approved(doc)
+	found = approved_phases(doc)
 	if not found or not found[0]["start"]:
 		frappe.throw(_("The plan has no dated phases. Set its start date and timeline first."))
-	work = deliverables_by_phase(doc)
+	work = approved_deliverables(doc)
 	return {
 		"plan": doc.name,
 		"lead": doc.lead,
@@ -238,10 +255,66 @@ def project_plan(doc) -> dict:
 	}
 
 
+def require_approved(doc) -> None:
+	from tbo_smart.lead_pipeline.proposals import ACCEPTED
+
+	if doc.status != ACCEPTED or not cint(doc.is_latest):
+		frappe.throw(_("Make the project once the client has approved the plan's latest version."))
+
+
+def section_text(doc, kind: str) -> str | None:
+	"""The text of the plan's section as the client approved it (None without it)."""
+	row = next((row for row in doc.sections if row.section_type == kind), None)
+	return row.body if row else None
+
+
+def approved_phases(doc) -> list[dict]:
+	"""The phases and dates from the approved Phases & Milestones table (an edited date stands);
+	the computed ones when the table can't be read."""
+	from tbo_smart.lead_pipeline.proposals import first_table, text_parts
+
+	found = first_table(text_parts(section_text(doc, "Project Timeline")))
+	rows = []
+	for cells in (found or {}).get("rows", []):
+		if len(cells) < 4:
+			return phases(doc)
+		try:
+			rows.append(
+				{
+					"phase": cells[0],
+					"days": flt(cells[1]),
+					"start": getdate(cells[2]),
+					"end": getdate(cells[3]),
+				}
+			)
+		except Exception:
+			return phases(doc)
+	return rows or phases(doc)
+
+
+def approved_deliverables(doc) -> dict[str, list[str]]:
+	"""{phase: [its deliverables]} from the approved Deliverables by Phase section (an edit
+	stands); the computed ones when the section is gone."""
+	from tbo_smart.lead_pipeline.proposals import text_parts
+
+	text = section_text(doc, "Phase Deliverables")
+	if text is None:
+		return deliverables_by_phase(doc)
+	found, phase = {}, None
+	for part in text_parts(text):
+		if part["kind"] == "heading":
+			phase = part["text"]
+			found.setdefault(phase, [])
+		elif part["kind"] == "list" and phase:
+			found[phase] += part["items"]
+	return found
+
+
 def link_project(doc, project: str, url: str | None) -> None:
 	"""The hub made the plan's project: kept on the plan (once) and said on the lead."""
 	from tbo_smart.lead_pipeline.proposals import DOCTYPE
 
+	require_approved(doc)
 	project = (project or "").strip()[:140]
 	if not project:
 		frappe.throw(_("Name the hub project."))
@@ -267,7 +340,14 @@ def record_uat(doc, status: str, signed_by: str | None = None) -> None:
 	status = (status or "").strip()[:60]
 	if not status:
 		frappe.throw(_("Give the UAT sign-off's state."))
+	current = frappe.db.get_value(DOCTYPE, doc.name, "uat_status", for_update=True)
+	if status == current:
+		# the same state again (a retried call) changes nothing; Signed keeps its date and warranty
+		return
 	values = {"uat_status": status}
+	if current == UAT_SIGNED:
+		# reopened: the signature is withdrawn, and the warranty starts with the next one
+		values.update({"uat_signed_on": None, "uat_signed_by": None, "warranty_starts_on": None})
 	if status == UAT_SIGNED:
 		now = now_datetime()
 		values.update(

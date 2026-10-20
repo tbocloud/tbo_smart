@@ -1424,6 +1424,15 @@ def make_approved_document(source: str, document_type: str, acting_user: str) ->
 	return name
 
 
+def make_plan_document(lead: str, acting_user: str, template: str, item_code: str) -> dict:
+	"""The chain up to an approved SRS (no AI), then a draft implementation plan made from it;
+	returns the plan's payload."""
+	srs_name = make_approved_document(
+		make_approved_brd(lead, acting_user, template, item_code), "SRS", acting_user
+	)
+	return make_hub_document(srs_name, "Implementation Plan", acting_user)["proposal"]
+
+
 def srs_answer(requirements: list[tuple[str, str]]) -> MagicMock:
 	"""The AI's answer for one SRS module: [(requirement, acceptance criterion)]."""
 	return openai_answer(

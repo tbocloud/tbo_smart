@@ -2,8 +2,9 @@
 
 **Status:** built 2026-10-19 (the owner's sales-to-delivery chain of 2026-10-19), steps 1 to 4
 of 5: the **Quotation**, the **Project Agreement / Work Order**, the **BRD** with its client
-questionnaire, the **SRS** and the **Implementation Plan** with the hub's project. The UAT
-sign-off follows in its own pull request and is added here when it is built. The proposal itself
+questionnaire, the **SRS** and the **Implementation Plan** with the hub's project. The ERP site
+already records the UAT sign-off (`record_uat`, the chain's UAT step); the hub's UAT sign-off and
+its test cases follow in their own pull requests. The proposal itself
 is `proposals.md`; the hub's
 contract is `hub-proposals-api.md`; the hub's side is tbocloud/helpdesk `docs/proposals.md`
 §Documents.
@@ -238,12 +239,19 @@ sections that weren't edited by hand).
 **The hub's project** (one way, once): with the plan approved, the chain's next action is *Create
 project*. The hub reads `get_project_plan` (the name "<client> - <solution>", the client, the
 start and go-live, each phase with a task for each of its deliverables and its milestone, dated)
-and makes its own project and tasks with them, then calls `link_project` (the project's name and
+and makes its own project and tasks with them (read from the plan's **approved** Phases &
+Milestones table and Deliverables by Phase section, so an edit the client approved stands), then
+calls `link_project` (an approved, latest plan only) (the project's name and
 link, kept on the plan in `hub_project` / `hub_project_url`, once; another name is refused; the
 lead's timeline says so). After that the project is where the work is planned: changing the plan
 never changes the project. `record_uat` (the hub's UAT sign-off on that project: its state, and
 when **Signed** who signed and **the warranty's start**, the day after; `uat_status`,
-`uat_signed_on`, `uat_signed_by`, `warranty_starts_on`) is what the UAT step (§8) records.
+`uat_signed_on`, `uat_signed_by`, `warranty_starts_on`) is what the UAT step (§8) records. The
+same state again changes nothing (a signed UAT keeps its date and warranty); a later state after
+Signed (Reopened) withdraws the signature and the warranty date.
+
+A timeline template may name its phases its own way: the modules' work goes to the standard
+phase of its subsection by name, else to the phase at the same position.
 
 ## 8. The chain on the lead (`client_documents.chain`)
 
