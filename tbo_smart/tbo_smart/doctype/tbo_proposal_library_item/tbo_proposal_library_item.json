@@ -25,7 +25,7 @@
    "reqd": 1,
    "in_list_view": 1,
    "in_standard_filter": 1,
-   "options": "Company Overview\nSolution Component\nScope of Work\nWorkflow\nArchitecture\nDeliverable\nPhase\nTimeline\nRole\nInvestment Note\nPayment Terms\nWarranty\nAMC Plan\nAssumption\nOut of Scope\nRisk\nTerms\nAgreement Clause\nNon-functional Requirement"
+   "options": "Company Overview\nSolution Component\nScope of Work\nWorkflow\nArchitecture\nDeliverable\nPhase\nTimeline\nRole\nInvestment Note\nPayment Terms\nWarranty\nAMC Plan\nAssumption\nOut of Scope\nRisk\nTerms\nAgreement Clause\nNon-functional Requirement\nClient Responsibility"
   },
   {
    "fieldname": "title",
@@ -48,7 +48,7 @@
    "fieldname": "group",
    "fieldtype": "Data",
    "label": "Group",
-   "description": "Scope of Work: its subsection (Business Analysis, System Design, …). Agreement Clause: its section (Change Requests, Intellectual Property, Confidentiality, Termination, General)."
+   "description": "Scope of Work: its subsection (Business Analysis, System Design, …). Agreement Clause: its section (Change Requests, Intellectual Property, Confidentiality, Termination, General). Client Responsibility: the phase it falls in, and \"start\" or \"end\" after a | (e.g. \"Analysis | start\")."
   },
   {
    "fieldname": "condition",
@@ -92,7 +92,7 @@
   }
  ],
  "links": [],
- "modified": "2026-10-22 12:00:00.000000",
+ "modified": "2026-10-23 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Proposal Library Item",

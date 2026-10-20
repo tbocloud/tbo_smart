@@ -125,6 +125,7 @@
   "enable_work_orders",
   "enable_brds",
   "enable_srs",
+  "enable_implementation_plans",
   "telephony_section",
   "enable_telephony",
   "myoperator_company_id",
@@ -948,6 +949,14 @@
    "description": "After an approved BRD: the functional specification per module, with numbered requirements and their acceptance criteria, from the module library (at most one small AI call a module)."
   },
   {
+   "fieldname": "enable_implementation_plans",
+   "fieldtype": "Check",
+   "label": "Implementation plans",
+   "default": "0",
+   "depends_on": "eval:doc.enable_srs",
+   "description": "After an approved SRS: the dated phases, milestones, deliverables, RACI and the client's responsibilities; the hub makes the project from it."
+  },
+  {
    "fieldname": "telephony_section",
    "fieldtype": "Section Break",
    "label": "Telephony (MyOperator)",
@@ -1162,7 +1171,7 @@
  "index_web_pages_for_search": 0,
  "issingle": 1,
  "links": [],
- "modified": "2026-10-22 12:00:00.000000",
+ "modified": "2026-10-23 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Smart Settings",

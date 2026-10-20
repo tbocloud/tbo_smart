@@ -1,4 +1,4 @@
-# Hub proposals API (`tbo_smart.api.hub_proposals`), v2.5
+# Hub proposals API (`tbo_smart.api.hub_proposals`), v2.6
 
 **Status:** built 2026-10-19. The TBO Support hub's proposal builder (tbocloud/helpdesk
 `docs/proposals.md`) calls these. What proposals are and do: `proposals.md`; the documents after
@@ -28,8 +28,11 @@ otherwise) and count against the day's limit (417 "Today's AI proposal runs are 
 | `extract_requirements` | POST | `lead`, `text`, `acting_user` | `{template, scoping: Scoping}` for presales to confirm; nothing saved |
 | `read_chat_answer` | POST | `lead`, `question`, `text`, `acting_user` | `{language ("English" / "Malayalam" / "Mixed"), english, profile: {only the Profile fields given}, template, scoping: {only the Scoping keys given}}`: an off-script start-chat answer, one small call; nothing saved |
 | `create_proposal` | POST | `lead`, `template?`, `ai_draft` (0/1), `scoping?` (JSON `Scoping`), `requirements?`, `client_profile` (JSON `Profile`, required: industry and pain_points), `chat?` (JSON `[ChatLine]`), `acting_user` | `{proposal: Proposal, warnings: [text]}` |
-| `create_document` | POST | `source` (the accepted document), `document_type` (`Quotation`, `Work Order`, `BRD`, `SRS`), `acting_user` | `{proposal: Proposal, warnings: [text]}` (`client-documents.md` §2) |
+| `create_document` | POST | `source` (the accepted document), `document_type` (`Quotation`, `Work Order`, `BRD`, `SRS`, `Implementation Plan`), `acting_user` | `{proposal: Proposal, warnings: [text]}` (`client-documents.md` §2) |
 | `get_document_chain` | GET | `lead`, `acting_user` | `Chain` |
+| `get_project_plan` | GET | `name` (an approved plan), `acting_user` | `{plan, lead, client, project_name, solution_type, start, end, hub_project, phases: [{phase, start, end, tasks: [{subject, start, end, milestone}]}]}` (417 while not approved or undated) |
+| `link_project` | POST | `name`, `project`, `url?`, `acting_user` | `Chain` (the plan's project, once; another name is 417) |
+| `record_uat` | POST | `name`, `status`, `signed_by?`, `acting_user` | `Chain` (Signed sets who and when, and the warranty's start the day after) |
 | `save_questions` | POST | `name` (a draft BRD), `questions` (JSON `[{section_type, question}]`), `acting_user` | `Proposal` (answered questions kept) |
 | `share_questionnaire` | POST | `name`, `acting_user` | `{proposal, url}`: the client's `/questions/<token>` link |
 | `send_questionnaire` | POST | `name`, `recipients?`, `message?`, `acting_user` | `{proposal, url}` (an email on the lead) |
@@ -77,13 +80,14 @@ Options = {enabled: true, ai, can_edit_templates,
 DocumentType = {name ("Proposal" / "Quotation" / "Work Order"), label ("Project Agreement" for
   the work order), accepted_label ("Accepted", "Signed"), follows, section_types,
   default_headings: {type: heading}, ai_sections, priced (its quotation is its price), signature
-  (the client signs with a designation), questionnaire (the BRD)}
+  (the client signs with a designation), dated (Send needs the start date), questionnaire (the BRD)}
 
 Questionnaire = {questions: [{name, section_type, question, answer, answered_on, applied,
   asked_by}], url (null until shared), open, sent_on, answered_on, new_answers}
 
-Chain = {steps: [{document_type, label, name, title, status, status_label, done, view_count,
-  quotation_status}], next: null | {action ("create_proposal" / "create" / "open"),
+Chain = {steps: [{document_type (a type, or "Project" / "UAT" after the plan), label, name,
+  title, status, status_label, done, view_count, quotation_status, url? (the project)}],
+  next: null | {action ("create_proposal" / "create" / "open" / "create_project" / "uat"),
   document_type, label, source?, name?}}
 
 Template = {name, template_name, solution_type, description, enabled, page_guide,
@@ -108,7 +112,8 @@ Row = {name, document_type, source_document, title, status, revision_no, is_late
   view_count, last_viewed_on, decided_on, modified}
 
 Proposal = {name, document_type, document_label, accepted_label, source_document, can_price,
-  signature, start_date, questionnaire: null | Questionnaire, title, lead, lead_name, client, lead_email, template, solution_type,
+  signature, dated, start_date, questionnaire: null | Questionnaire, delivery: null | {hub_project,
+  uat_status, uat_signed_on, uat_signed_by, warranty_starts_on} (a plan), title, lead, lead_name, client, lead_email, template, solution_type,
   page_guide, prepared_by (full name), status, ready_on (null: not marked ready), theme ("Ivory"),
   pricing_mode, scoping: Scoping,
   requirements, client_profile: Profile, chat: [ChatLine],
@@ -181,6 +186,8 @@ user with `acting_user`.
 
 ## Changelog
 
+- **v2.6 (2026-10-20):** the plan: `get_project_plan`, `link_project`, `record_uat`, the chain's
+  Project and UAT steps, `dated` and `delivery` on `Proposal`.
 - **v2.5 (2026-10-20):** the SRS: `create_document` makes one; the module's SRS fields in the
   library.
 - **v2.4 (2026-10-19):** `finalise_proposal`, `ready_on`; `save_proposal` returns `warnings`

@@ -1348,7 +1348,7 @@ def proposal_token(name: str) -> str:
 
 
 def enable_client_documents(
-	quotations: bool = True, work_orders: bool = True, brds: bool = True, srs: bool = True
+	quotations: bool = True, work_orders: bool = True, brds: bool = True, srs: bool = True, plans: bool = True
 ) -> None:
 	"""TBO Smart Settings' switches for the documents after the proposal (docs/client-documents.md)."""
 	set_smart_lead_settings(
@@ -1356,11 +1356,12 @@ def enable_client_documents(
 		enable_work_orders=int(work_orders),
 		enable_brds=int(brds),
 		enable_srs=int(srs),
+		enable_implementation_plans=int(plans),
 	)
 
 
 def disable_client_documents() -> None:
-	enable_client_documents(False, False, False, False)
+	enable_client_documents(False, False, False, False, False)
 
 
 def accept_as_client(name: str, designation: str | None = None) -> None:
@@ -1409,11 +1410,27 @@ def make_signed_agreement(lead: str, acting_user: str, template: str, item_code:
 def make_approved_brd(lead: str, acting_user: str, template: str, item_code: str) -> str:
 	"""The chain up to an approved BRD (made without the AI from a signed agreement, sent and
 	approved; emails mocked). Returns the BRD's name."""
-	order = make_signed_agreement(lead, acting_user, template, item_code)
-	name = make_hub_document(order, "BRD", acting_user)["proposal"]["name"]
+	return make_approved_document(
+		make_signed_agreement(lead, acting_user, template, item_code), "BRD", acting_user
+	)
+
+
+def make_approved_document(source: str, document_type: str, acting_user: str) -> str:
+	"""The next document from `source` (hub_proposals.create_document), sent and approved by the
+	client (emails mocked). Returns its name."""
+	name = make_hub_document(source, document_type, acting_user)["proposal"]["name"]
 	send_hub_proposal(name, acting_user)
 	accept_as_client(name)
 	return name
+
+
+def make_plan_document(lead: str, acting_user: str, template: str, item_code: str) -> dict:
+	"""The chain up to an approved SRS (no AI), then a draft implementation plan made from it;
+	returns the plan's payload."""
+	srs_name = make_approved_document(
+		make_approved_brd(lead, acting_user, template, item_code), "SRS", acting_user
+	)
+	return make_hub_document(srs_name, "Implementation Plan", acting_user)["proposal"]
 
 
 def srs_answer(requirements: list[tuple[str, str]]) -> MagicMock:

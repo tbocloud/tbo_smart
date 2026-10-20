@@ -1303,3 +1303,47 @@ NON_FUNCTIONAL = (
 	),
 	item(NFR, "Mobile", "Android 9 and later, iOS 15 and later.", condition="Mobile app", sort_order=6),
 )
+
+
+# ---------- the implementation plan: the client's part, dated by its phase (docs/client-documents.md §7) ----------
+
+RESPONSIBILITY = "Client Responsibility"
+CLIENT_RESPONSIBILITIES = (
+	item(
+		RESPONSIBILITY,
+		"Name the project owner and the key user of each department",
+		group="Analysis | start",
+		sort_order=1,
+	),
+	item(
+		RESPONSIBILITY,
+		"Share the current documents, formats and sample data",
+		group="Analysis | end",
+		sort_order=2,
+	),
+	item(
+		RESPONSIBILITY,
+		"Review and approve the business requirements and the specification",
+		group="Design | end",
+		sort_order=3,
+	),
+	item(
+		RESPONSIBILITY,
+		"Fill the data migration templates with clean masters and opening balances",
+		group="Development & Configuration | end",
+		sort_order=4,
+	),
+	item(
+		RESPONSIBILITY,
+		"Make the key users available for user acceptance testing",
+		group="Testing & UAT | start",
+		sort_order=5,
+	),
+	item(RESPONSIBILITY, "Sign off the user acceptance tests", group="Testing & UAT | end", sort_order=6),
+	item(
+		RESPONSIBILITY,
+		"Have every user attend their training session",
+		group="Training & Go-live | start",
+		sort_order=7,
+	),
+)

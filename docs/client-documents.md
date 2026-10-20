@@ -1,19 +1,22 @@
-# Client documents after the proposal (living spec, v1.2)
+# Client documents after the proposal (living spec, v1.3)
 
-**Status:** built 2026-10-19 (the owner's sales-to-delivery chain of 2026-10-19), steps 1 to 3
+**Status:** built 2026-10-19 (the owner's sales-to-delivery chain of 2026-10-19), steps 1 to 4
 of 5: the **Quotation**, the **Project Agreement / Work Order**, the **BRD** with its client
-questionnaire and the **SRS**. The implementation plan and the UAT sign-off follow in their own pull
-requests and are added here when they are built. The proposal itself is `proposals.md`; the hub's
+questionnaire, the **SRS** and the **Implementation Plan** with the hub's project. The ERP site
+already records the UAT sign-off (`record_uat`, the chain's UAT step); the hub's UAT sign-off and
+its test cases follow in their own pull requests. The proposal itself
+is `proposals.md`; the hub's
 contract is `hub-proposals-api.md`; the hub's side is tbocloud/helpdesk `docs/proposals.md`
 §Documents.
 
 The chain, one document after the next, each made from the accepted one before it:
 
-**Proposal → Quotation → Project Agreement (Work Order) → BRD → SRS** → (Plan → Project → UAT)
+**Proposal → Quotation → Project Agreement (Work Order) → BRD → SRS → Plan → Project** → (UAT)
 
 - **Code:** `lead_pipeline/document_types.py` (the types: sections, headings, builders, words),
   `lead_pipeline/brd.py` (the BRD's sections, its AI call and the questionnaire),
   `lead_pipeline/srs.py` (the SRS's sections a module, the FR numbering, its AI calls),
+  `lead_pipeline/implementation_plan.py` (the plan's dated sections, the hub's project and UAT),
   `www/questions.py` / `www/questions.html` (the questionnaire page),
   `lead_pipeline/client_documents.py` (making one, the quotation's ERPNext Quotation, the chain),
   and the proposal engine they share (`proposals.py`, `www/proposal.html`, `api/proposal_page.py`,
@@ -30,15 +33,15 @@ the nightly expiry — and a sibling doctype would have meant a second copy of t
 child tables, the permission hooks and the page, or an abstraction layer over both. With the
 field, the differences are data in one registry (`document_types.TYPES`):
 
-| | Proposal | Quotation | Work Order | BRD | SRS |
-| --- | --- | --- | --- | --- | --- |
-| Name | `PROP-YYYY-#####` | `QUOT-YYYY-#####` | `WO-YYYY-#####` | `BRD-YYYY-#####` | `SRS-YYYY-#####` |
-| Switch (TBO Smart Settings) | Proposals | **Quotations** (`enable_quotation_documents`) | **Project agreements** (`enable_work_orders`, needs Quotations) | **BRDs** (`enable_brds`, needs Project agreements) | **SRS** (`enable_srs`, needs BRDs) |
-| Made from | the lead (`proposals.md` §3) | the accepted proposal | the accepted quotation | the signed agreement | the approved BRD |
-| Its price | its own Quotation | its own Quotation | the accepted quotation's, read only | none | none |
-| AI | the narrative (`proposals.md` §4.2) | none | none | the narrative, from the client's words only (§5) | at most one call a module group (§6) |
-| Contents page | yes | no | yes | yes | yes |
-| The client | accepts / declines | accepts / declines | **signs** (name, designation, email) / asks for changes | answers the questionnaire, **approves** / asks for changes | **approves** / asks for changes |
+| | Proposal | Quotation | Work Order | BRD | SRS | Implementation Plan |
+| --- | --- | --- | --- | --- | --- | --- |
+| Name | `PROP-YYYY-#####` | `QUOT-YYYY-#####` | `WO-YYYY-#####` | `BRD-YYYY-#####` | `SRS-YYYY-#####` | `PIP-YYYY-#####` |
+| Switch (TBO Smart Settings) | Proposals | **Quotations** (`enable_quotation_documents`) | **Project agreements** (`enable_work_orders`, needs Quotations) | **BRDs** (`enable_brds`, needs Project agreements) | **SRS** (`enable_srs`, needs BRDs) | **Implementation plans** (`enable_implementation_plans`, needs SRS) |
+| Made from | the lead (`proposals.md` §3) | the accepted proposal | the accepted quotation | the signed agreement | the approved BRD | the approved SRS |
+| Its price | its own Quotation | its own Quotation | the accepted quotation's, read only | none | none | none |
+| AI | the narrative (`proposals.md` §4.2) | none | none | the narrative, from the client's words only (§5) | at most one call a module group (§6) | none |
+| Contents page | yes | no | yes | yes | yes | yes |
+| The client | accepts / declines | accepts / declines | **signs** (name, designation, email) / asks for changes | answers the questionnaire, **approves** / asks for changes | **approves** / asks for changes | **approves** / asks for changes |
 
 `document_type` and `source_document` ("Made from") are set only when a document is made
 (`client_documents.create_document`); the controller resets them on any other insert (before
@@ -217,7 +220,40 @@ rebuilds it with no AI; a section edited by hand is kept (asked first), also on 
 `srs.functional_requirements(doc)` reads every FR back (`{id, module, requirement, acceptance}`)
 for the UAT checklist (step 5).
 
-## 7. The chain on the lead (`client_documents.chain`)
+## 7. The Project Implementation Plan and the hub's project
+
+Made from the approved SRS (*Create implementation plan*), **all data, no AI**. It starts on the
+agreement's start date (`start_date`, editable; Send needs it; a new date rebuilds the dated
+sections that weren't edited by hand).
+
+| Section | From |
+| --- | --- |
+| Plan Overview | the start, the go-live, the days and phases |
+| Phases & Milestones | the proposal's timeline template dated from the start (each phase from / to, calendar days), a milestone "<phase> complete" at each phase's end; drawn as bars with the table kept |
+| Deliverables by Phase | the Phase library's activities and each module's scope lines, each in the phase its subsection belongs to (Business Analysis → Analysis, System Design → Design, Development & Configuration, Testing → Testing & UAT, Deployment, Training & Handover → Training & Go-live) |
+| RACI Matrix | the Role library's roles and the Client, against the phases: the project manager accountable; analysts responsible for analysis, design and training; developers for development; QA for testing; DevOps for deployment; the client responsible for UAT and training, consulted on analysis, design and deployment |
+| Client Responsibilities | library **Client Responsibility** (its `group` "<phase> \| start" or "\| end"), each with its date; seeded once (`setup.seed_plan_library`) |
+| Risks & Mitigation | the Risk library, as the proposal |
+| Approval | the client approves |
+
+**The hub's project** (one way, once): with the plan approved, the chain's next action is *Create
+project*. The hub reads `get_project_plan` (the name "<client> - <solution>", the client, the
+start and go-live, each phase with a task for each of its deliverables and its milestone, dated)
+and makes its own project and tasks with them (read from the plan's **approved** Phases &
+Milestones table and Deliverables by Phase section, so an edit the client approved stands), then
+calls `link_project` (an approved, latest plan only) (the project's name and
+link, kept on the plan in `hub_project` / `hub_project_url`, once; another name is refused; the
+lead's timeline says so). After that the project is where the work is planned: changing the plan
+never changes the project. `record_uat` (the hub's UAT sign-off on that project: its state, and
+when **Signed** who signed and **the warranty's start**, the day after; `uat_status`,
+`uat_signed_on`, `uat_signed_by`, `warranty_starts_on`) is what the UAT step (§8) records. The
+same state again changes nothing (a signed UAT keeps its date and warranty); a later state after
+Signed (Reopened) withdraws the signature and the warranty date.
+
+A timeline template may name its phases its own way: the modules' work goes to the standard
+phase of its subsection by name, else to the phase at the same position.
+
+## 8. The chain on the lead (`client_documents.chain`)
 
 `hub_leads.get_lead` returns `documents` (and `hub_proposals.get_document_chain(lead)` the same):
 
@@ -229,10 +265,12 @@ for the UAT checklist (step 5).
 ```
 
 One step per switched-on type, in order, each the lead's accepted document of that type, else its
-newest latest revision. `next` is the one primary action: the first step in progress (open it),
+newest latest revision; after the plan, the **Project** (done once the hub made it, `url` its
+link) and the **UAT** sign-off (done once Signed). The next actions add `create_project`
+(`source` the approved plan) and `uat` (`name` the hub project). `next` is the one primary action: the first step in progress (open it),
 else make the next document from the accepted one, else none (the chain is done).
 
-## 8. What the client sees
+## 9. What the client sees
 
 The same page and PDF (`proposals.md` §5) with the type's own words (`document_types.words`):
 the cover's kicker (Quotation, Project Agreement / Work Order), the decision panel (Accept
@@ -241,11 +279,11 @@ Changes asked for), the acceptance sentence, the share card ("Agreement with <cl
 <company>"), the email's subject, greeting and link. Nothing else changes: no emails, owners,
 notes or internal names; the token is the only key; preview, print and PDF as for a proposal.
 
-## 9. What the owner sets up
+## 10. What the owner sets up
 
 1. Deploy and `bench migrate` (the fields, the section types, the Agreement Clause library).
 2. TBO Smart Settings → **Client documents after the proposal**: **Quotations**, then **Project
-   agreements (work orders)**, then **BRDs**, then **SRS**. All are off by default. The BRD's AI uses **AI
+   agreements (work orders)**, then **BRDs**, then **SRS**, then **Implementation plans**. All are off by default. The BRD's AI uses **AI
    proposal drafts** and its daily limit.
 3. On the ERP site: a **default Sales Taxes and Charges Template** for the company (GST), and in
    TBO Smart Settings the quotation **terms** and **payment terms template**, so every quotation
@@ -254,7 +292,7 @@ notes or internal names; the token is the only key; preview, print and PDF as fo
    proposals → library, or the desk).
 5. The company's **address and GSTIN** on the Company (the agreement's Parties).
 
-## 10. Tests
+## 11. Tests
 
 `tbo_smart/tests/test_client_documents.py` (helpers `enable_client_documents`,
 `make_accepted_proposal`, `accept_as_client`, `make_hub_document` in `test_utils.py`): each type
@@ -276,10 +314,15 @@ naming only it; approving closes the questionnaire, a bad token is not found; pr
 questions); the SRS (a section a module with numbered FRs from the library, the roles, the
 non-functional requirements and the references; read back for the UAT; a module rebuilt with no
 AI; only from an approved BRD; one AI call a module the BRD speaks of, its requirements numbered
-after the library's, usage logged; an invented number left out).
+after the library's, usage logged; an invented number left out); the plan (dated from the
+agreement's start, milestones, deliverables by phase, the RACI, the client's dated part; no
+project from a draft; approved: the project plan with its phases, tasks and milestones, linked
+once, the chain's Project and UAT steps and their actions, the UAT recorded with the warranty's
+start).
 
 ## Changelog
 
+- **v1.3 (2026-10-19):** the Project Implementation Plan and the hub's project from it.
 - **v1.2 (2026-10-19):** the SRS: a section a module, numbered FRs and their acceptance criteria
   from the module library, at most one AI call a module group.
 - **v1.1 (2026-10-19):** the BRD and the client questionnaire.

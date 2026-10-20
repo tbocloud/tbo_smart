@@ -697,12 +697,12 @@ def follow_data(doc, before: dict) -> None:
 			row.body = text or None
 
 
-DATED_SECTIONS = ("Purpose", "Project Timeline")
+DATED_SECTIONS = ("Purpose", "Project Timeline", "Plan Overview", "Client Responsibilities")
 
 
 def redate(doc) -> None:
 	"""A new start date flows into the sections that show it (the agreement's purpose and dated
-	timeline), unless someone edited them by hand."""
+	timeline, the plan's overview, phases and the client's dates), unless edited by hand."""
 	for row in doc.sections:
 		if row.section_type in DATED_SECTIONS and not cint(row.edited):
 			text = kinds.build_section(doc, row.section_type, row)
@@ -938,7 +938,7 @@ def send_blockers(doc, by_email: bool = True) -> list[str]:
 
 		if unapplied(doc):
 			reasons.append(_("The client sent new answers. Update the document from them first."))
-	if spec.signature and not doc.get("start_date"):
+	if spec.dated and not doc.get("start_date"):
 		reasons.append(_("Set the project's start date: the timeline's dates follow from it."))
 	if spec.shows_price:
 		return reasons + accepted_price_blockers(doc)
