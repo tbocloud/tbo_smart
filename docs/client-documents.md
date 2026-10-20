@@ -1,4 +1,4 @@
-# Client documents after the proposal (living spec, v1.4)
+# Client documents after the proposal (living spec, v1.5)
 
 **Status:** built 2026-10-19/20 (the owner's sales-to-delivery chain of 2026-10-19) in five
 steps: (1) the **Quotation** and the **Project Agreement / Work Order**, (2) the **BRD** with its
@@ -8,6 +8,10 @@ contract is `hub-proposals-api.md`; the hub's side is tbocloud/helpdesk `docs/pr
 §Documents.
 
 The chain, one document after the next, each made from the accepted one before it:
+
+**Proposal → Project Agreement (Work Order) → BRD → SRS → Plan → Project → UAT**
+
+while **the proposal is the quotation** (the default, §1.1); with that switched off, as before:
 
 **Proposal → Quotation → Project Agreement (Work Order) → BRD → SRS → Plan → Project → UAT**
 
@@ -34,12 +38,46 @@ field, the differences are data in one registry (`document_types.TYPES`):
 | | Proposal | Quotation | Work Order | BRD | SRS | Implementation Plan |
 | --- | --- | --- | --- | --- | --- | --- |
 | Name | `PROP-YYYY-#####` | `QUOT-YYYY-#####` | `WO-YYYY-#####` | `BRD-YYYY-#####` | `SRS-YYYY-#####` | `PIP-YYYY-#####` |
-| Switch (TBO Smart Settings) | Proposals | **Quotations** (`enable_quotation_documents`) | **Project agreements** (`enable_work_orders`, needs Quotations) | **BRDs** (`enable_brds`, needs Project agreements) | **SRS** (`enable_srs`, needs BRDs) | **Implementation plans** (`enable_implementation_plans`, needs SRS) |
-| Made from | the lead (`proposals.md` §3) | the accepted proposal | the accepted quotation | the signed agreement | the approved BRD | the approved SRS |
-| Its price | its own Quotation | its own Quotation | the accepted quotation's, read only | none | none | none |
+| Switch (TBO Smart Settings) | Proposals | **Quotations** (`enable_quotation_documents`; never while the proposal is the quotation) | **Project agreements** (`enable_work_orders`, needs Quotations unless the proposal is the quotation) | **BRDs** (`enable_brds`, needs Project agreements) | **SRS** (`enable_srs`, needs BRDs) | **Implementation plans** (`enable_implementation_plans`, needs SRS) |
+| Made from | the lead (`proposals.md` §3) | the accepted proposal | the accepted proposal while the proposal is the quotation, else the accepted quotation | the signed agreement | the approved BRD | the approved SRS |
+| Its price | its own Quotation (the final price while the proposal is the quotation) | its own Quotation | the accepted proposal's or quotation's, read only | none | none | none |
 | AI | the narrative (`proposals.md` §4.2) | none | none | the narrative, from the client's words only (§5) | at most one call a module group (§6) | none |
 | Contents page | yes | no | yes | yes | yes | yes |
 | The client | accepts / declines | accepts / declines | **signs** (name, designation, email) / asks for changes | answers the questionnaire, **approves** / asks for changes | **approves** / asks for changes | **approves** / asks for changes |
+
+### 1.1 The proposal is the quotation (`proposal_is_quotation`, on by default)
+
+The owner's decision of 2026-10-20: one document carries the solution and the final value, so
+there is no separate Quotation step after an accepted proposal. TBO Smart Settings → Client
+documents → **The proposal is the quotation** (Check, default on; the patch
+`proposal_is_quotation` switches it on for existing sites). While it is on:
+
+- **The proposal's commercials are final.** Its own ERPNext Quotation (`proposals.md` §4.1)
+  stays the single price record (rate card, manual prices, discount approval as today). A new
+  one starts with the commercial defaults (`proposals.commercial_defaults`): the company's
+  **default Sales Taxes and Charges Template** (GST), TBO Smart Settings' quotation **terms** and
+  **payment terms template**, valid as long as the proposal. The Investment section shows the
+  lines, the discount, the GST, the grand total and the total in words; the Payment Terms
+  section each milestone's amount of the grand total.
+- **Accepting the proposal** accepts its Quotation and moves the lead to Closed – Won, as
+  before; the Sales Order is made from that accepted quotation as before.
+- **The Quotation type is off** whatever `enable_quotation_documents` says (`document_enabled`):
+  hidden from the options and the chain, `create_document` refuses it (417). The **Project
+  Agreement is made from the accepted proposal** (`document_types.made_from`), showing that
+  proposal's quotation's lines and taxes read only; its Price section reads "The price is the one
+  in the proposal PROP-… the Client accepted."; Send needs that quotation still Accepted ("Revise
+  the proposal and have it accepted first."); repricing it is refused ("Change it through a
+  revised proposal."). The BRD, SRS and plan read their references through `lineage`, so they
+  follow either chain.
+- **The ERPNext Quotation is internal** (accounts, the Sales Order, approvals). The client's page,
+  the PDF and the emails never show its number (they never did; a test guards it): the client's
+  reference is the proposal's own (`PROP-…`) and version. Staff see it in the hub (the builder's
+  pricing block and the lead's Quotations, each with a desk link).
+- **Tracing:** the Quotation's `tbo_proposal` names the proposal it prices; ERPNext's mapper
+  carries it to the Sales Order and the Sales Invoice (`lead-pipeline.md` §9.5).
+
+Off: everything as below (the Quotation document after the proposal, the agreement from the
+accepted quotation), unchanged.
 
 `document_type` and `source_document` ("Made from") are set only when a document is made
 (`client_documents.create_document`); the controller resets them on any other insert (before
@@ -63,7 +101,7 @@ it like a proposal (only a draft changes; a sent one through a revision).
 
 ## 3. The Quotation
 
-The detailed commercial offer, made in the hub (*Create quotation*) as soon as the proposal is
+Only while the proposal is **not** the quotation (§1.1). The detailed commercial offer, made in the hub (*Create quotation*) as soon as the proposal is
 accepted. Its price is **its own ERPNext Quotation** on the ERP site:
 
 - the accepted proposal's quotation is **revised** (`quotations.create_revision`: the same lines,
@@ -92,18 +130,19 @@ like every document in the chain.
 
 ## 4. The Project Agreement / Work Order
 
-Formally confirms the business; made from the accepted quotation (*Create project agreement*).
+Formally confirms the business; made from the accepted quotation, or from the accepted proposal
+while the proposal is the quotation (§1.1) (*Create project agreement*).
 
 | # | Section | From |
 | --- | --- | --- |
 | 1 | Cover | data |
 | 2 | Parties | our company (address, GSTIN) and the client (city, state, contact), and who is "TBO" and "the Client" |
-| 3 | Purpose of this Agreement | the references of the accepted proposal and quotation and their dates, the start date |
+| 3 | Purpose of this Agreement | the references of the accepted proposal (and quotation, when there is one) and their dates, the start date |
 | 4 | Scope of Work | the scope library, the modules' scope lines and the customisations (as the proposal) |
 | 5 | Modules & Customisations | the module cards |
 | 6 | Deliverables | the modules' and the library's |
 | 7 | Project Timeline | the proposal's timeline template, **dated from the start date**: each phase from / to (calendar days, each phase starting the day after the one before), drawn as bars with the table kept |
-| 8 | Price | the accepted quotation's lines, taxes and total (read only) and the investment notes |
+| 8 | Price | the accepted quotation's (or proposal's) lines, taxes and total (read only), named by the client document's reference, and the investment notes |
 | 9 | Payment Milestones | the proposal's payment terms with each amount |
 | 10 | Change Request Process | the clause library + the day rate |
 | 11 | Warranty & Support | the Warranty library |
@@ -278,7 +317,7 @@ ERP site gives it:
   source (create: the accepted document to make it from), name (open)}}
 ```
 
-One step per switched-on type, in order, each the lead's accepted document of that type, else its
+One step per switched-on type, in order (no Quotation step while the proposal is the quotation), each the lead's accepted document of that type, else its
 newest latest revision; after the plan, the **Project** (done once the hub made it, `url` its
 link) and the **UAT** sign-off (done once Signed). The next actions add `create_project`
 (`source` the approved plan) and `uat` (`name` the hub project). `next` is the one primary action: the first step in progress (open it),
@@ -296,12 +335,16 @@ notes or internal names; the token is the only key; preview, print and PDF as fo
 ## 11. What the owner sets up
 
 1. Deploy and `bench migrate` (the fields, the section types, the Agreement Clause library).
-2. TBO Smart Settings → **Client documents after the proposal**: **Quotations**, then **Project
-   agreements (work orders)**, then **BRDs**, then **SRS**, then **Implementation plans**. All are off by default. The BRD's AI uses **AI
-   proposal drafts** and its daily limit.
-3. On the ERP site: a **default Sales Taxes and Charges Template** for the company (GST), and in
-   TBO Smart Settings the quotation **terms** and **payment terms template**, so every quotation
-   gets them.
+2. TBO Smart Settings → **Client documents after the proposal**: **The proposal is the quotation**
+   (on after the migrate; leave it on for Proposal → Agreement), then **Project agreements (work
+   orders)**, then **BRDs**, then **SRS**, then **Implementation plans** (all off by default).
+   **Quotations** only when the proposal is not the quotation. The BRD's AI uses **AI proposal
+   drafts** and its daily limit.
+3. On the ERP site: a **default Sales Taxes and Charges Template** for the company (GST; tick
+   *Default* on it), and in TBO Smart Settings the quotation **terms** and **payment terms
+   template**, so every proposal's quotation gets them. For the **proposal service item** use a
+   UOM that takes fractions (ERPNext's **Day**, *Must be Whole Number* off), so 3.5 customisation
+   days stay 3.5 × the day rate on one line (`proposals.md` §4.1).
 4. Have the **Agreement Clause** texts reviewed by TBO's lawyer (hub Settings → Rates and
    proposals → library, or the desk).
 5. The company's **address and GSTIN** on the Company (the agreement's Parties).
@@ -333,9 +376,20 @@ agreement's start, milestones, deliverables by phase, the RACI, the client's dat
 project from a draft; approved: the project plan with its phases, tasks and milestones, linked
 once, the chain's Project and UAT steps and their actions, the UAT recorded with the warranty's
 start); the UAT's test cases (a case an FR of the approved SRS, its steps and expected result;
-refused for anything but a plan).
+refused for anything but a plan). `TestProposalIsQuotation`: the options and the chain without
+the Quotation step; the proposal's quotation with the default GST, the proposal's validity and
+`tbo_proposal`, the page's GST and grand total; the quotation number absent from the guest page,
+the PDF's HTML and the email (staff get it with its desk link); the agreement made from the
+accepted proposal with its quotation read only, its Price naming the proposal, signed, then the
+BRD; the Sales Order and the Sales Invoice carry the proposal; off keeps the Quotation step and the
+proposal's quotation as before. `TestFractionalDays`: 3.5 days on Nos priced as one unit at 3.5 ×
+the day rate (the owner's "Create quotation" case), and kept as 3.5 on Day.
 
 ## Changelog
+
+- **v1.5 (2026-10-20):** the proposal is the quotation (§1.1), on by default: Proposal → Project
+  Agreement, the proposal's quotation with the default GST, terms and validity, `tbo_proposal`
+  on the quotation, the Sales Order and the Sales Invoice.
 
 - **v1.4 (2026-10-19):** the UAT test cases from the SRS for the hub's sign-off.
 - **v1.3 (2026-10-19):** the Project Implementation Plan and the hub's project from it.

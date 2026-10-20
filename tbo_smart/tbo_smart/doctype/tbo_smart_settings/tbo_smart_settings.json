@@ -120,6 +120,7 @@
   "proposal_day_rate",
   "proposal_ai_daily_limit",
   "client_documents_section",
+  "proposal_is_quotation",
   "enable_quotation_documents",
   "column_break_client_documents",
   "enable_work_orders",
@@ -914,11 +915,19 @@
    "description": "Each is made in the hub from the accepted one before it, shared, sent and accepted or signed like a proposal (docs/client-documents.md)."
   },
   {
+   "fieldname": "proposal_is_quotation",
+   "fieldtype": "Check",
+   "label": "The proposal is the quotation",
+   "default": "1",
+   "description": "One document carries the solution and the final price: the proposal's own ERPNext Quotation (with the default GST, terms and validity) is the price record, accepting the proposal accepts it, and the project agreement is made from the accepted proposal. The separate Quotation step is skipped. Off: Proposal → Quotation → Project Agreement."
+  },
+  {
    "fieldname": "enable_quotation_documents",
    "fieldtype": "Check",
    "label": "Quotations",
    "default": "0",
-   "description": "After an accepted proposal: the detailed quotation, priced by an ERPNext Quotation with taxes, terms and validity, and the discount approval."
+   "description": "After an accepted proposal: the detailed quotation, priced by an ERPNext Quotation with taxes, terms and validity, and the discount approval.",
+   "depends_on": "eval:!doc.proposal_is_quotation"
   },
   {
    "fieldname": "column_break_client_documents",
@@ -929,8 +938,8 @@
    "fieldtype": "Check",
    "label": "Project agreements (work orders)",
    "default": "0",
-   "depends_on": "eval:doc.enable_quotation_documents",
-   "description": "After an accepted quotation: the agreement both sides sign, with the scope, the dated timeline, the price, the payment milestones and the clauses."
+   "depends_on": "eval:doc.proposal_is_quotation || doc.enable_quotation_documents",
+   "description": "After the accepted proposal (when the proposal is the quotation) or the accepted quotation: the agreement both sides sign, with the scope, the dated timeline, the price, the payment milestones and the clauses."
   },
   {
    "fieldname": "enable_brds",
@@ -1171,7 +1180,7 @@
  "index_web_pages_for_search": 0,
  "issingle": 1,
  "links": [],
- "modified": "2026-10-23 12:00:00.000000",
+ "modified": "2026-10-23 13:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Smart Settings",

@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, flt, formatdate, getdate
+from frappe.utils import add_days, cint, flt, formatdate, getdate
 
 from tbo_smart.lead_pipeline import proposal_builder as builder
 from tbo_smart.lead_pipeline import setting
@@ -340,11 +340,15 @@ def dated_timeline(doc) -> str:
 
 
 def agreed_price(doc) -> str:
-	"""The agreed price is the accepted quotation's; the notes on what it includes follow."""
-	quote = next((row for row in lineage(doc) if row.document_type == QUOTATION), None)
+	"""The agreed price is the one the client accepted: the quotation's, or the proposal's when the
+	proposal is the quotation (its reference, never the internal ERPNext Quotation's); the notes on
+	what it includes follow."""
+	priced = next((row for row in lineage(doc) if row.document_type in (QUOTATION, PROPOSAL)), None)
 	lead_in = (
-		_("The price is the one in the quotation {0} the Client accepted.").format(quote.name)
-		if quote
+		_("The price is the one in the {0} {1} the Client accepted.").format(
+			_(priced.document_type).lower(), priced.name
+		)
+		if priced
 		else _("The price is the one the Client accepted.")
 	)
 	notes = builder.investment(doc)
@@ -536,6 +540,28 @@ TYPES = {
 	for spec in (PROPOSAL_TYPE, QUOTATION_TYPE, WORK_ORDER_TYPE, brd_type(), srs_type(), plan_type())
 }
 ALL_SECTION_TYPES = tuple(dict.fromkeys(kind for spec in TYPES.values() for kind in spec.section_types))
+
+
+def proposal_is_quotation() -> bool:
+	"""TBO Smart Settings → The proposal is the quotation: the proposal's own ERPNext Quotation is
+	the final price, so there is no Quotation document and the agreement follows the proposal."""
+	return bool(cint(setting("proposal_is_quotation")))
+
+
+def made_from(spec: DocumentType) -> str | None:
+	"""The type a document is made from: the agreement from the accepted proposal while the
+	proposal is the quotation, else the type before it in the chain."""
+	if spec.follows == QUOTATION and proposal_is_quotation():
+		return PROPOSAL
+	return spec.follows
+
+
+def final_price(doc) -> bool:
+	"""Its quotation is the client's final price, so a new one starts with the default taxes,
+	terms, payment terms and validity: a quotation document, or a proposal that is the
+	quotation."""
+	name = of(doc).name
+	return name == QUOTATION or (name == PROPOSAL and proposal_is_quotation())
 
 
 def of(doc_or_type) -> DocumentType:

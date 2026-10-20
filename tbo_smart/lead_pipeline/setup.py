@@ -38,6 +38,16 @@ def get_pipeline_fields() -> dict:
 		"read_only": 1,
 		"no_copy": 1,
 	}
+	# the client document a quotation prices (docs/client-documents.md §3): not no_copy, so ERPNext's
+	# mapper carries it from the quotation to the Sales Order and on to the Sales Invoice
+	proposal_link = {
+		"fieldname": "tbo_proposal",
+		"fieldtype": "Link",
+		"options": "TBO Proposal",
+		"label": "Proposal",
+		"read_only": 1,
+		"description": "The proposal (or quotation document) the client accepted this price on; the client's reference.",
+	}
 	return {
 		"Lead": [
 			{
@@ -269,7 +279,12 @@ def get_pipeline_fields() -> dict:
 				"insert_after": "tbo_sent_via",
 				**tracked,
 			},
+			{**proposal_link, "insert_after": "tbo_sent_on", "allow_on_submit": 1},
 		],
+		# carried from the quotation by ERPNext's mapper, so accounts trace an order or an invoice
+		# to the proposal the client accepted
+		"Sales Order": [{**proposal_link, "insert_after": "po_date"}],
+		"Sales Invoice": [{**proposal_link, "insert_after": "po_date"}],
 	}
 
 

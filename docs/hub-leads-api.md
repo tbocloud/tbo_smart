@@ -1,4 +1,4 @@
-# Hub leads API (`tbo_smart.api.hub_leads`), v1.5
+# Hub leads API (`tbo_smart.api.hub_leads`), v1.6
 
 **Status:** built 2026-10-16. The TBO Support hub's lead page (tbocloud/helpdesk) shows and edits
 tboindia's leads through these methods. The leads are ERPNext's own **Lead**
@@ -79,7 +79,8 @@ Item = {kind: "note" | "call" | "activity" | "meeting" | "stage" | "quotation" |
   (telephony-myoperator.md §4.1)
 
 Quotation = {name, docstatus, tbo_quote_status, transaction_date, valid_till, currency,
-  grand_total, tbo_revision_no, tbo_is_latest}
+  grand_total, tbo_revision_no, tbo_is_latest, tbo_proposal (the proposal it prices), url (its
+  desk form, for staff: the client only ever sees the proposal)}
 ```
 
 - **Stages** are TBO's 13 pipeline stages in order (`lead-pipeline.md` §2), each with its type
@@ -260,6 +261,7 @@ options. `tests/test_segment_rate_card.py`: the rate card methods (acting user, 
 
 ## Changelog
 
+- **v1.6 (2026-10-20):** a quotation carries `tbo_proposal` and its desk `url`.
 - **v1.5 (2026-10-19):** call timeline items carry MyOperator's call fields, `lead.can_call`
   and `get_options`' `can_call`,
   and `get_sales_activity`'s `calls` and `talk_seconds` (`telephony-myoperator.md`).

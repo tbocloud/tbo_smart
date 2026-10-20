@@ -1,4 +1,4 @@
-# Proposals to a lead (living spec, v2.5)
+# Proposals to a lead (living spec, v2.6)
 
 **Status:** built 2026-10-19 (Phases 3 and 4 of the sales flow the owner approved on 2026-10-16;
 the Universal IT Proposal the owner set on 2026-10-19). Presales starts a proposal in the TBO
@@ -48,7 +48,7 @@ of their own type, on the same engine: `client-documents.md`. The hub's contract
 | `chat` | JSON: the assistant's transcript `[{role: presales / assistant, text, at}]`, the newest 200, kept on the proposal. The AI never reads it (§4.2). |
 | `modules` | **TBO Proposal Module Line**: the proposal's own copy of each module (`module`, `module_name`, `fit` Standard / Configured / Customised, `description`, `features`, `effort_days`, `rate`, `rate_overridden`, `item`) |
 | `sections` | Ordered **TBO Proposal Section** rows: `section_type` (the 23 master sections, Image, Custom), `enabled` (off: kept, not shown), `edited` (changed by hand: regenerating asks first), `heading`, `body` (§2.3), and `image`, `image_alt`, `image_caption`, `image_size` (§2.1). At most 30. |
-| `quotation` | The lead's Quotation that prices it (§4.1) |
+| `quotation` | The lead's Quotation that prices it (§4.1); its `tbo_proposal` names the proposal back. While the proposal is the quotation it is the final price (`client-documents.md` §1.1) |
 | `pricing_mode` | Itemised (every quotation line) or Consolidated (one project price with what it includes) |
 | `theme` | **Ivory**, the one theme (§5.1); read only |
 | `letter_head_override` | The proposal's own Letter Head; blank: the default (§2.2). Not called `letter_head`: Frappe fills a field of that name from the user's default letter head, which would pin every new proposal to it. |
@@ -276,7 +276,24 @@ and the discount and commission control applies (*Request approval* above the li
 `price_from_modules` writes its lines from the modules (a line each at its price, an Item's or the
 service item named by the module) and the customisation days (the service item at the day rate);
 the taxes, extra discount and validity already on the quotation are kept. The manual pricing
-dialog still works. A proposal links one quotation; repricing a revision of a sent proposal makes
+dialog still works.
+
+**The proposal is the quotation** (TBO Smart Settings, on by default; `client-documents.md`
+§1.1): the proposal's commercials are final. A proposal's **new** quotation (priced from the
+modules on Generate, or later) starts with the commercial defaults: the company's default Sales
+Taxes and Charges Template (GST), the quotation terms and payment terms template from TBO Smart
+Settings, and the proposal's own valid till. The Investment then shows the lines, discount, GST,
+grand total and total in words, and the Payment Terms each milestone's amount of the grand total.
+Off: a proposal's new quotation starts without them, as before.
+
+**Customisation days and whole-number UOMs** (`builder.customisation_line`): the days are the
+line's quantity in the service item's UOM (its sales UOM, else its stock UOM). When that UOM is
+*Must be Whole Number* (ERPNext's Nos) and the days aren't whole (3.5), ERPNext would refuse the
+line ("Quantity (3.5) cannot be a fraction"), so the line is **one unit priced at days × the day
+rate**, described "Customisation (3.5 person-days at ₹10,000.00 a day)". Chosen over rounding up
+to whole days: the client pays for the days agreed, not more, and the days stay readable on the
+line. Whole days, or a UOM that takes fractions, keep the days as the quantity. **Recommended:**
+give the proposal service item ERPNext's **Day** UOM (*Must be Whole Number* off). A proposal links one quotation; repricing a revision of a sent proposal makes
 a quotation revision first. The page shows the lines itemised, or one project price
 (consolidated) with what it includes; taxes and the total always.
 
@@ -393,7 +410,9 @@ it was.
   chains, the module cards, the timeline bar, payment amounts; the quotation's lines (itemised or
   consolidated), discount, taxes, total and total in words; the acceptance block. **Nothing
   else:** no emails (the accepted block shows the accepting client's email masked, e.g.
-  a•••@client.example), owners, notes, lead or quotation names, internal statuses. Everything is escaped.
+  a•••@client.example), owners, notes, lead or quotation names, internal statuses. Everything is
+  escaped. The ERPNext Quotation is internal: its number is never on the page, the PDF or the
+  email; the client's reference is the proposal's own number and version (the cover).
 - **Tab and share card:** the icon is Website Settings' favicon, else its app logo or the company
   logo, else the bundled TBO icon (`/assets/tbo_smart/images/tbo-proposal-icon.svg`, a PNG for
   `apple-touch-icon`); the title "<proposal title> · <company>"; `og:title`, `og:description`
@@ -480,7 +499,10 @@ focus ring, 44px targets.
 2. An **outgoing Email Account** on the ERP site, for Send.
 3. TBO Smart Settings: Quotations on the lead and **Proposals** on; **AI proposal drafts** with an
    AI provider; the **Proposal service item** (an Item for module and customisation lines; e.g. a
-   service Item "Implementation Services") and the **Day rate**.
+   service Item "Implementation Services", in the UOM **Day** with *Must be Whole Number* off, §4.1)
+   and the **Day rate**; **The proposal is the quotation** stays on (`client-documents.md` §1.1).
+   A **default Sales Taxes and Charges Template** (GST) for the company, and the quotation terms
+   and payment terms template, so the proposal's price carries them.
 4. **Prices:** in hub Settings → Rates and proposals → Module catalogue, set each module's default
    price or link it to an Item priced on the segment rate card; set the AMC plans' yearly prices;
    review the timeline, payment terms, terms and warranty templates.
@@ -521,6 +543,10 @@ focus ring, 44px targets.
 
 ## Changelog
 
+- **v2.6 (2026-10-20):** the proposal is the quotation (on by default): a proposal's new
+  quotation gets the default GST, terms, payment terms template and the proposal's validity
+  (§4.1); the quotation names the proposal (`tbo_proposal`); customisation days on a
+  whole-number UOM are one unit at days × the day rate.
 - **v2.5 (2026-10-20):** a footer picture spans the content's width (at most 30 mm high) on
   every page and the cover, with the bottom margin taken from its height and "n / N" on a line
   above it; an HTML footer around a picture shows just the picture.

@@ -505,7 +505,7 @@ def price_new_proposal(doc) -> list[str]:
 	if not doc.modules:
 		return []
 	try:
-		save_pricing(doc, builder.pricing_values(doc))
+		price_from_modules(doc)
 	except frappe.ValidationError as e:
 		frappe.clear_last_message()
 		return [_("Not priced yet: {0}").format(str(e))]
@@ -823,15 +823,25 @@ def edit_by_chat(doc, message: str) -> dict:
 
 def price_from_modules(doc) -> None:
 	"""The quotation's lines from the modules and the customisation days (builder.pricing_values),
-	through the quotation builder, so the band and the approvals apply. A quotation document's new
-	ERPNext Quotation starts with the default taxes, terms, payment terms and validity."""
+	through the quotation builder, so the band and the approvals apply. A final price's new ERPNext
+	Quotation (a quotation document's, or a proposal's while the proposal is the quotation) starts
+	with the commercial defaults."""
 	values = builder.pricing_values(doc)
-	if not doc.quotation and kinds.of(doc).name == kinds.QUOTATION:
-		from tbo_smart.api.lead_quotation import new_quotation_defaults
-		from tbo_smart.finance import get_default_company
-
-		values = {**new_quotation_defaults(get_default_company()), **values}
+	if not doc.quotation and kinds.final_price(doc):
+		values = {**commercial_defaults(doc), **values}
 	save_pricing(doc, values)
+
+
+def commercial_defaults(doc) -> dict:
+	"""The company's default taxes (GST), the terms, the payment terms template and the validity
+	set in TBO Smart Settings; a proposal's quotation is valid as long as the proposal is."""
+	from tbo_smart.api.lead_quotation import new_quotation_defaults
+	from tbo_smart.finance import get_default_company
+
+	defaults = new_quotation_defaults(get_default_company())
+	if kinds.of(doc).name == kinds.PROPOSAL and doc.valid_till:
+		defaults["valid_till"] = doc.valid_till
+	return defaults
 
 
 def save_pricing(doc, values: dict) -> None:
@@ -850,6 +860,15 @@ def save_pricing(doc, values: dict) -> None:
 		doc.quotation = saved["name"]
 		doc.flags.proposal_workflow = True
 		doc.save()
+	tag_quotation(doc)
+
+
+def tag_quotation(doc) -> None:
+	"""The ERPNext Quotation names the client document it prices (`tbo_proposal`); ERPNext's
+	mapper carries the field to the Sales Order and the Sales Invoice made from it, so accounts
+	trace them back to the proposal the client accepted."""
+	if doc.quotation and frappe.db.get_value("Quotation", doc.quotation, "tbo_proposal") != doc.name:
+		frappe.db.set_value("Quotation", doc.quotation, "tbo_proposal", doc.name, update_modified=False)
 
 
 def require_priced(doc) -> None:
@@ -857,7 +876,9 @@ def require_priced(doc) -> None:
 	client accepted."""
 	if not kinds.of(doc).priced:
 		frappe.throw(
-			_("This document shows the price the client accepted. Change it through a new quotation.")
+			_("This document shows the price the client accepted. Change it through a revised proposal.")
+			if kinds.proposal_is_quotation()
+			else _("This document shows the price the client accepted. Change it through a new quotation.")
 		)
 
 
@@ -975,11 +996,13 @@ def send_blockers(doc, by_email: bool = True) -> list[str]:
 
 
 def accepted_price_blockers(doc) -> list[str]:
-	"""A document after the quotation shows the price the client accepted: it needs that quotation,
-	still accepted."""
+	"""A document after the price shows the price the client accepted: it needs that quotation (the
+	accepted proposal's, while the proposal is the quotation), still accepted."""
 	status = frappe.db.get_value("Quotation", doc.quotation, "tbo_quote_status") if doc.quotation else None
 	if status == q.ACCEPTED:
 		return []
+	if kinds.proposal_is_quotation():
+		return [_("It needs the client's accepted price. Revise the proposal and have it accepted first.")]
 	return [_("It needs the client's accepted quotation. Make a new quotation and have it accepted first.")]
 
 
@@ -1038,6 +1061,7 @@ def release(doc, via: str, to: str | None) -> None:
 def send_price(doc, via: str) -> None:
 	"""A priced document's quotation goes out with it; a proposal without one moves the lead."""
 	if doc.quotation:
+		tag_quotation(doc)
 		quotation = frappe.get_doc("Quotation", doc.quotation)
 		if quotation.get("tbo_quote_status") not in q.WITH_CLIENT:
 			q.mark_sent(quotation, via)

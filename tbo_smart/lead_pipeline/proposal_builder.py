@@ -668,15 +668,7 @@ def pricing_values(doc) -> dict:
 	if days:
 		if not service:
 			frappe.throw(_("Set the proposal service item in TBO Smart Settings to price the customisation."))
-		items.append(
-			{
-				"item_code": service,
-				"qty": days,
-				"price_list_rate": flt(setting("proposal_day_rate")),
-				"discount_percentage": 0,
-				"description": _("Customisation ({0} person-days)").format(format_days(days)),
-			}
-		)
+		items.append(customisation_line(service, days))
 	if not items:
 		frappe.throw(_("Add a module to price the proposal from."))
 	values = {"items": items}
@@ -697,6 +689,33 @@ def pricing_values(doc) -> dict:
 			}
 		)
 	return values
+
+
+def customisation_line(service: str, days: float) -> dict:
+	"""The customisation days at the day rate: `days` of the service item. When the item's UOM must
+	be a whole number (e.g. Nos) and the days aren't, ERPNext refuses the fraction, so the line is
+	one unit priced at days times the day rate, with the days in its description."""
+	rate = flt(setting("proposal_day_rate"))
+	description = _("Customisation ({0} person-days)").format(format_days(days))
+	line = {"item_code": service, "qty": days, "price_list_rate": rate, "discount_percentage": 0}
+	if flt(days) != int(flt(days)) and whole_units_only(service):
+		return {
+			**line,
+			"qty": 1,
+			"price_list_rate": flt(rate * flt(days), 2),
+			"description": _("Customisation ({0} person-days at {1} a day)").format(
+				format_days(days), money(rate, default_currency())
+			),
+		}
+	return {**line, "description": description}
+
+
+def whole_units_only(item_code: str) -> bool:
+	"""The UOM a quotation line of this item is in (its sales UOM, else its stock UOM) takes only
+	whole numbers."""
+	item = frappe.db.get_value("Item", item_code, ["sales_uom", "stock_uom"], as_dict=True)
+	uom = item and (item.sales_uom or item.stock_uom)
+	return bool(uom and cint(frappe.db.get_value("UOM", uom, "must_be_whole_number")))
 
 
 # ---------- images from the library ----------

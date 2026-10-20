@@ -530,8 +530,9 @@ def configure_quotation_approval(
 	settings.save(ignore_permissions=True)
 
 
-def make_quotation_item(item_code: str = QUOTATION_TEST_ITEM) -> str:
-	"""A non-stock sales Item in the first leaf item group, if the site does not have it yet."""
+def make_quotation_item(item_code: str = QUOTATION_TEST_ITEM, uom: str = "Nos") -> str:
+	"""A non-stock sales Item in the first leaf item group, in `uom` (Nos takes whole numbers only;
+	ERPNext's Day takes fractions), if the site does not have it yet."""
 	if not frappe.db.exists("Item", item_code):
 		frappe.get_doc(
 			{
@@ -539,7 +540,7 @@ def make_quotation_item(item_code: str = QUOTATION_TEST_ITEM) -> str:
 				"item_code": item_code,
 				"item_name": item_code,
 				"item_group": frappe.db.get_value("Item Group", {"is_group": 0}, "name"),
-				"stock_uom": "Nos",
+				"stock_uom": uom,
 				"is_stock_item": 0,
 				"is_sales_item": 1,
 			}
@@ -1317,6 +1318,14 @@ def make_hub_proposal(
 	)["proposal"]
 
 
+def make_customised_proposal(lead: str, acting_user: str, template: str, days: float = 3.5) -> dict:
+	"""A proposal from `template` through the hub API with one customisation ("GST e-invoice in our
+	format") of `days` person-days; it is priced from its modules as it is made when the proposal
+	service item is set. Returns its payload."""
+	scoping = {"customisation": 1, "customisations": [{"item": "GST e-invoice in our format", "days": days}]}
+	return make_hub_proposal(lead, acting_user, template, scoping=scoping)
+
+
 def price_hub_proposal(
 	name: str, acting_user: str, item_code: str, rate: float = 100000, discount: float = 0
 ) -> dict:
@@ -1356,20 +1365,30 @@ def proposal_token(name: str) -> str:
 
 
 def enable_client_documents(
-	quotations: bool = True, work_orders: bool = True, brds: bool = True, srs: bool = True, plans: bool = True
+	quotations: bool = True,
+	work_orders: bool = True,
+	brds: bool = True,
+	srs: bool = True,
+	plans: bool = True,
+	proposal_is_quotation: bool = False,
 ) -> None:
-	"""TBO Smart Settings' switches for the documents after the proposal (docs/client-documents.md)."""
+	"""TBO Smart Settings' switches for the documents after the proposal (docs/client-documents.md).
+	By default the chain with its own Quotation step; `proposal_is_quotation` makes the proposal
+	the quotation (Proposal → Project Agreement → …)."""
 	set_smart_lead_settings(
 		enable_quotation_documents=int(quotations),
 		enable_work_orders=int(work_orders),
 		enable_brds=int(brds),
 		enable_srs=int(srs),
 		enable_implementation_plans=int(plans),
+		proposal_is_quotation=int(proposal_is_quotation),
 	)
 
 
 def disable_client_documents() -> None:
-	enable_client_documents(False, False, False, False, False)
+	"""Every client document after the proposal off, and "The proposal is the quotation" back on
+	(the site's default)."""
+	enable_client_documents(False, False, False, False, False, proposal_is_quotation=True)
 
 
 def accept_as_client(name: str, designation: str | None = None) -> None:

@@ -1015,7 +1015,7 @@ AGREEMENT_CLAUSES = (
 	item(
 		CLAUSE,
 		"The whole agreement",
-		"This agreement, with the accepted proposal and quotation it names, is the whole agreement "
+		"This agreement, with the accepted documents it names, is the whole agreement "
 		"between the parties. Changes are valid only in writing.",
 		group="General",
 		sort_order=4,
