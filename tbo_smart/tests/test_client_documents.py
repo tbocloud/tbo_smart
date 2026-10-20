@@ -665,9 +665,13 @@ class TestImplementationPlan(ClientDocumentTestCase):
 
 class TestUAT(ClientDocumentTestCase):
 	def test_each_fr_becomes_a_test_case(self):
-		brd_name = make_approved_brd(self.lead, BDE, TEMPLATE, SERVICE)
-		srs_name = make_approved_document(brd_name, kinds.SRS, BDE)
-		plan_name = make_approved_document(srs_name, kinds.PLAN, BDE)
+		plan_doc = make_plan_document(self.lead, BDE, TEMPLATE, SERVICE)
+		# a draft plan has no tests yet
+		self.assertRaises(frappe.ValidationError, hub.get_uat_cases, plan_doc["name"], acting_user=BDE)
+		send_hub_proposal(plan_doc["name"], BDE)
+		accept_as_client(plan_doc["name"])
+		plan_name = plan_doc["name"]
+		srs_name = frappe.db.get_value(p.DOCTYPE, plan_name, "source_document")
 		found = hub.get_uat_cases(plan_name, acting_user=BDE)
 		self.assertEqual(found["srs"], srs_name)
 		frs = srs.functional_requirements(frappe.get_doc(p.DOCTYPE, srs_name))

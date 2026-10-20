@@ -389,13 +389,16 @@ def get_uat_cases(name: str, acting_user: str | None = None) -> dict:
 	"""The UAT test cases for an approved plan's project, from its approved SRS: {srs, cases:
 	[{fr, module, title, steps, expected}]}."""
 	from tbo_smart.lead_pipeline import srs
+	from tbo_smart.lead_pipeline.implementation_plan import require_approved
 
 	with acting_as(acting_user):
 		doc = get_plan_doc(name)
+		require_approved(doc)
 		found = next((row.name for row in kinds.lineage(doc) if row.document_type == kinds.SRS), None)
 		if not found:
 			frappe.throw(_("The plan has no SRS to test against."))
 		spec = frappe.get_doc(p.DOCTYPE, found)
+		spec.check_permission("read")
 		if spec.status != p.ACCEPTED:
 			frappe.throw(_("Test against an approved SRS: {0} isn't approved yet.").format(spec.name))
 		return {"srs": spec.name, "cases": srs.uat_cases(spec)}

@@ -1,9 +1,9 @@
 # Client documents after the proposal (living spec, v1.4)
 
-**Status:** built 2026-10-19 (the owner's sales-to-delivery chain of 2026-10-19), all 5 steps:
-the **Quotation**, the **Project Agreement / Work Order**, the **BRD** with its client
-questionnaire, the **SRS**, the **Implementation Plan** with the hub's project, and the **UAT
-sign-off** on that project. The proposal itself is `proposals.md`; the hub's
+**Status:** built 2026-10-19/20 (the owner's sales-to-delivery chain of 2026-10-19) in five
+steps: (1) the **Quotation** and the **Project Agreement / Work Order**, (2) the **BRD** with its
+client questionnaire, (3) the **SRS**, (4) the **Implementation Plan** with the hub's project, and
+(5) the **UAT sign-off** on that project. The proposal itself is `proposals.md`; the hub's
 contract is `hub-proposals-api.md`; the hub's side is tbocloud/helpdesk `docs/proposals.md`
 §Documents.
 
@@ -258,7 +258,8 @@ The client's acceptance tests, on the hub's **existing project sign-off** (tbocl
 code, the answers, the issues as tasks, the signature, the signed PDF on the project. What the
 ERP site gives it:
 
-- `get_uat_cases(name)` (the approved plan): from the plan's **approved SRS**,
+- `get_uat_cases(name)` (an **approved**, latest plan; 417 otherwise): from the plan's **approved
+  SRS** (read permission on it checked),
   `srs.uat_cases`: **each FR becomes a test case**: `{fr, module, title ("FR-ACC-01: <the
   requirement>"), steps ("1. Sign in as a user who works in <module>. 2. <the requirement>.
   3. Check the result against the expected result."), expected (its acceptance criterion)}`. 417
