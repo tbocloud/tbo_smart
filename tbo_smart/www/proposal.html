@@ -251,10 +251,16 @@
 		{%- else %}{{ foot.html | safe }}{% endif %}{#- sanitised in proposal_media.letter_head_part #}
 		{%- endmacro %}
 		{%- if pdf %}
-		{#- the footer line on every page: the letter head's footer (or the company) on the left, and
-		    room on the right for "n / N", drawn after (proposals.on_ivory) #}
+		{#- the footer on every page (proposals.pdf_page): the letter head's footer picture at the
+		    content's width under a line kept for "n / N", else a footer line with the letter head's
+		    footer (or the company) on the left and room on the right for "n / N"; the numbers are
+		    drawn after (proposals.on_ivory) #}
 		<footer id="footer-html">
+			{%- if foot and foot.image %}
+			<div class="letter-head-footer running-foot picture{% if foot.align %} align-{{ foot.align | e }}{% endif %}"><div class="number-line"></div><img src="{{ foot.image | e }}" alt="" style="height: {{ p.page.footer }}mm"></div>
+			{%- else %}
 			<div class="letter-head-footer running-foot"><div class="in">{% if foot %}{{ foot_part() }}{% else %}{{ (p.company or "") | e }}{% endif %}</div></div>
+			{%- endif %}
 		</footer>
 		{%- elif foot %}
 		<footer class="letter-head-footer pad{% if foot.align %} align-{{ foot.align | e }}{% endif %}">{{ foot_part() }}</footer>

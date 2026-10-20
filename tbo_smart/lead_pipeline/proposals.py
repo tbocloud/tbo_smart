@@ -1602,13 +1602,17 @@ def render_page(context: dict, pdf: bool) -> str:
 
 
 # The PDF's page, in mm: A4 with 18 mm on every side. The letter head sits inside the top margin and
-# the footer line inside the bottom one (Frappe's get_pdf repeats #header-html and #footer-html on
-# every page). The ivory, the page numbers and the cover's blank footer are drawn after
-# (on_ivory): wkhtmltopdf's own text footer doesn't render beside an HTML one.
+# its footer inside the bottom one (Frappe's get_pdf repeats #header-html and #footer-html on every
+# page): a footer picture at the content's width with the page number on a line above it, else a
+# footer line with the page number at its right end. The ivory, the page numbers and the cover's
+# blank footer line are drawn after (on_ivory): wkhtmltopdf's own text footer doesn't render
+# beside an HTML one.
 A4_MM = (210, 297)
 MARGIN_MM = 18
 HEADER_GAP_MM = 8  # under the letter head: its rule and the space before the content
 FOOTER_MM = 9  # the footer line, above the bottom margin
+FOOTER_GAP_MM = 3  # between the content and a footer picture's page number line
+NUMBER_LINE_MM = 5  # the page number's line above a footer picture
 HTML_HEADER_MM = 20  # a letter head written in HTML, whose height isn't known before rendering
 BRAND_HEADER_MM = 10  # no letter head: the company's logo or name
 PT_PER_MM = 72 / 25.4
@@ -1618,13 +1622,27 @@ MUTED = (103 / 255, 98 / 255, 90 / 255)
 
 
 def pdf_page(letter_head: dict | None) -> dict:
-	"""The page frame in mm: the letter head's height, the top and bottom margins, and the cover's
-	height (it fills its page)."""
+	"""The page frame in mm: the letter head's height, the footer picture's (None for a footer
+	line), the top and bottom margins, the page number's baseline from the bottom edge, and the
+	cover's height (it fills its page)."""
 	header = (letter_head or {}).get("header")
 	height = (header.get("height") or HTML_HEADER_MM) if header else BRAND_HEADER_MM
+	footer = (letter_head or {}).get("footer") or {}
+	picture = (footer.get("height") or media.FOOTER_MAX_MM) if footer.get("image") else None
 	top = MARGIN_MM + height + HEADER_GAP_MM
-	bottom = MARGIN_MM + FOOTER_MM
-	return {"header": height, "top": top, "bottom": bottom, "cover": A4_MM[1] - top - bottom - 2}
+	if picture:
+		bottom = MARGIN_MM + picture + NUMBER_LINE_MM + FOOTER_GAP_MM
+		number = MARGIN_MM + picture + 1.5
+	else:
+		bottom, number = MARGIN_MM + FOOTER_MM, MARGIN_MM
+	return {
+		"header": height,
+		"footer": picture,
+		"top": top,
+		"bottom": bottom,
+		"number": number,
+		"cover": A4_MM[1] - top - bottom - 2,
+	}
 
 
 def pdf_options(page: dict) -> dict:
@@ -1649,7 +1667,7 @@ def render_pdf(doc) -> bytes:
 	pdf = get_pdf(render_page(context, True), dict(options))
 	if context["toc"] and number_contents(context["toc"], pdf):
 		pdf = get_pdf(render_page(context, True), dict(options))
-	return on_ivory(pdf)
+	return on_ivory(pdf, context["page"])
 
 
 def number_contents(toc: list[dict], pdf: bytes) -> bool:
@@ -1677,10 +1695,11 @@ def number_contents(toc: list[dict], pdf: bytes) -> bool:
 	return found
 
 
-def on_ivory(pdf: bytes) -> bytes:
+def on_ivory(pdf: bytes, frame: dict) -> bytes:
 	"""Every page on ivory paper to its edges (wkhtmltopdf paints white below the content of the
-	last page), with "n / N" in Geist at the right end of the footer line of every page but the
-	cover. The cover has a footer line of its own, so its running footer is painted over."""
+	last page), with "n / N" in Geist on every page but the cover, right-aligned at `frame`'s
+	number baseline (pdf_page). The cover has a footer line of its own, so a running footer line
+	is painted over there; a footer picture stays."""
 	import io
 
 	from pypdf import PdfReader, PdfWriter
@@ -1693,6 +1712,7 @@ def on_ivory(pdf: bytes) -> bytes:
 	ivory = f"{IVORY[0]:.4f} {IVORY[1]:.4f} {IVORY[2]:.4f} rg"
 	muted = f"{MUTED[0]:.4f} {MUTED[1]:.4f} {MUTED[2]:.4f} rg"
 	margin = MARGIN_MM * PT_PER_MM
+	baseline = frame["number"] * PT_PER_MM
 
 	def layer(width, height, ops: str):
 		page = scratch.add_blank_page(width, height)
@@ -1710,14 +1730,15 @@ def on_ivory(pdf: bytes) -> bytes:
 		sheet.merge_page(layer(width, height, f"{ivory} 0 0 {width} {height} re f"))
 		sheet.merge_page(page)
 		if number == 1:
-			footer = (MARGIN_MM + FOOTER_MM) * PT_PER_MM
-			sheet.merge_page(layer(width, height, f"{ivory} 0 0 {width} {footer:.1f} re f"))
+			if not frame["footer"]:
+				footer = frame["bottom"] * PT_PER_MM
+				sheet.merge_page(layer(width, height, f"{ivory} 0 0 {width} {footer:.1f} re f"))
 			continue
 		label = f"{number} / {len(pages)}"
 		x = width - margin - width_of(label, PAGE_NUMBER_PT)
 		sheet.merge_page(
 			layer(
-				width, height, f"BT /F1 {PAGE_NUMBER_PT} Tf {muted} {x:.1f} {margin:.1f} Td ({label}) Tj ET"
+				width, height, f"BT /F1 {PAGE_NUMBER_PT} Tf {muted} {x:.1f} {baseline:.1f} Td ({label}) Tj ET"
 			)
 		)
 	out = io.BytesIO()

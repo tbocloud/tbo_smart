@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import frappe
 import requests
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import add_days, nowdate
+from frappe.utils import add_days, get_url, nowdate
 
 from tbo_smart.api import hub_leads
 from tbo_smart.api import hub_proposals as hub
@@ -46,6 +46,7 @@ from tbo_smart.test_utils import (
 	mock_ai,
 	openai_answer,
 	page_response,
+	pdf_text_positions,
 	price_hub_proposal,
 	proposal_token,
 	save_lead_quotation,
@@ -837,6 +838,41 @@ class TestLetterHead(ProposalTestCase):
 		self.assertIn('id="header-html"', pdf_html)
 		self.assertIn('id="footer-html"', pdf_html)
 
+	def test_a_footer_picture_spans_the_page_without_its_text(self):
+		frappe.set_user("Administrator")
+		file = make_private_file(make_image_bytes(size=(600, 100)), "footer.png")
+		url = frappe.db.get_value("File", file, "file_url")
+		# Frappe writes an attached footer image as HTML at a fixed small width
+		html = f'<p>From TBO</p><div><img src="{url}" style="width: 283px; height: 47px;"></div>'
+		head = make_letter_head("Prop LH Footer", "<p>Header</p>", html)
+		frappe.set_user(HUB)
+		hub.set_default_letter_head(head, acting_user=EDITOR)
+		try:
+			name = make_hub_proposal(self.lead, BDE, TEMPLATE)["name"]
+			doc = frappe.get_doc(p.DOCTYPE, name)
+			footer = p.page_context(doc, pdf=True)["letter_head"]["footer"]
+			self.assertTrue(footer["image"].startswith("data:image/png;base64,"))
+			self.assertEqual(footer["height"], 29)  # 174 mm wide at 6:1
+			pdf_html = p.render_html(doc, pdf=True)
+			self.assertIn("running-foot picture", pdf_html)
+			self.assertIn('style="height: 29.0mm"', pdf_html)
+			self.assertNotIn("From TBO", pdf_html)
+			self.assertNotIn("From TBO", p.render_html(doc, preview=True))
+			# the web page serves it through the token
+			call_as_guest(page.image, proposal_token(name), file)
+			# the first picture of this site, by path or by this site's URL; never another host's
+			self.assertEqual(
+				media.html_image(f'<img src="https://elsewhere.example{url}"><img src="{get_url(url)}">'), url
+			)
+			self.assertIsNone(media.html_image('<img src="https://elsewhere.example/files/a.png">'))
+			# a picture that can't be shown leaves the HTML footer as it is
+			frappe.db.set_value("Letter Head", head, "footer", '<p>From TBO</p><img src="/files/gone.png">')
+			self.assertIn("From TBO", p.page_context(doc, pdf=True)["letter_head"]["footer"]["html"])
+		finally:
+			frappe.set_user("Administrator")
+			frappe.delete_doc("Letter Head", head, force=True)
+			frappe.delete_doc("File", file, force=True)
+
 	def test_a_private_letter_head_image_is_served_through_the_token(self):
 		frappe.set_user("Administrator")
 		file = make_private_file(make_image_bytes(), "header.png")
@@ -1036,7 +1072,7 @@ class TestMaster(ProposalTestCase):
 			writer.add_blank_page(595, 842)
 		buffer = io.BytesIO()
 		writer.write(buffer)
-		pages = PdfReader(io.BytesIO(p.on_ivory(buffer.getvalue()))).pages
+		pages = PdfReader(io.BytesIO(p.on_ivory(buffer.getvalue(), p.pdf_page(None)))).pages
 		self.assertEqual(len(pages), 3)
 		self.assertNotIn("1 / 3", pages[0].extract_text())  # not on the cover
 		self.assertIn("2 / 3", pages[1].extract_text())
@@ -1046,13 +1082,38 @@ class TestMaster(ProposalTestCase):
 	def test_the_pdf_page_is_a4_with_18_mm_margins(self):
 		self.assertEqual(
 			p.pdf_page({"header": {"image": "data:", "height": 14.5}}),
-			{"header": 14.5, "top": 40.5, "bottom": 27, "cover": 227.5},
+			{"header": 14.5, "footer": None, "top": 40.5, "bottom": 27, "number": 18, "cover": 227.5},
 		)
 		self.assertEqual(p.pdf_page(None)["top"], p.MARGIN_MM + p.BRAND_HEADER_MM + p.HEADER_GAP_MM)
 		options = p.pdf_options(p.pdf_page(None))
 		self.assertEqual(
 			(options["page-size"], options["margin-bottom"], options["margin-left"]), ("A4", "27mm", "0mm")
 		)
+
+	def test_a_footer_picture_takes_its_own_height_under_the_page_number(self):
+		page = p.pdf_page(
+			{"header": {"image": "data:", "height": 14.5}, "footer": {"image": "data:", "height": 29}}
+		)
+		# 18 mm margin + the picture + the page number's line + the gap above it
+		self.assertEqual((page["footer"], page["bottom"], page["number"]), (29, 55, 48.5))
+		self.assertEqual(page["cover"], 297 - 40.5 - 55 - 2)
+		self.assertEqual(p.pdf_options(page)["margin-bottom"], "55mm")
+
+	def test_the_page_number_is_right_aligned_above_a_footer_picture(self):
+		from pypdf import PdfReader, PdfWriter
+
+		writer = PdfWriter()
+		for _n in range(2):
+			writer.add_blank_page(595, 842)
+		buffer = io.BytesIO()
+		writer.write(buffer)
+		frame = p.pdf_page({"footer": {"image": "data:", "height": 29}})
+		page = PdfReader(io.BytesIO(p.on_ivory(buffer.getvalue(), frame))).pages[1]
+		label, tm = pdf_text_positions(page)[0]
+		self.assertEqual(label, "2 / 2")
+		self.assertAlmostEqual(tm[5], frame["number"] * p.PT_PER_MM, places=0)  # above the picture
+		margin = p.MARGIN_MM * p.PT_PER_MM
+		self.assertTrue(595 - margin - 30 < tm[4] < 595 - margin)  # it ends at the right margin
 
 	def test_the_contents_take_each_page_after_the_contents(self):
 		toc = [
