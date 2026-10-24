@@ -232,7 +232,7 @@ class ProposalMoney(LeadOverview):
 			settle(splits, 0.0)
 			rows += [{**row, "lead": quote.lead, "quote_status": quote.tbo_quote_status} for row in splits]
 		for row in rows:
-			row["status"] = self.status(row)
+			row["status"] = self.split_status(row)
 		self.add_leads(rows)
 		return sorted(
 			rows, key=lambda row: (row["due_date"] or getdate("2999-12-31"), row["lead"], row["idx"])
@@ -367,7 +367,7 @@ class ProposalMoney(LeadOverview):
 		due = schedule[0].due_date if (schedule and doctype == SALES_ORDER) else None
 		return [split(1, None, 100, total, due, "whole")]
 
-	def status(self, row: dict) -> str:
+	def split_status(self, row: dict) -> str:
 		if row["outstanding"] <= TOLERANCE:
 			return RECEIVED
 		due = row["due_date"]
