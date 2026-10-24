@@ -282,7 +282,7 @@ Money = {period, from_date, to_date, currency,
 Split = {lead, lead_name, company_name, lead_owner, owner_name,
   document_type (Sales Order | Quotation), document, quote_status (a quotation's), idx,
   label (payment term, description or milestone; null: the whole amount), percent, amount,
-  received, outstanding, due_date (null: on a milestone), source (schedule | proposal | whole),
+  received, outstanding, due_date (null: on a milestone), source (schedule | quotation | proposal | whole),
   status (Received | Due | Overdue | Upcoming)}
 ```
 
@@ -302,7 +302,10 @@ quotation that is with the client or accepted (`tbo_quote_status`).
 
 **Splits:** the document's Payment Schedule when a person set one (a payment term on a row,
 or more than one row). ERPNext gives every quotation and order a schedule; one 100% row with
-no payment term is its own filler, so then the Payment Terms milestones ("Advance on signing |
+no payment term is its own filler. ERPNext also doesn't carry a quotation's payment terms
+template to the Sales Order it makes (`field_no_map`), so an order with only the filler takes
+its quotation's schedule (the quotation of its first line), as shares of the order's total
+(`source` quotation). Without either, the Payment Terms milestones ("Advance on signing |
 30%") of the newest proposal or quotation document pricing that quotation (an order: the
 quotation of its first line) split the total, **undated**; without them the whole amount is one
 split (an order's dated by its schedule, a quotation's undated).

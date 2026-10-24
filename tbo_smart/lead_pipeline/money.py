@@ -13,8 +13,10 @@ Where the money is read from (ERPNext v15):
   paid (each invoice's paid share, split over the orders its items come from). Payment Schedule
   `paid_amount` is left aside: ERPNext fills it only when a receipt names the payment term.
   The received amount settles the order's splits in due order.
-- **Splits:** an order's payment schedule; a lead without an order has its latest quotation's
-  (sent, with the client or accepted). A schedule ERPNext made up itself (one 100% row with no
+- **Splits:** an order's payment schedule; ERPNext doesn't carry a quotation's payment terms
+  to its order (`field_no_map`), so an order with only ERPNext's filler row takes its
+  quotation's schedule as shares of the order's total. A lead without an order has its latest
+  quotation's (sent, with the client or accepted). A schedule ERPNext made up itself (one 100% row with no
   payment term) says nothing about the splits, so the proposal's Payment Terms milestones
   ("Advance on signing | 30%") are used, as the share of the total with no date; without them
   the whole amount is one split (dated on an order, undated on a quotation).
@@ -209,8 +211,8 @@ class ProposalMoney(LeadOverview):
 		"""Every payment split of the scope's orders still being paid, and of the latest
 		quotation of each lead without an order, by due date (undated last)."""
 		quotes = self.expected_quotations(exclude={row.lead for row in orders.values()})
-		schedules = self.schedules(list(orders) + list(quotes))
 		sources = self.order_quotations(list(orders))
+		schedules = self.schedules(list(orders) + list(quotes) + list(sources.values()))
 		milestones = self.milestones(list(quotes) + list(sources.values()))
 		received = self.received(orders)
 		rows = []
@@ -221,6 +223,7 @@ class ProposalMoney(LeadOverview):
 				order.base_grand_total,
 				schedules.get(name, []),
 				milestones.get(sources.get(name), []),
+				schedules.get(sources.get(name), []),
 			)
 			settle(splits, received.get(name, 0.0))
 			if any(row["outstanding"] > TOLERANCE for row in splits):
@@ -331,9 +334,13 @@ class ProposalMoney(LeadOverview):
 		return found
 
 	@staticmethod
-	def document_splits(doctype: str, name: str, total, schedule: list, milestones: list) -> list[dict]:
+	def document_splits(
+		doctype: str, name: str, total, schedule: list, milestones: list, quoted: list = ()
+	) -> list[dict]:
 		"""The document's splits: its own schedule when a person set one (a payment term, or more
-		than one row); else the proposal's milestones, undated; else the whole amount."""
+		than one row); for an order, else its quotation's (ERPNext doesn't carry the quotation's
+		payment terms to the order), as shares of the order's total; else the proposal's
+		milestones, undated; else the whole amount."""
 
 		def split(idx, label, share, amount, due, source):
 			return {
@@ -347,7 +354,19 @@ class ProposalMoney(LeadOverview):
 				"source": source,
 			}
 
-		if len(schedule) > 1 or any(row.payment_term for row in schedule):
+		if not set_by_person(schedule) and set_by_person(quoted):
+			return [
+				split(
+					row.idx,
+					row.payment_term or (row.description or "").strip() or None,
+					row.invoice_portion,
+					flt(total) * flt(row.invoice_portion) / 100,
+					row.due_date,
+					"quotation",
+				)
+				for row in quoted
+			]
+		if set_by_person(schedule):
 			return [
 				split(
 					row.idx,
@@ -427,6 +446,12 @@ class ProposalMoney(LeadOverview):
 			**{key: flt(value, 2) for key, value in result.items()},
 			"months": [{"month": month, "amount": flt(amounts[month], 2)} for month in months],
 		}
+
+
+def set_by_person(schedule) -> bool:
+	"""A payment schedule someone set: a payment term on a row, or more than one row. ERPNext's
+	own filler is one 100% row with no term."""
+	return len(schedule) > 1 or any(row.payment_term for row in schedule)
 
 
 def settle(splits: list[dict], received: float) -> None:

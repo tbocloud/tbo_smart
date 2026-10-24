@@ -210,13 +210,14 @@ class TestCollections(LeadMoneyTestCase):
 		frappe.set_user("Administrator")
 		doc = frappe.get_doc("Sales Order", order)
 		doc.submit()
-		advance, second = (flt(row.base_payment_amount) for row in doc.payment_schedule)
+		# ERPNext doesn't carry the quotation's payment terms to the order: the quotation's split it
+		advance, second = flt(doc.base_grand_total) * 0.4, flt(doc.base_grand_total) * 0.6
 		make_receipt("Sales Order", order, advance)
 		frappe.set_user(HUB)
 
 		result = self.money()
 		splits = self.splits_of(result, self.lead)
-		self.assertEqual({row["document"] for row in splits}, {order})
+		self.assertEqual({(row["document"], row["source"]) for row in splits}, {(order, "quotation")})
 		self.assertEqual(
 			[(row["label"], row["received"], row["outstanding"], row["status"]) for row in splits],
 			[(ADVANCE, advance, 0, money.RECEIVED), (SECOND, 0, second, money.UPCOMING)],
@@ -231,7 +232,7 @@ class TestCollections(LeadMoneyTestCase):
 		# the second split's day passes unpaid: the order's split is overdue
 		frappe.db.set_value(
 			"Payment Schedule",
-			{"parenttype": "Sales Order", "parent": order, "payment_term": SECOND},
+			{"parenttype": "Quotation", "parent": name, "payment_term": SECOND},
 			"due_date",
 			add_days(nowdate(), -3),
 		)
