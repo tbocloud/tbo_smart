@@ -42,7 +42,19 @@ from tbo_smart.smart_leads.migration import NOTE_TITLE_PREFIX
 from tbo_smart.telephony.calls import calls_by_agent
 
 PERIODS = ("week", "month", "quarter", "custom")
-METRICS = ("new", "contacted", "meetings", "quotations", "won", "lost", "stale", "overdue", "hot", "open")
+METRICS = (
+	"new",
+	"intake",
+	"contacted",
+	"meetings",
+	"quotations",
+	"won",
+	"lost",
+	"stale",
+	"overdue",
+	"hot",
+	"open",
+)
 # what AI runs leads read in the open leads (docs/smart-leads.md §11): {metric: criterion builder}
 AI_METRICS = {
 	"high_intent": lambda Lead: Lead.tbo_ai_intent == "High",
@@ -141,6 +153,8 @@ class LeadOverview(PipelineDashboard):
 			return self.ai_leads(AI_METRICS[metric]) if ai_leads_enabled() else []
 		if metric == "new":
 			return list(self.created_leads())
+		if metric == "intake":
+			return list(self.taken_leads())
 		if metric == "contacted":
 			return list(self.contacted_leads())
 		if metric == "meetings":
@@ -169,6 +183,60 @@ class LeadOverview(PipelineDashboard):
 				.where(self.lead_criterion() & self.in_range(Lead.creation))
 			).run()
 		)
+
+	def not_imported(self):
+		"""A lead someone took, not one copied in from the old CRM (`crm_lead_ref` set)."""
+		return IfNull(self.Lead.crm_lead_ref, "") == ""
+
+	def taken_leads(self) -> dict:
+		"""{lead: owner} of the leads salespeople took in the range: created, imports left out."""
+		Lead = self.Lead
+		return dict(
+			(
+				frappe.qb.from_(Lead)
+				.select(Lead.name, Lead.lead_owner)
+				.where(self.lead_criterion() & self.in_range(Lead.creation) & self.not_imported())
+			).run()
+		)
+
+	def build_intake(self) -> dict:
+		"""New leads taken each day of the range and by whom (imports left out), for the daily
+		new-lead target: {from_date, to_date, days: [{date, total, by_owner: [{user, full_name,
+		count}]}]}, every day of the range, newest first."""
+		Lead = self.Lead
+		day = Date(Lead.creation)
+		counts: dict = {}
+		for date, owner, count in (
+			frappe.qb.from_(Lead)
+			.select(day, IfNull(Lead.lead_owner, NO_VALUE), Count(Lead.name))
+			.where(self.lead_criterion() & self.in_range(Lead.creation) & self.not_imported())
+			.groupby(day, IfNull(Lead.lead_owner, NO_VALUE))
+		).run():
+			counts.setdefault(getdate(date), {})[owner or None] = cint(count)
+		names = get_full_names({owner for by_owner in counts.values() for owner in by_owner if owner})
+		days = []
+		date = self.to_date
+		while date >= self.from_date:
+			by_owner = counts.get(date, {})
+			days.append(
+				{
+					"date": date,
+					"total": sum(by_owner.values()),
+					"by_owner": sorted(
+						(
+							{
+								"user": user,
+								"full_name": names.get(user, user) if user else None,
+								"count": count,
+							}
+							for user, count in by_owner.items()
+						),
+						key=lambda row: (-row["count"], row["full_name"] or "~"),
+					),
+				}
+			)
+			date = add_days(date, -1)
+		return {"from_date": self.from_date, "to_date": self.to_date, "days": days}
 
 	def touched_query(self, since, until=None):
 		"""Subqueries of the leads touched from `since` (to `until`): a note, a call or logged

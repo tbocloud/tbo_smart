@@ -354,8 +354,9 @@ def assignable_team(capabilities: frappe._dict) -> list[str] | None:
 	return []
 
 
-def get_crm_users(users: list[str] | None) -> list[dict]:
-	"""Enabled system users with a sales role, limited to `users` unless None (one query)."""
+def get_crm_users(users: list[str] | None, roles: set | tuple = CRM_ROLES) -> list[dict]:
+	"""Enabled system users with a sales role (one of `roles`), limited to `users` unless None
+	(one query)."""
 	if users == []:
 		return []
 	User = frappe.qb.DocType("User")
@@ -370,7 +371,7 @@ def get_crm_users(users: list[str] | None) -> list[dict]:
 			(User.enabled == 1)
 			& (User.user_type == "System User")
 			& User.name.notin(["Administrator", "Guest"])
-			& HasRole.role.isin(list(CRM_ROLES))
+			& HasRole.role.isin(list(roles))
 		)
 		.orderby(User.full_name)
 	)

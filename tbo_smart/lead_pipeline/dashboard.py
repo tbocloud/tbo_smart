@@ -51,6 +51,13 @@ def require_dashboard() -> None:
 		frappe.throw(_("The pipeline dashboard is not switched on."), frappe.ValidationError)
 
 
+def company_currency() -> str | None:
+	"""The default company's currency: what base amounts are in."""
+	return frappe.get_cached_value(
+		"Company", frappe.defaults.get_global_default("company"), "default_currency"
+	)
+
+
 def scope_owners() -> list[str] | None:
 	"""Lead owners the session user may count: None means everyone."""
 	capabilities = get_capabilities()
@@ -400,9 +407,7 @@ class PipelineDashboard:
 			)
 		).run()[0]
 		return {
-			"currency": frappe.get_cached_value(
-				"Company", frappe.defaults.get_global_default("company"), "default_currency"
-			),
+			"currency": company_currency(),
 			"by_status": [
 				{"status": status, "count": cint(row["count"]), "value": flt(row["value"], 2)}
 				for status, row in by_status.items()

@@ -1,4 +1,4 @@
-# Hub leads API (`tbo_smart.api.hub_leads`), v1.6
+# Hub leads API (`tbo_smart.api.hub_leads`), v1.7
 
 **Status:** built 2026-10-16. The TBO Support hub's lead page (tbocloud/helpdesk) shows and edits
 tboindia's leads through these methods. The leads are ERPNext's own **Lead**
@@ -44,6 +44,8 @@ curl -s -X POST https://india.teambackoffice.com/api/method/tbo_smart.api.hub_le
 | `get_options` | GET | `acting_user` | `{stages: [{name, label, type, color}], sources: [], segments: [], owners: [{email, full_name}], territories: [], industries: [], can_call}` |
 | `list_leads` | GET | `search?`, `stage?`, `owner?`, `segment?`, `source?`, `temperature?` (Hot / Warm / Cold), `metric?` with `period?` / `from_date?` / `to_date?` (§2.4), `view` (`all` / `mine` / `call_today` / `follow_up`, default `all`), `start` (0), `page_length` (20, at most 100), `acting_user` | `{rows: [Row], total}` |
 | `get_overview` | GET | `period` (`week` / `month` / `quarter` / `custom`; default `month`, or `custom` when dates are sent), `from_date?`, `to_date?` (custom), `owner?`, `acting_user` | Overview (§2.4) |
+| `get_lead_intake` | GET | `from_date?`, `to_date?` (default today, at most 62 days), `owner?`, `acting_user` | Intake (§2.4.1) |
+| `get_proposal_money` | GET | `period`, `from_date?`, `to_date?`, `owner?` (as `get_overview`), `acting_user` | Money (§2.8) |
 | `get_sales_activity` | GET | `from_date?`, `to_date?` (default this month), `acting_user?` (§2.5) | `{from_date, to_date, currency, people: [Activity]}` |
 | `get_lead` | GET | `name`, `acting_user` | `{lead: Lead, timeline: [Item], quotations: [Quotation], proposals: [Proposal row], allowed_stages: [stage name]}` |
 | `create_lead` | POST | `data`, `acting_user` | as `get_lead` |
@@ -64,7 +66,9 @@ curl -s -X POST https://india.teambackoffice.com/api/method/tbo_smart.api.hub_le
 
 ```
 Row = {name, lead_name, company_name, email_id, mobile_no, tbo_stage, segment, lead_owner,
-  owner_name, score (0-100), next_follow_up (date | null), modified}
+  owner_name, score (0-100), next_follow_up (date | null), modified,
+  latest_quotation: {name, tbo_quote_status, grand_total, currency, tbo_sent_on} | null,
+  latest_proposal: {name, document_type (Proposal | Quotation), status, view_count, sent_on} | null}
 
 Lead = {name, lead_name, first_name, last_name, company_name, email_id, mobile_no, phone,
   whatsapp_no, job_title, website, source, territory, industry, segment, tbo_stage,
@@ -98,6 +102,10 @@ Quotation = {name, docstatus, tbo_quote_status, transaction_date, valid_till, cu
   (`text` "Contacted → Proposal Sent"), quotations, proposals (`text` "<title>: Viewed") and
   what the AI did (`kind` "ai", `who` null, `who_name` "TBO AI", `smart-leads.md` §11), newest
   first.
+- **Where a lead stands with the client** (the list row): `latest_quotation` is the newest
+  latest revision (`tbo_is_latest`) of the lead's quotations (`tbo_lead`), cancelled ones left
+  out; `latest_proposal` the newest latest revision of its priced client documents (proposal or
+  quotation document), null while Proposals is off. Two queries for the whole page.
 - **Proposals:** the lead's proposals while Proposals is on (`hub-proposals-api.md`, `Row`);
   empty otherwise.
 
@@ -183,10 +191,27 @@ Overview = {period, from_date, to_date, scope ("own" | "team" | "all"), people: 
 **Every number opens its leads:** `list_leads(metric=…)` with the same `period` (or dates) and
 `owner` keeps exactly the leads behind a figure (dates without a `period` are a custom
 range; neither is this month): `new`, `contacted`, `meetings`, `quotations`,
-`won`, `lost`, `stale`, `overdue`, `hot`, and `open` (open leads now, for the "open" counts
+`won`, `lost`, `stale`, `overdue`, `hot`, `intake` (leads taken in the period, §2.4.1), and
+`open` (open leads now, for the "open" counts
 by owner, segment and source). Stages, owners, segments and sources open with the plain
 filters (`stage`, `owner`, `segment`, `source`). A metric combines with the view and the
 other filters.
+
+#### 2.4.1 New leads taken (the daily target)
+
+`get_lead_intake` counts the leads salespeople **took** each day: created that day, owned in the
+acting user's scope (narrowed to `owner`), **leaving out leads copied in from the old CRM**
+(`crm_lead_ref` set: the cutover's and the tboindia-old import's), which were not taken that
+day. The hub holds the target (its HD CRM Settings → daily new-lead target) and compares.
+
+```
+Intake = {from_date, to_date,
+  days: [{date, total, by_owner: [{user (null: no owner), full_name, count}]}],   every day, newest first
+  people: [{user, full_name}]}       the scope's salespeople (Sales User), so someone with none shows
+```
+
+`list_leads(metric="intake", period="custom", from_date, to_date, owner?)` lists exactly the
+leads a count is made of.
 
 ### 2.5 Sales activity (the hub's Sales scoreboard)
 
@@ -240,6 +265,58 @@ also `list_leads` metrics (open leads the AI read so, now; none while AI runs le
 Click-to-call, the recording player and the telephony settings are in
 `tbo_smart.api.telephony` (`telephony-myoperator.md` §4), with the same `acting_user` rule.
 
+### 2.8 Proposals and money
+
+`get_proposal_money` is the hub overview's "Proposals & money" (`lead_pipeline/money.py`,
+`ProposalMoney` extends `LeadOverview`): the same scope, `owner` and `period` as `get_overview`.
+Amounts are in the company currency (`currency`, base amounts).
+
+```
+Money = {period, from_date, to_date, currency,
+  totals: {proposals_sent, proposals_value, unpriced_sent, won, won_value, advances,
+    to_collect, overdue},
+  by_month: {overdue, months: [{month (its 1st), amount}] (this month and the next 5), later,
+    undated},
+  splits: [Split] (by due date, undated last; at most 300), splits_total}
+
+Split = {lead, lead_name, company_name, lead_owner, owner_name,
+  document_type (Sales Order | Quotation), document, quote_status (a quotation's), idx,
+  label (payment term, description or milestone; null: the whole amount), percent, amount,
+  received, outstanding, due_date (null: on a milestone), source (schedule | proposal | whole),
+  status (Received | Due | Overdue | Upcoming)}
+```
+
+| Figure | Counts |
+| --- | --- |
+| `proposals_sent` | quotations sent in the period (`tbo_sent_on`), every revision: the overview's "Proposals sent" |
+| `proposals_value` | their total, each lead once (the last one it was sent in the period) |
+| `unpriced_sent` | proposals sent in the period with no quotation: no value, so not in the two above |
+| `won`, `won_value` | as the overview: leads won in the period, their latest quotations' total |
+| `advances` | customer receipts (Payment Entry, Receive, submitted) allocated to the scope's Sales Orders, posted in the period |
+| `to_collect`, `overdue`, `by_month` | the splits' outstanding now (not the period): overdue, by due month, later and undated |
+
+**Which documents:** a lead's submitted Sales Orders (through the deal made from it,
+`Sales Order.opportunity`, or a line from its quotation, `Sales Order Item.prevdoc_docname`)
+while one of their splits is outstanding; a lead with no order its newest latest-revision
+quotation that is with the client or accepted (`tbo_quote_status`).
+
+**Splits:** the document's Payment Schedule when a person set one (a payment term on a row,
+or more than one row). ERPNext gives every quotation and order a schedule; one 100% row with
+no payment term is its own filler, so then the Payment Terms milestones ("Advance on signing |
+30%") of the newest proposal or quotation document pricing that quotation (an order: the
+quotation of its first line) split the total, **undated**; without them the whole amount is one
+split (an order's dated by its schedule, a quotation's undated).
+
+**Received:** the larger of the order's `advance_paid` and what its invoices have been paid
+(each invoice's paid share, split over its orders by their lines), settling the splits in due
+order. ERPNext fills Payment Schedule `paid_amount` only when a receipt names the payment
+term, so it is not used. An advance and an invoice paid separately on one order count as the
+larger of the two.
+
+**Status:** Received (nothing outstanding); Overdue (an order's split past its date); Due (on
+or before a week from today; a quotation's split past its date is expected now, never
+overdue: the client hasn't committed); Upcoming (later, or no date).
+
 ## 3. Links back to the hub
 
 Teams messages, emails and the morning digest link to the lead page when TBO Smart Settings →
@@ -253,6 +330,11 @@ scope and owner filter; totals, the pipeline's value, the funnel and the breakdo
 metric opens exactly its leads, alone and with a view; the sales activity for the integration
 user (everyone) and a salesperson (themselves only).
 
+`tbo_smart/tests/test_lead_money.py`: the intake by day and owner without imports, its scope
+and owner filter and the `intake` metric; a list row's latest quotation and proposal; a sent
+proposal split by its milestones; an order's schedule settled by a receipt (received, upcoming,
+overdue, paid off), the advances and the months.
+
 `tbo_smart/tests/test_hub_leads.py`: the integration user must name an enabled sales user
 (unknown, disabled and non-sales users refused); anyone else acts only as themselves; lists and
 reads follow the acting user; writes are theirs (owner, lead owner, note author) and the session
@@ -261,6 +343,8 @@ options. `tests/test_segment_rate_card.py`: the rate card methods (acting user, 
 
 ## Changelog
 
+- **v1.7 (2026-10-24):** `get_lead_intake` and the `intake` metric (§2.4.1),
+  `get_proposal_money` (§2.8), the row's `latest_quotation` and `latest_proposal`.
 - **v1.6 (2026-10-20):** a quotation carries `tbo_proposal` and its desk `url`.
 - **v1.5 (2026-10-19):** call timeline items carry MyOperator's call fields, `lead.can_call`
   and `get_options`' `can_call`,

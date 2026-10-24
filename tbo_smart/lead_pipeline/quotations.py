@@ -79,6 +79,23 @@ def lead_quotations(lead: str, fields: list, filters: dict | None = None) -> lis
 	)
 
 
+def latest_quotations(leads: list[str]) -> dict:
+	"""{lead: its newest quotation's latest revision {name, tbo_quote_status, grand_total,
+	currency, tbo_sent_on}} for a page of leads, in one query."""
+	if not leads:
+		return {}
+	found = {}
+	for row in frappe.get_all(
+		"Quotation",
+		filters={LEAD_LINK: ("in", list(leads)), "docstatus": ("!=", 2), "tbo_is_latest": 1},
+		fields=[LEAD_LINK, "name", "tbo_quote_status", "grand_total", "currency", "tbo_sent_on"],
+		order_by="creation desc",
+		limit_page_length=0,
+	):
+		found.setdefault(row.pop(LEAD_LINK), row)
+	return found
+
+
 def is_lead_quotation(doc) -> bool:
 	return bool(lead_of(doc))
 

@@ -175,7 +175,7 @@ class Proposal:
 			found = first_table(text_parts(row.body))
 			if not found:
 				continue
-			total = sum(flt(str(cells[1]).replace("%", "")) for cells in found["rows"] if len(cells) > 1)
+			total = sum(share for _milestone, share in milestones_of(found))
 			if round(total, 2) != 100:
 				frappe.throw(_("The payment milestones add up to {0}%, not 100%.").format(f"{total:g}"))
 
@@ -1828,6 +1828,38 @@ def page_number_font(writer):
 		return sum(widths[ord(char) - first] for char in label) * size / 1000
 
 	return writer._add_object(font), width_of
+
+
+def latest_proposals(leads: list[str]) -> dict:
+	"""{lead: its newest priced client document (a proposal or a quotation document), latest
+	revision: {name, document_type, status, view_count, sent_on}} for a page of leads, in one
+	query."""
+	if not leads:
+		return {}
+	found = {}
+	for row in frappe.get_all(
+		DOCTYPE,
+		filters={
+			"lead": ("in", list(leads)),
+			"is_latest": 1,
+			"document_type": ("in", (kinds.PROPOSAL, kinds.QUOTATION)),
+		},
+		fields=["lead", "name", "document_type", "status", "view_count", "sent_on"],
+		order_by="creation desc",
+		limit_page_length=0,
+	):
+		found.setdefault(row.pop("lead"), row)
+	return found
+
+
+def payment_milestones(body: str | None) -> list[tuple[str, float]]:
+	"""The (milestone, share %) rows of a Payment Terms block's table ("milestone | 30%")."""
+	found = first_table(text_parts(body))
+	return milestones_of(found) if found else []
+
+
+def milestones_of(table: dict) -> list[tuple[str, float]]:
+	return [(cells[0], flt(str(cells[1]).replace("%", ""))) for cells in table["rows"] if len(cells) > 1]
 
 
 def lead_proposals(lead: str) -> list[dict]:
