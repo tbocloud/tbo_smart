@@ -1237,15 +1237,19 @@ def delete_owner_lead_records(owners: list[str] | tuple) -> None:
 	delete_smart_lead_records(owners)
 
 
-def save_lead_quotation(lead: str, item_code: str, rate: float, discount: float = 0, quotation=None) -> dict:
+def save_lead_quotation(
+	lead: str, item_code: str, rate: float, discount: float = 0, quotation=None, **values
+) -> dict:
 	"""A lead quotation of one line through the builder (lead_quotation.save_quotation) as the
-	session user, `discount` the additional discount %, valid for 20 days. Returns its payload."""
+	session user, `discount` the additional discount %, valid for 20 days; `values` are more of
+	the builder's fields (e.g. payment_terms_template). Returns its payload."""
 	from tbo_smart.api import lead_quotation
 
 	payload = {
 		"valid_till": add_days(nowdate(), 20),
 		"items": [quotation_line(item_code, 1, rate)],
 		"additional_discount_percentage": discount,
+		**values,
 	}
 	return lead_quotation.save_quotation(lead, json.dumps(payload), quotation)
 

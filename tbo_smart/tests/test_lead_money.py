@@ -60,14 +60,13 @@ class LeadMoneyTestCase(FrappeTestCase):
 		delete_owner_lead_records(OWNERS)
 		disable_proposals()
 		disable_lead_quotations()
-		set_smart_lead_settings(quotation_payment_terms=None)
 		frappe.db.commit()  # nosemgrep
 		super().tearDownClass()
 
 	def setUp(self):
 		frappe.set_user("Administrator")
 		delete_owner_lead_records(OWNERS)
-		enable_lead_quotations(quotation_payment_terms=None)
+		enable_lead_quotations()
 		configure_quotation_approval(enabled=0)
 		self.lead = make_lead(
 			BDE,
@@ -196,9 +195,8 @@ class TestCollections(LeadMoneyTestCase):
 		self.assertEqual(self.splits_of(self.money(BDE2), self.lead), [])
 
 	def test_an_order_settles_its_schedule_with_what_came_in(self):
-		set_smart_lead_settings(quotation_payment_terms=TERMS)
 		frappe.set_user(BDE)
-		name = save_lead_quotation(self.lead, SERVICE, 100000)["name"]
+		name = save_lead_quotation(self.lead, SERVICE, 100000, payment_terms_template=TERMS)["name"]
 		lead_quotation.mark_sent(name, "Manual", follow_up_days=0)
 		frappe.set_user(HUB)
 		quoted = self.splits_of(self.money(), self.lead)
