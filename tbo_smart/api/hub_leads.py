@@ -22,9 +22,10 @@ from tbo_smart.lead_pipeline import rate_card, require_quotations, setting
 from tbo_smart.lead_pipeline.client_documents import chain as document_chain
 from tbo_smart.lead_pipeline.dashboard import people, scope_owners
 from tbo_smart.lead_pipeline.meetings import DOCTYPE as MEETING
+from tbo_smart.lead_pipeline.money import ProposalMoney
 from tbo_smart.lead_pipeline.overview import LeadOverview, SalesActivity, period_range
-from tbo_smart.lead_pipeline.proposals import lead_proposals, proposals_enabled
-from tbo_smart.lead_pipeline.quotations import lead_quotations
+from tbo_smart.lead_pipeline.proposals import latest_proposals, lead_proposals, proposals_enabled
+from tbo_smart.lead_pipeline.quotations import latest_quotations, lead_quotations
 from tbo_smart.lead_pipeline.setup import HUB_ROLE, SEGMENTS
 from tbo_smart.lead_pipeline.statuses import STATUS_NAMES, stage_options, status_type
 from tbo_smart.sales import erpnext_installed
@@ -53,7 +54,9 @@ from tbo_smart.telephony.calls import call_details, can_call
 
 VIEWS = ("all", "mine", "call_today", "follow_up")
 TEMPERATURES = ("Hot", "Warm", "Cold")
+SALES_USER = "Sales User"
 MAX_PAGE_LENGTH = 100
+MAX_INTAKE_DAYS = 62
 # what the hub may write on a lead, by the key it sends
 LEAD_FIELDS = {
 	"first_name": "first_name",
@@ -337,6 +340,9 @@ def serialize_rows(rows: list) -> list[dict]:
 	names = [row.name for row in rows]
 	follow_ups = next_follow_ups("Lead", names)
 	owners = get_full_names({row.lead_owner for row in rows if row.lead_owner})
+	# where each lead stands with the client, for the list row: two queries for the page
+	quotations = latest_quotations(names)
+	proposals = latest_proposals(names) if proposals_enabled() else {}
 	return [
 		{
 			"name": row.name,
@@ -351,6 +357,8 @@ def serialize_rows(rows: list) -> list[dict]:
 			"score": cint(row.score),
 			"next_follow_up": follow_ups.get(row.name),
 			"modified": row.modified,
+			"latest_quotation": quotations.get(row.name),
+			"latest_proposal": proposals.get(row.name),
 		}
 		for row in rows
 	]
@@ -364,9 +372,12 @@ def resolve_period(period: str | None, from_date, to_date) -> str:
 	return period or ("custom" if (from_date or to_date) else "month")
 
 
-def overview_board(period: str, from_date, to_date, owner: str | None) -> tuple[LeadOverview, list | None]:
+def overview_board(
+	period: str, from_date, to_date, owner: str | None, board: type[LeadOverview] = LeadOverview
+) -> tuple[LeadOverview, list | None]:
 	"""(the overview's figures, the scope's owners): the session user's sales scope (their own
-	leads, their team's, or everyone's: None), narrowed to `owner` when that person is in it."""
+	leads, their team's, or everyone's: None), narrowed to `owner` when that person is in it.
+	`board`: LeadOverview or a figure set built on it (ProposalMoney)."""
 	allowed = scope_owners()
 	owners = allowed
 	if owner:
@@ -374,7 +385,7 @@ def overview_board(period: str, from_date, to_date, owner: str | None) -> tuple[
 			frappe.throw(_("{0} is not in your team.").format(owner), frappe.PermissionError)
 		owners = [owner]
 	start, end = period_range(period, from_date, to_date)
-	return LeadOverview(start, end, owners), allowed
+	return board(start, end, owners), allowed
 
 
 @frappe.whitelist()
@@ -400,6 +411,51 @@ def get_overview(
 		result["people"] = people(allowed)
 		# the AI's part: the plan of the person picked (else the acting user's own)
 		result["ai"] = autopilot.overview_ai(owners_of(owner, allowed), owner or frappe.session.user)
+		return result
+
+
+@frappe.whitelist()
+def get_lead_intake(
+	from_date: str | None = None,
+	to_date: str | None = None,
+	owner: str | None = None,
+	acting_user: str | None = None,
+) -> dict:
+	"""New leads taken each day from `from_date` to `to_date` (default today, at most 62 days),
+	and by whom, for the acting user's sales scope (narrowed to `owner`). Leads copied in from
+	the old CRM (`crm_lead_ref` set) are left out: they weren't taken that day. `people` is the
+	scope's salespeople (Sales User), so someone who took none still shows."""
+	with acting_as(acting_user):
+		day = frappe.utils.today()
+		start, end = getdate(from_date or day), getdate(to_date or day)
+		if (end - start).days >= MAX_INTAKE_DAYS:
+			frappe.throw(_("Choose at most {0} days.").format(MAX_INTAKE_DAYS))
+		board, allowed = overview_board("custom", start, end, owner)
+		result = board.build_intake()
+		result["people"] = [
+			{"user": row.user, "full_name": row.full_name}
+			for row in get_crm_users([owner] if owner else allowed, roles=(SALES_USER,))
+		]
+		return result
+
+
+@frappe.whitelist()
+def get_proposal_money(
+	period: str | None = None,
+	from_date: str | None = None,
+	to_date: str | None = None,
+	owner: str | None = None,
+	acting_user: str | None = None,
+) -> dict:
+	"""Proposals and the money after them for the acting user's sales scope (narrowed to
+	`owner`): in the period, the proposals sent and their value, the value won and the advances
+	received; now, every payment split still to come in, with its status, and their total by
+	month (docs/hub-leads-api.md §2.8). `period` as get_overview."""
+	with acting_as(acting_user):
+		period = resolve_period(period, from_date, to_date)
+		board, _allowed = overview_board(period, from_date, to_date, owner, ProposalMoney)
+		result = board.build_money()
+		result["period"] = period
 		return result
 
 
