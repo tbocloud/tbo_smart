@@ -89,7 +89,10 @@ jobs:
             ${{ runner.os }}-yarn-
 
       - name: Install MariaDB Client
-        run: sudo apt-get update && sudo apt-get install -y mariadb-client
+        # the newer client requires SSL by default; the test service has none (bench runs the client too)
+        run: |
+          sudo apt-get update && sudo apt-get install -y mariadb-client
+          printf "[client]\nskip-ssl\n" > ~/.my.cnf
 
       - name: Setup
         run: |
