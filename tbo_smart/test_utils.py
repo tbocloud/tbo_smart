@@ -1008,6 +1008,42 @@ def age_lead(lead: str, days: int) -> None:
 	)
 
 
+def set_stage_log_time(lead: str, idx: int, when) -> None:
+	"""Move one row of a lead's stage log (1 is the lead coming in) to `when`."""
+	frappe.db.set_value(
+		"TBO Stage Change", {"parent": lead, "idx": idx}, "changed_on", when, update_modified=False
+	)
+
+
+def make_call(
+	agent: str,
+	lead: str | None = None,
+	status: str = "Answered",
+	direction: str = "Outgoing",
+	started_at=None,
+) -> str:
+	"""A TBO Call taken by `agent` on `lead` (now by default), inserted as Administrator."""
+	call = frappe.get_doc(
+		{
+			"doctype": "TBO Call",
+			"call_id": f"test-{frappe.generate_hash(length=12)}",
+			"direction": direction,
+			"status": status,
+			"agent": agent,
+			"lead": lead,
+			"started_at": started_at or now_datetime(),
+			"talk_seconds": 60 if status == "Answered" else 0,
+		}
+	)
+	call.insert(ignore_permissions=True)
+	return call.name
+
+
+def delete_calls_of(agents: list[str] | tuple) -> None:
+	"""Delete the TBO Calls these users took."""
+	frappe.db.delete("TBO Call", {"agent": ("in", list(agents))})
+
+
 # ---------- Lead pipeline (docs/lead-pipeline.md) ----------
 
 

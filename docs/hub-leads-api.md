@@ -1,4 +1,4 @@
-# Hub leads API (`tbo_smart.api.hub_leads`), v1.7
+# Hub leads API (`tbo_smart.api.hub_leads`), v1.8
 
 **Status:** built 2026-10-16. The TBO Support hub's lead page (tbocloud/helpdesk) shows and edits
 tboindia's leads through these methods. The leads are ERPNext's own **Lead**
@@ -236,6 +236,57 @@ and `won_value` (latest quotations' total), `conversion` (won of new, %). `calls
 `talk_seconds` count for **the person who took the call**: answered MyOperator calls started in
 the range and their talk time (`telephony-myoperator.md` §4.2; 0 without telephony).
 
+### 2.5.1 Daily sales report
+
+`get_daily_report(date?, owner?, acting_user?)` is the Sales Manager's **Daily Sales Performance
+Report**: one row per salesperson for one `date` (default today, site time). `acting_user`'s sales
+scope decides who is listed (a salesperson: themselves; a team lead: the team; a Sales Manager:
+all Sales Users); `owner` narrows it to one person and must be in the scope (else 403). The ERP
+returns counts and the leads behind them; **the hub holds the targets** (10 qualified leads a
+day; 10 meetings, 5 proposals and 40 follow-ups a week; lead to meeting 30% and proposal win 40%
+over 30 days) and compares.
+
+```
+DailyReport = {date, week_from (the Monday), currency,
+  people: [{user, full_name,
+    calls_total, calls_connected,
+    fresh_leads, follow_up_leads,
+    positive_leads: [{name, lead_name, company_name}],
+    new_quotations: {count, value, items: [{kind ("quotation"|"proposal"), name, lead, lead_name, value}]},
+    meetings_held, follow_ups_done, follow_ups_overdue,
+    new_leads: [{name, lead_name, company_name}],
+    week_to_date: {leads, meetings, proposals, follow_ups}}]}
+```
+
+Each figure, for the day (site timezone) and for whom it counts:
+
+- `calls_total`: TBO Calls started that day by the person who took them, outgoing or incoming,
+  answered or not. `calls_connected`: those answered (manual `log_call` calls included).
+- `fresh_leads`: distinct leads whose **first contact** was that day and the person contacted
+  that day. A lead's first contact is the earlier of its first TBO Call (anyone's) and its first
+  move out of New Lead (its stage log). "Contacted that day" is a call by the person, a stage
+  move on a lead they own (the first row of a stage log, the lead coming in, is not a move) or a
+  follow-up allocated to them completed that day.
+- `follow_up_leads`: the other leads they contacted that day, i.e. ones contacted before. The
+  two never overlap; a lead called three times today counts once.
+- `positive_leads`: leads owned by the person that entered **Positive / Interested** that day
+  (the stage log), once each, named.
+- `new_quotations`: what went to a client that day for the person's leads, the hub overview's
+  "Proposals sent": each Quotation with `tbo_sent_on` that day (every revision; cancelled left
+  out) and each TBO Proposal sent that day with no quotation behind it (value 0; a proposal
+  with a quotation is that quotation). `count`, `value` (base currency) and the `items`.
+- `meetings_held`, `follow_ups_done`, `follow_ups_overdue`: as the scoreboard (§2.5) for that
+  day: meetings scheduled that day that have ended and are not cancelled; follow-ups completed
+  that day (by allocation); follow-ups still open and past their day **now** (not a count for
+  that day).
+- `new_leads`: leads created that day with the person as owner, **leaving out leads copied in
+  from the old CRM** (`crm_lead_ref` set), named. The same rule as `get_lead_intake` (§2.4.1).
+- `week_to_date`: Monday of `date`'s week to `date`: `leads` (new, as above), `meetings`
+  (held), `proposals` (as `new_quotations`) and `follow_ups` (done).
+
+Everything is read in grouped queries for the whole scope (`lead_pipeline/daily_report.py`),
+never one query per lead.
+
 ### 2.6 AI runs leads
 
 Behind TBO Smart Settings → AI runs leads (`smart-leads.md` §11). `get_lead_ai` answers with
@@ -264,6 +315,15 @@ also `list_leads` metrics (open leads the AI read so, now; none while AI runs le
 
 Click-to-call, the recording player and the telephony settings are in
 `tbo_smart.api.telephony` (`telephony-myoperator.md` §4), with the same `acting_user` rule.
+
+**`log_call(lead, outcome, note?, acting_user?)`** (POST) logs a call made outside MyOperator
+(MyOperator is not live everywhere yet). `outcome` is `Connected`, `No answer`, `Busy` or
+`Voicemail`; it needs write permission on the lead. It creates an **outgoing TBO Call** for the
+acting user (the one source of calls) and its call Event on the lead's timeline, and returns
+`{name, status, outcomes}`: `Connected` is stored as Answered, `No answer` and `Busy` as Missed,
+`Voicemail` as Voicemail, with `call_id` `manual-<random>`, no duration and no recording. It
+works with telephony switched off. A connected manual call counts in the Scoreboard's `calls`
+(with no talk time).
 
 ### 2.8 Proposals and money
 
@@ -344,8 +404,14 @@ reads follow the acting user; writes are theirs (owner, lead owner, note author)
 returns to the integration user; field, owner and lost-reason rules; the follow-up view; the
 options. `tests/test_segment_rate_card.py`: the rate card methods (acting user, editors only).
 
+`tbo_smart/tests/test_daily_report.py`: the daily report's calls, fresh and follow-up leads,
+positive leads, quotations, meetings and follow-ups, new leads without imports, the week to date
+and the scope (a salesperson sees themselves, a Sales Manager everyone, `owner` outside the scope
+is 403); `log_call` (the outcomes, the acting user, the lead's write permission).
+
 ## Changelog
 
+- **v1.8 (2026-10-26):** `get_daily_report` (§2.5.1) and `log_call` (§2.7).
 - **v1.7 (2026-10-24):** `get_lead_intake` and the `intake` metric (§2.4.1),
   `get_proposal_money` (§2.8), the row's `latest_quotation` and `latest_proposal`.
 - **v1.6 (2026-10-20):** a quotation carries `tbo_proposal` and its desk `url`.

@@ -16,7 +16,7 @@ import requests
 from frappe import _
 from frappe.query_builder import CustomFunction
 from frappe.query_builder.functions import Coalesce, Count, Sum
-from frappe.utils import add_days, cint, getdate, today
+from frappe.utils import add_days, cint, getdate, now_datetime, today
 
 from tbo_smart.lead_pipeline.statuses import OPEN_STATUSES
 from tbo_smart.sales.activities import CALL, CANCELLED, OPEN, add_event, add_follow_up_task
@@ -27,7 +27,9 @@ from tbo_smart.telephony import (
 	ANSWERED,
 	INCOMING,
 	LEAD_SOURCE,
+	MANUAL_OUTCOMES,
 	MISSED,
+	OUTGOING,
 	SETTINGS,
 	min_summary_seconds,
 	myoperator,
@@ -100,6 +102,34 @@ def receive(event: dict) -> dict:
 		now=frappe.flags.in_test,
 	)
 	return {"ok": True}
+
+
+def log_manual_call(lead: str, outcome: str, note: str | None = None):
+	"""A call the session user made outside MyOperator, logged by hand: an outgoing TBO Call by
+	them now (answered, missed or voicemail by `outcome`) and its call Event on the lead, as a
+	MyOperator call would leave. Needs write permission on the lead; no telephony setting."""
+	if outcome not in MANUAL_OUTCOMES:
+		frappe.throw(_("outcome must be one of {0}.").format(", ".join(MANUAL_OUTCOMES)))
+	frappe.has_permission("Lead", "write", lead, throw=True)
+	now = now_datetime()
+	doc = frappe.get_doc(
+		{
+			"doctype": DOCTYPE,
+			"call_id": f"manual-{uuid4().hex}",
+			"direction": OUTGOING,
+			"status": MANUAL_OUTCOMES[outcome],
+			"lead": lead,
+			"agent": frappe.session.user,
+			"customer_number": frappe.db.get_value("Lead", lead, "mobile_no"),
+			"started_at": now,
+			"ended_at": now,
+			"duration": 0,
+			"talk_seconds": 0,
+			"last_event": "manual",
+		}
+	)
+	doc.event = add_event("Lead", lead, CALL, call_subject(doc), note, starts_on=now).name
+	return doc.insert(ignore_permissions=True)
 
 
 def stored_call(call_id: str):
