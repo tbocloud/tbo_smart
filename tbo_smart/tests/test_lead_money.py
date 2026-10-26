@@ -229,13 +229,15 @@ class TestCollections(LeadMoneyTestCase):
 		by_month = {getdate(row["month"]): row["amount"] for row in result["by_month"]["months"]}
 		self.assertEqual(by_month[month], second)
 
-		# the second split's day passes unpaid: the order's split is overdue
-		frappe.db.set_value(
-			"Payment Schedule",
-			{"parenttype": "Quotation", "parent": name, "payment_term": SECOND},
-			"due_date",
-			add_days(nowdate(), -3),
-		)
+		# the second split's day passes unpaid: the order's split is overdue. The advance's date moves
+		# back too, since splits settle in due order and the second must not jump ahead of it.
+		for term, days in ((ADVANCE, -10), (SECOND, -3)):
+			frappe.db.set_value(
+				"Payment Schedule",
+				{"parenttype": "Quotation", "parent": name, "payment_term": term},
+				"due_date",
+				add_days(nowdate(), days),
+			)
 		result = self.money()
 		self.assertEqual(self.splits_of(result, self.lead)[1]["status"], money.OVERDUE)
 		self.assertEqual((result["totals"]["overdue"], result["by_month"]["overdue"]), (second, second))
