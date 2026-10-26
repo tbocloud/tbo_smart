@@ -243,7 +243,9 @@ class TestCollections(LeadMoneyTestCase):
 		self.assertEqual((result["totals"]["overdue"], result["by_month"]["overdue"]), (second, second))
 
 		# paid in full: the order drops off the list
+		frappe.set_user("Administrator")
 		make_receipt("Sales Order", order, second)
+		frappe.set_user(HUB)
 		self.assertEqual(self.splits_of(self.money(), self.lead), [])
 
 	def test_splits_settle_in_due_order(self):
