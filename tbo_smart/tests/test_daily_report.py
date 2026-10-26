@@ -114,7 +114,8 @@ class TestDailyReport(DailyReportTestCase):
 		frappe.set_user(HUB)
 		row = self.row(self.report())
 		self.assertEqual((row["fresh_leads"], row["follow_up_leads"]), (2, 2))
-		self.assertEqual(row["calls_total"], 4)
+		# the call made three days ago is not part of today
+		self.assertEqual(row["calls_total"], 3)
 
 	def test_positive_leads_entered_positive_that_day(self):
 		frappe.set_user("Administrator")
@@ -207,7 +208,7 @@ class TestDailyReport(DailyReportTestCase):
 		week = self.row(self.report())["week_to_date"]
 		self.assertEqual(week["leads"], 2)
 		self.assertEqual(self.report()["week_from"], monday)
-		last_week = self.report(date=add_days(monday, -1))
+		last_week = self.report(date=str(add_days(monday, -1)))
 		self.assertEqual(self.row(last_week)["week_to_date"]["leads"], 0)
 
 	def test_scope_follows_the_acting_user(self):
