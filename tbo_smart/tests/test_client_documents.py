@@ -547,7 +547,8 @@ class TestBRD(ClientDocumentTestCase):
 
 	def test_the_ai_writes_from_the_clients_words_and_asks_for_the_gaps(self):
 		sections = {
-			"Pain Points": "- Salary takes 37 hours a month",
+			# a number nothing else in the test data can contain by chance (ids, dates, phones)
+			"Pain Points": "- Salary takes 9173 hours a month",
 			"Business Objectives": "- To confirm with client: the objectives",
 			"Success Criteria": "- Close the books in 12 days",
 		}
@@ -568,7 +569,7 @@ class TestBRD(ClientDocumentTestCase):
 		# "12 days" isn't in anything the client said: left as the data built it, with a warning
 		self.assertNotIn("12 days", bodies["Success Criteria"])
 		self.assertTrue(result["warnings"])
-		# "37 hours" isn't either
+		# "9173 hours" isn't either
 		self.assertIn("Payroll by hand", bodies["Pain Points"])
 		asked = {row["question"]: row["asked_by"] for row in result["proposal"]["questionnaire"]["questions"]}
 		self.assertEqual(asked["What does a good month-end look like?"], "AI")
