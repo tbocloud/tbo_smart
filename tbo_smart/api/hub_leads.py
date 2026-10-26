@@ -20,7 +20,8 @@ from tbo_smart.api.mobile.crm import check_assignee, get_crm_users
 from tbo_smart.api.mobile.utils import get_full_names
 from tbo_smart.lead_pipeline import rate_card, require_quotations, setting
 from tbo_smart.lead_pipeline.client_documents import chain as document_chain
-from tbo_smart.lead_pipeline.dashboard import people, scope_owners
+from tbo_smart.lead_pipeline.daily_report import DailyReport, week_start
+from tbo_smart.lead_pipeline.dashboard import company_currency, people, scope_owners
 from tbo_smart.lead_pipeline.meetings import DOCTYPE as MEETING
 from tbo_smart.lead_pipeline.money import ProposalMoney
 from tbo_smart.lead_pipeline.overview import LeadOverview, SalesActivity, period_range
@@ -50,7 +51,8 @@ from tbo_smart.smart_leads import (
 	scoring_enabled,
 )
 from tbo_smart.smart_leads.call_today import build_call_today
-from tbo_smart.telephony.calls import call_details, can_call
+from tbo_smart.telephony import MANUAL_OUTCOMES
+from tbo_smart.telephony.calls import call_details, can_call, log_manual_call
 
 VIEWS = ("all", "mine", "call_today", "follow_up")
 TEMPERATURES = ("Hot", "Warm", "Cold")
@@ -437,6 +439,63 @@ def get_lead_intake(
 			for row in get_crm_users([owner] if owner else allowed, roles=(SALES_USER,))
 		]
 		return result
+
+
+@frappe.whitelist()
+def get_daily_report(
+	date: str | None = None, owner: str | None = None, acting_user: str | None = None
+) -> dict:
+	"""The Daily Sales Performance Report for `date` (default today, site time): one row per
+	salesperson in the acting user's sales scope, or only `owner` (who must be in it). Counts, and
+	the leads and quotations behind the lists; the hub holds the targets and compares.
+
+	Per person, for the day: `calls_total` (TBO Calls the person made or took, answered or not),
+	`calls_connected` (answered ones); `fresh_leads` (distinct leads whose first contact, a first
+	call or a first move out of New Lead, was that day, by this person) and `follow_up_leads`
+	(distinct leads they contacted that day that had been contacted before: a call, a stage move
+	or a completed follow-up), the two never overlapping; `positive_leads` (leads that entered
+	Positive / Interested that day, listed); `new_quotations` (quotations sent that day, every
+	revision, plus proposals sent with no quotation behind them: count, value and items);
+	`meetings_held` (meetings scheduled that day that have ended, not cancelled), `follow_ups_done`
+	(completed that day), `follow_ups_overdue` (open and past their day now); `new_leads` (created
+	that day with the person as owner, old-CRM imports left out, listed). `week_to_date` is
+	Monday to `date`: `leads` (new, as above), `meetings`, `proposals` (as `new_quotations`) and
+	`follow_ups` (done)."""
+	with acting_as(acting_user):
+		allowed = scope_owners()
+		if owner and allowed is not None and owner not in allowed:
+			frappe.throw(_("{0} is not in your team.").format(owner), frappe.PermissionError)
+		day = getdate(date or frappe.utils.today())
+		users = get_crm_users([owner] if owner else allowed, roles=CRM_ROLES if owner else (SALES_USER,))
+		names = [row.user for row in users]
+		owners = [owner] if owner else allowed
+		report = DailyReport(day, day, owners)
+		figures = report.build_day(names)
+		week = DailyReport(week_start(day), day, owners).build_week(names)
+		return {
+			"date": day,
+			"week_from": week_start(day),
+			"currency": company_currency(),
+			"people": [
+				{
+					"user": row.user,
+					"full_name": row.full_name,
+					**figures[row.user],
+					"week_to_date": week[row.user],
+				}
+				for row in users
+			],
+		}
+
+
+@frappe.whitelist(methods=["POST"])
+def log_call(lead: str, outcome: str, note: str | None = None, acting_user: str | None = None) -> dict:
+	"""Log a call the acting user made outside MyOperator on `lead`: `outcome` is Connected, No
+	answer, Busy or Voicemail. It is stored as an outgoing TBO Call by them, the single source of
+	calls, and shows on the lead's timeline. Needs write permission on the lead."""
+	with acting_as(acting_user):
+		call = log_manual_call(lead, outcome, note)
+		return {"name": call.name, "status": call.status, "outcomes": list(MANUAL_OUTCOMES)}
 
 
 @frappe.whitelist()
