@@ -1156,7 +1156,8 @@ def disable_lead_quotations() -> None:
 
 
 def delete_lead_quotations(leads: list[str] | tuple) -> None:
-	"""Cancel and delete the quotations and sales orders of these leads, and commit."""
+	"""Cancel and delete the quotations and sales orders of these leads (with the receipts against
+	the orders), and commit."""
 	if not leads:
 		return
 	quotations = frappe.get_all("Quotation", filters={"tbo_lead": ("in", list(leads))}, pluck="name")
@@ -1165,6 +1166,20 @@ def delete_lead_quotations(leads: list[str] | tuple) -> None:
 	for order in frappe.get_all(
 		"Sales Order Item", filters={"prevdoc_docname": ("in", quotations)}, pluck="parent", distinct=True
 	):
+		for entry in frappe.get_all(
+			"Payment Entry Reference",
+			filters={
+				"reference_doctype": "Sales Order",
+				"reference_name": order,
+				"parenttype": "Payment Entry",
+			},
+			pluck="parent",
+			distinct=True,
+		):
+			receipt = frappe.get_doc("Payment Entry", entry)
+			if receipt.docstatus == 1:
+				receipt.cancel()
+			frappe.delete_doc("Payment Entry", entry, force=True, ignore_permissions=True)
 		doc = frappe.get_doc("Sales Order", order)
 		if doc.docstatus == 1:
 			doc.cancel()
@@ -1179,6 +1194,39 @@ def delete_lead_quotations(leads: list[str] | tuple) -> None:
 	frappe.db.commit()  # nosemgrep
 
 
+def make_payment_terms_template(name: str, terms: list[tuple[str, float, int]]) -> str:
+	"""A Payment Terms Template of (payment term, share %, days after the document date) rows,
+	each term created when missing; replaced when it exists."""
+	for term, share, days in terms:
+		if not frappe.db.exists("Payment Term", term):
+			frappe.get_doc(
+				{
+					"doctype": "Payment Term",
+					"payment_term_name": term,
+					"invoice_portion": share,
+					"due_date_based_on": "Day(s) after invoice date",
+					"credit_days": days,
+				}
+			).insert(ignore_permissions=True)
+	frappe.delete_doc_if_exists("Payment Terms Template", name, force=True)
+	frappe.get_doc(
+		{
+			"doctype": "Payment Terms Template",
+			"template_name": name,
+			"terms": [
+				{
+					"payment_term": term,
+					"invoice_portion": share,
+					"due_date_based_on": "Day(s) after invoice date",
+					"credit_days": days,
+				}
+				for term, share, days in terms
+			],
+		}
+	).insert(ignore_permissions=True)
+	return name
+
+
 def delete_owner_lead_records(owners: list[str] | tuple) -> None:
 	"""Delete the proposals, quotations, deals, smart-lead records and leads of these lead owners,
 	and commit."""
@@ -1189,15 +1237,19 @@ def delete_owner_lead_records(owners: list[str] | tuple) -> None:
 	delete_smart_lead_records(owners)
 
 
-def save_lead_quotation(lead: str, item_code: str, rate: float, discount: float = 0, quotation=None) -> dict:
+def save_lead_quotation(
+	lead: str, item_code: str, rate: float, discount: float = 0, quotation=None, **values
+) -> dict:
 	"""A lead quotation of one line through the builder (lead_quotation.save_quotation) as the
-	session user, `discount` the additional discount %, valid for 20 days. Returns its payload."""
+	session user, `discount` the additional discount %, valid for 20 days; `values` are more of
+	the builder's fields (e.g. payment_terms_template). Returns its payload."""
 	from tbo_smart.api import lead_quotation
 
 	payload = {
 		"valid_till": add_days(nowdate(), 20),
 		"items": [quotation_line(item_code, 1, rate)],
 		"additional_discount_percentage": discount,
+		**values,
 	}
 	return lead_quotation.save_quotation(lead, json.dumps(payload), quotation)
 
