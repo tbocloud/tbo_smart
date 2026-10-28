@@ -29,6 +29,9 @@ def claim_owner(doc, method=None) -> None:
 	if user:
 		doc.lead_owner = user
 		doc.flags.round_robin_assignee = user
+	elif doc.flags.get("ownerless"):
+		# a website lead into a department that gives nothing out: its heads take it from here
+		doc.lead_owner = None
 
 
 def wants_round_robin(doc) -> bool:
