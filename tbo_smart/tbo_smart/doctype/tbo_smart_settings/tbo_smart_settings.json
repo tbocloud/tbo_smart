@@ -158,7 +158,10 @@
   "column_break_checkin",
   "checkin_anywhere_roles",
   "reverse_geocode_url",
-  "reverse_geocode_email"
+  "reverse_geocode_email",
+  "lead_intake_section",
+  "lead_log_email_account",
+  "website_lead_department"
  ],
  "fields": [
   {
@@ -1175,6 +1178,25 @@
    "label": "Contact email for reverse geocoding",
    "options": "Email",
    "description": "Sent to Nominatim with each request, as its usage policy asks."
+  },
+  {
+   "fieldname": "lead_intake_section",
+   "fieldtype": "Section Break",
+   "label": "Lead intake"
+  },
+  {
+   "description": "Mail arriving in this mailbox (BCC it on mails to clients, e.g. log@teambackoffice.com) is attached to the lead whose email is a sender or recipient (docs/lead-departments.md). Blank: off.",
+   "fieldname": "lead_log_email_account",
+   "fieldtype": "Link",
+   "label": "Lead email log mailbox",
+   "options": "Email Account"
+  },
+  {
+   "description": "The department a website enquiry (docs/website-lead-form.md) goes to when the form names none. It must be active.",
+   "fieldname": "website_lead_department",
+   "fieldtype": "Link",
+   "label": "Website lead department",
+   "options": "TBO Lead Department"
   }
  ],
  "index_web_pages_for_search": 0,

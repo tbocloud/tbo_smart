@@ -10,6 +10,9 @@
   "department_name",
   "lead_type",
   "is_active",
+  "assignment",
+  "stale_after_days",
+  "last_assigned_user",
   "section_break_people",
   "heads",
   "members"
@@ -41,6 +44,30 @@
    "label": "Active"
   },
   {
+   "default": "Manual",
+   "description": "Round robin: a new lead of this department with no owner goes to the next active head or member in turn.",
+   "fieldname": "assignment",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Assignment",
+   "options": "Manual\nRound robin"
+  },
+  {
+   "description": "Days without activity after which an open lead of this department counts as stale. Blank or 0: the caller's default (3).",
+   "fieldname": "stale_after_days",
+   "fieldtype": "Int",
+   "label": "Stale after (days)"
+  },
+  {
+   "fieldname": "last_assigned_user",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Last assigned user",
+   "options": "User",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
    "fieldname": "section_break_people",
    "fieldtype": "Section Break",
    "label": "People"
@@ -61,7 +88,7 @@
   }
  ],
  "links": [],
- "modified": "2026-10-28 10:00:00.000000",
+ "modified": "2026-10-29 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Lead Department",

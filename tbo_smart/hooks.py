@@ -206,8 +206,12 @@ doc_events = {
 			"tbo_smart.sales.stages.validate_lead",
 			"tbo_smart.lead_pipeline.rate_card.validate_lead_segment",
 			"tbo_smart.sales.departments.validate_lead_department",
+			"tbo_smart.sales.duplicates.skip_import_duplicates",
 		],
-		"after_insert": "tbo_smart.smart_leads.autopilot.lead_changed",
+		"after_insert": [
+			"tbo_smart.sales.assignment.assign_new_lead",
+			"tbo_smart.smart_leads.autopilot.lead_changed",
+		],
 		"on_update": [
 			"tbo_smart.smart_leads.scoring.lead_changed",
 			"tbo_smart.lead_pipeline.won.lead_updated",
@@ -226,7 +230,13 @@ doc_events = {
 			"tbo_smart.smart_leads.autopilot.activity_changed",
 		]
 	},
-	"Communication": {"after_insert": "tbo_smart.smart_leads.autopilot.activity_changed"},
+	# BCC logging puts the mail on its lead first, so the AI autopilot reads the lead's email
+	"Communication": {
+		"after_insert": [
+			"tbo_smart.sales.email_log.log_to_lead",
+			"tbo_smart.smart_leads.autopilot.activity_changed",
+		]
+	},
 	"ToDo": {"on_update": "tbo_smart.smart_leads.scoring.activity_changed"},
 	# Lead quotations: an approval request or decision changes the quotation's draft state
 	"TBO Quotation Adjustment": {"on_update": "tbo_smart.lead_pipeline.quotations.adjustment_changed"},

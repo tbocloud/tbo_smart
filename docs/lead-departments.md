@@ -1,4 +1,4 @@
-# Lead departments (living spec, v1.1, Phase 1 and 2)
+# Lead departments (living spec, v1.2, Phase 1 to 3)
 
 Leads belong to a department (GrowthX and the like) that admins create. The department's
 **heads** see every lead of it; the people who follow a lead (its owner, or anyone it is
@@ -9,7 +9,7 @@ hub's screens come after.
 ## 1. Data
 
 - **TBO Lead Department** (`tbo_smart/tbo_smart/doctype/tbo_lead_department`, named by
-  `department_name`, unique): `lead_type` (required), `is_active` (default on), `heads` and
+  `department_name`, unique): `lead_type` (required), `is_active` (default on), `assignment` (Manual, the default, or Round robin), `stale_after_days` (Int; 0 or blank: use the caller's days), hidden `last_assigned_user`, `heads` and
   `members` (tables of **TBO Lead Department User**: `user`, `full_name`). System Manager and
   Sales Manager: full; Sales User: read. A person is listed once per table; no rename.
 - **Lead** custom fields (`lead_pipeline/setup.py`, after `tbo_segment`, ERPNext sites only):
@@ -34,16 +34,16 @@ Manager outside the hierarchy still see everything.
 
 ## 4. Hub API (`tbo_smart.api.hub_leads`, same `acting_user` rules)
 
-- `get_options`: adds `departments` (active only: `{name, lead_type, is_active, is_head,
+- `get_options`: adds `departments` (active only: `{name, lead_type, is_active, assignment, is_head,
   is_member}` for the acting user) and `lead_types`.
 - `list_leads(department=...)`: filters to the department; rows carry `tbo_department` and
   `tbo_lead_type`. `get_lead`'s `lead` carries the same two.
 - `create_lead` / `update_lead`: `data` takes `department` (or `tbo_department`) and `lead_type`
   (or `tbo_lead_type`).
-- `get_lead_departments` -> `[{name, department_name, lead_type, is_active, heads, members}]`
+- `get_lead_departments` -> `[{name, department_name, lead_type, is_active, assignment, stale_after_days, heads, members}]`
   for any lead user (heads and members are `[{user, full_name}]`, inactive departments included).
 - `save_lead_department(values, name=None)` (POST): `values` has `department_name` (new only),
-  `lead_type`, `is_active`, `heads`, `members` (lists of emails, replacing the old list).
+  `lead_type`, `is_active`, `assignment`, `stale_after_days`, `heads`, `members` (lists of emails, replacing the old list).
   Returns the department. `set_lead_department_active(name, active)` (POST). Both need Sales
   Manager or System Manager (PermissionError otherwise).
 
@@ -60,7 +60,58 @@ the project (the hub links it with `link_project` on the proposal and reads
 `get_accepted_proposal`). The credentials handover and the content calendar approvals are the
 hub's. Details and the data-driven table: `lead-pipeline.md` §13.
 
-## 5. Tests
+## 5. Round-robin assignment (`sales/assignment.py`)
+
+A department with `assignment` = Round robin hands every new Lead that has a department and no
+`lead_owner` to its next member: enabled users only, in the members list's order, wrapping round,
+starting after `last_assigned_user` (a removed or disabled last user restarts the order). It runs
+in Lead `after_insert`, so it covers the website form, Data Import and a hub `create_lead` with
+the owner left empty. The owner is set, the person gets a ToDo assignment through
+`frappe.desk.form.assign_to.add` (the ERP's own assignment notice), and the department remembers
+the user. The department's row is read `FOR UPDATE` first, so two leads inserted together get two
+people. A Manual department, an inactive one, or one with no enabled member does nothing (a hub
+create then keeps the acting user as owner). Heads are not in the rotation.
+
+## 6. Duplicates (`sales/duplicates.py`)
+
+`find_duplicate_leads` (hub API §2.9) and the check inside `create_lead`. Email (lowercase), phone
+(last 10 digits of mobile, phone or WhatsApp) and company (case-insensitive, exact) are compared
+with every lead, **ignoring who may see it**, and only name, owner, stage and contact fields come
+back: this is a deliberate choice, since the purpose is that nobody works an enquiry a colleague
+already has. Email or phone blocks `create_lead` (`DuplicateEntryError`, `allow_duplicate=1`
+overrides); a company match only shows. **Data Import** (`frappe.flags.in_import`) refuses a row
+whose email or phone another lead has, so the importer skips it and lists it with the same
+message; the CRM cutover (flag `tbo_cutover`) copies leads as they were and is not checked.
+
+## 7. Stale leads (`sales/stale.py`)
+
+`get_stale_leads` (hub API §2.10): open leads (not Closed – Won, Closed – Lost, On Hold) of the
+acting user's normal scope whose newest activity is `days` old or more. Activity is the latest of
+a note (Comment type Comment), an email (Communication), a ToDo (its last change), an Event
+(calls and meetings, logged by hand or MyOperator), a TBO Call, a stage change and the lead's
+creation; system "Info" comments do not count. One grouped query per source. A department's
+`stale_after_days` above 0 replaces `days` for its leads.
+
+## 8. Email logging by BCC (`sales/email_log.py`)
+
+TBO Smart Settings → **Lead email log mailbox** (`lead_log_email_account`, an Email Account).
+Every Communication received on that account is attached (`reference_doctype`/`reference_name` =
+Lead, so it is on the timeline) to the lead whose `email_id` is any outside address on the mail's
+sender, recipients, cc or bcc; outside means not an enabled or disabled system user's address and
+not one of our Email Accounts. With several leads the most recently changed open one wins; with
+none the Communication is left as it is. Setup: create a mailbox such as log@teambackoffice.com,
+add it as an **incoming** Email Account in Frappe, select it in the setting, then BCC it on mails
+to clients (a mail forwarded to it works too).
+
+## 9. Tests
+
+`tbo_smart/tests/test_lead_wave1.py`: round-robin order, wrap, skipping disabled users and the
+previous one, Manual leaving the owner empty, the hub create with the owner left empty;
+duplicates (normalisation, matched_on, the cap of 5, `exclude`, all leads regardless of
+visibility, the refusal and `allow_duplicate`, company-only allowed, Data Import skip); stale
+leads (each activity source, closed and On Hold excluded, the department's own days, visibility);
+BCC logging; the website form (honeypot, validation, duplicates, department fallback, round
+robin, the rate limit decorator). Website form: `website-lead-form.md`.
 
 `tbo_smart/tests/test_lead_departments.py`: a head sees the department's leads they do not
 own, a member only their own, a lead without a department is unchanged, a department switched
