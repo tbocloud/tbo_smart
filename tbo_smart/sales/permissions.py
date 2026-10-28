@@ -9,7 +9,9 @@ Frappe CRM's rule, unchanged, on ERPNext's records (the `has_permission` and
 - with the sales hierarchy on and the user in it: the records owned by, or assigned (an open or
   closed ToDo) to, the user or anyone below them;
 - a Sales Manager outside the hierarchy: everything;
-- everyone else: what they own or what is assigned to them.
+- everyone else: what they own or what is assigned to them;
+- on top of the last two, the head of an active TBO Lead Department also sees every lead of
+  it (sales/departments.py); a lead without a department is unaffected.
 
 ERPNext's role permissions still decide first; this only narrows them.
 """
@@ -17,6 +19,7 @@ ERPNext's role permissions still decide first; this only narrows them.
 import frappe
 
 from tbo_smart.sales import DEAL, LEAD, owner_field
+from tbo_smart.sales.departments import headed_departments
 from tbo_smart.sales.hierarchy import in_hierarchy, team_query
 
 READ_PTYPES = {"read", "select", "print"}
@@ -42,6 +45,13 @@ def sees_everything(user: str, doctype: str, ptype: str | None) -> bool:
 
 def conditions(user: str, doctype: str):
 	"""The criterion on `doctype` for a user who doesn't see everything."""
+	criterion = own_conditions(user, doctype)
+	if doctype == LEAD:
+		criterion = criterion | frappe.qb.DocType(LEAD).tbo_department.isin(headed_departments(user))
+	return criterion
+
+
+def own_conditions(user: str, doctype: str):
 	Table = frappe.qb.DocType(doctype)
 	ToDo = frappe.qb.DocType("ToDo").as_("_tbo_todo")
 	owner = Table[owner_field(doctype)]

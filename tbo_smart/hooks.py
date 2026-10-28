@@ -205,6 +205,7 @@ doc_events = {
 		"validate": [
 			"tbo_smart.sales.stages.validate_lead",
 			"tbo_smart.lead_pipeline.rate_card.validate_lead_segment",
+			"tbo_smart.sales.departments.validate_lead_department",
 		],
 		"after_insert": "tbo_smart.smart_leads.autopilot.lead_changed",
 		"on_update": [

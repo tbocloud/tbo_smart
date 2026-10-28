@@ -7,6 +7,7 @@ from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
 from tbo_smart.lead_pipeline.statuses import NEW_LEAD, STATUS_NAMES
 from tbo_smart.sales import DEAL, LEAD, LEAD_LINK, erpnext_installed
+from tbo_smart.sales.departments import DEPARTMENT, LEAD_TYPES
 from tbo_smart.sales.opportunity import STAGE_TYPES, ensure_default_stages
 from tbo_smart.sales.stages import OTHER_REASON
 
@@ -71,11 +72,32 @@ def get_pipeline_fields() -> dict:
 				"in_standard_filter": 1,
 			},
 			{
+				"fieldname": "tbo_department",
+				"fieldtype": "Link",
+				"options": DEPARTMENT,
+				"label": "Department",
+				"insert_after": "tbo_segment",
+				"in_list_view": 1,
+				"in_standard_filter": 1,
+				"search_index": 1,
+				"description": "Its heads see every lead of the department (docs/lead-departments.md).",
+			},
+			{
+				"fieldname": "tbo_lead_type",
+				"fieldtype": "Select",
+				"options": "\n" + "\n".join(LEAD_TYPES),
+				"label": "Lead type",
+				"insert_after": "tbo_department",
+				"in_standard_filter": 1,
+				"fetch_from": "tbo_department.lead_type",
+				"fetch_if_empty": 1,
+			},
+			{
 				"fieldname": "tbo_lost_reason",
 				"fieldtype": "Link",
 				"options": "Opportunity Lost Reason",
 				"label": "Lost reason",
-				"insert_after": "tbo_segment",
+				"insert_after": "tbo_lead_type",
 				"depends_on": "eval:doc.tbo_stage == 'Closed – Lost'",
 			},
 			{

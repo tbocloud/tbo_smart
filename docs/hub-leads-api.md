@@ -1,4 +1,4 @@
-# Hub leads API (`tbo_smart.api.hub_leads`), v1.8
+# Hub leads API (`tbo_smart.api.hub_leads`), v1.9
 
 **Status:** built 2026-10-16. The TBO Support hub's lead page (tbocloud/helpdesk) shows and edits
 tboindia's leads through these methods. The leads are ERPNext's own **Lead**
@@ -411,6 +411,9 @@ is 403); `log_call` (the outcomes, the acting user, the lead's write permission)
 
 ## Changelog
 
+- **v1.9 (2026-10-28):** lead departments (`lead-departments.md` §4): `get_lead_departments`,
+  `save_lead_department`, `set_lead_department_active`, `get_options`' `departments` and
+  `lead_types`, `list_leads`' `department`, the lead's `tbo_department` and `tbo_lead_type`.
 - **v1.8 (2026-10-26):** `get_daily_report` (§2.5.1) and `log_call` (§2.7).
 - **v1.7 (2026-10-24):** `get_lead_intake` and the `intake` metric (§2.4.1),
   `get_proposal_money` (§2.8), the row's `latest_quotation` and `latest_proposal`.
