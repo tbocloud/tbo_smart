@@ -943,12 +943,11 @@ def set_segment_rate(
 
 
 @frappe.whitelist()
-def get_lead_departments(acting_user: str | None = None) -> dict:
-	"""{departments, can_edit}: every lead department, inactive ones too, as {name, lead_type,
-	is_active, heads, members} (heads and members: [{user, full_name}]). `can_edit`: the acting
-	user is a Sales Manager or System Manager."""
+def get_lead_departments(acting_user: str | None = None) -> list[dict]:
+	"""Every lead department, inactive ones too, to any lead user: [{name, department_name,
+	lead_type, is_active, heads, members}] (heads and members: [{user, full_name}])."""
 	with acting_as(acting_user):
-		return {"departments": departments.get_departments(), "can_edit": departments.can_manage()}
+		return departments.get_departments()
 
 
 @frappe.whitelist(methods=["POST"])

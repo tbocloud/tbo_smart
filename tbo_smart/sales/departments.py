@@ -79,6 +79,7 @@ def serialize(name: str) -> dict:
 	row = frappe.db.get_value(DEPARTMENT, name, ["name", "lead_type", "is_active"], as_dict=True)
 	return {
 		"name": row.name,
+		"department_name": row.name,
 		"lead_type": row.lead_type,
 		"is_active": cint(row.is_active),
 		"heads": user_rows(name, "heads"),

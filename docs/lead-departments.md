@@ -40,8 +40,8 @@ Manager outside the hierarchy still see everything.
   `tbo_lead_type`. `get_lead`'s `lead` carries the same two.
 - `create_lead` / `update_lead`: `data` takes `department` (or `tbo_department`) and `lead_type`
   (or `tbo_lead_type`).
-- `get_lead_departments` -> `{departments: [{name, lead_type, is_active, heads, members}],
-  can_edit}` (heads and members are `[{user, full_name}]`, inactive departments included).
+- `get_lead_departments` -> `[{name, department_name, lead_type, is_active, heads, members}]`
+  for any lead user (heads and members are `[{user, full_name}]`, inactive departments included).
 - `save_lead_department(values, name=None)` (POST): `values` has `department_name` (new only),
   `lead_type`, `is_active`, `heads`, `members` (lists of emails, replacing the old list).
   Returns the department. `set_lead_department_active(name, active)` (POST). Both need Sales

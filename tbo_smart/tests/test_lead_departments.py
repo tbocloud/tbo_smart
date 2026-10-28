@@ -174,7 +174,6 @@ class TestLeadDepartments(FrappeTestCase):
 		updated = hub.save_lead_department({"members": [MEMBER, MEMBER2]}, name=CONTENT, acting_user=MANAGER)
 		self.assertEqual(len(updated["members"]), 2)
 		self.assertEqual(hub.set_lead_department_active(CONTENT, 0, acting_user=MANAGER)["is_active"], 0)
-		listing = hub.get_lead_departments(acting_user=MANAGER)
-		self.assertTrue(listing["can_edit"])
-		self.assertIn(CONTENT, [row["name"] for row in listing["departments"]])
-		self.assertFalse(hub.get_lead_departments(acting_user=MEMBER)["can_edit"])
+		for user in (MANAGER, MEMBER):
+			listing = hub.get_lead_departments(acting_user=user)
+			self.assertIn(CONTENT, [row["department_name"] for row in listing])
