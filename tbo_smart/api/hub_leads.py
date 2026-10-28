@@ -29,7 +29,7 @@ from tbo_smart.lead_pipeline.proposals import latest_proposals, lead_proposals, 
 from tbo_smart.lead_pipeline.quotations import latest_quotations, lead_quotations
 from tbo_smart.lead_pipeline.setup import HUB_ROLE, SEGMENTS
 from tbo_smart.lead_pipeline.statuses import STATUS_NAMES, stage_options, status_type
-from tbo_smart.sales import departments, erpnext_installed
+from tbo_smart.sales import departments, duplicates, erpnext_installed, stale
 from tbo_smart.sales.activities import (
 	OPEN,
 	add_follow_up_task,
@@ -40,6 +40,7 @@ from tbo_smart.sales.activities import (
 	plain_text,
 )
 from tbo_smart.sales.activities import add_note as add_comment_note
+from tbo_smart.sales.assignment import is_round_robin
 from tbo_smart.sales.opportunity import lead_opportunity
 from tbo_smart.sales.stages import set_lead_stage
 from tbo_smart.smart_leads import (
@@ -834,9 +835,14 @@ def check_owner(owner: str | None) -> None:
 
 
 @frappe.whitelist(methods=["POST"])
-def create_lead(data: dict | str, acting_user: str | None = None) -> dict:
-	"""A new lead (owner: the acting user unless `lead_owner` names someone they may assign to),
-	with `note` as its first note. Returns it as get_lead does."""
+def create_lead(
+	data: dict | str, allow_duplicate: int | str | bool = 0, acting_user: str | None = None
+) -> dict:
+	"""A new lead (owner: the acting user unless `lead_owner` names someone they may assign to,
+	or, with the owner left empty in a Round robin department, its next member), with `note` as
+	its first note. A lead whose email or phone another lead has is refused with
+	DuplicateEntryError "Possible duplicate of <lead> (<owner>)" (the matches are in the response)
+	unless `allow_duplicate` is 1. Returns it as get_lead does."""
 	with acting_as(acting_user) as user:
 		data = parse_data(data)
 		values = lead_values(data)
@@ -844,8 +850,16 @@ def create_lead(data: dict | str, acting_user: str | None = None) -> dict:
 		if not (values.get("first_name") or values.get("company_name")):
 			frappe.throw(_("Give the lead a name or a company."))
 		check_owner(values.get("lead_owner"))
+		if not cint(allow_duplicate):
+			duplicates.refuse_duplicate(
+				values.get("email_id"),
+				values.get("mobile_no") or values.get("phone"),
+				values.get("company_name"),
+			)
 		lead = frappe.new_doc("Lead")
 		lead.update({"lead_owner": user, **values})
+		# with the owner left empty, a Round robin department gives the lead to its next member
+		lead.flags.round_robin = not values.get("lead_owner") and is_round_robin(values.get("tbo_department"))
 		lead.insert()
 		schedule_follow_up(lead, data.get("next_follow_up"))
 		if (note or "").strip():
@@ -902,6 +916,37 @@ def add_note(name: str, note: str, acting_user: str | None = None) -> dict:
 			"text": plain_text(comment.content),
 			"ref": comment.name,
 		}
+
+
+# ---------- duplicates and stale leads (docs/lead-departments.md §6, §7) ----------
+
+
+@frappe.whitelist()
+def find_duplicate_leads(
+	email: str | None = None,
+	phone: str | None = None,
+	company: str | None = None,
+	exclude: str | None = None,
+	acting_user: str | None = None,
+) -> list[dict]:
+	"""Up to 5 leads with this email, phone (last 10 digits) or company (case-insensitive,
+	exact): [{name, lead_name, company_name, email_id, mobile_no, lead_owner, owner_name,
+	tbo_stage, matched_on}], matched_on being some of "email", "phone", "company". `exclude` is
+	a lead to leave out (the one being edited). It searches every lead, not only those the
+	acting user may see, and returns only those identifying fields: it exists so nobody works
+	an enquiry a colleague already has."""
+	with acting_as(acting_user):
+		return duplicates.find_duplicates(email, phone, company, exclude)
+
+
+@frappe.whitelist()
+def get_stale_leads(days: int | str = 3, acting_user: str | None = None) -> list[dict]:
+	"""The open leads (not Closed – Won, Closed – Lost or On Hold) the acting user may see that
+	have had no activity for `days` days, longest quiet first: [{name, lead_name, company_name,
+	lead_owner, tbo_department, tbo_stage, last_activity_on, idle_days}]. A department's own
+	`stale_after_days`, when set, replaces `days` for its leads."""
+	with acting_as(acting_user):
+		return stale.stale_leads(max(cint(days), 1))
 
 
 # ---------- the segment rate card (docs/lead-pipeline.md §9.8) ----------

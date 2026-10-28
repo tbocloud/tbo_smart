@@ -105,9 +105,9 @@ class Cutover:
 		if self.dry_run:
 			return self.finish()
 		settings = self.prepare_settings()
-		flags = {key: frappe.flags.get(key) for key in ("mute_emails", "in_import")}
+		flags = {key: frappe.flags.get(key) for key in ("mute_emails", "in_import", "tbo_cutover")}
 		# no emails, no assignment or mention notices, no scoring jobs or deals from the hooks
-		frappe.flags.update({"mute_emails": True, "in_import": True})
+		frappe.flags.update({"mute_emails": True, "in_import": True, "tbo_cutover": True})
 		try:
 			self.copy_masters()
 			self.copy_hierarchy()

@@ -124,6 +124,8 @@ class TestLeadDepartments(FrappeTestCase):
 				"name": GROWTHX,
 				"lead_type": "ERP / Software",
 				"is_active": 1,
+				"assignment": "Manual",
+				"stale_after_days": 0,
 				"is_head": True,
 				"is_member": False,
 			},
@@ -173,6 +175,18 @@ class TestLeadDepartments(FrappeTestCase):
 		self.assertEqual([row["user"] for row in saved["heads"]], [HEAD])
 		updated = hub.save_lead_department({"members": [MEMBER, MEMBER2]}, name=CONTENT, acting_user=MANAGER)
 		self.assertEqual(len(updated["members"]), 2)
+		self.assertEqual((updated["assignment"], updated["stale_after_days"]), ("Manual", 0))
+		rotated = hub.save_lead_department(
+			{"assignment": "Round robin", "stale_after_days": 5}, name=CONTENT, acting_user=MANAGER
+		)
+		self.assertEqual((rotated["assignment"], rotated["stale_after_days"]), ("Round robin", 5))
+		self.assertRaises(
+			frappe.ValidationError,
+			hub.save_lead_department,
+			{"assignment": "Random"},
+			name=CONTENT,
+			acting_user=MANAGER,
+		)
 		self.assertEqual(hub.set_lead_department_active(CONTENT, 0, acting_user=MANAGER)["is_active"], 0)
 		for user in (MANAGER, MEMBER):
 			listing = hub.get_lead_departments(acting_user=user)

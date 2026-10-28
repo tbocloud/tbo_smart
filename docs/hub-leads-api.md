@@ -1,4 +1,4 @@
-# Hub leads API (`tbo_smart.api.hub_leads`), v1.9
+# Hub leads API (`tbo_smart.api.hub_leads`), v1.10
 
 **Status:** built 2026-10-16. The TBO Support hub's lead page (tbocloud/helpdesk) shows and edits
 tboindia's leads through these methods. The leads are ERPNext's own **Lead**
@@ -41,14 +41,16 @@ curl -s -X POST https://india.teambackoffice.com/api/method/tbo_smart.api.hub_le
 
 | Method | Verb | Arguments | Returns |
 | --- | --- | --- | --- |
-| `get_options` | GET | `acting_user` | `{stages: [{name, label, type, color}], sources: [], segments: [], owners: [{email, full_name}], territories: [], industries: [], can_call}` |
+| `get_options` | GET | `acting_user` | `{stages: [{name, label, type, color}], sources: [], segments: [], departments: [{name, lead_type, is_active, assignment, stale_after_days, is_head, is_member}], lead_types: [], owners: [{email, full_name}], territories: [], industries: [], can_call}` |
 | `list_leads` | GET | `search?`, `stage?`, `owner?`, `segment?`, `source?`, `temperature?` (Hot / Warm / Cold), `metric?` with `period?` / `from_date?` / `to_date?` (§2.4), `view` (`all` / `mine` / `call_today` / `follow_up`, default `all`), `start` (0), `page_length` (20, at most 100), `acting_user` | `{rows: [Row], total}` |
 | `get_overview` | GET | `period` (`week` / `month` / `quarter` / `custom`; default `month`, or `custom` when dates are sent), `from_date?`, `to_date?` (custom), `owner?`, `acting_user` | Overview (§2.4) |
 | `get_lead_intake` | GET | `from_date?`, `to_date?` (default today, at most 62 days), `owner?`, `acting_user` | Intake (§2.4.1) |
 | `get_proposal_money` | GET | `period`, `from_date?`, `to_date?`, `owner?` (as `get_overview`), `acting_user` | Money (§2.8) |
 | `get_sales_activity` | GET | `from_date?`, `to_date?` (default this month), `acting_user?` (§2.5) | `{from_date, to_date, currency, people: [Activity]}` |
 | `get_lead` | GET | `name`, `acting_user` | `{lead: Lead, timeline: [Item], quotations: [Quotation], proposals: [Proposal row], allowed_stages: [stage name]}` |
-| `create_lead` | POST | `data`, `acting_user` | as `get_lead` |
+| `create_lead` | POST | `data`, `allow_duplicate?` (1 to create past a duplicate, §2.9), `acting_user` | as `get_lead` |
+| `find_duplicate_leads` | GET | `email?`, `phone?`, `company?`, `exclude?` (a lead name), `acting_user` | `[Match]` (§2.9) |
+| `get_stale_leads` | GET | `days` (3), `acting_user` | `[Stale]` (§2.10) |
 | `update_lead` | POST | `name`, `data`, `acting_user` | as `get_lead` |
 | `set_stage` | POST | `name`, `stage`, `note?`, `acting_user` | as `get_lead` |
 | `add_note` | POST | `name`, `note`, `acting_user` | the new timeline `Item` |
@@ -380,6 +382,38 @@ larger of the two.
 or before a week from today; a quotation's split past its date is expected now, never
 overdue: the client hasn't committed); Upcoming (later, or no date).
 
+### 2.9 Duplicates (`lead-departments.md` §6)
+
+```
+Match = {name, lead_name, company_name, email_id, mobile_no, lead_owner, owner_name, tbo_stage,
+  matched_on: ["email" | "phone" | "company", ...]}
+```
+
+`find_duplicate_leads` returns at most 5, email and phone matches first, then the newest. Email is
+compared lowercase, phone by its last 10 digits (7 at least) against the lead's mobile, phone and
+WhatsApp numbers, company case-insensitive and exact. It searches **every lead**, whatever the
+acting user may see, and returns only the fields above: it is there to stop double work, so a
+salesperson must learn that a colleague owns the enquiry.
+
+`create_lead` first runs the same search with the new lead's `email_id`, `mobile_no` (or `phone`)
+and `company_name`. An email or phone match refuses the call with **`DuplicateEntryError`
+(HTTP 409)**, message `Possible duplicate of <lead> (<owner name>)`, and the matches in the
+response's `matches` (a `[Match]`). A company-only match never blocks. Pass `allow_duplicate=1` to
+create anyway. With the owner left empty in a **Round robin** department the lead goes to the
+department's next member (`lead-departments.md` §5); otherwise the owner is the acting user as
+before.
+
+### 2.10 Stale leads (`lead-departments.md` §7)
+
+```
+Stale = {name, lead_name, company_name, lead_owner, tbo_department, tbo_stage,
+  last_activity_on (datetime), idle_days (whole days)}
+```
+
+The leads the acting user may see (their normal scope) that are open (not Closed – Won, Closed –
+Lost or On Hold) and have been quiet for `days` or more, longest quiet first. A department's
+`stale_after_days` (when above 0) replaces `days` for its leads.
+
 ## 3. Links back to the hub
 
 Teams messages, emails and the morning digest link to the lead page when TBO Smart Settings →
@@ -404,6 +438,8 @@ reads follow the acting user; writes are theirs (owner, lead owner, note author)
 returns to the integration user; field, owner and lost-reason rules; the follow-up view; the
 options. `tests/test_segment_rate_card.py`: the rate card methods (acting user, editors only).
 
+`tbo_smart/tests/test_lead_wave1.py`: see `lead-departments.md` §9.
+
 `tbo_smart/tests/test_daily_report.py`: the daily report's calls, fresh and follow-up leads,
 positive leads, quotations, meetings and follow-ups, new leads without imports, the week to date
 and the scope (a salesperson sees themselves, a Sales Manager everyone, `owner` outside the scope
@@ -411,6 +447,10 @@ is 403); `log_call` (the outcomes, the acting user, the lead's write permission)
 
 ## Changelog
 
+- **v1.10 (2026-10-29):** `find_duplicate_leads` and `get_stale_leads` (§2.9, §2.10);
+  `create_lead`'s `allow_duplicate` and its duplicate refusal; departments carry `assignment`
+  (`Manual` / `Round robin`) and `stale_after_days` in `get_lead_departments`,
+  `save_lead_department` and `get_options`' `departments` .
 - **v1.9 (2026-10-28):** lead departments (`lead-departments.md` §4): `get_lead_departments`,
   `save_lead_department`, `set_lead_department_active`, `get_options`' `departments` and
   `lead_types`, `list_leads`' `department`, the lead's `tbo_department` and `tbo_lead_type`.

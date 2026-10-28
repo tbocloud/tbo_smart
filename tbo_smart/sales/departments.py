@@ -13,7 +13,16 @@ DEPARTMENT = "TBO Lead Department"
 DEPARTMENT_USER = "TBO Lead Department User"
 LEAD_TYPES = ("ERP / Software", "Content / Digital Marketing")
 MANAGER_ROLES = {"System Manager", "Sales Manager"}
-SAVE_FIELDS = {"department_name", "lead_type", "is_active", "heads", "members"}
+ASSIGNMENTS = ("Manual", "Round robin")
+SAVE_FIELDS = {
+	"department_name",
+	"lead_type",
+	"is_active",
+	"assignment",
+	"stale_after_days",
+	"heads",
+	"members",
+}
 
 
 def headed_departments(user: str):
@@ -76,12 +85,19 @@ def user_rows(department: str, table: str) -> list[dict]:
 
 
 def serialize(name: str) -> dict:
-	row = frappe.db.get_value(DEPARTMENT, name, ["name", "lead_type", "is_active"], as_dict=True)
+	row = frappe.db.get_value(
+		DEPARTMENT,
+		name,
+		["name", "lead_type", "is_active", "assignment", "stale_after_days"],
+		as_dict=True,
+	)
 	return {
 		"name": row.name,
 		"department_name": row.name,
 		"lead_type": row.lead_type,
 		"is_active": cint(row.is_active),
+		"assignment": row.assignment or ASSIGNMENTS[0],
+		"stale_after_days": cint(row.stale_after_days),
 		"heads": user_rows(name, "heads"),
 		"members": user_rows(name, "members"),
 	}
@@ -93,9 +109,12 @@ def get_departments() -> list[dict]:
 
 
 def active_departments_for(user: str) -> list[dict]:
-	"""[{name, lead_type, is_active, is_head, is_member}] for the active departments."""
+	"""[{name, lead_type, is_active, assignment, stale_after_days, is_head, is_member}] for the active departments."""
 	departments = frappe.get_all(
-		DEPARTMENT, filters={"is_active": 1}, fields=["name", "lead_type", "is_active"], order_by="name asc"
+		DEPARTMENT,
+		filters={"is_active": 1},
+		fields=["name", "lead_type", "is_active", "assignment", "stale_after_days"],
+		order_by="name asc",
 	)
 	roles = {
 		(row.parent, row.parentfield)
@@ -106,6 +125,8 @@ def active_departments_for(user: str) -> list[dict]:
 			"name": row.name,
 			"lead_type": row.lead_type,
 			"is_active": cint(row.is_active),
+			"assignment": row.assignment or ASSIGNMENTS[0],
+			"stale_after_days": cint(row.stale_after_days),
 			"is_head": (row.name, "heads") in roles,
 			"is_member": (row.name, "members") in roles,
 		}
@@ -126,7 +147,8 @@ def can_manage() -> bool:
 
 def save_department(values: dict, name: str | None = None) -> dict:
 	"""Create (no `name`) or update a department from `values` (department_name, lead_type,
-	is_active, heads and members as lists of users); the name does not change."""
+	is_active, assignment, stale_after_days, heads and members as lists of users); the name does
+	not change."""
 	require_manager()
 	unknown = sorted(set(values) - SAVE_FIELDS)
 	if unknown:
@@ -146,6 +168,12 @@ def save_department(values: dict, name: str | None = None) -> dict:
 		doc.lead_type = values["lead_type"]
 	if "is_active" in values:
 		doc.is_active = cint(values["is_active"])
+	if values.get("assignment"):
+		if values["assignment"] not in ASSIGNMENTS:
+			frappe.throw(_("{0} is not an assignment mode.").format(values["assignment"]))
+		doc.assignment = values["assignment"]
+	if "stale_after_days" in values:
+		doc.stale_after_days = max(cint(values["stale_after_days"]), 0)
 	for table in ("heads", "members"):
 		if table in values:
 			users = list(dict.fromkeys(values[table] or []))

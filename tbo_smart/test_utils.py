@@ -443,14 +443,19 @@ def make_lead_department(
 	heads: list[str] | tuple = (),
 	members: list[str] | tuple = (),
 	is_active: int = 1,
+	assignment: str = "Manual",
+	stale_after_days: int = 0,
 ) -> str:
-	"""A TBO Lead Department with the given heads and members, inserted as Administrator."""
+	"""A TBO Lead Department with the given heads and members (members in the order given, the
+	round robin's order), inserted as Administrator."""
 	doc = frappe.get_doc(
 		{
 			"doctype": "TBO Lead Department",
 			"department_name": name,
 			"lead_type": lead_type,
 			"is_active": is_active,
+			"assignment": assignment,
+			"stale_after_days": stale_after_days,
 			"heads": [{"user": user} for user in heads],
 			"members": [{"user": user} for user in members],
 		}
@@ -464,6 +469,72 @@ def delete_lead_departments(names: list[str] | tuple) -> None:
 	for name in names:
 		frappe.delete_doc("TBO Lead Department", name, force=True, ignore_missing=True)
 	frappe.db.commit()  # nosemgrep
+
+
+def delete_leads_matching(**filters) -> None:
+	"""Delete the leads that match `filters` (e.g. email_id=("like", "%@wave1.test")) with their
+	ToDos, notes, emails and stage rows, then commit."""
+	for lead in frappe.get_all("Lead", filters=filters, pluck="name"):
+		for doctype, reference in (
+			("ToDo", "reference_name"),
+			("Comment", "reference_name"),
+			("Communication", "reference_name"),
+		):
+			frappe.db.delete(doctype, {reference: lead})
+		frappe.delete_doc("Lead", lead, force=True, ignore_permissions=True)
+	frappe.db.commit()  # nosemgrep
+
+
+def age_lead_activity(lead: str, days: int) -> None:
+	"""Make everything recorded on the lead (its creation, stage rows, ToDos, notes, emails,
+	events and calls) `days` days old, so the lead looks untouched since then."""
+	then = frappe.utils.add_days(frappe.utils.now_datetime(), -days)
+	frappe.db.set_value("Lead", lead, "creation", then, update_modified=False)
+	frappe.db.sql(
+		"update `tabTBO Stage Change` set changed_on=%s where parent=%s and parenttype='Lead'", (then, lead)
+	)
+	frappe.db.sql(
+		"update `tabToDo` set creation=%s, modified=%s where reference_type='Lead' and reference_name=%s",
+		(then, then, lead),
+	)
+	for doctype in ("Comment", "Communication"):
+		frappe.db.sql(
+			f"update `tab{doctype}` set creation=%s where reference_doctype='Lead' and reference_name=%s",
+			(then, lead),
+		)
+
+
+def make_log_email_account(email_id: str = "wave1.log@tbosmart.test") -> str:
+	"""An Email Account (no mail server) to name as TBO Smart Settings' lead email log mailbox."""
+	if not frappe.db.exists("Email Account", email_id):
+		frappe.get_doc(
+			{
+				"doctype": "Email Account",
+				"email_account_name": email_id,
+				"email_id": email_id,
+				"enable_incoming": 0,
+				"enable_outgoing": 0,
+			}
+		).insert(ignore_permissions=True)
+	return email_id
+
+
+def make_email_communication(sender: str, recipients: str, account: str | None = None, cc: str = ""):
+	"""A Communication of the Email medium on `account`, from `sender` to `recipients`."""
+	return frappe.get_doc(
+		{
+			"doctype": "Communication",
+			"communication_type": "Communication",
+			"communication_medium": "Email",
+			"sent_or_received": "Received",
+			"sender": sender,
+			"recipients": recipients,
+			"cc": cc,
+			"subject": "Wave 1 mail",
+			"content": "Hello",
+			"email_account": account,
+		}
+	).insert(ignore_permissions=True)
 
 
 def make_sales_stage(name: str, kind: str = "Ongoing", probability: float = 0, position: int = 0) -> str:
