@@ -562,7 +562,7 @@ The documents a lead goes through follow its `tbo_lead_type` (`lead-departments.
   left out of the strategy that way (`setup.add_strategy_preset` brings the preset to sites seeded
   earlier; patch `proposal_strategy_preset`).
 - **The hub's project** (`strategy_project.py`): `get_accepted_proposal(name)` returns the accepted
-  proposal's project brief (`hub-proposals-api.md`); `link_project(lead, project, plan?, proposal?, url?)` takes the
+  proposal's project brief (`hub-proposals-api.md`); `link_project(project, plan?, proposal?, lead?, url?)` takes the
   accepted proposal as it takes a plan, once. The start is the proposal's `start_date`, else the day
   it was accepted; the end is six months later.
 

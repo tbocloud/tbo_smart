@@ -382,21 +382,26 @@ def get_accepted_proposal(name: str, acting_user: str | None = None) -> dict:
 
 @frappe.whitelist(methods=["POST"])
 def link_project(
-	lead: str,
-	project: str,
+	lead: str | None = None,
+	project: str | None = None,
 	plan: str | None = None,
 	proposal: str | None = None,
 	url: str | None = None,
+	name: str | None = None,
 	acting_user: str | None = None,
 ) -> dict:
-	"""The hub made the project of the lead's approved `plan` (an ERP / Software lead's) or accepted
-	strategy `proposal` (a Content / Digital Marketing lead's): kept on that document (once). Give
-	one of the two. Returns the chain."""
+	"""The hub made the project of an approved `plan` (an ERP / Software lead's) or an accepted
+	strategy `proposal` (a Content / Digital Marketing lead's): kept on that document (once).
+	`name` is the old spelling of `plan`. `lead` is optional (it comes from the document); when
+	given it must be the document's. Returns the chain."""
 	with acting_as(acting_user):
+		plan = plan or name
 		if bool(plan) == bool(proposal):
 			frappe.throw(_("Give the plan or the proposal, not both."))
+		if not project:
+			frappe.throw(_("Name the hub project."))
 		doc = get_project_doc(plan or proposal)
-		if doc.lead != lead:
+		if lead and doc.lead != lead:
 			frappe.throw(_("{0} isn't a document of lead {1}.").format(doc.name, lead))
 		keep_project(doc, project, url)
 		return documents.chain(doc.lead)
