@@ -125,6 +125,7 @@ class TestLeadDepartments(FrappeTestCase):
 				"lead_type": "ERP / Software",
 				"is_active": 1,
 				"assignment": "Manual",
+				"stale_after_days": 0,
 				"is_head": True,
 				"is_member": False,
 			},

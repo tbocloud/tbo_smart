@@ -126,6 +126,7 @@ def create_lead(name, email, phone, company, message, department, source) -> Non
 			"tbo_department": active_department(department),
 		}
 	)
+	lead.flags.ownerless = True
 	system_save(lead, ignore_permissions=True)
 	if message:
 		add_note(LEAD, lead.name, _("Website enquiry: {0}").format(message))

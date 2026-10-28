@@ -55,7 +55,7 @@ class Wave1Case(FrappeTestCase):
 		self.clean()
 		disable_sales_hierarchy(PEOPLE)
 		make_lead_department(ROUND, members=[ONE, TWO, THREE], assignment="Round robin")
-		make_lead_department(PLAIN, members=[ONE])
+		make_lead_department(PLAIN)
 
 	def tearDown(self):
 		frappe.set_user("Administrator")
@@ -101,9 +101,9 @@ class TestRoundRobin(Wave1Case):
 		self.assertEqual(self.owner_of(make_lead(THREE, "Wave1 Owned", tbo_department=ROUND)), THREE)
 		self.assertIsNone(frappe.db.get_value("TBO Lead Department", ROUND, "last_assigned_user"))
 
-	def test_a_manual_department_leaves_the_owner_empty(self):
+	def test_a_manual_department_assigns_nobody(self):
 		lead = make_lead(None, "Wave1 Manual", tbo_department=PLAIN)
-		self.assertIsNone(self.owner_of(lead))
+		self.assertIsNone(frappe.db.get_value("TBO Lead Department", PLAIN, "last_assigned_user"))
 		self.assertFalse(frappe.db.exists("ToDo", {"reference_type": "Lead", "reference_name": lead}))
 
 	def test_the_hub_create_with_no_owner_takes_the_next_member(self):
@@ -202,7 +202,13 @@ class TestDuplicates(Wave1Case):
 	def test_data_import_skips_a_duplicate(self):
 		phone = ten_digits()
 		make_lead(ONE, "Wave1 Imported Before", mobile_no=phone)
-		values = {"doctype": "Lead", "first_name": "Wave1 Imported", "mobile_no": phone}
+		values = {
+			"doctype": "Lead",
+			"first_name": "Wave1 Imported",
+			"mobile_no": phone,
+			"status": "Lead",
+			"lead_owner": ONE,
+		}
 		frappe.flags.in_import = True
 		try:
 			self.assertRaises(
@@ -402,6 +408,11 @@ class TestWebsiteLeadForm(Wave1Case):
 		frappe.db.set_value("TBO Lead Department", PLAIN, "is_active", 0)
 		self.submit(name="Off Asked", email=second, department=PLAIN)
 		self.assertEqual(frappe.db.get_value("Lead", {"email_id": second}, "tbo_department"), ROUND)
+
+	def test_a_website_lead_in_a_manual_department_has_no_owner(self):
+		email = f"manual{DOMAIN}"
+		self.submit(name="Manual Asked", email=email, department=PLAIN)
+		self.assertIsNone(frappe.db.get_value("Lead", {"email_id": email}, "lead_owner"))
 
 	def test_the_same_person_again_adds_a_note_and_tells_the_owner(self):
 		email = f"again{DOMAIN}"
