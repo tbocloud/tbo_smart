@@ -34,8 +34,8 @@ Manager outside the hierarchy still see everything.
 
 ## 4. Hub API (`tbo_smart.api.hub_leads`, same `acting_user` rules)
 
-- `get_options`: adds `departments` (active only: `{name, lead_type, is_active, assignment, is_head,
-  is_member}` for the acting user) and `lead_types`.
+- `get_options`: adds `departments` (active only: `{name, lead_type, is_active, assignment, stale_after_days,
+  is_head, is_member}` for the acting user) and `lead_types`.
 - `list_leads(department=...)`: filters to the department; rows carry `tbo_department` and
   `tbo_lead_type`. `get_lead`'s `lead` carries the same two.
 - `create_lead` / `update_lead`: `data` takes `department` (or `tbo_department`) and `lead_type`
@@ -65,9 +65,12 @@ hub's. Details and the data-driven table: `lead-pipeline.md` §13.
 A department with `assignment` = Round robin hands every new Lead that has a department and no
 `lead_owner` to its next member: enabled users only, in the members list's order, wrapping round,
 starting after `last_assigned_user` (a removed or disabled last user restarts the order). It runs
-in Lead `after_insert`, so it covers the website form, Data Import and a hub `create_lead` with
-the owner left empty. The owner is set, the person gets a ToDo assignment through
-`frappe.desk.form.assign_to.add` (the ERP's own assignment notice), and the department remembers
+in Lead `before_insert` (the owner) and `after_insert` (the assignment), so it covers the website
+form, Data Import and a hub `create_lead` with the owner left empty. Frappe fills an empty Lead
+Owner with the inserting user before any hook runs, so the owner counts as empty when it is that
+default: the inserting user, who is not one of the department's people (a hub create sets
+`flags.round_robin` instead). The owner is set, the person gets a ToDo assignment through
+`frappe.desk.form.assign_to._add` (the ERP's own assignment notice), and the department remembers
 the user. The department's row is read `FOR UPDATE` first, so two leads inserted together get two
 people. A Manual department, an inactive one, or one with no enabled member does nothing (a hub
 create then keeps the acting user as owner). Heads are not in the rotation.

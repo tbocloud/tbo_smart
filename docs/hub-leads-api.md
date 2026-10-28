@@ -41,7 +41,7 @@ curl -s -X POST https://india.teambackoffice.com/api/method/tbo_smart.api.hub_le
 
 | Method | Verb | Arguments | Returns |
 | --- | --- | --- | --- |
-| `get_options` | GET | `acting_user` | `{stages: [{name, label, type, color}], sources: [], segments: [], departments: [{name, lead_type, is_active, assignment, is_head, is_member}], lead_types: [], owners: [{email, full_name}], territories: [], industries: [], can_call}` |
+| `get_options` | GET | `acting_user` | `{stages: [{name, label, type, color}], sources: [], segments: [], departments: [{name, lead_type, is_active, assignment, stale_after_days, is_head, is_member}], lead_types: [], owners: [{email, full_name}], territories: [], industries: [], can_call}` |
 | `list_leads` | GET | `search?`, `stage?`, `owner?`, `segment?`, `source?`, `temperature?` (Hot / Warm / Cold), `metric?` with `period?` / `from_date?` / `to_date?` (§2.4), `view` (`all` / `mine` / `call_today` / `follow_up`, default `all`), `start` (0), `page_length` (20, at most 100), `acting_user` | `{rows: [Row], total}` |
 | `get_overview` | GET | `period` (`week` / `month` / `quarter` / `custom`; default `month`, or `custom` when dates are sent), `from_date?`, `to_date?` (custom), `owner?`, `acting_user` | Overview (§2.4) |
 | `get_lead_intake` | GET | `from_date?`, `to_date?` (default today, at most 62 days), `owner?`, `acting_user` | Intake (§2.4.1) |
@@ -450,7 +450,7 @@ is 403); `log_call` (the outcomes, the acting user, the lead's write permission)
 - **v1.10 (2026-10-29):** `find_duplicate_leads` and `get_stale_leads` (§2.9, §2.10);
   `create_lead`'s `allow_duplicate` and its duplicate refusal; departments carry `assignment`
   (`Manual` / `Round robin`) and `stale_after_days` in `get_lead_departments`,
-  `save_lead_department` and `get_options`' `departments` (the last without `stale_after_days`).
+  `save_lead_department` and `get_options`' `departments` .
 - **v1.9 (2026-10-28):** lead departments (`lead-departments.md` §4): `get_lead_departments`,
   `save_lead_department`, `set_lead_department_active`, `get_options`' `departments` and
   `lead_types`, `list_leads`' `department`, the lead's `tbo_department` and `tbo_lead_type`.

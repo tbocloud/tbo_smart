@@ -38,15 +38,20 @@ def submit_website_lead(
 	department: str | None = None,
 	source: str | None = DEFAULT_SOURCE,
 	hp: str | None = None,
+	lead_name: str | None = None,
+	company_name: str | None = None,
+	email_id: str | None = None,
+	mobile_no: str | None = None,
 ) -> dict:
 	"""A website enquiry becomes a lead (round robin gives it an owner when its department has
 	that on) or, for a person we already have, a note on their lead. `hp` is the honeypot: a
 	real visitor leaves it empty, and a form filled in with it is dropped without a word. Needs
-	`name` and an `email` or `phone`. Returns {"ok": true}."""
+	`name` and an `email` or `phone`; `lead_name`, `company_name`, `email_id` and `mobile_no`
+	are accepted as other names for `name`, `company`, `email` and `phone`. Returns {"ok": true}."""
 	if (hp or "").strip() or not erpnext_installed():
 		return {"ok": True}
-	name, email, phone = clean(name), clean(email), clean(phone)
-	company, message = clean(company), clean(message, MAX_MESSAGE)
+	name, email, phone = clean(name or lead_name), clean(email or email_id), clean(phone or mobile_no)
+	company, message = clean(company or company_name), clean(message, MAX_MESSAGE)
 	if not name:
 		frappe.throw(_("Please tell us your name."))
 	if not (email or phone):

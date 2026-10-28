@@ -6,9 +6,9 @@ teambackoffice.com posts an enquiry straight into TBO's leads. One public endpoi
 
 | Field | Notes |
 | --- | --- |
-| `name` | required |
-| `email`, `phone` | one of them is required; the email is validated, the phone needs 7+ digits |
-| `company`, `message` | optional (`message` is kept up to 2000 characters, as the lead's first note) |
+| `name` (or `lead_name`) | required |
+| `email` (or `email_id`), `phone` (or `mobile_no`) | one of them is required; the email is validated, the phone needs 7+ digits |
+| `company` (or `company_name`), `message` | optional (`message` is kept up to 2000 characters, as the lead's first note) |
 | `department` | optional; used only when it is an active TBO Lead Department, else TBO Smart Settings → **Website lead department** |
 | `source` | default `Website`; an unknown Lead Source becomes `Website` |
 | `hp` | the honeypot: keep it empty (hidden from people). Anything in it is dropped silently, still answered `{"ok": true}` |

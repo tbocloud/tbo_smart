@@ -857,12 +857,10 @@ def create_lead(
 				values.get("company_name"),
 			)
 		lead = frappe.new_doc("Lead")
-		by_round_robin = not values.get("lead_owner") and is_round_robin(values.get("tbo_department"))
-		lead.update({**({} if by_round_robin else {"lead_owner": user}), **values})
+		lead.update({"lead_owner": user, **values})
+		# with the owner left empty, a Round robin department gives the lead to its next member
+		lead.flags.round_robin = not values.get("lead_owner") and is_round_robin(values.get("tbo_department"))
 		lead.insert()
-		if not lead.lead_owner:
-			# a round robin department with nobody to give it to: the creator keeps it
-			lead.db_set("lead_owner", user, update_modified=False)
 		schedule_follow_up(lead, data.get("next_follow_up"))
 		if (note or "").strip():
 			add_comment_note("Lead", lead.name, note)

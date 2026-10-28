@@ -208,6 +208,7 @@ doc_events = {
 			"tbo_smart.sales.departments.validate_lead_department",
 			"tbo_smart.sales.duplicates.skip_import_duplicates",
 		],
+		"before_insert": "tbo_smart.sales.assignment.claim_owner",
 		"after_insert": [
 			"tbo_smart.sales.assignment.assign_new_lead",
 			"tbo_smart.smart_leads.autopilot.lead_changed",

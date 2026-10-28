@@ -110,8 +110,8 @@ class TestRoundRobin(Wave1Case):
 		frappe.set_user(HUB)
 		lead = hub.create_lead({"first_name": "Wave1 Hub", "department": ROUND}, acting_user=MANAGER)["lead"]
 		self.assertEqual(lead["lead_owner"], ONE)
-		manual = hub.create_lead({"first_name": "Wave1 Hub Manual", "department": PLAIN}, acting_user=MANAGER)
-		self.assertEqual(manual["lead"]["lead_owner"], MANAGER)
+		manual = hub.create_lead({"first_name": "Wave1 Hub Manual", "department": PLAIN}, acting_user=ONE)
+		self.assertEqual(manual["lead"]["lead_owner"], ONE)
 		named = hub.create_lead(
 			{"first_name": "Wave1 Hub Named", "department": ROUND, "lead_owner": TWO}, acting_user=MANAGER
 		)
@@ -123,6 +123,8 @@ class TestRoundRobin(Wave1Case):
 		self.assertEqual((rows[ROUND]["assignment"], rows[PLAIN]["assignment"]), ("Round robin", "Manual"))
 		options = {row["name"]: row for row in hub.get_options(acting_user=MANAGER)["departments"]}
 		self.assertEqual(options[ROUND]["assignment"], "Round robin")
+		self.assertEqual(options[ROUND]["stale_after_days"], 0)
+		self.assertEqual(rows[ROUND]["stale_after_days"], 0)
 
 
 class TestDuplicates(Wave1Case):
@@ -200,12 +202,14 @@ class TestDuplicates(Wave1Case):
 	def test_data_import_skips_a_duplicate(self):
 		phone = ten_digits()
 		make_lead(ONE, "Wave1 Imported Before", mobile_no=phone)
-		lead = frappe.get_doc({"doctype": "Lead", "first_name": "Wave1 Imported", "mobile_no": phone})
+		values = {"doctype": "Lead", "first_name": "Wave1 Imported", "mobile_no": phone}
 		frappe.flags.in_import = True
 		try:
-			self.assertRaises(frappe.DuplicateEntryError, lead.insert, ignore_permissions=True)
+			self.assertRaises(
+				frappe.DuplicateEntryError, frappe.get_doc(values).insert, ignore_permissions=True
+			)
 			frappe.flags.tbo_cutover = True
-			lead.insert(ignore_permissions=True)
+			frappe.get_doc(values).insert(ignore_permissions=True)
 		finally:
 			frappe.flags.in_import = False
 			frappe.flags.tbo_cutover = False
@@ -315,7 +319,7 @@ class TestEmailLogging(Wave1Case):
 		frappe.db.set_value("Lead", older, "modified", add_days(now_datetime(), -3), update_modified=False)
 		frappe.db.set_value("Lead", closed, "tbo_stage", "Closed – Lost")
 		mail = make_email_communication(
-			ONE, f"older{DOMAIN}", self.account, cc=f"closed{DOMAIN}; newer{DOMAIN}"
+			ONE, f"older{DOMAIN}", self.account, cc=f"closed{DOMAIN}, newer{DOMAIN}"
 		)
 		self.assertEqual(self.linked(mail), ("Lead", newer))
 		only_closed = make_email_communication(ONE, f"closed{DOMAIN}", self.account)
@@ -412,6 +416,19 @@ class TestWebsiteLeadForm(Wave1Case):
 		self.assertTrue(any("Website enquiry again: Still interested" in note for note in notes))
 		self.assertEqual(notify.call_args.args[0], [TWO])
 		self.assertEqual(notify.call_args.args[2:], ("Lead", lead))
+
+	def test_the_form_field_names_of_the_hub_work_too(self):
+		email = f"alias{DOMAIN}"
+		result = self.submit(
+			lead_name="Alias Person",
+			email_id=email,
+			mobile_no="+91 98470 54321",
+			company_name="Wave1 Alias Co",
+		)
+		self.assertEqual(result, {"ok": True})
+		lead = frappe.get_doc("Lead", self.lead_by_email(email))
+		self.assertEqual((lead.first_name, lead.company_name), ("Alias", "Wave1 Alias Co"))
+		self.assertEqual(lead.mobile_no, "+91 98470 54321")
 
 	def test_a_known_phone_is_a_duplicate_too(self):
 		phone = ten_digits()

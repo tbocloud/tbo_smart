@@ -18,14 +18,34 @@ from tbo_smart.sales.departments import DEPARTMENT, DEPARTMENT_USER
 ROUND_ROBIN = "Round robin"
 
 
-def assign_new_lead(doc, method=None) -> None:
-	"""doc_events: Lead after_insert (website form, import, hub create with the owner left empty)."""
-	if not doc.get("tbo_department") or doc.get("lead_owner"):
+def claim_owner(doc, method=None) -> None:
+	"""doc_events: Lead before_insert (website form, import, hub create with the owner left
+	empty). Frappe fills an empty Lead Owner with the session user before this runs, so the owner
+	counts as empty when it is that default: a user outside the department who is only the one
+	inserting. A caller that means round robin sets `doc.flags.round_robin`."""
+	if not doc.get("tbo_department") or not wants_round_robin(doc):
 		return
 	user = next_member(doc.tbo_department)
+	if user:
+		doc.lead_owner = user
+		doc.flags.round_robin_assignee = user
+
+
+def wants_round_robin(doc) -> bool:
+	owner = doc.get("lead_owner")
+	if doc.flags.get("round_robin") or not owner:
+		return True
+	if owner != frappe.session.user:
+		return False
+	people = frappe.get_all(DEPARTMENT_USER, filters={"parent": doc.tbo_department}, pluck="user")
+	return owner not in people
+
+
+def assign_new_lead(doc, method=None) -> None:
+	"""doc_events: Lead after_insert: the ToDo assignment for the member `claim_owner` chose."""
+	user = doc.flags.get("round_robin_assignee")
 	if not user:
 		return
-	doc.db_set("lead_owner", user, update_modified=False)
 	assigned_by = "Administrator" if frappe.session.user == "Guest" else frappe.session.user
 	add_assignment(
 		{
