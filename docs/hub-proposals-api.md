@@ -31,8 +31,8 @@ otherwise) and count against the day's limit (417 "Today's AI proposal runs are 
 | `create_document` | POST | `source` (the accepted document), `document_type` (`Quotation` (not while the proposal is the quotation), `Work Order`, `BRD`, `SRS`, `Implementation Plan`), `acting_user` | `{proposal: Proposal, warnings: [text]}` (`client-documents.md` §2) |
 | `get_document_chain` | GET | `lead`, `acting_user` | `Chain` |
 | `get_project_plan` | GET | `name` (an approved plan), `acting_user` | `{plan, lead, client, project_name, solution_type, start, end, hub_project, phases: [{phase, start, end, tasks: [{subject, start, end, milestone}]}]}` (417 while not approved or undated) |
-| `get_strategy_project` | GET | `name` (an accepted, latest proposal of a Content / Digital Marketing lead), `acting_user` | `{proposal, lead, lead_name, client, customer (the ERPNext Customer made from the lead, else null), tbo_lead_type, tbo_department, project_name, solution_type, start, end, months: [{month 1-6, start, end}], roadmap (the accepted 6-Month Roadmap text), monthly_deliverables (the accepted Deliverables text), hub_project}` (417 while not accepted or not that kind of proposal). `start` is the proposal's `start_date`, else the day it was accepted; `end` is six months later less a day |
-| `link_project` | POST | `name` (the approved plan of an ERP / Software lead, or the accepted strategy proposal of a Content / Digital Marketing lead), `project`, `url?`, `acting_user` | `Chain` (the project, once; another name is 417; a document that is not the one its lead type makes a project from is 417) |
+| `get_accepted_proposal` | GET | `name` (an accepted, latest proposal of a Content / Digital Marketing lead), `acting_user` | `{proposal, lead, lead_name, client, customer (the ERPNext Customer made from the lead, else null), tbo_lead_type, tbo_department, project_name, solution_type, start, end, months: [{month 1-6, start, end}], roadmap (the accepted 6-Month Roadmap text), deliverables (the accepted Deliverables text), hub_project}` (417 while not accepted or not that kind of proposal). `start` is the proposal's `start_date`, else the day it was accepted; `end` is six months later less a day |
+| `link_project` | POST | `lead`, `project`, `plan?` (the approved plan of an ERP / Software lead) or `proposal?` (the accepted strategy proposal of a Content / Digital Marketing lead): exactly one; `url?`, `acting_user` | `Chain` (the project, once; another name is 417; a document that is not the one its lead type makes a project from, or not the lead's, is 417) |
 | `get_uat_cases` | GET | `name` (an approved plan), `acting_user` | `{srs, cases: [{fr, module, title, steps, expected}]}` (each FR of the approved SRS) |
 | `record_uat` | POST | `name`, `status`, `signed_by?`, `acting_user` | `Chain` (Signed sets who and when, and the warranty's start the day after) |
 | `save_questions` | POST | `name` (a draft BRD), `questions` (JSON `[{section_type, question}]`), `acting_user` | `Proposal` (answered questions kept) |
@@ -199,8 +199,8 @@ user with `acting_user`.
 
 - **v2.9 (2026-10-28):** Content / Digital Marketing leads: their chain is Proposal -> Project
   (`get_document_chain`; `create_document` refuses other types), a new proposal defaults to the
-  template "Digital Marketing – 6-month strategy", `get_strategy_project`, and `link_project` takes
-  the accepted strategy proposal (`lead-pipeline.md` §13).
+  template "Digital Marketing – 6-month strategy", `get_accepted_proposal`, and `link_project` is now `(lead, project, plan?, proposal?, url?)` and
+  takes the accepted strategy proposal; the Chain's `create_project` action carries `source_type` (`lead-pipeline.md` §13).
 - **v2.8 (2026-10-20):** the proposal is the quotation: `proposal_is_quotation` in the options,
   `follows` the effective type, the Quotation type refused while it is on; `desk_url` and `taxes` on
   the proposal's quotation; `tbo_proposal` and `url` on the lead's quotations.

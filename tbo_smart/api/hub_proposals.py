@@ -25,6 +25,7 @@ from tbo_smart.lead_pipeline import proposal_media as media
 from tbo_smart.lead_pipeline import proposal_profile as profile
 from tbo_smart.lead_pipeline import proposals as p
 from tbo_smart.lead_pipeline import quotations as q
+from tbo_smart.lead_pipeline.implementation_plan import link_project as keep_project
 from tbo_smart.quotation_control import QuotationControl
 
 TRACKING = (
@@ -371,7 +372,7 @@ def get_project_plan(name: str, acting_user: str | None = None) -> dict:
 
 
 @frappe.whitelist()
-def get_strategy_project(name: str, acting_user: str | None = None) -> dict:
+def get_accepted_proposal(name: str, acting_user: str | None = None) -> dict:
 	"""An accepted strategy proposal (a Content / Digital Marketing lead's) as the hub makes its
 	project from it: the client, the lead's type and department, the six months and the roadmap and
 	deliverables accepted."""
@@ -380,13 +381,24 @@ def get_strategy_project(name: str, acting_user: str | None = None) -> dict:
 
 
 @frappe.whitelist(methods=["POST"])
-def link_project(name: str, project: str, url: str | None = None, acting_user: str | None = None) -> dict:
-	"""The hub made the project of an approved plan (an ERP / Software lead's) or of an accepted
-	strategy proposal (a Content / Digital Marketing lead's): kept on the document (once). Returns
-	the chain."""
+def link_project(
+	lead: str,
+	project: str,
+	plan: str | None = None,
+	proposal: str | None = None,
+	url: str | None = None,
+	acting_user: str | None = None,
+) -> dict:
+	"""The hub made the project of the lead's approved `plan` (an ERP / Software lead's) or accepted
+	strategy `proposal` (a Content / Digital Marketing lead's): kept on that document (once). Give
+	one of the two. Returns the chain."""
 	with acting_as(acting_user):
-		doc = get_project_doc(name)
-		plan.link_project(doc, project, url)
+		if bool(plan) == bool(proposal):
+			frappe.throw(_("Give the plan or the proposal, not both."))
+		doc = get_project_doc(plan or proposal)
+		if doc.lead != lead:
+			frappe.throw(_("{0} isn't a document of lead {1}.").format(doc.name, lead))
+		keep_project(doc, project, url)
 		return documents.chain(doc.lead)
 
 

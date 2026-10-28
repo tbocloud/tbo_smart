@@ -283,7 +283,7 @@ def chain(lead: str) -> dict:
 		if spec.name == rules.project_after:
 			delivery = delivery_steps(row, rules.uat)
 			if action is None and step["done"]:
-				action = delivery_action(row, delivery)
+				action = delivery_action(row, delivery, spec.name)
 			steps += delivery
 	return {"steps": steps, "next": action}
 
@@ -325,11 +325,12 @@ def delivery_steps(plan, with_uat: bool = True) -> list[dict]:
 	]
 
 
-def delivery_action(plan, delivery: list[dict]) -> dict | None:
+def delivery_action(plan, delivery: list[dict], source_type: str) -> dict | None:
 	if not delivery[0]["done"]:
 		return {
 			"action": "create_project",
 			"document_type": "Project",
+			"source_type": source_type,
 			"source": plan.name,
 			"label": _("Create project"),
 		}

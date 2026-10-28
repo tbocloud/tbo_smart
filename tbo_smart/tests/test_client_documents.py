@@ -771,7 +771,12 @@ class TestImplementationPlan(ClientDocumentTestCase):
 		plan_doc = make_plan_document(self.lead, BDE, TEMPLATE, SERVICE)
 		# a draft plan can't be linked to a project
 		self.assertRaises(
-			frappe.ValidationError, hub.link_project, plan_doc["name"], "PROJ-0041", acting_user=BDE
+			frappe.ValidationError,
+			hub.link_project,
+			self.lead,
+			"PROJ-0041",
+			plan_doc["name"],
+			acting_user=BDE,
 		)
 		# what the client approves is what the project gets: an edited deliverable stands
 		index = next(
@@ -786,7 +791,8 @@ class TestImplementationPlan(ClientDocumentTestCase):
 			[step["document_type"] for step in chain["steps"]][-3:], [kinds.PLAN, "Project", "UAT"]
 		)
 		self.assertEqual(
-			(chain["next"]["action"], chain["next"]["source"]), ("create_project", plan_doc["name"])
+			(chain["next"]["action"], chain["next"]["source_type"], chain["next"]["source"]),
+			("create_project", kinds.PLAN, plan_doc["name"]),
 		)
 		project = hub.get_project_plan(plan_doc["name"], acting_user=BDE)
 		self.assertEqual(project["start"], str(getdate(nowdate())))
@@ -805,12 +811,21 @@ class TestImplementationPlan(ClientDocumentTestCase):
 			["Our own workshop plan", "Analysis complete"],
 		)
 		chain = hub.link_project(
-			plan_doc["name"], "PROJ-0042", "https://hub.example/helpdesk/projects/PROJ-0042", acting_user=BDE
+			self.lead,
+			"PROJ-0042",
+			plan_doc["name"],
+			url="https://hub.example/helpdesk/projects/PROJ-0042",
+			acting_user=BDE,
 		)
 		self.assertEqual(chain["steps"][-2]["name"], "PROJ-0042")
 		self.assertEqual(chain["next"]["action"], "uat")
 		self.assertRaises(
-			frappe.ValidationError, hub.link_project, plan_doc["name"], "PROJ-0043", acting_user=BDE
+			frappe.ValidationError,
+			hub.link_project,
+			self.lead,
+			"PROJ-0043",
+			plan_doc["name"],
+			acting_user=BDE,
 		)
 		chain = hub.record_uat(plan_doc["name"], "Signed", "Asha Menon", acting_user=BDE)
 		self.assertTrue(chain["steps"][-1]["done"])
@@ -903,7 +918,10 @@ class TestContentLeadChain(ClientDocumentTestCase):
 		proposal = make_accepted_proposal(lead, BDE, kinds.STRATEGY_TEMPLATE, SERVICE)
 		chain = hub.get_document_chain(lead, acting_user=BDE)
 		self.assertEqual([step["document_type"] for step in chain["steps"]], [kinds.PROPOSAL, "Project"])
-		self.assertEqual((chain["next"]["action"], chain["next"]["source"]), ("create_project", proposal))
+		self.assertEqual(
+			(chain["next"]["action"], chain["next"]["source_type"], chain["next"]["source"]),
+			("create_project", kinds.PROPOSAL, proposal),
+		)
 		self.assertRaises(frappe.ValidationError, make_hub_document, proposal, kinds.QUOTATION, BDE)
 
 	def test_an_erp_lead_keeps_the_full_chain(self):
@@ -918,16 +936,25 @@ class TestContentLeadChain(ClientDocumentTestCase):
 			("create", kinds.QUOTATION, proposal),
 		)
 		# a proposal is not what an ERP lead's project is made from
-		self.assertRaises(frappe.ValidationError, hub.link_project, proposal, "PROJ-0050", acting_user=BDE)
+		self.assertRaises(
+			frappe.ValidationError,
+			hub.link_project,
+			self.lead,
+			"PROJ-0050",
+			proposal=proposal,
+			acting_user=BDE,
+		)
 
 	def test_the_hub_makes_the_project_from_the_accepted_proposal(self):
 		lead = self.new_lead()
 		name, _token = make_sent_proposal(lead, BDE, kinds.STRATEGY_TEMPLATE, SERVICE)
 		# not accepted yet
-		self.assertRaises(frappe.ValidationError, hub.get_strategy_project, name, acting_user=BDE)
-		self.assertRaises(frappe.ValidationError, hub.link_project, name, "PROJ-0051", acting_user=BDE)
+		self.assertRaises(frappe.ValidationError, hub.get_accepted_proposal, name, acting_user=BDE)
+		self.assertRaises(
+			frappe.ValidationError, hub.link_project, lead, "PROJ-0051", proposal=name, acting_user=BDE
+		)
 		accept_as_client(name)
-		brief = hub.get_strategy_project(name, acting_user=BDE)
+		brief = hub.get_accepted_proposal(name, acting_user=BDE)
 		self.assertEqual(brief["proposal"], name)
 		self.assertEqual(brief["lead"], lead)
 		self.assertEqual(brief["tbo_lead_type"], "Content / Digital Marketing")
@@ -937,9 +964,13 @@ class TestContentLeadChain(ClientDocumentTestCase):
 		self.assertEqual(brief["months"][0]["start"], brief["start"])
 		self.assertEqual(brief["months"][-1]["end"], brief["end"])
 		self.assertIn("Month 1", brief["roadmap"])
-		self.assertIn("calendar", brief["monthly_deliverables"])
-		chain = hub.link_project(name, "PROJ-0052", "https://hub.example/projects/PROJ-0052", acting_user=BDE)
+		self.assertIn("calendar", brief["deliverables"])
+		chain = hub.link_project(
+			lead, "PROJ-0052", proposal=name, url="https://hub.example/projects/PROJ-0052", acting_user=BDE
+		)
 		self.assertEqual(chain["steps"][-1]["name"], "PROJ-0052")
 		self.assertIsNone(chain["next"])
-		self.assertEqual(hub.get_strategy_project(name, acting_user=BDE)["hub_project"], "PROJ-0052")
-		self.assertRaises(frappe.ValidationError, hub.link_project, name, "PROJ-0053", acting_user=BDE)
+		self.assertEqual(hub.get_accepted_proposal(name, acting_user=BDE)["hub_project"], "PROJ-0052")
+		self.assertRaises(
+			frappe.ValidationError, hub.link_project, lead, "PROJ-0053", proposal=name, acting_user=BDE
+		)

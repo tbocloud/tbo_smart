@@ -57,7 +57,7 @@ Project Agreement, BRD, SRS, Implementation Plan, then the project. A **Content 
 Marketing** lead goes Lead -> a 6-month **strategy proposal** (the preset "Digital Marketing –
 6-month strategy", used by default for a new proposal on such a lead) -> once the client accepts,
 the project (the hub links it with `link_project` on the proposal and reads
-`get_strategy_project`). The credentials handover and the content calendar approvals are the
+`get_accepted_proposal`). The credentials handover and the content calendar approvals are the
 hub's. Details and the data-driven table: `lead-pipeline.md` §13.
 
 ## 5. Tests
@@ -68,4 +68,4 @@ off opens nothing, the lead type default and override, an inactive department is
 owner must be one of the department's people, the options, the list filter, create through the
 hub, and who may save departments.
 
-`tbo_smart/tests/test_client_documents.py` (`TestContentLeadChain`): a content lead gets the strategy preset by default, its chain after the accepted proposal is the project, an ERP lead's chain is unchanged, and `get_strategy_project` / `link_project` on the proposal.
+`tbo_smart/tests/test_client_documents.py` (`TestContentLeadChain`): a content lead gets the strategy preset by default, its chain after the accepted proposal is the project, an ERP lead's chain is unchanged, and `get_accepted_proposal` / `link_project` on the proposal.

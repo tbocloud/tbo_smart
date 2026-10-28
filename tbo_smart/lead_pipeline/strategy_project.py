@@ -50,6 +50,6 @@ def project_brief(doc) -> dict:
 			for month in range(MONTHS)
 		],
 		"roadmap": section_body(doc, "Implementation Plan"),
-		"monthly_deliverables": section_body(doc, "Deliverables"),
+		"deliverables": section_body(doc, "Deliverables"),
 		"hub_project": doc.hub_project,
 	}
