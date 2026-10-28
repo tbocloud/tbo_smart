@@ -113,6 +113,7 @@ has it (`erpnext-lead-cutover.md` §4).
 | --- | --- | --- |
 | Lead | `tbo_stage` (Select), `tbo_stage_log` (TBO Stage Change), `tbo_lost_reason`, `tbo_lost_notes` | §2 |
 | Lead | `tbo_segment` (Select Retail, Small, Medium, Large, Premium) | The client's segment: its price list and discount band (§9.8) |
+| Lead | `tbo_department` (Link TBO Lead Department), `tbo_lead_type` (Select) | Lead departments and who sees them (`lead-departments.md`) |
 | Lead / Opportunity | `crm_lead_ref` / `crm_deal_ref` (hidden) | The Frappe CRM record a copy came from (`erpnext-lead-cutover.md`) |
 | Opportunity | `tbo_customer`, `tbo_next_step`, `tbo_closed_on` (won or lost on), `tbo_stage_log` | The deal (§6) |
 | Sales Stage | `tbo_stage_type` (Open, Ongoing, On Hold, Won, Lost), `tbo_probability`, `tbo_position` | The deal's stage; a Won and a Lost stage are created when none is typed so |

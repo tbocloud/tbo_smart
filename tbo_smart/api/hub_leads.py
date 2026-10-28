@@ -29,7 +29,7 @@ from tbo_smart.lead_pipeline.proposals import latest_proposals, lead_proposals, 
 from tbo_smart.lead_pipeline.quotations import latest_quotations, lead_quotations
 from tbo_smart.lead_pipeline.setup import HUB_ROLE, SEGMENTS
 from tbo_smart.lead_pipeline.statuses import STATUS_NAMES, stage_options, status_type
-from tbo_smart.sales import erpnext_installed
+from tbo_smart.sales import departments, erpnext_installed
 from tbo_smart.sales.activities import (
 	OPEN,
 	add_follow_up_task,
@@ -75,6 +75,10 @@ LEAD_FIELDS = {
 	"industry": "industry",
 	"segment": "tbo_segment",
 	"lead_owner": "lead_owner",
+	"department": "tbo_department",
+	"tbo_department": "tbo_department",
+	"lead_type": "tbo_lead_type",
+	"tbo_lead_type": "tbo_lead_type",
 }
 ROW_FIELDS = [
 	"name",
@@ -84,6 +88,8 @@ ROW_FIELDS = [
 	"mobile_no",
 	"tbo_stage",
 	"tbo_segment as segment",
+	"tbo_department",
+	"tbo_lead_type",
 	"lead_owner",
 	"tbo_score as score",
 	"modified",
@@ -104,6 +110,8 @@ LEAD_DETAIL_FIELDS = [
 	"territory",
 	"industry",
 	"tbo_segment",
+	"tbo_department",
+	"tbo_lead_type",
 	"tbo_stage",
 	"status",
 	"lead_owner",
@@ -187,12 +195,15 @@ def acting_as(acting_user: str | None):
 @frappe.whitelist()
 def get_options(acting_user: str | None = None) -> dict:
 	"""Pick lists for the lead page: stages (in pipeline order), sources, segments, owners (the
-	sales users), territories and industries."""
+	sales users), territories, industries, `departments` (the active lead departments:
+	{name, lead_type, is_active, is_head, is_member} for the acting user) and `lead_types`."""
 	with acting_as(acting_user):
 		return {
 			"stages": stage_options(),
 			"sources": frappe.get_all("Lead Source", pluck="name", order_by="name asc"),
 			"segments": list(SEGMENTS),
+			"departments": departments.active_departments_for(frappe.session.user),
+			"lead_types": list(departments.LEAD_TYPES),
 			"owners": [{"email": row.user, "full_name": row.full_name} for row in get_crm_users(None)],
 			"territories": frappe.get_all("Territory", pluck="name", order_by="name asc"),
 			"industries": frappe.get_all("Industry Type", pluck="name", order_by="name asc"),
@@ -210,6 +221,7 @@ def list_leads(
 	stage: str | None = None,
 	owner: str | None = None,
 	segment: str | None = None,
+	department: str | None = None,
 	view: str = "all",
 	start: int = 0,
 	page_length: int = 20,
@@ -224,7 +236,8 @@ def list_leads(
 	"""The leads the acting user may see, newest change first: {rows, total}. `view`: all, mine
 	(they own it), call_today (their Call today list, in its order) or follow_up (an open
 	follow-up due by today, earliest first). `metric` (with `period`, or `from_date` and
-	`to_date`) keeps the leads one number of the overview counts (get_overview)."""
+	`to_date`) keeps the leads one number of the overview counts (get_overview). `department`
+	keeps one lead department's leads (the acting user still sees only what they may)."""
 	if view not in VIEWS:
 		frappe.throw(_("view must be one of {0}.").format(", ".join(VIEWS)))
 	start = max(cint(start), 0)
@@ -233,6 +246,8 @@ def list_leads(
 		filters = lead_filters(stage, owner, segment)
 		if source:
 			filters["source"] = source
+		if department:
+			filters["tbo_department"] = department
 		if temperature:
 			if temperature not in TEMPERATURES:
 				frappe.throw(_("temperature must be one of {0}.").format(", ".join(TEMPERATURES)))
@@ -354,6 +369,8 @@ def serialize_rows(rows: list) -> list[dict]:
 			"mobile_no": row.mobile_no,
 			"tbo_stage": row.tbo_stage,
 			"segment": row.segment,
+			"tbo_department": row.tbo_department,
+			"tbo_lead_type": row.tbo_lead_type,
 			"lead_owner": row.lead_owner,
 			"owner_name": owners.get(row.lead_owner),
 			"score": cint(row.score),
@@ -794,6 +811,8 @@ def lead_values(data: dict) -> dict:
 		values.update({"first_name": first, "last_name": last})
 	if values.get("tbo_segment") and values["tbo_segment"] not in SEGMENTS:
 		frappe.throw(_("{0} is not a segment.").format(values["tbo_segment"]))
+	if values.get("tbo_lead_type") and values["tbo_lead_type"] not in departments.LEAD_TYPES:
+		frappe.throw(_("{0} is not a lead type.").format(values["tbo_lead_type"]))
 	return values
 
 
@@ -918,3 +937,32 @@ def set_segment_rate(
 			"segment": segment or None,
 			"rate": rate_card.set_segment_rate(item_code, flt(rate), segment or None),
 		}
+
+
+# ---------- lead departments (docs/lead-departments.md) ----------
+
+
+@frappe.whitelist()
+def get_lead_departments(acting_user: str | None = None) -> list[dict]:
+	"""Every lead department, inactive ones too, to any lead user: [{name, department_name,
+	lead_type, is_active, heads, members}] (heads and members: [{user, full_name}])."""
+	with acting_as(acting_user):
+		return departments.get_departments()
+
+
+@frappe.whitelist(methods=["POST"])
+def save_lead_department(values: dict | str, name: str | None = None, acting_user: str | None = None) -> dict:
+	"""Create (no `name`) or update a lead department. `values`: department_name (new only),
+	lead_type, is_active, heads and members (lists of user emails; a list given replaces the
+	old one). Sales Manager or System Manager only (PermissionError otherwise). Returns the
+	department as get_lead_departments lists it."""
+	with acting_as(acting_user):
+		return departments.save_department(parse_data(values), name or None)
+
+
+@frappe.whitelist(methods=["POST"])
+def set_lead_department_active(name: str, active: int | str | bool, acting_user: str | None = None) -> dict:
+	"""Switch a department on or off (off: no new leads; its heads see nothing more of it).
+	Same people as save_lead_department. Returns the department."""
+	with acting_as(acting_user):
+		return departments.set_active(name, active)

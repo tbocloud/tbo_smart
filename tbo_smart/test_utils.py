@@ -432,6 +432,35 @@ def make_lead(owner: str, first_name: str = "Test Lead", **fields) -> str:
 	return lead.name
 
 
+def make_lead_department(
+	name: str,
+	lead_type: str = "ERP / Software",
+	heads: list[str] | tuple = (),
+	members: list[str] | tuple = (),
+	is_active: int = 1,
+) -> str:
+	"""A TBO Lead Department with the given heads and members, inserted as Administrator."""
+	doc = frappe.get_doc(
+		{
+			"doctype": "TBO Lead Department",
+			"department_name": name,
+			"lead_type": lead_type,
+			"is_active": is_active,
+			"heads": [{"user": user} for user in heads],
+			"members": [{"user": user} for user in members],
+		}
+	)
+	doc.insert(ignore_permissions=True)
+	return doc.name
+
+
+def delete_lead_departments(names: list[str] | tuple) -> None:
+	"""Delete the departments called `names` (their leads must be gone first) and commit."""
+	for name in names:
+		frappe.delete_doc("TBO Lead Department", name, force=True, ignore_missing=True)
+	frappe.db.commit()  # nosemgrep
+
+
 def make_sales_stage(name: str, kind: str = "Ongoing", probability: float = 0, position: int = 0) -> str:
 	"""A Sales Stage typed for the deal pipeline (tbo_stage_type), created or updated."""
 	values = {"tbo_stage_type": kind, "tbo_probability": probability, "tbo_position": position}
