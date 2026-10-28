@@ -27,7 +27,7 @@ MAX_MESSAGE = 2000
 MIN_PHONE_DIGITS = 7
 
 
-@frappe.whitelist(allow_guest=True, methods=["POST"])
+@frappe.whitelist(allow_guest=True, methods=["POST"])  # public form: honeypot, rate limit - nosemgrep
 @rate_limit(limit=FORM_LIMIT, seconds=FORM_WINDOW)
 def submit_website_lead(
 	name: str | None = None,
