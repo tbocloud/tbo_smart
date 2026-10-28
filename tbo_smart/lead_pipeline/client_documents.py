@@ -81,6 +81,8 @@ def create_document(source_name: str, document_type: str) -> tuple:
 		frappe.throw(_("Document {0} not found.").format(source_name), frappe.DoesNotExistError)
 	source = frappe.get_doc(p.DOCTYPE, source_name)
 	source.check_permission("write")
+	if not kinds.chain_for(source.lead).includes(spec.name):
+		frappe.throw(_("This lead's type doesn't have a {0}.").format(kinds.label(spec.name).lower()))
 	if kinds.of(source).name != follows:
 		frappe.throw(
 			_("A {0} is made from an accepted {1}.").format(
@@ -258,7 +260,10 @@ def chain(lead: str) -> dict:
 	status, and the one next action (make the proposal, make the next
 	document from the accepted one, or carry on with the one in progress)."""
 	steps, action, before = [], None, None
+	rules = kinds.chain_for(lead)
 	for spec in enabled_types():
+		if not rules.includes(spec.name):
+			continue
 		row = latest(lead, spec.name)
 		step = {
 			"document_type": spec.name,
@@ -275,19 +280,20 @@ def chain(lead: str) -> dict:
 			action = next_action(spec, step, before)
 		steps.append(step)
 		before = step
-		if spec.name == kinds.PLAN:
-			delivery = delivery_steps(row)
+		if spec.name == rules.project_after:
+			delivery = delivery_steps(row, rules.uat)
 			if action is None and step["done"]:
 				action = delivery_action(row, delivery)
 			steps += delivery
 	return {"steps": steps, "next": action}
 
 
-def delivery_steps(plan) -> list[dict]:
-	"""After the plan: the hub's project made from it, and the UAT sign-off on that project."""
+def delivery_steps(plan, with_uat: bool = True) -> list[dict]:
+	"""After the last document: the hub's project made from it, and (with_uat) the UAT sign-off on
+	that project."""
 	project = plan.hub_project if plan else None
 	uat = plan.uat_status if plan else None
-	return [
+	steps = [
 		{
 			"document_type": "Project",
 			"label": _("Project"),
@@ -299,7 +305,12 @@ def delivery_steps(plan) -> list[dict]:
 			"url": plan.hub_project_url if plan else None,
 			"view_count": 0,
 			"quotation_status": None,
-		},
+		}
+	]
+	if not with_uat:
+		return steps
+	return [
+		*steps,
 		{
 			"document_type": "UAT",
 			"label": _("UAT sign-off"),
@@ -322,7 +333,7 @@ def delivery_action(plan, delivery: list[dict]) -> dict | None:
 			"source": plan.name,
 			"label": _("Create project"),
 		}
-	if not delivery[1]["done"]:
+	if len(delivery) > 1 and not delivery[1]["done"]:
 		return {"action": "uat", "document_type": "UAT", "name": plan.hub_project, "label": _("UAT sign-off")}
 	return None
 

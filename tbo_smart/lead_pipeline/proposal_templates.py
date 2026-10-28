@@ -6,6 +6,8 @@ Plain English for the client to read. Nothing here is a price the owner hasn't s
 AMC plans start at 0 until the owner fills them in (or links an Item priced on the rate card).
 """
 
+from tbo_smart.lead_pipeline.document_types import STRATEGY_TEMPLATE as STRATEGY
+
 # ---------- the presets: which master sections are on, and what the scoping form asks ----------
 
 GUIDANCE = {
@@ -22,9 +24,12 @@ def preset(
 	page_guide: str,
 	questions: tuple,
 	modules: tuple = (),
+	sections: dict | None = None,
 ) -> dict:
 	"""A solution type's preset: its scoping questions and default modules. Every new proposal
-	starts with all the master sections on; presales turns off what doesn't fit."""
+	starts with all the master sections on; presales turns off what doesn't fit. `sections`
+	(section type -> {enabled, heading, guidance}) is for a preset that differs from that."""
+	sections = sections or {}
 	from tbo_smart.lead_pipeline.proposals import MASTER_SECTIONS
 
 	# every template that asks for users asks for companies with it
@@ -47,11 +52,44 @@ def preset(
 				"enabled": 1,
 				"heading": heading,
 				"guidance": GUIDANCE.get(kind),
+				**sections.get(kind, {}),
 			}
 			for kind, heading in MASTER_SECTIONS
 		],
 	}
 
+
+STRATEGY_MODULES = ("Content Strategy & Planning", "Content Creation & Publishing", "Reporting & Review")
+# the strategy proposal's sections: the same master structure, headed for marketing; what a
+# marketing strategy has no use for is off
+STRATEGY_SECTIONS = {
+	"Executive Summary": {
+		"guidance": "One page: the client's brand, what they want from social media in the six months, and the plan we propose. Only what they told us.",
+	},
+	"Client Background": {
+		"heading": "Brand & Audience",
+		"guidance": "The client's brand, who their audience is and where it spends time, the platforms they use today, what they post now and what has or hasn't worked. Only what they told us; say 'to be confirmed at kick-off' for anything missing.",
+	},
+	"Business Challenges": {
+		"heading": "Goals & KPIs",
+		"guidance": "The client's goals for the six months and how each will be measured (reach, followers, engagement, enquiries). Use only targets the client stated; where none was given, say the target is agreed at kick-off. Never invent a number.",
+	},
+	"Proposed Solution": {
+		"heading": "Strategy: Platforms & Content Pillars",
+		"guidance": "The platforms we propose and why, the content pillars (the recurring themes), the tone of voice and how the content will reach the audience, as a list. No follower, reach or sales numbers unless the client gave them.",
+	},
+	"Scope of Work": {"heading": "What We Will Do"},
+	"Modules & Features": {"enabled": 0},
+	"Proposed Workflow": {"heading": "Monthly Content & Approval Cycle"},
+	"Technical Architecture": {"enabled": 0},
+	"Deliverables": {"heading": "Deliverables Each Month"},
+	"Implementation Plan": {"heading": "6-Month Roadmap"},
+	"Project Timeline": {"enabled": 0},
+	"Project Team": {"heading": "Your Team"},
+	"Investment": {"heading": "Fees (per month and for six months)"},
+	"Warranty & Support": {"enabled": 0},
+	"AMC": {"enabled": 0},
+}
 
 ERP_MODULES = ("Accounts", "Selling & CRM", "Buying", "Stock & Inventory", "Reports & Dashboards", "Training")
 
@@ -158,6 +196,15 @@ def templates() -> tuple:
 			"Small project (5–8 pages)",
 			("users", "hosting", "amc"),
 			(),
+		),
+		preset(
+			STRATEGY,
+			"A six-month social media and content strategy: goals, audience, platforms, content "
+			"pillars, a month-by-month roadmap, monthly deliverables and fees.",
+			"Strategy (8–12 pages)",
+			("timeline_weeks",),
+			STRATEGY_MODULES,
+			STRATEGY_SECTIONS,
 		),
 	)
 
@@ -338,8 +385,7 @@ MODULES = (
 	module(
 		"Manufacturing",
 		ERP,
-		"Production planned and tracked: bills of material, work orders, job cards and material "
-		"consumption.",
+		"Production planned and tracked: bills of material, work orders, job cards and material consumption.",
 		(
 			"Bills of material with sub-assemblies",
 			"Production plans and work orders",
@@ -409,8 +455,7 @@ MODULES = (
 	module(
 		"Website & Portal",
 		("Website / Digital", *ERP),
-		"A fast, responsive website the client's team can update, with a customer portal on the same "
-		"system.",
+		"A fast, responsive website the client's team can update, with a customer portal on the same system.",
 		(
 			"Responsive pages and a content editor",
 			"Customer portal for orders, invoices and tickets",
@@ -458,8 +503,7 @@ MODULES = (
 	module(
 		"Web Application",
 		("Web Application", "Custom Software Development"),
-		"A web application built for the client's process, with role-based screens, workflows and "
-		"approvals.",
+		"A web application built for the client's process, with role-based screens, workflows and approvals.",
 		("Responsive screens", "Workflows and approvals", "Role-based access", "Audit trail"),
 		20,
 		"Customised",
@@ -533,6 +577,64 @@ MODULES = (
 		deliverables=("User guides and training sessions",),
 		assumptions=("Key users attend the training sessions.",),
 		order=17,
+	),
+	module(
+		"Content Strategy & Planning",
+		(STRATEGY,),
+		"The six-month strategy: audience, platforms, content pillars and the content calendar for every month.",
+		(
+			"Audit of the current accounts and competitors",
+			"Audience, platform and content pillar plan",
+			"A content calendar for each month",
+		),
+		0,
+		scope=(
+			"Strategy & Planning | Audit of the client's accounts, audience and competitors",
+			"Strategy & Planning | Platforms, content pillars and tone of voice",
+			"Strategy & Planning | A content calendar for each month, shared for approval",
+		),
+		deliverables=(
+			"The six-month strategy and the first content calendar",
+			"A content calendar for each month, approved by the client before publishing",
+		),
+		assumptions=("The client approves each month's content calendar in time for publishing.",),
+		workflow=(
+			"Monthly content cycle: Content ideas → Content calendar → Client approval → Creation → Publishing → Monthly report",
+		),
+		order=18,
+	),
+	module(
+		"Content Creation & Publishing",
+		(STRATEGY,),
+		"Posts, reels and stories made and published on the client's accounts as the approved calendar says.",
+		(
+			"Posts, reels and stories each month, in the numbers set in the approved calendar",
+			"Captions, hashtags and creative design",
+			"Scheduling and publishing",
+			"Replies to comments and messages",
+		),
+		0,
+		scope=(
+			"Content Creation | Captions, designs and short videos for each approved post, reel and story",
+			"Publishing & Community | Scheduling and publishing on the agreed platforms",
+			"Publishing & Community | Replies to comments and messages in the agreed hours",
+		),
+		deliverables=("Posts, reels and stories each month, in the numbers set in the approved calendar",),
+		out_of_scope=("Paid advertising spend, which the client pays to the platforms directly.",),
+		order=19,
+	),
+	module(
+		"Reporting & Review",
+		(STRATEGY,),
+		"A report on how the accounts did against the goals, and a review that shapes the next month.",
+		("Monthly performance report", "Review of what worked and what to change"),
+		0,
+		scope=(
+			"Reporting | A performance report against the agreed goals each month",
+			"Reporting | A review call to plan the next month",
+		),
+		deliverables=("A performance report each month", "A review of the six months at the end"),
+		order=20,
 	),
 )
 
@@ -899,6 +1001,180 @@ LIBRARY = (
 
 
 # ---------- the project agreement's clauses (docs/client-documents.md §4) ----------
+
+# What the strategy proposal leaves out: every general row of these libraries is about software
+# (a row for every solution type), so each is left out of it and the strategy has its own below.
+STRATEGY_REPLACES = (
+	"Company Overview",
+	"Solution Component",
+	"Scope of Work",
+	"Deliverable",
+	"Phase",
+	"Role",
+	"Payment Terms",
+	"Assumption",
+	"Out of Scope",
+	"Risk",
+)
+STRATEGY_LEFT_OUT = (("Terms", "Intellectual property and source code"),)
+
+
+def leaves_out_strategy(row: dict) -> bool:
+	"""Whether a general library row is left out of the strategy proposal."""
+	return not row.get("solution_types") and (
+		row["library"] in STRATEGY_REPLACES or (row["library"], row["title"]) in STRATEGY_LEFT_OUT
+	)
+
+
+def strategy_item(library: str, title: str, body: str = "", **values) -> dict:
+	return item(library, title, body, solution_types=STRATEGY, **values)
+
+
+STRATEGY_LIBRARY = (
+	strategy_item(
+		"Company Overview",
+		"Who we are",
+		"TBO (Team Back Office) is a team of strategists, writers, designers and video editors who "
+		"plan, create and publish content for brands, and report on it every month.",
+		sort_order=1,
+	),
+	strategy_item(
+		"Company Overview",
+		"What we do",
+		"- Social media strategy and content calendars\n- Posts, reels and stories\n"
+		"- Publishing, community replies and monthly reports",
+		sort_order=2,
+	),
+	strategy_item(
+		"Company Overview",
+		"Why choose us",
+		"- One team from strategy to the monthly report\n"
+		"- Every month's content approved by you before it is published\n"
+		"- A clear report each month on how the accounts did against your goals",
+		sort_order=3,
+	),
+	strategy_item(
+		"Phase",
+		"Month 1 - Audit & Set-up",
+		"Account and competitor audit, goals and KPIs agreed, credentials handover, first content calendar",
+		sort_order=1,
+	),
+	strategy_item(
+		"Phase",
+		"Month 2 - Launch",
+		"First approved calendar goes live, tone of voice settled, first monthly report",
+		sort_order=2,
+	),
+	strategy_item(
+		"Phase",
+		"Month 3 - Build Consistency",
+		"Regular publishing, community replies, content pillars tuned to what the audience responds to",
+		sort_order=3,
+	),
+	strategy_item(
+		"Phase",
+		"Month 4 - Optimise",
+		"Formats and posting times adjusted from the reports, new content ideas tested",
+		sort_order=4,
+	),
+	strategy_item(
+		"Phase",
+		"Month 5 - Grow What Works",
+		"More of the formats and themes that performed, campaigns around key dates",
+		sort_order=5,
+	),
+	strategy_item(
+		"Phase",
+		"Month 6 - Review & Next Steps",
+		"Review of all six months against the goals, and a plan for what comes next",
+		sort_order=6,
+	),
+	strategy_item(
+		"Role",
+		"Account Manager",
+		"Your single point of contact: the calendar, approvals and the monthly review",
+		sort_order=1,
+	),
+	strategy_item(
+		"Role", "Content Strategist", "The strategy, content pillars and each month's calendar", sort_order=2
+	),
+	strategy_item("Role", "Content Writer", "Captions, scripts and copy", sort_order=3),
+	strategy_item("Role", "Graphic Designer / Video Editor", "Post designs, reels and stories", sort_order=4),
+	strategy_item(
+		"Role", "Social Media Executive", "Scheduling, publishing and replies to comments", sort_order=5
+	),
+	strategy_item(
+		"Payment Terms",
+		"Six monthly instalments",
+		"Month 1 (on starting) | 16.67\nMonth 2 | 16.67\nMonth 3 | 16.67\nMonth 4 | 16.67\nMonth 5 | 16.66\nMonth 6 | 16.66",
+		sort_order=1,
+	),
+	strategy_item(
+		"Assumption",
+		"The client approves each month's content calendar in time for publishing.",
+		sort_order=1,
+	),
+	strategy_item(
+		"Assumption",
+		"The client hands over access to their social media accounts when the engagement starts.",
+		sort_order=2,
+	),
+	strategy_item(
+		"Out of Scope",
+		"Paid advertising spend, which the client pays to the platforms directly.",
+		sort_order=1,
+	),
+	strategy_item(
+		"Out of Scope", "Content outside the approved calendar, unless agreed in writing.", sort_order=2
+	),
+	strategy_item(
+		"Risk",
+		"Content approved late",
+		"Agree at kick-off how quickly each calendar is approved.",
+		sort_order=1,
+	),
+	strategy_item(
+		"Risk",
+		"Accounts or access not handed over",
+		"Credentials are handed over securely when the engagement starts.",
+		sort_order=2,
+	),
+	strategy_item(
+		"Risk",
+		"Results are slower than hoped",
+		"A monthly report shows what is working, and the next month's calendar changes with it.",
+		sort_order=3,
+	),
+	strategy_item(
+		"Investment Note",
+		"The fees are a monthly amount for six months, with the total for the six months shown.",
+		sort_order=4,
+	),
+	strategy_item(
+		"Terms",
+		"Term",
+		"The engagement runs for six months from its start date.",
+		sort_order=8,
+	),
+	strategy_item(
+		"Terms",
+		"Credentials handover",
+		"When the engagement starts, the client hands over the access we need to run the accounts in "
+		"scope, through TBO's secure credentials handover. We use it only for this work.",
+		sort_order=9,
+	),
+	strategy_item(
+		"Terms",
+		"Handback on cancellation",
+		"If the engagement is cancelled or ends, we return all access and remove ours, so the client "
+		"holds the accounts alone.",
+		sort_order=10,
+	),
+)
+LIBRARY = (
+	*(dict(row, solution_types=f"!{STRATEGY}") if leaves_out_strategy(row) else row for row in LIBRARY),
+	*STRATEGY_LIBRARY,
+)
 
 CLAUSE = "Agreement Clause"
 AGREEMENT_CLAUSES = (

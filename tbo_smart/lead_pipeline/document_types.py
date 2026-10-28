@@ -541,6 +541,38 @@ TYPES = {
 }
 ALL_SECTION_TYPES = tuple(dict.fromkeys(kind for spec in TYPES.values() for kind in spec.section_types))
 
+CONTENT_LEAD = "Content / Digital Marketing"
+STRATEGY_TEMPLATE = "Digital Marketing – 6-month strategy"
+
+
+@dataclass(frozen=True)
+class Chain:
+	"""The documents a lead goes through, by its type (docs/lead-pipeline.md §13): which types it
+	may have (None: every switched-on one), the one after which the hub makes the project, whether
+	that project then has a UAT sign-off, and the template a new proposal starts from."""
+
+	types: tuple | None = None
+	project_after: str = PLAN
+	uat: bool = True
+	template: str | None = None
+
+	def includes(self, name: str) -> bool:
+		return self.types is None or name in self.types
+
+
+DEFAULT_CHAIN = Chain()
+# a lead with no type, or an ERP / Software one, goes through the default chain
+CHAINS = {
+	CONTENT_LEAD: Chain(types=(PROPOSAL,), project_after=PROPOSAL, uat=False, template=STRATEGY_TEMPLATE)
+}
+
+
+def chain_for(lead: str | None) -> Chain:
+	"""The chain of the lead's type (the default one without a lead or a type)."""
+	if not lead or not frappe.get_meta("Lead").has_field("tbo_lead_type"):
+		return DEFAULT_CHAIN
+	return CHAINS.get(frappe.db.get_value("Lead", lead, "tbo_lead_type"), DEFAULT_CHAIN)
+
 
 def proposal_is_quotation() -> bool:
 	"""TBO Smart Settings → The proposal is the quotation: the proposal's own ERPNext Quotation is

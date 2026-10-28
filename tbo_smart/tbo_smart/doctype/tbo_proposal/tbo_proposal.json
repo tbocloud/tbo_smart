@@ -155,8 +155,8 @@
    "fieldname": "start_date",
    "fieldtype": "Date",
    "label": "Project start date",
-   "depends_on": "eval:['Work Order', 'Implementation Plan'].includes(doc.document_type)",
-   "description": "The agreement's (and the plan's) start: the timeline's dates follow from it."
+   "depends_on": "eval:['Work Order', 'Implementation Plan'].includes(doc.document_type) || doc.solution_type == 'Digital Marketing – 6-month strategy'",
+   "description": "The agreement's (and the plan's) start: the timeline's dates follow from it. A strategy proposal's first month."
   },
   {
    "fieldname": "theme",

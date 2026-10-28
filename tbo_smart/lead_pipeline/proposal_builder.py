@@ -193,9 +193,14 @@ def lines(value: str | None) -> list[str]:
 
 
 def suits(row, solution_type: str | None) -> bool:
-	"""A library row or module for every solution type (blank) or for this one."""
+	"""A library row or module for every solution type (blank) or for this one. A line starting
+	with "!" leaves that solution type out: the row suits every other one."""
 	types = lines(row.get("solution_types"))
-	return not types or (solution_type or "") in types
+	left_out = {line[1:].strip() for line in types if line.startswith("!")}
+	chosen = [line for line in types if not line.startswith("!")]
+	if (solution_type or "") in left_out:
+		return False
+	return not chosen or (solution_type or "") in chosen
 
 
 # ---------- the libraries ----------

@@ -30,6 +30,7 @@ from tbo_smart.test_utils import (
 	make_accepted_quotation_document,
 	make_approved_brd,
 	make_approved_document,
+	make_content_lead,
 	make_customised_proposal,
 	make_gst_template,
 	make_hub_document,
@@ -39,6 +40,7 @@ from tbo_smart.test_utils import (
 	make_pdf_bytes,
 	make_plan_document,
 	make_quotation_item,
+	make_sent_proposal,
 	make_signed_agreement,
 	make_user,
 	mock_ai,
@@ -859,3 +861,85 @@ class TestUAT(ClientDocumentTestCase):
 		self.assertIn("2. Keep the chart of accounts", first["steps"])
 		self.assertEqual(first["expected"], frs[0]["acceptance"])
 		self.assertRaises(frappe.ValidationError, hub.get_uat_cases, srs_name, acting_user=BDE)
+
+
+class TestContentLeadChain(ClientDocumentTestCase):
+	def new_lead(self) -> str:
+		return make_content_lead(
+			BDE, "Nila Das", company_name=f"Kochi Cafe {frappe.generate_hash(length=6)}", tbo_segment="Medium"
+		)
+
+	def test_a_content_lead_starts_from_the_strategy_preset(self):
+		lead = self.new_lead()
+		proposal = make_hub_proposal(lead, BDE)
+		self.assertEqual(proposal["template"], kinds.STRATEGY_TEMPLATE)
+		self.assertEqual(proposal["solution_type"], kinds.STRATEGY_TEMPLATE)
+		sections = {row["section_type"]: row for row in proposal["sections"]}
+		self.assertEqual(sections["Business Challenges"]["heading"], "Goals & KPIs")
+		self.assertEqual(sections["Implementation Plan"]["heading"], "6-Month Roadmap")
+		self.assertFalse(sections["Technical Architecture"]["enabled"])
+		roadmap = sections["Implementation Plan"]["body"]
+		self.assertIn("Month 6", roadmap)
+		self.assertNotIn("Analysis", roadmap)
+		self.assertIn("Credentials handover", sections["Terms & Conditions"]["body"])
+		self.assertIn("Handback on cancellation", sections["Terms & Conditions"]["body"])
+		# a template named by the caller still wins, and an ERP lead is not moved
+		erp = make_hub_proposal(self.lead, BDE)
+		self.assertIsNone(erp["template"])
+		self.assertEqual(make_hub_proposal(lead, BDE, TEMPLATE)["template"], TEMPLATE)
+
+	def test_the_strategy_preset_keeps_the_ai_number_guard(self):
+		lead = self.new_lead()
+		make_hub_proposal(lead, BDE)
+		guidance = frappe.get_all(
+			"TBO Proposal Template Section",
+			filters={"parent": kinds.STRATEGY_TEMPLATE, "section_type": "Business Challenges"},
+			pluck="guidance",
+		)[0]
+		self.assertIn("Never invent a number", guidance)
+
+	def test_after_the_accepted_proposal_the_next_action_is_the_project(self):
+		lead = self.new_lead()
+		proposal = make_accepted_proposal(lead, BDE, kinds.STRATEGY_TEMPLATE, SERVICE)
+		chain = hub.get_document_chain(lead, acting_user=BDE)
+		self.assertEqual([step["document_type"] for step in chain["steps"]], [kinds.PROPOSAL, "Project"])
+		self.assertEqual((chain["next"]["action"], chain["next"]["source"]), ("create_project", proposal))
+		self.assertRaises(frappe.ValidationError, make_hub_document, proposal, kinds.QUOTATION, BDE)
+
+	def test_an_erp_lead_keeps_the_full_chain(self):
+		proposal = make_accepted_proposal(self.lead, BDE, TEMPLATE, SERVICE)
+		chain = hub.get_document_chain(self.lead, acting_user=BDE)
+		self.assertEqual(
+			[step["document_type"] for step in chain["steps"]][:3],
+			[kinds.PROPOSAL, kinds.QUOTATION, kinds.WORK_ORDER],
+		)
+		self.assertEqual(
+			(chain["next"]["action"], chain["next"]["document_type"], chain["next"]["source"]),
+			("create", kinds.QUOTATION, proposal),
+		)
+		# a proposal is not what an ERP lead's project is made from
+		self.assertRaises(frappe.ValidationError, hub.link_project, proposal, "PROJ-0050", acting_user=BDE)
+
+	def test_the_hub_makes_the_project_from_the_accepted_proposal(self):
+		lead = self.new_lead()
+		name, _token = make_sent_proposal(lead, BDE, kinds.STRATEGY_TEMPLATE, SERVICE)
+		# not accepted yet
+		self.assertRaises(frappe.ValidationError, hub.get_strategy_project, name, acting_user=BDE)
+		self.assertRaises(frappe.ValidationError, hub.link_project, name, "PROJ-0051", acting_user=BDE)
+		accept_as_client(name)
+		brief = hub.get_strategy_project(name, acting_user=BDE)
+		self.assertEqual(brief["proposal"], name)
+		self.assertEqual(brief["lead"], lead)
+		self.assertEqual(brief["tbo_lead_type"], "Content / Digital Marketing")
+		self.assertEqual(brief["start"], str(getdate(nowdate())))
+		self.assertEqual(brief["end"], str(add_days(frappe.utils.add_months(getdate(nowdate()), 6), -1)))
+		self.assertEqual([month["month"] for month in brief["months"]], [1, 2, 3, 4, 5, 6])
+		self.assertEqual(brief["months"][0]["start"], brief["start"])
+		self.assertEqual(brief["months"][-1]["end"], brief["end"])
+		self.assertIn("Month 1", brief["roadmap"])
+		self.assertIn("calendar", brief["monthly_deliverables"])
+		chain = hub.link_project(name, "PROJ-0052", "https://hub.example/projects/PROJ-0052", acting_user=BDE)
+		self.assertEqual(chain["steps"][-1]["name"], "PROJ-0052")
+		self.assertIsNone(chain["next"])
+		self.assertEqual(hub.get_strategy_project(name, acting_user=BDE)["hub_project"], "PROJ-0052")
+		self.assertRaises(frappe.ValidationError, hub.link_project, name, "PROJ-0053", acting_user=BDE)

@@ -432,6 +432,11 @@ def make_lead(owner: str, first_name: str = "Test Lead", **fields) -> str:
 	return lead.name
 
 
+def make_content_lead(owner: str, first_name: str = "Test Content Lead", **fields) -> str:
+	"""A Lead of the Content / Digital Marketing type (so its documents follow the strategy chain)."""
+	return make_lead(owner, first_name, tbo_lead_type="Content / Digital Marketing", **fields)
+
+
 def make_lead_department(
 	name: str,
 	lead_type: str = "ERP / Software",

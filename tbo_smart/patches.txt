@@ -10,3 +10,4 @@ tbo_smart.patches.v1.rename_crm_deal_fields
 tbo_smart.patches.v1.proposal_master_sections
 tbo_smart.patches.v1.proposal_scoping_companies
 tbo_smart.patches.v1.proposal_is_quotation
+tbo_smart.patches.v1.proposal_strategy_preset

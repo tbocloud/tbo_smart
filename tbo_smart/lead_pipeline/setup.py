@@ -408,6 +408,33 @@ def seed_proposal_templates() -> None:
 	frappe.db.set_default(MASTER_SEEDED, 1)
 
 
+def add_strategy_preset() -> None:
+	"""The Digital Marketing 6-month strategy preset on a site that was seeded before it existed
+	(a patch; a new site gets it with the first seed): its template, modules and library rows are
+	added where missing, and the general software rows are left out of it. Nothing the editors
+	changed is overwritten."""
+	from tbo_smart.lead_pipeline import proposal_templates as seed
+
+	module = "TBO Proposal Module"
+	library = "TBO Proposal Library Item"
+	for row in seed.MODULES:
+		if seed.STRATEGY in row["solution_types"] and not frappe.db.exists(module, row["module_name"]):
+			frappe.get_doc({"doctype": module, **row}).insert(ignore_permissions=True)
+	for row in seed.LIBRARY:
+		match = {"library": row["library"], "title": row["title"]}
+		if row.get("solution_types") == seed.STRATEGY:
+			if not frappe.db.exists(library, {**match, "solution_types": seed.STRATEGY}):
+				frappe.get_doc({"doctype": library, **row}).insert(ignore_permissions=True)
+		elif row.get("solution_types") == f"!{seed.STRATEGY}":
+			for name in frappe.get_all(
+				library, filters={**match, "solution_types": ("is", "not set")}, pluck="name"
+			):
+				frappe.db.set_value(library, name, "solution_types", row["solution_types"])
+	template = next(row for row in seed.templates() if row["template_name"] == seed.STRATEGY)
+	if not frappe.db.exists("TBO Proposal Template", template["template_name"]):
+		frappe.get_doc({"doctype": "TBO Proposal Template", **template}).insert(ignore_permissions=True)
+
+
 CLAUSES_SEEDED = "tbo_agreement_clauses_seeded"
 
 

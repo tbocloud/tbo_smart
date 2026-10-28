@@ -429,6 +429,7 @@ def create_proposal(
 	narrative sections written by the AI in one call. Returns (proposal, warnings)."""
 	from tbo_smart.lead_pipeline.proposal_profile import clean_profile, require_profile
 
+	template = template or default_template(lead)
 	if template and not frappe.db.exists(TEMPLATE, {"name": template, "enabled": 1}):
 		frappe.throw(_("Template {0} not found.").format(template), frappe.DoesNotExistError)
 	if ai_draft and not ai_enabled():
@@ -481,6 +482,13 @@ def create_proposal(
 				_("The AI couldn't write the narrative ({0}). Write it, or try Regenerate.").format(e.summary)
 			)
 	return doc, warnings
+
+
+def default_template(lead: str) -> str | None:
+	"""The template a lead's type starts a proposal from when none is chosen (its enabled one, if
+	the editors haven't switched it off)."""
+	name = kinds.chain_for(lead).template
+	return name if name and frappe.db.exists(TEMPLATE, {"name": name, "enabled": 1}) else None
 
 
 def pick_templates(doc, answers: dict) -> None:
@@ -1083,7 +1091,7 @@ def email(doc, lead, to: str, message: str | None, attach_pdf: bool) -> None:
 	)
 	link = public_url(doc)
 	content = (
-		f"{paragraphs}<p><a href=\"{link}\">{escape_html(said['read_link'].format(doc.title))}</a></p>"
+		f'{paragraphs}<p><a href="{link}">{escape_html(said["read_link"].format(doc.title))}</a></p>'
 		f"<p>{escape_html(link)}</p>"
 	)
 	attachments = [{"fname": f"{doc.name}.pdf", "fcontent": render_pdf(doc)}] if attach_pdf else None

@@ -88,7 +88,7 @@
    "fieldname": "solution_types",
    "fieldtype": "Small Text",
    "label": "Solution types",
-   "description": "One solution type per line (blank: every solution type)."
+   "description": "One solution type per line (blank: every solution type). Start a line with ! to leave that type out."
   }
  ],
  "links": [],
