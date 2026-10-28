@@ -201,7 +201,7 @@ def templates() -> tuple:
 			STRATEGY,
 			"A six-month social media and content strategy: goals, audience, platforms, content "
 			"pillars, a month-by-month roadmap, monthly deliverables and fees.",
-			"Strategy (8–12 pages)",
+			"Small project (5–8 pages)",
 			("timeline_weeks",),
 			STRATEGY_MODULES,
 			STRATEGY_SECTIONS,
