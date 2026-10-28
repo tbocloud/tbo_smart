@@ -881,7 +881,11 @@ class TestUAT(ClientDocumentTestCase):
 class TestContentLeadChain(ClientDocumentTestCase):
 	def new_lead(self) -> str:
 		return make_content_lead(
-			BDE, "Nila Das", company_name=f"Kochi Cafe {frappe.generate_hash(length=6)}", tbo_segment="Medium"
+			BDE,
+			"Nila Das",
+			company_name=f"Kochi Cafe {frappe.generate_hash(length=6)}",
+			email_id=f"nila.{frappe.generate_hash(length=6)}@kochicafe.example",
+			tbo_segment="Medium",
 		)
 
 	def test_a_content_lead_starts_from_the_strategy_preset(self):
