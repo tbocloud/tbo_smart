@@ -536,8 +536,40 @@ flag; the PDF saved on the lead and the Sales Order from an accepted quotation (
 Customer ERPNext made from the lead, the deal on the order and the order's customer on the
 deal); the print format rendering.
 
+## 13. The document chain by lead type (`lead_pipeline/document_types.py`: `CHAINS`)
+
+The documents a lead goes through follow its `tbo_lead_type` (`lead-departments.md`). One table,
+`CHAINS`, holds the difference; `chain_for(lead)` reads it and everything else asks it.
+
+| Lead type | Documents | After the last one | New proposal starts from |
+|---|---|---|---|
+| ERP / Software, or none | Proposal -> Quotation -> Project Agreement -> BRD -> SRS -> Implementation Plan (each on its own switch) | `create_project`, then UAT | the template chosen |
+| Content / Digital Marketing | Proposal only | `create_project` from the accepted proposal (no UAT step) | **Digital Marketing – 6-month strategy** |
+
+- `get_document_chain` shows only the types of the lead's chain; `create_document` refuses a type
+  outside it (so no Quotation from a content lead's proposal).
+- **The strategy preset** (`proposal_templates.py`, `STRATEGY_SECTIONS`) is the same 23 master
+  sections headed for marketing: Brand & Audience, Goals & KPIs, Strategy: Platforms & Content
+  Pillars, What We Will Do, Monthly Content & Approval Cycle, Deliverables Each Month, 6-Month
+  Roadmap (Month 1-6), Your Team, Fees (per month and for six months, six monthly instalments),
+  Terms (six-month term, credentials handover on starting, handback on cancellation). The
+  software-only sections are off. Its modules (Content Strategy & Planning, Content Creation &
+  Publishing, Reporting & Review) start at price 0 like all modules: the owner prices them. The AI
+  writes only the four narrative sections, from the section guidance, and its numbers are checked
+  against the brief as always: posts / reels / stories counts and targets are never invented, so
+  presales types them into Deliverables or the scoping notes. A library row or module may carry
+  `!<solution type>` in Solution types to leave that type out; the general software rows are
+  left out of the strategy that way (`setup.add_strategy_preset` brings the preset to sites seeded
+  earlier; patch `proposal_strategy_preset`).
+- **The hub's project** (`strategy_project.py`): `get_accepted_proposal(name)` returns the accepted
+  proposal's project brief (`hub-proposals-api.md`); `link_project(lead, project, plan?, proposal?, url?)` takes the
+  accepted proposal as it takes a plan, once. The start is the proposal's `start_date`, else the day
+  it was accepted; the end is six months later.
+
 ## Changelog
 
+- **v1.8 (2026-10-28):** the document chain by lead type (§13): Content / Digital Marketing leads
+  go Proposal (the 6-month strategy) -> project.
 - **v1.7 (2026-10-20):** `tbo_proposal` on the Quotation, the Sales Order and the Sales Invoice:
   the client document the price was accepted on (§9.5).
 - **v1.6 (2026-10-20):** every system save of a lead skips unrelated mandatory fields through

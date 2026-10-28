@@ -1,4 +1,4 @@
-# Lead departments (living spec, v1.0, Phase 1)
+# Lead departments (living spec, v1.1, Phase 1 and 2)
 
 Leads belong to a department (GrowthX and the like) that admins create. The department's
 **heads** see every lead of it; the people who follow a lead (its owner, or anyone it is
@@ -50,6 +50,16 @@ Manager outside the hierarchy still see everything.
 Not in Phase 1: the overview, daily report and mobile scopes still follow the owner scope, not
 the department.
 
+## 4a. Phase 2: the type decides the documents
+
+An ERP / Software lead (or one without a type) keeps the full chain: Proposal, Quotation,
+Project Agreement, BRD, SRS, Implementation Plan, then the project. A **Content / Digital
+Marketing** lead goes Lead -> a 6-month **strategy proposal** (the preset "Digital Marketing –
+6-month strategy", used by default for a new proposal on such a lead) -> once the client accepts,
+the project (the hub links it with `link_project` on the proposal and reads
+`get_accepted_proposal`). The credentials handover and the content calendar approvals are the
+hub's. Details and the data-driven table: `lead-pipeline.md` §13.
+
 ## 5. Tests
 
 `tbo_smart/tests/test_lead_departments.py`: a head sees the department's leads they do not
@@ -57,3 +67,5 @@ own, a member only their own, a lead without a department is unchanged, a depart
 off opens nothing, the lead type default and override, an inactive department is refused, the
 owner must be one of the department's people, the options, the list filter, create through the
 hub, and who may save departments.
+
+`tbo_smart/tests/test_client_documents.py` (`TestContentLeadChain`): a content lead gets the strategy preset by default, its chain after the accepted proposal is the project, an ERP lead's chain is unchanged, and `get_accepted_proposal` / `link_project` on the proposal.

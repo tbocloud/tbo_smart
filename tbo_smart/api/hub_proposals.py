@@ -15,7 +15,7 @@ from frappe.utils import cint, flt
 from tbo_smart.api import lead_quotation
 from tbo_smart.api.hub_leads import acting_as
 from tbo_smart.api.quotation_adjustment import request_adjustment
-from tbo_smart.lead_pipeline import brd, presets, rate_card
+from tbo_smart.lead_pipeline import brd, presets, rate_card, strategy_project
 from tbo_smart.lead_pipeline import client_documents as documents
 from tbo_smart.lead_pipeline import document_types as kinds
 from tbo_smart.lead_pipeline import implementation_plan as plan
@@ -25,6 +25,7 @@ from tbo_smart.lead_pipeline import proposal_media as media
 from tbo_smart.lead_pipeline import proposal_profile as profile
 from tbo_smart.lead_pipeline import proposals as p
 from tbo_smart.lead_pipeline import quotations as q
+from tbo_smart.lead_pipeline.implementation_plan import link_project as keep_project
 from tbo_smart.quotation_control import QuotationControl
 
 TRACKING = (
@@ -370,12 +371,34 @@ def get_project_plan(name: str, acting_user: str | None = None) -> dict:
 		return plan.project_plan(get_plan_doc(name))
 
 
-@frappe.whitelist(methods=["POST"])
-def link_project(name: str, project: str, url: str | None = None, acting_user: str | None = None) -> dict:
-	"""The hub made the plan's project: kept on the plan (once). Returns the chain."""
+@frappe.whitelist()
+def get_accepted_proposal(name: str, acting_user: str | None = None) -> dict:
+	"""An accepted strategy proposal (a Content / Digital Marketing lead's) as the hub makes its
+	project from it: the client, the lead's type and department, the six months and the roadmap and
+	deliverables accepted."""
 	with acting_as(acting_user):
-		doc = get_plan_doc(name)
-		plan.link_project(doc, project, url)
+		return strategy_project.project_brief(get_project_doc(name))
+
+
+@frappe.whitelist(methods=["POST"])
+def link_project(
+	lead: str,
+	project: str,
+	plan: str | None = None,
+	proposal: str | None = None,
+	url: str | None = None,
+	acting_user: str | None = None,
+) -> dict:
+	"""The hub made the project of the lead's approved `plan` (an ERP / Software lead's) or accepted
+	strategy `proposal` (a Content / Digital Marketing lead's): kept on that document (once). Give
+	one of the two. Returns the chain."""
+	with acting_as(acting_user):
+		if bool(plan) == bool(proposal):
+			frappe.throw(_("Give the plan or the proposal, not both."))
+		doc = get_project_doc(plan or proposal)
+		if doc.lead != lead:
+			frappe.throw(_("{0} isn't a document of lead {1}.").format(doc.name, lead))
+		keep_project(doc, project, url)
 		return documents.chain(doc.lead)
 
 
@@ -407,6 +430,15 @@ def get_uat_cases(name: str, acting_user: str | None = None) -> dict:
 		if spec.status != p.ACCEPTED:
 			frappe.throw(_("Test against an approved SRS: {0} isn't approved yet.").format(spec.name))
 		return {"srs": spec.name, "cases": srs.uat_cases(spec)}
+
+
+def get_project_doc(name: str):
+	"""The document the lead's project is made from: its type's `project_after` (the
+	implementation plan, or the strategy proposal of a content lead)."""
+	doc = get_doc(name, "write")
+	if kinds.chain_for(doc.lead).project_after != kinds.of(doc).name:
+		frappe.throw(_("{0} isn't a document a project is made from.").format(name))
+	return doc
 
 
 def get_plan_doc(name: str):

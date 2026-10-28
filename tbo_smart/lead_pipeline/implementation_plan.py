@@ -259,7 +259,9 @@ def require_approved(doc) -> None:
 	from tbo_smart.lead_pipeline.proposals import ACCEPTED
 
 	if doc.status != ACCEPTED or not cint(doc.is_latest):
-		frappe.throw(_("Make the project once the client has approved the plan's latest version."))
+		frappe.throw(
+			_("Make the project once the client has accepted the latest version of {0}.").format(doc.title)
+		)
 
 
 def section_text(doc, kind: str) -> str | None:
@@ -311,7 +313,8 @@ def approved_deliverables(doc) -> dict[str, list[str]]:
 
 
 def link_project(doc, project: str, url: str | None) -> None:
-	"""The hub made the plan's project: kept on the plan (once) and said on the lead."""
+	"""The hub made the project of the plan (or of the strategy proposal): kept on it (once) and
+	said on the lead."""
 	from tbo_smart.lead_pipeline.proposals import DOCTYPE
 
 	require_approved(doc)
@@ -320,7 +323,7 @@ def link_project(doc, project: str, url: str | None) -> None:
 		frappe.throw(_("Name the hub project."))
 	current = frappe.db.get_value(DOCTYPE, doc.name, "hub_project", for_update=True)
 	if current and current != project:
-		frappe.throw(_("This plan's project is already {0}.").format(current))
+		frappe.throw(_("The project of {0} is already {1}.").format(doc.title, current))
 	values = {"hub_project": project, "hub_project_url": (url or "").strip()[:500] or None}
 	frappe.db.set_value(DOCTYPE, doc.name, values, update_modified=False)
 	doc.update(values)
