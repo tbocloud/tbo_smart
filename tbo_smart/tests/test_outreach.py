@@ -771,3 +771,8 @@ class TestLeadsList(OutreachCase):
 		)
 		with self.assertRaises(frappe.ValidationError):
 			self.as_hub(leads_api.list_leads, last_reply_class="Banana")
+
+	def test_the_options_say_whether_outreach_is_on(self):
+		self.assertIs(self.as_hub(leads_api.get_options)["outreach"], True)
+		disable_outreach()
+		self.assertIs(self.as_hub(leads_api.get_options)["outreach"], False)
