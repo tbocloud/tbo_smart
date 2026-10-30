@@ -5,7 +5,6 @@ from frappe.tests.utils import FrappeTestCase
 
 from tbo_smart.api import hub_leads as hub
 from tbo_smart.lead_pipeline import lead_category as category
-from tbo_smart.lead_pipeline.setup import seed_industries
 from tbo_smart.test_utils import (
 	delete_industries,
 	delete_sales_records,
@@ -67,7 +66,7 @@ class TestLeadCategory(FrappeTestCase):
 	def test_the_starting_industries_are_seeded_once_and_kept(self):
 		frappe.set_user("Administrator")
 		before = frappe.db.count("Industry Type")
-		seed_industries()
+		category.seed_industries()
 		self.assertEqual(frappe.db.count("Industry Type"), before)
 		for name in category.INDUSTRIES:
 			self.assertTrue(frappe.db.exists("Industry Type", name), name)
