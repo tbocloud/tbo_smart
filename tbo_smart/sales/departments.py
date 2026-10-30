@@ -9,6 +9,8 @@ import frappe
 from frappe import _
 from frappe.utils import cint
 
+from tbo_smart.sales.call_batches import settings as call_settings
+
 DEPARTMENT = "TBO Lead Department"
 DEPARTMENT_USER = "TBO Lead Department User"
 LEAD_TYPES = ("ERP / Software", "Content / Digital Marketing")
@@ -22,7 +24,7 @@ SAVE_FIELDS = {
 	"stale_after_days",
 	"heads",
 	"members",
-}
+} | call_settings.SAVE_FIELDS
 
 
 def headed_departments(user: str):
@@ -92,6 +94,7 @@ def serialize(name: str) -> dict:
 		as_dict=True,
 	)
 	return {
+		**call_settings.serialize(frappe.get_doc(DEPARTMENT, name)),
 		"name": row.name,
 		"department_name": row.name,
 		"lead_type": row.lead_type,
@@ -147,8 +150,8 @@ def can_manage() -> bool:
 
 def save_department(values: dict, name: str | None = None) -> dict:
 	"""Create (no `name`) or update a department from `values` (department_name, lead_type,
-	is_active, assignment, stale_after_days, heads and members as lists of users); the name does
-	not change."""
+	is_active, assignment, stale_after_days, heads and members as lists of users, and the call
+	batch rules of `call_batches.settings`); the name does not change."""
 	require_manager()
 	unknown = sorted(set(values) - SAVE_FIELDS)
 	if unknown:
@@ -177,9 +180,13 @@ def save_department(values: dict, name: str | None = None) -> dict:
 	for table in ("heads", "members"):
 		if table in values:
 			users = list(dict.fromkeys(values[table] or []))
+			caps = {row.user: row.get("daily_call_cap") for row in doc.get(table)}
 			doc.set(table, [])
 			for user in users:
-				doc.append(table, {"user": user})
+				doc.append(
+					table, {"user": user, "daily_call_cap": caps.get(user) if table == "members" else None}
+				)
+	call_settings.apply(doc, values)
 	doc.save()
 	return serialize(doc.name)
 

@@ -254,6 +254,7 @@ after_migrate = [
 	"tbo_smart.checkin.setup.setup_checkin_location",
 	"tbo_smart.smart_leads.setup.after_migrate",
 	"tbo_smart.lead_pipeline.setup.after_migrate",
+	"tbo_smart.sales.call_batches.setup.after_migrate",
 	"tbo_smart.telephony.setup.setup_telephony",
 ]
 
@@ -283,6 +284,8 @@ scheduler_events = {
 		],
 		# Lead pipeline: meetings in progress, MOM pending and reminders
 		"*/15 * * * *": ["tbo_smart.lead_pipeline.meetings.run_meeting_clock"],
+		# Daily call batches: close ended slots and hand out the one that is running
+		"*/5 * * * *": ["tbo_smart.sales.call_batches.clock.run_call_batch_clock"],
 	},
 }
 
