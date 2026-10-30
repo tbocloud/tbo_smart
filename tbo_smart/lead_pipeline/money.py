@@ -63,7 +63,7 @@ class ProposalMoney(LeadOverview):
 			"totals": {
 				"proposals_sent": sent["count"],
 				"proposals_value": sent["value"],
-				"unpriced_sent": self.unpriced_sent(),
+				"unpriced_sent": sent["unpriced"],
 				"won": len(won),
 				"won_value": self.lead_value(won),
 				"advances": self.advances(list(orders)),
@@ -78,8 +78,8 @@ class ProposalMoney(LeadOverview):
 	# ---------- proposals ----------
 
 	def sent_proposals(self) -> dict:
-		"""Quotations sent in the period (every revision counts, as the overview's "Proposals
-		sent"); the value counts each lead once, at the last one sent."""
+		"""Leads a proposal went to in the period (`sent_leads`), each once, and the value of
+		the quotations sent in it, each lead at the last one sent."""
 		Quotation = self.Quotation
 		rows = (
 			self.quotation_query()
@@ -88,27 +88,12 @@ class ProposalMoney(LeadOverview):
 			.orderby(Quotation.tbo_sent_on)
 		).run(as_dict=True)
 		last = {row.tbo_lead: flt(row.base_grand_total) for row in rows}
-		return {"count": len(rows), "value": flt(sum(last.values()), 2)}
-
-	def unpriced_sent(self) -> int:
-		"""Proposals sent in the period without a quotation: no value, so left out of the figures
-		above and counted here."""
-		Proposal = frappe.qb.DocType(PROPOSAL)
-		Lead = self.Lead
-		return len(
-			(
-				frappe.qb.from_(Proposal)
-				.join(Lead)
-				.on(Lead.name == Proposal.lead)
-				.select(Proposal.name)
-				.where(
-					(Proposal.document_type == kinds.PROPOSAL)
-					& (IfNull(Proposal.quotation, "") == "")
-					& self.in_range(Proposal.sent_on)
-					& self.lead_criterion()
-				)
-			).run()
-		)
+		sent = self.sent_leads()
+		return {
+			"count": len(sent),
+			"value": flt(sum(last.values()), 2),
+			"unpriced": len(sent - set(last)),
+		}
 
 	# ---------- orders and receipts ----------
 

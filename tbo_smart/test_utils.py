@@ -2956,6 +2956,15 @@ def transcription_answer(text: str) -> MagicMock:
 	return ai_http_response(200, {"text": text, "usage": {"input_tokens": 900, "output_tokens": 120}})
 
 
+def make_management_user(email: str, roles: list[str] | tuple = ()) -> str:
+	"""A user with the TBO Management role (created if missing) and `roles`, for the Business
+	overview's gate."""
+	from tbo_smart.lead_pipeline.setup import ensure_management_role
+
+	ensure_management_role()
+	return make_user(email, ["TBO Management", *roles])
+
+
 # ---------- Daily call batches (docs/call-batches.md) ----------
 
 

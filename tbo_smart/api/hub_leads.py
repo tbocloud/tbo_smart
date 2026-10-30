@@ -19,6 +19,7 @@ from tbo_smart.api.mobile.capabilities import CRM_ROLES, get_capabilities
 from tbo_smart.api.mobile.crm import check_assignee, get_crm_users
 from tbo_smart.api.mobile.utils import get_full_names
 from tbo_smart.lead_pipeline import lead_place, rate_card, require_quotations, setting
+from tbo_smart.lead_pipeline.business import build_business, can_view_business
 from tbo_smart.lead_pipeline.client_documents import chain as document_chain
 from tbo_smart.lead_pipeline.daily_report import DailyReport, week_start
 from tbo_smart.lead_pipeline.dashboard import company_currency, people, scope_owners
@@ -28,7 +29,7 @@ from tbo_smart.lead_pipeline.overview import LeadOverview, SalesActivity, period
 from tbo_smart.lead_pipeline.proposal_media import decode
 from tbo_smart.lead_pipeline.proposals import latest_proposals, lead_proposals, proposals_enabled
 from tbo_smart.lead_pipeline.quotations import latest_quotations, lead_quotations
-from tbo_smart.lead_pipeline.setup import HUB_ROLE, SEGMENTS
+from tbo_smart.lead_pipeline.setup import HUB_ROLE, MANAGEMENT_ROLE, SEGMENTS
 from tbo_smart.lead_pipeline.statuses import STATUS_NAMES, stage_options, status_type
 from tbo_smart.sales import departments, duplicates, erpnext_installed, stale
 from tbo_smart.sales.activities import (
@@ -176,7 +177,7 @@ def resolve_acting_user(acting_user: str | None) -> str:
 	if not user or not user.enabled or user.user_type != "System User":
 		frappe.throw(_("{0} is not an enabled user here.").format(acting_user), frappe.PermissionError)
 	roles = set(frappe.get_roles(user.name))
-	if not roles & CRM_ROLES:
+	if not roles & (CRM_ROLES | {MANAGEMENT_ROLE}):
 		frappe.throw(_("{0} has no sales role here.").format(acting_user), frappe.PermissionError)
 	if integration_role() in roles:
 		# a call must be a person's, never the integration user's own wider view
@@ -223,6 +224,8 @@ def get_options(acting_user: str | None = None) -> dict:
 			"industries": frappe.get_all("Industry Type", pluck="name", order_by="name asc"),
 			# MyOperator click-to-call for the acting user (docs/telephony-myoperator.md)
 			"can_call": can_call(),
+			# the Business overview is for System Manager and the TBO Management role only
+			"can_view_business": can_view_business(),
 		}
 
 
@@ -547,6 +550,23 @@ def get_proposal_money(
 		result = board.build_money()
 		result["period"] = period
 		return result
+
+
+@frappe.whitelist()
+def get_business_overview(
+	from_date: str | None = None,
+	to_date: str | None = None,
+	department: str | None = None,
+	include_profit: int | str | bool = 0,
+	acting_user: str | None = None,
+) -> dict:
+	"""The management-only Business overview, company-wide: the pipeline, proposals given,
+	onboardings, revenue (invoiced, collected, outstanding), the six-month trend, top clients and
+	figures by department (docs/hub-leads-api.md §2.12). Only System Manager and the TBO
+	Management role; anyone else is refused whatever their sales scope. `include_profit` adds
+	income minus expense from the ledger."""
+	with acting_as(acting_user):
+		return build_business(from_date, to_date, department, bool(cint(include_profit)))
 
 
 def owners_of(owner: str | None, allowed: list | None) -> list | None:
