@@ -136,6 +136,58 @@ def get_pipeline_fields() -> dict:
 				"no_copy": 1,
 			},
 			{
+				# where the client is, for whoever goes to meet them (lead_place.py)
+				"fieldname": "tbo_place_section",
+				"fieldtype": "Section Break",
+				"label": "Place",
+				"insert_after": "tbo_web_profile_on",
+				"collapsible": 1,
+			},
+			{
+				"fieldname": "tbo_google_profile_url",
+				"fieldtype": "Data",
+				"options": "URL",
+				"length": 500,
+				"label": "Google profile",
+				"insert_after": "tbo_place_section",
+				"description": "The client's Google Business Profile link.",
+			},
+			{
+				"fieldname": "tbo_maps_url",
+				"fieldtype": "Data",
+				"options": "URL",
+				"length": 500,
+				"label": "Map link",
+				"insert_after": "tbo_google_profile_url",
+				"description": "A Google Maps place or pin link.",
+			},
+			{
+				"fieldname": "tbo_place_column",
+				"fieldtype": "Column Break",
+				"insert_after": "tbo_maps_url",
+			},
+			{
+				"fieldname": "tbo_latitude",
+				"fieldtype": "Float",
+				"precision": "9",
+				"label": "Latitude",
+				"insert_after": "tbo_place_column",
+			},
+			{
+				"fieldname": "tbo_longitude",
+				"fieldtype": "Float",
+				"precision": "9",
+				"label": "Longitude",
+				"insert_after": "tbo_latitude",
+			},
+			{
+				"fieldname": "tbo_location_note",
+				"fieldtype": "Small Text",
+				"label": "How to find it",
+				"insert_after": "tbo_longitude",
+				"description": "e.g. 2nd floor, above SBI, parking behind.",
+			},
+			{
 				"fieldname": "tbo_stage_section",
 				"fieldtype": "Section Break",
 				"label": "Stage history",
@@ -312,6 +364,27 @@ def get_pipeline_fields() -> dict:
 				**tracked,
 			},
 			{**proposal_link, "insert_after": "tbo_sent_on", "allow_on_submit": 1},
+		],
+		# a photo of the client's place on a lead (lead_place.py): told apart from other attachments
+		"File": [
+			{
+				"fieldname": "tbo_lead_photo",
+				"fieldtype": "Check",
+				"label": "Lead photo",
+				"insert_after": "is_private",
+				"hidden": 1,
+				"read_only": 1,
+				"no_copy": 1,
+			},
+			{
+				"fieldname": "tbo_caption",
+				"fieldtype": "Data",
+				"label": "Caption",
+				"insert_after": "tbo_lead_photo",
+				"hidden": 1,
+				"read_only": 1,
+				"no_copy": 1,
+			},
 		],
 		# carried from the quotation by ERPNext's mapper, so accounts trace an order or an invoice
 		# to the proposal the client accepted
