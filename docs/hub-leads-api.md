@@ -41,8 +41,8 @@ curl -s -X POST https://india.teambackoffice.com/api/method/tbo_smart.api.hub_le
 
 | Method | Verb | Arguments | Returns |
 | --- | --- | --- | --- |
-| `get_options` | GET | `acting_user` | `{stages: [{name, label, type, color}], sources: [], segments: [], departments: [{name, lead_type, is_active, assignment, stale_after_days, call_batches_enabled, is_head, is_member}], lead_types: [], owners: [{email, full_name}], territories: [], industries: [], can_call}` |
-| `list_leads` | GET | `search?`, `stage?`, `owner?`, `segment?`, `source?`, `temperature?` (Hot / Warm / Cold), `metric?` with `period?` / `from_date?` / `to_date?` (§2.4), `view` (`all` / `mine` / `call_today` / `follow_up`, default `all`), `start` (0), `page_length` (20, at most 100), `acting_user` | `{rows: [Row], total}` |
+| `get_options` | GET | `acting_user` | `{stages: [{name, label, type, color}], sources: [], segments: [], departments: [{name, lead_type, is_active, assignment, stale_after_days, call_batches_enabled, is_head, is_member}], lead_types: [], owners: [{email, full_name}], territories: [], industries: [], org_sizes: [], states: [], kerala_districts: [], districts_by_state: {state: [district]}, can_call}` (§2.12) |
+| `list_leads` | GET | `search?`, `stage?`, `owner?`, `segment?`, `source?`, `temperature?` (Hot / Warm / Cold), `industry?`, `state?`, `district?`, `org_size?` (each a value or a list, §2.14), `metric?` with `period?` / `from_date?` / `to_date?` (§2.4), `view` (`all` / `mine` / `call_today` / `follow_up`, default `all`), `start` (0), `page_length` (20, at most 100), `acting_user` | `{rows: [Row], total}` |
 | `get_overview` | GET | `period` (`week` / `month` / `quarter` / `custom`; default `month`, or `custom` when dates are sent), `from_date?`, `to_date?` (custom), `owner?`, `acting_user` | Overview (§2.4) |
 | `get_lead_intake` | GET | `from_date?`, `to_date?` (default today, at most 62 days), `owner?`, `acting_user` | Intake (§2.4.1) |
 | `get_proposal_money` | GET | `period`, `from_date?`, `to_date?`, `owner?` (as `get_overview`), `acting_user` | Money (§2.8) |
@@ -50,6 +50,9 @@ curl -s -X POST https://india.teambackoffice.com/api/method/tbo_smart.api.hub_le
 | `get_lead` | GET | `name`, `acting_user` | `{lead: Lead, timeline: [Item], quotations: [Quotation], proposals: [Proposal row], allowed_stages: [stage name]}` |
 | `create_lead` | POST | `data`, `allow_duplicate?` (1 to create past a duplicate, §2.9), `acting_user` | as `get_lead` |
 | `find_duplicate_leads` | GET | `email?`, `phone?`, `company?`, `exclude?` (a lead name), `acting_user` | `[Match]` (§2.9) |
+| `get_category_counts` | GET | `acting_user` | `{industry, state, district, org_size}`, each `{value: leads}` (§2.14) |
+| `add_industry` | POST | `name`, `acting_user` | `{name, created}` (§2.14) |
+| `bulk_set_lead_category` | POST | `leads` (list of names), `values`, `acting_user` | `{updated, skipped: [{name, reason}]}` (§2.14) |
 | `get_stale_leads` | GET | `days` (3), `acting_user` | `[Stale]` (§2.10) |
 | `update_lead` | POST | `name`, `data`, `acting_user` | as `get_lead` |
 | `get_lead_photos` | GET | `lead`, `acting_user` | `[Photo]` (§2.11), newest first |
@@ -76,12 +79,12 @@ curl -s -X POST https://india.teambackoffice.com/api/method/tbo_smart.api.hub_le
 
 ```
 Row = {name, lead_name, company_name, email_id, mobile_no, tbo_stage, segment, lead_owner,
-  owner_name, score (0-100), next_follow_up (date | null), modified,
+  industry, state, district, org_size, owner_name, score (0-100), next_follow_up (date | null), modified,
   latest_quotation: {name, tbo_quote_status, grand_total, currency, tbo_sent_on} | null,
   latest_proposal: {name, document_type (Proposal | Quotation), status, view_count, sent_on} | null}
 
 Lead = {name, lead_name, first_name, last_name, company_name, email_id, mobile_no, phone,
-  whatsapp_no, job_title, website, source, territory, industry, segment, tbo_stage,
+  whatsapp_no, job_title, website, source, territory, industry, state, district, org_size, segment, tbo_stage,
   status (ERPNext's own, read only), lead_owner, owner_name, tbo_score, tbo_temperature
   (Hot / Warm / Cold), tbo_score_reason, tbo_lost_reason, tbo_lost_notes, creation, modified,
   next_follow_up (date | null), deal (the Opportunity once won | null), can_write,
@@ -130,6 +133,7 @@ Quotation = {name, docstatus, tbo_quote_status, transaction_date, valid_till, cu
 | `lead_name` | split into `first_name` / `last_name` when those are not sent |
 | `first_name`, `last_name`, `company_name`, `email_id`, `mobile_no`, `phone`, `whatsapp_no`, `job_title`, `website` | the Lead's own |
 | `source` (a Lead Source), `territory`, `industry` (Industry Type) | links; `get_options` lists them |
+| `state`, `district`, `org_size` | the categories (§2.14): `state`, `tbo_district`, `no_of_employees`; an empty value clears one |
 | `segment` | `tbo_segment`; moving a lead from one segment to another needs a preset editor (417 otherwise; `lead-pipeline.md` §9.8) |
 | `lead_owner` | another sales user: only within the acting user's reach (anyone for a Sales Manager outside the hierarchy, their team for a team lead, nobody for a salesperson); 403 otherwise |
 | `note` | `create_lead` only: the lead's first note |
@@ -530,9 +534,43 @@ counts answered calls (Connected, Call back, Not interested). The batch rules ar
 empty: Morning 10:00-13:00 and Afternoon 14:00-18:00, 50 each) and `member_caps` (`{user: cap}`).
 `get_lead_departments` returns the same keys.
 
-### 2.15 Find prospects (`prospecting.md`)
+### 2.14 Categories: industry, state, district, organisation size
 
-(§2.14 is the lead categories, `feat/lead-categories`; this section is numbered after it.)
+Four fields say what kind of client a lead is. Three are ERPNext's own Lead fields, reused (no
+duplicates); only district is new (`lead_pipeline/lead_category.py`, the field in `setup.py`).
+
+| API key | Lead field | Kind |
+| --- | --- | --- |
+| `industry` | `industry` | Link to Industry Type. Seeded on migrate (idempotent, existing ones kept): Builders & Developers, Real Estate Companies, Resorts, Hotels & Restaurants, Ayurvedic Hospitals, Hospitals & Clinics, Schools & Colleges, Retail & Supermarkets, Manufacturing, Trading & Distribution, Logistics, IT & Software, Travel & Tourism, Automobile, Jewellery, Textiles & Garments, Construction Materials, Healthcare & Pharma, NGOs & Trusts, Government, Other. Only these Industry Types are accepted (417 otherwise); add more with `add_industry`. |
+| `state` | `state` (Data) | Free text. `get_options.states` is the canonical list: the 28 Indian states and 8 UTs, then the UAE emirates (Abu Dhabi, Dubai, Sharjah, Ajman, Umm Al Quwain, Ras Al Khaimah, Fujairah), Saudi Arabia, Qatar, Oman, Bahrain and Kuwait. |
+| `district` | `tbo_district` (Data, new) | Free text. `get_options.kerala_districts` are the 14 Kerala districts, as suggestions only. |
+| `org_size` | `no_of_employees` (Select) | ERPNext's bands, used as they are: `1-10`, `11-50`, `51-200`, `201-500`, `501-1000`, `1000+` (`get_options.org_sizes`). They fit companies of TBO's size range; a different band set would be a Property Setter on that field. Anything else is 417. ERPNext gives the field no empty choice, so every lead saved without one held `1-10`; migrate adds a leading empty option (Property Setter) so a new lead has none, and the patch `clear_default_org_size` clears `1-10` on all leads while no lead holds any other band (then it was only the default). |
+
+- **Cleaning:** nothing is refused for being unusual. State and district are trimmed, inner spaces
+  collapsed, matched to the list ignoring case (`kerala` is `Kerala`; old names such as Orissa
+  become Odisha), and Title Cased when typed all lower or all upper; any other value is kept.
+  The same cleaning applies to the `list_leads` filters.
+- **`get_options`** adds `industries`, `org_sizes`, `states`, `kerala_districts` and
+  `districts_by_state` (`{state: [district, most used first]}` over the leads the acting user
+  may see; leads with a district but no state are under `""`).
+- **`list_leads`** takes `industry`, `state`, `district` and `org_size`: each a value, a list or
+  a JSON list (a leading `[`), meaning any of them; different fields are all required. They
+  combine with every other filter and view, and with `metric` (so an overview number drills down
+  by category). Rows and `get_lead` return `industry`, `state`, `district`, `org_size`.
+- **`get_category_counts`** gives, per field, how many of the acting user's leads have each
+  value (leads without one are left out): four grouped queries.
+- **`add_industry(name)`:** System Manager or Sales Manager (403 otherwise). A name that exists
+  in any case returns that one with `created: false`.
+- **`bulk_set_lead_category(leads, values)`:** System Manager or Sales Manager. `values` holds
+  any of `industry`, `state`, `district`, `org_size`; only those are set and `""` clears one.
+  Up to 500 leads; one the acting user may not write, or that does not exist, is in `skipped`
+  (`not allowed` / `missing`) rather than failing the call. It writes the fields directly (the
+  lead's modified time moves; no stage rules run).
+- **Overview and dashboards do not take these filters.** Their figures are built per owner and
+  period in several grouped queries (`overview.py`); filtering every one would not be small.
+  `list_leads(metric=…, industry=…)` does narrow the leads behind a number.
+
+### 2.15 Find prospects (`prospecting.md`)
 
 ```
 Run = {name, industry, state, districts: [str], provider, department, max_results, require_phone,
@@ -593,6 +631,9 @@ options. `tests/test_segment_rate_card.py`: the rate card methods (acting user, 
 coordinate ranges, write permission; photos added, listed, served and thumbnailed, images only,
 size and count limits, privacy, other leads' files and other attachments never served, who may
 delete.
+`tbo_smart/tests/test_lead_category.py`: the seeded industries, the state list, options, the four
+filters (single, several, JSON), rows and `get_lead`, cleaning on create and update, refusals,
+`add_industry` (idempotent, managers only), `bulk_set_lead_category` and the counts.
 
 `tbo_smart/tests/test_lead_wave1.py`: see `lead-departments.md` §9.
 
@@ -607,7 +648,11 @@ is 403); `log_call` (the outcomes, the acting user, the lead's write permission)
 
 - **v1.15 (2026-10-30):** find prospects (§2.15): `estimate_prospect_run`, `start_prospect_run`,
   `get_prospect_runs`, `get_prospect_run`; `get_options`' `can_find_prospects` and `prospecting`;
-  `get_lead`'s `lead.prospect`. (v1.14 is the lead categories.)
+  `get_lead`'s `lead.prospect`.
+- **v1.14 (2026-10-30):** lead categories (§2.14): `industry`, `state`, `district`, `org_size`
+  on `list_leads`, rows, `get_lead`, `create_lead` and `update_lead`; `get_options`' `org_sizes`,
+  `states`, `kerala_districts`, `districts_by_state`; `get_category_counts`, `add_industry`,
+  `bulk_set_lead_category`; the Industry Types are seeded on migrate.
 - **v1.13 (2026-10-30):** today's calls (§2.13): `get_my_calls`, `get_next_batch`,
   `record_call_outcome`, `get_call_batches_report`; departments carry the call-batch rules.
 - **v1.12 (2026-10-30):** `get_business_overview` (§2.12) and `get_options`' `can_view_business`;

@@ -19,7 +19,7 @@ from tbo_smart import lead_source
 from tbo_smart.api.mobile.capabilities import CRM_ROLES, get_capabilities
 from tbo_smart.api.mobile.crm import check_assignee, get_crm_users
 from tbo_smart.api.mobile.utils import get_full_names
-from tbo_smart.lead_pipeline import lead_place, rate_card, require_quotations, setting
+from tbo_smart.lead_pipeline import lead_category, lead_place, rate_card, require_quotations, setting
 from tbo_smart.lead_pipeline.business import build_business, can_view_business
 from tbo_smart.lead_pipeline.client_documents import chain as document_chain
 from tbo_smart.lead_pipeline.daily_report import DailyReport, week_start
@@ -81,6 +81,9 @@ LEAD_FIELDS = {
 	"source": "source",
 	"territory": "territory",
 	"industry": "industry",
+	"state": "state",
+	"district": "tbo_district",
+	"org_size": "no_of_employees",
 	"segment": "tbo_segment",
 	"lead_owner": "lead_owner",
 	"department": "tbo_department",
@@ -103,6 +106,10 @@ ROW_FIELDS = [
 	"tbo_segment as segment",
 	"tbo_department",
 	"tbo_lead_type",
+	"industry",
+	"state",
+	"tbo_district as district",
+	"no_of_employees as org_size",
 	"lead_owner",
 	"tbo_score as score",
 	"modified",
@@ -122,6 +129,9 @@ LEAD_DETAIL_FIELDS = [
 	"source",
 	"territory",
 	"industry",
+	"state",
+	"tbo_district",
+	"no_of_employees",
 	"tbo_segment",
 	"tbo_department",
 	"tbo_lead_type",
@@ -227,7 +237,7 @@ def get_options(acting_user: str | None = None) -> dict:
 			"lead_types": list(departments.LEAD_TYPES),
 			"owners": [{"email": row.user, "full_name": row.full_name} for row in get_crm_users(None)],
 			"territories": frappe.get_all("Territory", pluck="name", order_by="name asc"),
-			"industries": frappe.get_all("Industry Type", pluck="name", order_by="name asc"),
+			**lead_category.get_options(),
 			# MyOperator click-to-call for the acting user (docs/telephony-myoperator.md)
 			"can_call": can_call(),
 			# the Business overview is for System Manager and the TBO Management role only
@@ -257,13 +267,19 @@ def list_leads(
 	period: str | None = None,
 	from_date: str | None = None,
 	to_date: str | None = None,
+	industry: list | str | None = None,
+	state: list | str | None = None,
+	district: list | str | None = None,
+	org_size: list | str | None = None,
 	acting_user: str | None = None,
 ) -> dict:
 	"""The leads the acting user may see, newest change first: {rows, total}. `view`: all, mine
 	(they own it), call_today (their Call today list, in its order) or follow_up (an open
 	follow-up due by today, earliest first). `metric` (with `period`, or `from_date` and
 	`to_date`) keeps the leads one number of the overview counts (get_overview). `department`
-	keeps one lead department's leads (the acting user still sees only what they may)."""
+	keeps one lead department's leads (the acting user still sees only what they may).
+	`industry`, `state`, `district` and `org_size` each take a value or a list (a JSON list in a
+	GET) and keep the leads with any of them."""
 	if view not in VIEWS:
 		frappe.throw(_("view must be one of {0}.").format(", ".join(VIEWS)))
 	start = max(cint(start), 0)
@@ -274,6 +290,7 @@ def list_leads(
 			filters[lead_source.field()] = source
 		if department:
 			filters["tbo_department"] = department
+		filters.update(lead_category.category_filters(industry, state, district, org_size))
 		if temperature:
 			if temperature not in TEMPERATURES:
 				frappe.throw(_("temperature must be one of {0}.").format(", ".join(TEMPERATURES)))
@@ -397,6 +414,10 @@ def serialize_rows(rows: list) -> list[dict]:
 			"segment": row.segment,
 			"tbo_department": row.tbo_department,
 			"tbo_lead_type": row.tbo_lead_type,
+			"industry": row.industry,
+			"state": row.state,
+			"district": row.district,
+			"org_size": row.org_size,
 			"lead_owner": row.lead_owner,
 			"owner_name": owners.get(row.lead_owner),
 			"score": cint(row.score),
@@ -625,6 +646,8 @@ def lead_payload(name: str) -> dict:
 		lead.pop(key)
 	lead.prospect = prospect_signals.prospect_of(lead.pop("tbo_web_profile"))
 	lead.photo_count = lead_place.photo_count(name)
+	lead.district = lead.pop("tbo_district")
+	lead.org_size = lead.pop("no_of_employees")
 	lead.owner_name = frappe.utils.get_fullname(lead.lead_owner) if lead.lead_owner else None
 	lead.deal = lead_opportunity(name)
 	lead.next_follow_up = next_follow_ups("Lead", [name]).get(name)
@@ -859,7 +882,9 @@ def lead_values(data: dict) -> dict:
 	unknown = sorted(set(data) - set(LEAD_FIELDS) - {"lead_name", "note", "next_follow_up"})
 	if unknown:
 		frappe.throw(_("Unknown fields: {0}").format(", ".join(unknown)))
-	values = {LEAD_FIELDS[key]: value for key, value in data.items() if key in LEAD_FIELDS}
+	values = lead_category.category_values(
+		{LEAD_FIELDS[key]: value for key, value in data.items() if key in LEAD_FIELDS}
+	)
 	if "source" in values:
 		values[lead_source.field()] = values.pop("source")
 	if data.get("lead_name") and not (values.get("first_name") or values.get("last_name")):
@@ -1011,6 +1036,32 @@ def add_note(name: str, note: str, acting_user: str | None = None) -> dict:
 			"text": plain_text(comment.content),
 			"ref": comment.name,
 		}
+
+
+# ---------- categories (docs/hub-leads-api.md §2.11) ----------
+
+
+@frappe.whitelist()
+def get_category_counts(acting_user: str | None = None) -> dict:
+	"""{industry, state, district, org_size}: each {value: number of leads} over the leads the
+	acting user may see."""
+	with acting_as(acting_user):
+		return lead_category.get_counts()
+
+
+@frappe.whitelist(methods=["POST"])
+def add_industry(name: str, acting_user: str | None = None) -> dict:
+	"""A new Industry Type for the pick list (a System Manager or Sales Manager): {name, created}."""
+	with acting_as(acting_user):
+		return lead_category.add_industry(name)
+
+
+@frappe.whitelist(methods=["POST"])
+def bulk_set_lead_category(leads: list | str, values: dict | str, acting_user: str | None = None) -> dict:
+	"""Set `industry`, `state`, `district` and/or `org_size` (in `values`; "" clears one) on up to
+	500 leads (a System Manager or Sales Manager): {updated, skipped: [{name, reason}]}."""
+	with acting_as(acting_user):
+		return lead_category.bulk_set(leads, parse_data(values))
 
 
 # ---------- duplicates and stale leads (docs/lead-departments.md §6, §7) ----------
