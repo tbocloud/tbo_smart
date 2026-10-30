@@ -24,6 +24,9 @@ class TBOSmartSettings(Document):
 		from frappe.types import DF
 
 		from tbo_smart.tbo_smart.doctype.tbo_checkin_location.tbo_checkin_location import TBOCheckinLocation
+		from tbo_smart.tbo_smart.doctype.tbo_prospect_category.tbo_prospect_category import (
+			TBOProspectCategory,
+		)
 
 		accounts_lead: DF.Link | None
 		allocation_accounting_option: DF.Literal[
@@ -36,6 +39,8 @@ class TBOSmartSettings(Document):
 		checkin_anywhere_roles: DF.SmallText | None
 		checkin_locations: DF.TableMultiSelect[TBOCheckinLocation]
 		checkin_max_accuracy: DF.Int
+		dataforseo_login: DF.Data | None
+		dataforseo_password: DF.Password | None
 		default_vat_rate: DF.Percent
 		enable_fund_allocation: DF.Check
 		enable_reconciliation: DF.Check
@@ -46,6 +51,7 @@ class TBOSmartSettings(Document):
 		escalation_finance_manager: DF.Link | None
 		escalation_sales_head: DF.Link | None
 		enable_microsoft_sso: DF.Check
+		enable_prospecting: DF.Check
 		enable_mobile_push: DF.Check
 		finance_bde_can_see_amounts: DF.Check
 		finance_crm_access: DF.Check
@@ -56,11 +62,19 @@ class TBOSmartSettings(Document):
 		microsoft_mobile_client_id: DF.Data | None
 		microsoft_tenant_id: DF.SmallText | None
 		oauth_client: DF.Link | None
+		prospect_categories: DF.Table[TBOProspectCategory]
+		prospect_dataforseo_enabled: DF.Check
+		prospect_default_department: DF.Link | None
+		prospect_max_results: DF.Int
+		prospect_monthly_cap: DF.Float
+		prospect_osm_enabled: DF.Check
+		prospect_serper_enabled: DF.Check
 		partner_company: DF.Link | None
 		reminder_sender: DF.Link | None
 		reverse_geocode_email: DF.Data | None
 		reverse_geocode_url: DF.Data | None
 		second_approval_amount: DF.Currency
+		serper_api_key: DF.Password | None
 		send_client_reminders: DF.Check
 		transfer_pending_days: DF.Int
 		unmatched_alert_days: DF.Int
@@ -79,6 +93,7 @@ class TBOSmartSettings(Document):
 		self.validate_pipeline_numbers()
 		self.validate_segment_rates()
 		self.validate_telephony()
+		self.validate_prospecting()
 
 	def on_update(self):
 		self.grant_finance_crm_read()
@@ -165,6 +180,27 @@ class TBOSmartSettings(Document):
 				frappe.throw(_("{0} can't be negative.").format(_(self.meta.get_label(fieldname))))
 		if flt(self.transcription_price_per_minute) < 0:
 			frappe.throw(_("The transcription price can't be negative."))
+
+	def validate_prospecting(self):
+		"""A paid provider is switched on only with its login or key; the cap and the run size are
+		sensible numbers."""
+		if self.prospect_dataforseo_enabled and not (
+			self.dataforseo_login
+			and (self.dataforseo_password or self.get_password("dataforseo_password", raise_exception=False))
+		):
+			frappe.throw(_("DataForSEO needs its login and password."))
+		if self.prospect_serper_enabled and not (
+			self.serper_api_key or self.get_password("serper_api_key", raise_exception=False)
+		):
+			frappe.throw(_("Serper needs its API key."))
+		if flt(self.prospect_monthly_cap) < 0:
+			frappe.throw(_("The monthly spend cap can't be negative."))
+		if self.prospect_max_results and not 1 <= cint(self.prospect_max_results) <= 1000:
+			frappe.throw(_("A run finds between 1 and 1,000 businesses."))
+		if self.prospect_default_department and not cint(
+			frappe.db.get_value("TBO Lead Department", self.prospect_default_department, "is_active")
+		):
+			frappe.throw(_("The default prospecting department must be active."))
 
 	def forget_ai_failures(self):
 		"""A fixed key or model is tried at once, not after the 30-minute pause."""

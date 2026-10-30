@@ -161,7 +161,20 @@
   "reverse_geocode_email",
   "lead_intake_section",
   "lead_log_email_account",
-  "website_lead_department"
+  "website_lead_department",
+  "prospecting_section",
+  "enable_prospecting",
+  "prospect_osm_enabled",
+  "prospect_dataforseo_enabled",
+  "prospect_serper_enabled",
+  "prospect_default_department",
+  "column_break_prospecting",
+  "dataforseo_login",
+  "dataforseo_password",
+  "serper_api_key",
+  "prospect_monthly_cap",
+  "prospect_max_results",
+  "prospect_categories"
  ],
  "fields": [
   {
@@ -1197,6 +1210,82 @@
    "fieldtype": "Link",
    "label": "Website lead department",
    "options": "TBO Lead Department"
+  },
+  {
+   "fieldname": "prospecting_section",
+   "fieldtype": "Section Break",
+   "label": "Prospecting",
+   "description": "Find businesses by industry and district and drop them into a department's unassigned pool (docs/prospecting.md)."
+  },
+  {
+   "fieldname": "enable_prospecting",
+   "fieldtype": "Check",
+   "label": "Enable Find prospects"
+  },
+  {
+   "fieldname": "prospect_osm_enabled",
+   "fieldtype": "Check",
+   "label": "OpenStreetMap (free)",
+   "default": "1"
+  },
+  {
+   "fieldname": "prospect_dataforseo_enabled",
+   "fieldtype": "Check",
+   "label": "DataForSEO Business Listings (paid)"
+  },
+  {
+   "fieldname": "prospect_serper_enabled",
+   "fieldtype": "Check",
+   "label": "Serper Google Maps (paid)"
+  },
+  {
+   "fieldname": "prospect_default_department",
+   "fieldtype": "Link",
+   "label": "Default department",
+   "options": "TBO Lead Department"
+  },
+  {
+   "fieldname": "column_break_prospecting",
+   "fieldtype": "Column Break",
+   "label": ""
+  },
+  {
+   "fieldname": "dataforseo_login",
+   "fieldtype": "Data",
+   "label": "DataForSEO login"
+  },
+  {
+   "fieldname": "dataforseo_password",
+   "fieldtype": "Password",
+   "label": "DataForSEO password",
+   "length": 512
+  },
+  {
+   "fieldname": "serper_api_key",
+   "fieldtype": "Password",
+   "label": "Serper API key",
+   "length": 512
+  },
+  {
+   "fieldname": "prospect_monthly_cap",
+   "fieldtype": "Float",
+   "label": "Monthly spend cap (USD)",
+   "precision": "2",
+   "default": "20",
+   "description": "Paid runs stop being allowed once this month's spend plus the next run's estimate would pass it. 0: no paid runs."
+  },
+  {
+   "fieldname": "prospect_max_results",
+   "fieldtype": "Int",
+   "label": "Max results per run",
+   "default": "100"
+  },
+  {
+   "fieldname": "prospect_categories",
+   "fieldtype": "Table",
+   "label": "Industry to provider categories",
+   "options": "TBO Prospect Category",
+   "description": "Overrides the built-in mapping for an industry. Industries not listed use the built-in one."
   }
  ],
  "index_web_pages_for_search": 0,

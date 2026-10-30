@@ -1,0 +1,219 @@
+{
+ "actions": [],
+ "creation": "2026-10-30 18:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "industry",
+  "state",
+  "districts",
+  "provider",
+  "department",
+  "column_break_run",
+  "max_results",
+  "require_phone",
+  "status",
+  "section_break_estimate",
+  "estimated_cost",
+  "expected_count",
+  "estimate_note",
+  "column_break_cost",
+  "actual_cost",
+  "section_break_counts",
+  "count_found",
+  "count_duplicates",
+  "count_skipped",
+  "count_created",
+  "column_break_dates",
+  "started_at",
+  "finished_at",
+  "log"
+ ],
+ "fields": [
+  {
+   "fieldname": "industry",
+   "fieldtype": "Link",
+   "label": "Industry",
+   "options": "Industry Type",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "state",
+   "fieldtype": "Data",
+   "label": "State",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "districts",
+   "fieldtype": "Small Text",
+   "label": "District(s)",
+   "reqd": 1,
+   "description": "One per line (or comma separated)."
+  },
+  {
+   "fieldname": "provider",
+   "fieldtype": "Select",
+   "label": "Provider",
+   "options": "OpenStreetMap\nDataForSEO\nSerper",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "department",
+   "fieldtype": "Link",
+   "label": "Department",
+   "options": "TBO Lead Department",
+   "reqd": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "column_break_run",
+   "fieldtype": "Column Break",
+   "label": ""
+  },
+  {
+   "fieldname": "max_results",
+   "fieldtype": "Int",
+   "label": "Max results",
+   "reqd": 1
+  },
+  {
+   "fieldname": "require_phone",
+   "fieldtype": "Check",
+   "label": "Only businesses with a phone",
+   "default": "1"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Draft\nEstimated\nRunning\nDone\nFailed",
+   "default": "Draft",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "section_break_estimate",
+   "fieldtype": "Section Break",
+   "label": "Estimate and cost"
+  },
+  {
+   "fieldname": "estimated_cost",
+   "fieldtype": "Float",
+   "label": "Estimated cost (USD)",
+   "precision": "4",
+   "read_only": 1
+  },
+  {
+   "fieldname": "expected_count",
+   "fieldtype": "Int",
+   "label": "Expected businesses",
+   "read_only": 1
+  },
+  {
+   "fieldname": "estimate_note",
+   "fieldtype": "Small Text",
+   "label": "Estimate note",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_cost",
+   "fieldtype": "Column Break",
+   "label": ""
+  },
+  {
+   "fieldname": "actual_cost",
+   "fieldtype": "Float",
+   "label": "Actual cost (USD)",
+   "precision": "4",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_counts",
+   "fieldtype": "Section Break",
+   "label": "Result"
+  },
+  {
+   "fieldname": "count_found",
+   "fieldtype": "Int",
+   "label": "Found",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "count_duplicates",
+   "fieldtype": "Int",
+   "label": "Duplicates",
+   "read_only": 1
+  },
+  {
+   "fieldname": "count_skipped",
+   "fieldtype": "Int",
+   "label": "Skipped",
+   "read_only": 1
+  },
+  {
+   "fieldname": "count_created",
+   "fieldtype": "Int",
+   "label": "Created",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "column_break_dates",
+   "fieldtype": "Column Break",
+   "label": ""
+  },
+  {
+   "fieldname": "started_at",
+   "fieldtype": "Datetime",
+   "label": "Started",
+   "read_only": 1
+  },
+  {
+   "fieldname": "finished_at",
+   "fieldtype": "Datetime",
+   "label": "Finished",
+   "read_only": 1
+  },
+  {
+   "fieldname": "log",
+   "fieldtype": "Long Text",
+   "label": "Log",
+   "read_only": 1
+  }
+ ],
+ "links": [],
+ "modified": "2026-10-30 18:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tbo Smart",
+ "name": "TBO Prospect Run",
+ "owner": "Administrator",
+ "states": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "write": 1
+  },
+  {
+   "create": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales Manager",
+   "write": 1
+  }
+ ],
+ "track_changes": 1
+}

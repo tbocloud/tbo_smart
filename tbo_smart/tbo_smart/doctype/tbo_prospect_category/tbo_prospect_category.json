@@ -1,0 +1,54 @@
+{
+ "actions": [],
+ "creation": "2026-10-30 18:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "industry",
+  "osm_tags",
+  "dataforseo_category",
+  "search_phrase"
+ ],
+ "fields": [
+  {
+   "fieldname": "industry",
+   "fieldtype": "Link",
+   "options": "Industry Type",
+   "label": "Industry",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "osm_tags",
+   "fieldtype": "Small Text",
+   "label": "OpenStreetMap tags",
+   "in_list_view": 1,
+   "description": "One per line: key=value, optionally ;name~word|word to also require a name match (e.g. amenity=clinic;name~ayur|panchakarma)."
+  },
+  {
+   "fieldname": "dataforseo_category",
+   "fieldtype": "Data",
+   "label": "DataForSEO category",
+   "description": "A Google business category id (the free categories endpoint lists them). Blank: the search phrase is matched on the title."
+  },
+  {
+   "fieldname": "search_phrase",
+   "fieldtype": "Data",
+   "label": "Search phrase",
+   "in_list_view": 1,
+   "description": "What a person would type in Google Maps, e.g. resorts or ayurvedic hospitals; the place is added."
+  }
+ ],
+ "links": [],
+ "modified": "2026-10-30 18:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tbo Smart",
+ "name": "TBO Prospect Category",
+ "owner": "Administrator",
+ "states": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "istable": 1,
+ "editable_grid": 1,
+ "permissions": []
+}
