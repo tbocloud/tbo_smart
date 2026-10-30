@@ -12,3 +12,4 @@ tbo_smart.patches.v1.proposal_scoping_companies
 tbo_smart.patches.v1.proposal_is_quotation
 tbo_smart.patches.v1.proposal_strategy_preset
 tbo_smart.patches.v1.clear_default_org_size
+tbo_smart.patches.v1.copy_sources_to_utm
