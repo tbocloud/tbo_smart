@@ -207,6 +207,7 @@ doc_events = {
 			"tbo_smart.lead_pipeline.rate_card.validate_lead_segment",
 			"tbo_smart.sales.departments.validate_lead_department",
 			"tbo_smart.sales.duplicates.skip_import_duplicates",
+			"tbo_smart.lead_pipeline.lead_place.validate_place",
 		],
 		"before_insert": "tbo_smart.sales.assignment.claim_owner",
 		"after_insert": [

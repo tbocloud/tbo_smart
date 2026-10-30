@@ -2,7 +2,7 @@
 
 **Status:** built 2026-10-30. Salespeople used to see all their leads at once and cherry-picked.
 Now each person is handed a **batch** per time slot and must call it within the slot. The hub's
-**Today's calls** tab (tbocloud/helpdesk) shows it through `docs/hub-leads-api.md` §2.11.
+**Today's calls** tab (tbocloud/helpdesk) shows it through `docs/hub-leads-api.md` §2.12.
 
 ## 1. Rules, per TBO Lead Department
 

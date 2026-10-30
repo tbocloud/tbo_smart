@@ -710,6 +710,13 @@ def make_card_image_base64() -> str:
 	return base64.b64encode(content.getvalue()).decode()
 
 
+def make_image_base64(image_format: str = "PNG", size: tuple[int, int] = (8, 8)) -> str:
+	"""A small real image of `image_format` (PNG, JPEG, WEBP, GIF) as base64, as a lead photo is sent."""
+	content = io.BytesIO()
+	Image.new("RGB", size, "white").save(content, format=image_format)
+	return base64.b64encode(content.getvalue()).decode()
+
+
 def find_match(matches: list[dict], kind: str, name: str | None = None) -> dict:
 	"""The first check_duplicates match of `kind` (and `name`, when given); StopIteration if none."""
 	return next(row for row in matches if row["kind"] == kind and (name is None or row["name"] == name))
