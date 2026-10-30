@@ -304,7 +304,9 @@ def bulk_set(leads: list, values: dict) -> dict:
 
 def districts_by_state() -> dict[str, list[str]]:
 	"""The districts used on the leads the acting user may see, by state (most used first); leads
-	without a state are under ""."""
+	without a state are under "". Someone who may not read leads (TBO Management alone) gets none."""
+	if not frappe.has_permission("Lead", "read"):
+		return {}
 	rows = frappe.get_list(
 		"Lead",
 		filters={"tbo_district": ("is", "set")},
