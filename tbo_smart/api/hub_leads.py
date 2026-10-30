@@ -43,6 +43,8 @@ from tbo_smart.sales.activities import (
 )
 from tbo_smart.sales.activities import add_note as add_comment_note
 from tbo_smart.sales.assignment import is_round_robin
+from tbo_smart.sales.call_batches import outcomes as call_outcomes
+from tbo_smart.sales.call_batches import reads as call_reads
 from tbo_smart.sales.opportunity import lead_opportunity
 from tbo_smart.sales.stages import set_lead_stage
 from tbo_smart.smart_leads import (
@@ -1143,3 +1145,62 @@ def set_lead_department_active(name: str, active: int | str | bool, acting_user:
 	Same people as save_lead_department. Returns the department."""
 	with acting_as(acting_user):
 		return departments.set_active(name, active)
+
+
+# ---------- today's calls (docs/call-batches.md) ----------
+
+
+@frappe.whitelist()
+def get_my_calls(acting_user: str | None = None) -> dict:
+	"""The acting user's call queue: {enabled, reason?, date, batch: {name, slot, department,
+	starts_at, ends_at, seconds_left, batches} | null, counts: {size, called, connected, pending,
+	scheduled, overdue}, today: {size, called, connected}, pending: [Call], scheduled: [Call],
+	overdue: [Call], can_call, next_batch: {allowed, reason}, next_slot: {label, starts_at} | null}.
+	Call = {item, batch, slot, lead, priority, reason, is_repeat, retry_at, attempts,
+	batch_ends_at, summary: {name, lead_name, company_name, industry, district, phone, stage,
+	temperature, last_note, next_step, wrong_number}}. Calls made another way since (MyOperator,
+	Log call) are counted first."""
+	with acting_as(acting_user):
+		return call_reads.get_my_calls()
+
+
+@frappe.whitelist(methods=["POST"])
+def get_next_batch(
+	department: str | None = None,
+	industry: str | None = None,
+	state: str | None = None,
+	district: str | None = None,
+	acting_user: str | None = None,
+) -> dict:
+	"""Hand the acting user their next batch: {created, reason, batch?, slot?, size?}. Nothing
+	is created while calls are pending, overdue calls pass the department's limit, the daily cap
+	is reached or no slot is open; `reason` says which. `industry`, `state` and `district` narrow
+	the new leads of this batch (blank: the department's campaign filter)."""
+	with acting_as(acting_user):
+		return call_reads.get_next_batch(department or None, industry, state, district)
+
+
+@frappe.whitelist(methods=["POST"])
+def record_call_outcome(
+	batch_item: str,
+	outcome: str,
+	note: str | None = None,
+	callback_at: str | None = None,
+	acting_user: str | None = None,
+) -> dict:
+	"""Record the call for one queue item (its `item`): `outcome` is Connected, Not answered, Busy,
+	Call back (`callback_at` required), Not interested or Wrong number. The call is logged as
+	log_call does; the item leaves the queue. Not answered and Busy come back once, two hours
+	later, if the batch is still running; `callback_at` on Connected sets the lead's next
+	follow-up. Returns {item, outcome, retry_at}."""
+	with acting_as(acting_user):
+		return call_outcomes.record(batch_item, outcome, note, callback_at)
+
+
+@frappe.whitelist()
+def get_call_batches_report(date: str | None = None, acting_user: str | None = None) -> dict:
+	"""Managers and department heads: the day's batches per person: {date, people: [{user,
+	user_name, department, size, called, connected, overdue, batches: [{name, slot, status,
+	starts_at, ends_at, size, called, connected, overdue}]}], totals}."""
+	with acting_as(acting_user):
+		return call_reads.get_call_batches_report(date)

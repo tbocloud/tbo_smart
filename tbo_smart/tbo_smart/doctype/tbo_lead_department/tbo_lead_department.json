@@ -15,7 +15,17 @@
   "last_assigned_user",
   "section_break_people",
   "heads",
-  "members"
+  "members",
+  "section_break_calls",
+  "call_batches_enabled",
+  "daily_call_cap",
+  "pull_unassigned",
+  "overdue_block_limit",
+  "column_break_calls",
+  "campaign_industry",
+  "campaign_state",
+  "campaign_district",
+  "call_slots"
  ],
  "fields": [
   {
@@ -85,10 +95,70 @@
    "fieldtype": "Table",
    "label": "Members",
    "options": "TBO Lead Department User"
+  },
+  {
+   "fieldname": "section_break_calls",
+   "fieldtype": "Section Break",
+   "label": "Daily call batches",
+   "description": "Each member gets a batch of leads to call in every slot (docs/call-batches.md)."
+  },
+  {
+   "default": "0",
+   "fieldname": "call_batches_enabled",
+   "fieldtype": "Check",
+   "label": "Hand out daily call batches"
+  },
+  {
+   "default": "100",
+   "fieldname": "daily_call_cap",
+   "fieldtype": "Int",
+   "label": "Calls a day per person",
+   "description": "A member's own cap (Members table) replaces this."
+  },
+  {
+   "default": "1",
+   "fieldname": "pull_unassigned",
+   "fieldtype": "Check",
+   "label": "Pull unassigned leads",
+   "description": "When a batch has room left, give the person this department's unassigned open leads."
+  },
+  {
+   "default": "10",
+   "fieldname": "overdue_block_limit",
+   "fieldtype": "Int",
+   "label": "Overdue calls that block the next batch",
+   "description": "Also the count above which the heads are told at the end of a slot."
+  },
+  {
+   "fieldname": "column_break_calls",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "campaign_industry",
+   "fieldtype": "Data",
+   "label": "Campaign: industry",
+   "description": "Blank: any. New leads in a batch (not follow-ups) are only of this industry."
+  },
+  {
+   "fieldname": "campaign_state",
+   "fieldtype": "Data",
+   "label": "Campaign: state"
+  },
+  {
+   "fieldname": "campaign_district",
+   "fieldtype": "Data",
+   "label": "Campaign: district"
+  },
+  {
+   "fieldname": "call_slots",
+   "fieldtype": "Table",
+   "options": "TBO Call Slot",
+   "label": "Call slots",
+   "description": "Blank: Morning 10:00-13:00 and Afternoon 14:00-18:00, 50 calls each."
   }
  ],
  "links": [],
- "modified": "2026-10-29 10:00:00.000000",
+ "modified": "2026-10-30 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Lead Department",

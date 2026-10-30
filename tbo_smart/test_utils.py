@@ -2970,3 +2970,101 @@ def make_management_user(email: str, roles: list[str] | tuple = ()) -> str:
 
 	ensure_management_role()
 	return make_user(email, ["TBO Management", *roles])
+
+
+# ---------- Daily call batches (docs/call-batches.md) ----------
+
+
+def make_batch_department(
+	name: str,
+	members: list[str] | tuple,
+	heads: list[str] | tuple = (),
+	slots: list[dict] | None = None,
+	**rules,
+) -> str:
+	"""A lead department that hands out call batches to `members`. `slots` are call_slots rows
+	(default: one all-day slot "Day" of 50, so a test passes at any hour); `rules` are the
+	department's call-batch fields (daily_call_cap, pull_unassigned, overdue_block_limit, ...)."""
+	slots = slots or [{"label": "Day", "start_time": "00:00:00", "end_time": "23:59:00", "size": 50}]
+	doc = frappe.get_doc(
+		{
+			"doctype": "TBO Lead Department",
+			"department_name": name,
+			"lead_type": "ERP / Software",
+			"is_active": 1,
+			"call_batches_enabled": 1,
+			"heads": [{"user": user} for user in heads],
+			"members": [{"user": user} for user in members],
+			"call_slots": slots,
+			**rules,
+		}
+	)
+	doc.insert(ignore_permissions=True)
+	return doc.name
+
+
+def make_callable_lead(owner: str | None, first_name: str, department: str, **fields) -> str:
+	"""An open lead of `department` with a phone number, owned by `owner` (None: unassigned, put
+	in the department afterwards because a department with people refuses an outside owner)."""
+	mobile = fields.pop("mobile_no", "9847012345")
+	if owner:
+		return make_lead(owner, first_name, tbo_department=department, mobile_no=mobile, **fields)
+	lead = make_lead("Administrator", first_name, mobile_no=mobile, **fields)
+	frappe.db.set_value(
+		"Lead", lead, {"tbo_department": department, "lead_owner": None}, update_modified=False
+	)
+	return lead
+
+
+def make_call_batch(
+	user: str,
+	department: str,
+	leads: list[str],
+	slot: str = "Day",
+	days_ago: int = 0,
+	status: str = "Active",
+	ends_in_hours: float = 3,
+	outcomes: dict | None = None,
+) -> str:
+	"""A TBO Call Batch of `user` holding `leads` (outcomes: {lead: outcome} for those already
+	called), `days_ago` days back, running from an hour ago to `ends_in_hours` from now."""
+	now = add_days(now_datetime(), -days_ago)
+	outcomes = outcomes or {}
+	return (
+		frappe.get_doc(
+			{
+				"doctype": "TBO Call Batch",
+				"user": user,
+				"department": department,
+				"batch_date": getdate(now),
+				"slot": slot,
+				"starts_at": add_to_date(now, hours=-1),
+				"ends_at": add_to_date(now, hours=ends_in_hours),
+				"status": status,
+				"items": [
+					{
+						"lead": lead,
+						"priority": 3,
+						"priority_reason": "Never called",
+						"outcome": outcomes.get(lead),
+						"called_at": now if outcomes.get(lead) else None,
+					}
+					for lead in leads
+				],
+			}
+		)
+		.insert(ignore_permissions=True)
+		.name
+	)
+
+
+def delete_call_batches(users: list[str] | tuple) -> None:
+	"""Delete the call batches of `users` and commit."""
+	for name in frappe.get_all("TBO Call Batch", filters={"user": ("in", list(users))}, pluck="name"):
+		frappe.delete_doc("TBO Call Batch", name, force=True, ignore_permissions=True)
+	frappe.db.commit()  # nosemgrep
+
+
+def get_batch_items(batch: str) -> list:
+	"""The items of a call batch, in list order."""
+	return frappe.get_doc("TBO Call Batch", batch).items

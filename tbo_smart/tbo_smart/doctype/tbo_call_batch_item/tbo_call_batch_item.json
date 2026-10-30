@@ -1,0 +1,93 @@
+{
+ "actions": [],
+ "links": [],
+ "module": "Tbo Smart",
+ "owner": "Administrator",
+ "states": [],
+ "engine": "InnoDB",
+ "creation": "2026-10-30 10:00:00.000000",
+ "modified": "2026-10-30 10:00:00.000000",
+ "modified_by": "Administrator",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "istable": 1,
+ "name": "TBO Call Batch Item",
+ "permissions": [],
+ "sort_field": "creation",
+ "sort_order": "ASC",
+ "field_order": [
+  "lead",
+  "priority",
+  "priority_reason",
+  "is_repeat",
+  "column_break_outcome",
+  "outcome",
+  "called_at",
+  "retry_at",
+  "attempts",
+  "note"
+ ],
+ "fields": [
+  {
+   "fieldname": "lead",
+   "fieldtype": "Link",
+   "options": "Lead",
+   "in_list_view": 1,
+   "label": "Lead",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "priority",
+   "fieldtype": "Int",
+   "label": "Priority",
+   "description": "1 follow-up due, 2 retry from yesterday, 3 never called, 4 gone quiet, 5 pulled unassigned lead",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "priority_reason",
+   "fieldtype": "Data",
+   "label": "Why it is here",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "is_repeat",
+   "fieldtype": "Check",
+   "label": "Retry or call back",
+   "description": "A second row for a lead already in this batch; it does not count towards the batch size."
+  },
+  {
+   "fieldname": "column_break_outcome",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "outcome",
+   "fieldtype": "Select",
+   "label": "Outcome",
+   "in_list_view": 1,
+   "options": "\nConnected\nNot answered\nBusy\nCall back\nNot interested\nWrong number"
+  },
+  {
+   "fieldname": "called_at",
+   "fieldtype": "Datetime",
+   "label": "Called at"
+  },
+  {
+   "fieldname": "retry_at",
+   "fieldtype": "Datetime",
+   "label": "Due at",
+   "description": "Retry or call back: not in the queue before this time."
+  },
+  {
+   "fieldname": "attempts",
+   "fieldtype": "Int",
+   "label": "Attempts",
+   "default": "0"
+  },
+  {
+   "fieldname": "note",
+   "fieldtype": "Small Text",
+   "label": "Note"
+  }
+ ]
+}
