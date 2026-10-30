@@ -10,7 +10,7 @@ import frappe
 from frappe import _
 from frappe.utils import cint, date_diff, getdate, now_datetime
 
-from tbo_smart import ai
+from tbo_smart import ai, lead_source
 from tbo_smart.lead_pipeline.statuses import (
 	CONTACTED,
 	FIRST_MEETING,
@@ -91,7 +91,9 @@ def conversion_rates() -> dict:
 
 
 def compute_conversion_rates() -> dict:
-	leads = frappe.get_all("Lead", fields=["name", "source", "tbo_stage as status"], limit_page_length=0)
+	leads = frappe.get_all(
+		"Lead", fields=lead_source.fields(["name", "source", "tbo_stage as status"]), limit_page_length=0
+	)
 	notes = get_migration_notes([lead.name for lead in leads])
 	converted = leads_with_opportunity([lead.name for lead in leads])
 	totals: dict[str, dict[str, list[int]]] = {"source": {}, "project_type": {}}

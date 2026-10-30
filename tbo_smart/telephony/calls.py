@@ -18,6 +18,7 @@ from frappe.query_builder import CustomFunction
 from frappe.query_builder.functions import Coalesce, Count, Sum
 from frappe.utils import add_days, cint, getdate, now_datetime, today
 
+from tbo_smart import lead_source
 from tbo_smart.lead_pipeline.statuses import OPEN_STATUSES
 from tbo_smart.sales.activities import CALL, CANCELLED, OPEN, add_event, add_follow_up_task
 from tbo_smart.sales.stages import system_save
@@ -309,7 +310,7 @@ def new_caller_lead(number: str | None, owner: str | None) -> str | None:
 		{
 			"first_name": number,
 			"mobile_no": number,
-			"source": LEAD_SOURCE if frappe.db.exists("Lead Source", LEAD_SOURCE) else None,
+			lead_source.field(): LEAD_SOURCE if lead_source.exists(LEAD_SOURCE) else None,
 			"lead_owner": owner,
 		}
 	)

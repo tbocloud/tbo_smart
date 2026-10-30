@@ -15,6 +15,7 @@ from frappe import _
 from frappe.query_builder.functions import Min
 from frappe.utils import cint, flt, get_datetime, getdate
 
+from tbo_smart import lead_source
 from tbo_smart.api.mobile.capabilities import CRM_ROLES, get_capabilities
 from tbo_smart.api.mobile.crm import check_assignee, get_crm_users
 from tbo_smart.api.mobile.utils import get_full_names
@@ -225,7 +226,7 @@ def get_options(acting_user: str | None = None) -> dict:
 	with acting_as(acting_user):
 		return {
 			"stages": stage_options(),
-			"sources": frappe.get_all("Lead Source", pluck="name", order_by="name asc"),
+			"sources": lead_source.names(),
 			"segments": list(SEGMENTS),
 			"departments": departments.active_departments_for(frappe.session.user),
 			"lead_types": list(departments.LEAD_TYPES),
@@ -278,7 +279,7 @@ def list_leads(
 	with acting_as(acting_user) as user:
 		filters = lead_filters(stage, owner, segment)
 		if source:
-			filters["source"] = source
+			filters[lead_source.field()] = source
 		if department:
 			filters["tbo_department"] = department
 		filters.update(lead_category.category_filters(industry, state, district, org_size))
@@ -624,7 +625,7 @@ def get_lead(name: str, acting_user: str | None = None) -> dict:
 
 def lead_payload(name: str) -> dict:
 	frappe.has_permission("Lead", "read", name, throw=True)
-	lead = frappe.get_all("Lead", filters={"name": name}, fields=LEAD_DETAIL_FIELDS)[0]
+	lead = frappe.get_all("Lead", filters={"name": name}, fields=lead_source.fields(LEAD_DETAIL_FIELDS))[0]
 	lead.segment = lead.pop("tbo_segment")
 	lead.place = lead_place.place_of(lead)
 	for key in (
@@ -875,6 +876,8 @@ def lead_values(data: dict) -> dict:
 	values = lead_category.category_values(
 		{LEAD_FIELDS[key]: value for key, value in data.items() if key in LEAD_FIELDS}
 	)
+	if "source" in values:
+		values[lead_source.field()] = values.pop("source")
 	if data.get("lead_name") and not (values.get("first_name") or values.get("last_name")):
 		first, _space, last = str(data["lead_name"]).strip().partition(" ")
 		values.update({"first_name": first, "last_name": last})

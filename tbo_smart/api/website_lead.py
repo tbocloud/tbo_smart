@@ -12,6 +12,7 @@ from frappe import _
 from frappe.rate_limiter import rate_limit
 from frappe.utils import cint, validate_email_address
 
+from tbo_smart import lead_source
 from tbo_smart.sales import LEAD, SETTINGS, erpnext_installed
 from tbo_smart.sales.activities import add_note
 from tbo_smart.sales.departments import DEPARTMENT, DEPARTMENT_USER
@@ -101,15 +102,11 @@ def active_department(department: str | None) -> str | None:
 	return None
 
 
-def lead_source(source: str) -> str:
-	"""The Lead Source called `source`; anything unknown becomes "Website", made when missing."""
-	if frappe.db.exists("Lead Source", source):
+def get_lead_source(source: str) -> str:
+	"""The lead source called `source`; anything unknown becomes "Website", made when missing."""
+	if lead_source.exists(source):
 		return source
-	if not frappe.db.exists("Lead Source", DEFAULT_SOURCE):
-		frappe.get_doc({"doctype": "Lead Source", "source_name": DEFAULT_SOURCE}).insert(
-			ignore_permissions=True
-		)
-	return DEFAULT_SOURCE
+	return lead_source.ensure(DEFAULT_SOURCE)
 
 
 def create_lead(name, email, phone, company, message, department, source) -> None:
@@ -122,7 +119,7 @@ def create_lead(name, email, phone, company, message, department, source) -> Non
 			"email_id": email or None,
 			"mobile_no": phone or None,
 			"company_name": company or None,
-			"source": lead_source(source),
+			lead_source.field(): get_lead_source(source),
 			"tbo_department": active_department(department),
 		}
 	)

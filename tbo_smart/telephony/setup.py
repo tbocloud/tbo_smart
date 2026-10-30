@@ -2,6 +2,7 @@
 
 import frappe
 
+from tbo_smart import lead_source
 from tbo_smart.sales import erpnext_installed
 from tbo_smart.telephony import LEAD_SOURCE, SETTINGS
 
@@ -18,11 +19,10 @@ DEFAULT_FIELDS = (
 
 
 def setup_telephony() -> None:
-	"""The Lead Source new caller leads get, and the settings' defaults."""
+	"""The lead source new caller leads get, and the settings' defaults."""
 	if not erpnext_installed():
 		return
-	if not frappe.db.exists("Lead Source", LEAD_SOURCE):
-		frappe.get_doc({"doctype": "Lead Source", "source_name": LEAD_SOURCE}).insert(ignore_permissions=True)
+	lead_source.ensure(LEAD_SOURCE)
 	set_default_settings()
 
 

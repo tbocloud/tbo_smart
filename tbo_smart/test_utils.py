@@ -35,6 +35,7 @@ from PIL import Image
 from werkzeug.test import EnvironBuilder
 from werkzeug.wrappers import Request as WerkzeugRequest
 
+from tbo_smart import lead_source
 from tbo_smart.api.mobile import auth
 from tbo_smart.api.mobile.capabilities import get_capabilities
 from tbo_smart.api.mobile.utils import INSIGHTS_CACHE_PREFIX
@@ -704,9 +705,8 @@ def get_adjustments(quotation: str, kind: str | None = None) -> list[frappe._dic
 
 
 def make_lead_source(name: str) -> str:
-	"""A Lead Source named `name`, if the site does not have it yet."""
-	if not frappe.db.exists("Lead Source", name):
-		frappe.get_doc({"doctype": "Lead Source", "source_name": name}).insert(ignore_permissions=True)
+	"""A lead source named `name`, if the site does not have it yet."""
+	lead_source.ensure(name)
 	return name
 
 
