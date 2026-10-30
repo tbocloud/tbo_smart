@@ -1,4 +1,4 @@
-# Hub leads API (`tbo_smart.api.hub_leads`), v1.12
+# Hub leads API (`tbo_smart.api.hub_leads`), v1.13
 
 **Status:** built 2026-10-16. The TBO Support hub's lead page (tbocloud/helpdesk) shows and edits
 tboindia's leads through these methods. The leads are ERPNext's own **Lead**
@@ -42,7 +42,7 @@ curl -s -X POST https://india.teambackoffice.com/api/method/tbo_smart.api.hub_le
 | Method | Verb | Arguments | Returns |
 | --- | --- | --- | --- |
 | `get_options` | GET | `acting_user` | `{stages: [{name, label, type, color}], sources: [], segments: [], departments: [{name, lead_type, is_active, assignment, stale_after_days, is_head, is_member}], lead_types: [], owners: [{email, full_name}], territories: [], industries: [], org_sizes: [], states: [], kerala_districts: [], districts_by_state: {state: [district]}, can_call}` (§2.12) |
-| `list_leads` | GET | `search?`, `stage?`, `owner?`, `segment?`, `source?`, `temperature?` (Hot / Warm / Cold), `industry?`, `state?`, `district?`, `org_size?` (each a value or a list, §2.12), `metric?` with `period?` / `from_date?` / `to_date?` (§2.4), `view` (`all` / `mine` / `call_today` / `follow_up`, default `all`), `start` (0), `page_length` (20, at most 100), `acting_user` | `{rows: [Row], total}` |
+| `list_leads` | GET | `search?`, `stage?`, `owner?`, `segment?`, `source?`, `temperature?` (Hot / Warm / Cold), `industry?`, `state?`, `district?`, `org_size?` (each a value or a list, §2.13), `metric?` with `period?` / `from_date?` / `to_date?` (§2.4), `view` (`all` / `mine` / `call_today` / `follow_up`, default `all`), `start` (0), `page_length` (20, at most 100), `acting_user` | `{rows: [Row], total}` |
 | `get_overview` | GET | `period` (`week` / `month` / `quarter` / `custom`; default `month`, or `custom` when dates are sent), `from_date?`, `to_date?` (custom), `owner?`, `acting_user` | Overview (§2.4) |
 | `get_lead_intake` | GET | `from_date?`, `to_date?` (default today, at most 62 days), `owner?`, `acting_user` | Intake (§2.4.1) |
 | `get_proposal_money` | GET | `period`, `from_date?`, `to_date?`, `owner?` (as `get_overview`), `acting_user` | Money (§2.8) |
@@ -50,9 +50,9 @@ curl -s -X POST https://india.teambackoffice.com/api/method/tbo_smart.api.hub_le
 | `get_lead` | GET | `name`, `acting_user` | `{lead: Lead, timeline: [Item], quotations: [Quotation], proposals: [Proposal row], allowed_stages: [stage name]}` |
 | `create_lead` | POST | `data`, `allow_duplicate?` (1 to create past a duplicate, §2.9), `acting_user` | as `get_lead` |
 | `find_duplicate_leads` | GET | `email?`, `phone?`, `company?`, `exclude?` (a lead name), `acting_user` | `[Match]` (§2.9) |
-| `get_category_counts` | GET | `acting_user` | `{industry, state, district, org_size}`, each `{value: leads}` (§2.12) |
-| `add_industry` | POST | `name`, `acting_user` | `{name, created}` (§2.12) |
-| `bulk_set_lead_category` | POST | `leads` (list of names), `values`, `acting_user` | `{updated, skipped: [{name, reason}]}` (§2.12) |
+| `get_category_counts` | GET | `acting_user` | `{industry, state, district, org_size}`, each `{value: leads}` (§2.13) |
+| `add_industry` | POST | `name`, `acting_user` | `{name, created}` (§2.13) |
+| `bulk_set_lead_category` | POST | `leads` (list of names), `values`, `acting_user` | `{updated, skipped: [{name, reason}]}` (§2.13) |
 | `get_stale_leads` | GET | `days` (3), `acting_user` | `[Stale]` (§2.10) |
 | `update_lead` | POST | `name`, `data`, `acting_user` | as `get_lead` |
 | `get_lead_photos` | GET | `lead`, `acting_user` | `[Photo]` (§2.11), newest first |
@@ -129,7 +129,7 @@ Quotation = {name, docstatus, tbo_quote_status, transaction_date, valid_till, cu
 | `lead_name` | split into `first_name` / `last_name` when those are not sent |
 | `first_name`, `last_name`, `company_name`, `email_id`, `mobile_no`, `phone`, `whatsapp_no`, `job_title`, `website` | the Lead's own |
 | `source` (a Lead Source), `territory`, `industry` (Industry Type) | links; `get_options` lists them |
-| `state`, `district`, `org_size` | the categories (§2.12): `state`, `tbo_district`, `no_of_employees`; an empty value clears one |
+| `state`, `district`, `org_size` | the categories (§2.13): `state`, `tbo_district`, `no_of_employees`; an empty value clears one |
 | `segment` | `tbo_segment`; moving a lead from one segment to another needs a preset editor (417 otherwise; `lead-pipeline.md` §9.8) |
 | `lead_owner` | another sales user: only within the acting user's reach (anyone for a Sales Manager outside the hierarchy, their team for a team lead, nobody for a salesperson); 403 otherwise |
 | `note` | `create_lead` only: the lead's first note |
@@ -191,14 +191,14 @@ Overview = {period, from_date, to_date, scope ("own" | "team" | "all"), people: 
 | --- | --- |
 | `new` | leads created in the period |
 | `contacted` | leads touched in the period: a note, a call or logged activity, an email, a stage change after the first, a follow-up done (the migration note is no touch) |
-| `meetings` | meetings whose MOM was submitted in the period |
-| `quotations_sent` | lead quotations sent in the period (`tbo_sent_on`) |
-| `won` / `lost` | leads that entered Closed – Won / Closed – Lost in the period (stage log); `won_value` their latest quotations' total |
+| `meetings` | meetings held in the period: a MOM submitted, or the lead entering First / Second / Third Meeting Completed (stage log). A lead moved there by hand or imported has no meeting record, so the MOM alone read 0 |
+| `quotations_sent` | leads a proposal went to in the period, each once: a quotation sent (`tbo_sent_on`), a proposal document sent (`sent_on`), or the lead entering Proposal Sent (stage log) |
+| `won` / `lost` | leads that entered Closed – Won / Closed – Lost in the period (stage log); `won_value` their worth: the latest quotations' total, else the deal's amount, else its Sales Orders' total; `won_unpriced` counts won leads with none of them |
 | `stale` | open leads with no touch for `lead_stale_days` (21), counted from creation when never touched |
 | `overdue` | open follow-ups (ToDos) on open leads past their day, now |
 | `hot` | open leads that are Hot or Positive / Interested, now |
 | `open`, `open_value`, `pipeline` | leads in each stage now and their latest quotations' total (`tbo_is_latest`) |
-| `funnel` | of the leads created in the period, how many reached Contacted, Meeting Scheduled, Proposal Sent, Closed – Won (from the stage log; a skipped stage counts as passed) |
+| `funnel` | of the leads created in the period, how many reached Contacted, a meeting held (First Meeting Completed or later), Proposal Sent, Closed – Won (from the stage log; a skipped stage counts as passed) |
 | `win_rate`, `conversion_rate` | won of won + lost; created in the period and won now |
 
 **Every number opens its leads:** `list_leads(metric=…)` with the same `period` (or dates) and
@@ -361,10 +361,10 @@ Split = {lead, lead_name, company_name, lead_owner, owner_name,
 
 | Figure | Counts |
 | --- | --- |
-| `proposals_sent` | quotations sent in the period (`tbo_sent_on`), every revision: the overview's "Proposals sent" |
-| `proposals_value` | their total, each lead once (the last one it was sent in the period) |
-| `unpriced_sent` | proposals sent in the period with no quotation: no value, so not in the two above |
-| `won`, `won_value` | as the overview: leads won in the period, their latest quotations' total |
+| `proposals_sent` | leads a proposal went to in the period, each once (the overview's "Proposals sent") |
+| `proposals_value` | the total of the quotations sent in the period, each lead at the last one |
+| `unpriced_sent` | leads sent a proposal in the period without a quotation sent: no value, so not in `proposals_value` |
+| `won`, `won_value` | as the overview: leads won in the period and their worth |
 | `advances` | customer receipts (Payment Entry, Receive, submitted) allocated to the scope's Sales Orders, posted in the period |
 | `to_collect`, `overdue`, `by_month` | the splits' outstanding now (not the period): overdue, by due month, later and undated |
 
@@ -456,7 +456,47 @@ fields, saved through `update_lead`/`create_lead` or the desk form alike):
 - `get_lead` returns the place and `photo_count`; the list `Row` has neither.
 - Needs `bench migrate` (Lead's Place section; File's `tbo_lead_photo` and `tbo_caption`).
 
-### 2.12 Categories: industry, state, district, organisation size
+### 2.12 Business overview (management only)
+
+`get_business_overview(from_date, to_date, department=None, include_profit=0, acting_user)`
+(GET, `lead_pipeline/business.py`): the company-wide figures for a management meeting. **Who:**
+System Manager or the **TBO Management** role (created by the migrate; nobody has it until the
+owner grants it). Anyone else, a Sales Manager included, gets `PermissionError`. After the check
+the figures are **not** narrowed to the caller's sales scope. `get_options` returns
+`can_view_business` for the acting user, which the hub uses to show the tab. The acting user
+may hold TBO Management without any sales role.
+
+```
+Business = {from_date, to_date, department, currency,
+  pipeline: {count, value, unpriced, weighted (false: lead stages have no probability, so the
+    value is unweighted), stages: [{stage, color, count, value}]},     open leads now
+  proposals: {sent: {count, value, unpriced}, accepted: {count, value}, declined, acceptance_rate},
+  onboarding: {won: {count, value, unpriced}, projects_started},
+  revenue: {invoiced, collected, outstanding, months: [{month, invoiced, collected}]},
+  funnel: [{step, count, rate}], new_leads, meetings_held,
+  trend: [{month, new, won, invoiced, collected}]   the six months up to `to_date`,
+  top_clients: [{customer, name, invoiced}] (5),
+  by_department: [{department (null: none), label, open, open_value, won, won_value, invoiced,
+    collected}],
+  profit: {available, reason, income, expense, profit}}
+```
+
+| Figure | Counts |
+| --- | --- |
+| `pipeline` | open leads by stage now; value = latest quotations' total (`unpriced` leads have none) |
+| `proposals.sent` | as §2.4 `quotations_sent`; `value` the worth of those leads |
+| `proposals.accepted` / `declined` | leads whose Proposal / Quotation document was accepted / declined in the period (`decided_on`); `acceptance_rate` = accepted / sent in the same period (a period ratio, not a cohort) |
+| `onboarding.won` | leads that entered Closed – Won in the period, with their worth (§2.4); `unpriced` won without any value |
+| `onboarding.projects_started` | hub projects linked on a client document (`hub_project`) whose document changed in the period: the link has no date of its own |
+| `revenue.invoiced` | submitted Sales Invoices posted in the period, `base_grand_total`, credit notes net off (negative) |
+| `revenue.collected` | submitted customer Payment Entries (Receive) posted in the period, `base_received_amount` |
+| `revenue.outstanding` | the submitted invoices' outstanding amounts **now** (not the period) |
+| `by_department` | leads by `tbo_department`; money traced through the Sales Order's deal or quotation line to the lead. What cannot be traced is "Not linked to a lead" (the company-wide totals include it) |
+| `profit` | with `include_profit=1`: ledger income minus expense for the period (no period closing vouchers, no cancelled entries). `available: false` with a `reason` when not requested or when `department` is set |
+
+With `department`, the lead figures, invoices, receipts and outstanding are narrowed to it.
+
+### 2.13 Categories: industry, state, district, organisation size
 
 Four fields say what kind of client a lead is. Three are ERPNext's own Lead fields, reused (no
 duplicates); only district is new (`lead_pipeline/lead_category.py`, the field in `setup.py`).
@@ -533,13 +573,17 @@ is 403); `log_call` (the outcomes, the acting user, the lead's write permission)
 
 ## Changelog
 
-- **v1.11 (2026-10-30):** place and photos (§2.11): `get_lead_photos`, `upload_lead_photo`,
-  `delete_lead_photo`, `get_lead_photo`; the lead's `place` and `photo_count`; `update_lead` takes
-  `google_profile_url`, `maps_url`, `latitude`, `longitude` and `location_note`.
-- **v1.12 (2026-10-30):** lead categories (§2.12): `industry`, `state`, `district`, `org_size`
+- **v1.13 (2026-10-30):** lead categories (§2.13): `industry`, `state`, `district`, `org_size`
   on `list_leads`, rows, `get_lead`, `create_lead` and `update_lead`; `get_options`' `org_sizes`,
   `states`, `kerala_districts`, `districts_by_state`; `get_category_counts`, `add_industry`,
   `bulk_set_lead_category`; the Industry Types are seeded on migrate.
+- **v1.12 (2026-10-30):** `get_business_overview` (§2.12) and `get_options`' `can_view_business`;
+  the TBO Management role. The overview's Meetings held and Proposals sent now also count from the
+  stage log (they read 0 for leads moved by hand or imported), and a won lead's value falls back
+  to its deal's amount, then its Sales Orders'; `get_proposal_money` follows (§2.4, §2.8).
+- **v1.11 (2026-10-30):** place and photos (§2.11): `get_lead_photos`, `upload_lead_photo`,
+  `delete_lead_photo`, `get_lead_photo`; the lead's `place` and `photo_count`; `update_lead` takes
+  `google_profile_url`, `maps_url`, `latitude`, `longitude` and `location_note`.
 - **v1.10 (2026-10-29):** `find_duplicate_leads` and `get_stale_leads` (§2.9, §2.10);
   `create_lead`'s `allow_duplicate` and its duplicate refusal; departments carry `assignment`
   (`Manual` / `Round robin`) and `stale_after_days` in `get_lead_departments`,

@@ -27,6 +27,7 @@ QUOTE_STATUSES = (
 PRINT_FORMAT = "TBO Quotation"
 SEGMENTS = ("Retail", "Small", "Medium", "Large", "Premium")
 HUB_ROLE = "Hub Integration"
+MANAGEMENT_ROLE = "TBO Management"
 
 
 def get_pipeline_fields() -> dict:
@@ -403,6 +404,7 @@ def setup_lead_pipeline() -> None:
 	ensure_hub_role()
 	lead_category.seed_industries()
 	lead_category.ensure_blank_org_size()
+	ensure_management_role()
 	sync_print_format()
 	seed_proposal_templates()
 	seed_agreement_clauses()
@@ -425,6 +427,15 @@ def ensure_hub_role() -> None:
 	"""The role of the TBO Support hub's API user (docs/hub-leads-api.md)."""
 	if not frappe.db.exists("Role", HUB_ROLE):
 		frappe.get_doc({"doctype": "Role", "role_name": HUB_ROLE, "desk_access": 1}).insert(
+			ignore_permissions=True
+		)
+
+
+def ensure_management_role() -> None:
+	"""The role that opens the hub's Business overview (docs/hub-leads-api.md §2.12). Nobody is
+	given it here: the owner grants it to the right users."""
+	if not frappe.db.exists("Role", MANAGEMENT_ROLE):
+		frappe.get_doc({"doctype": "Role", "role_name": MANAGEMENT_ROLE, "desk_access": 1}).insert(
 			ignore_permissions=True
 		)
 
