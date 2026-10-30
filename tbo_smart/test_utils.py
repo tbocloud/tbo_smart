@@ -485,6 +485,13 @@ def delete_leads_matching(**filters) -> None:
 	frappe.db.commit()  # nosemgrep
 
 
+def delete_industries(names: list[str] | tuple) -> None:
+	"""Delete the Industry Types a test added (leads still using one are cleared first)."""
+	for name in names:
+		frappe.db.set_value("Lead", {"industry": name}, "industry", None)
+		frappe.delete_doc("Industry Type", name, force=True, ignore_permissions=True)
+
+
 def age_lead_activity(lead: str, days: int) -> None:
 	"""Make everything recorded on the lead (its creation, stage rows, ToDos, notes, emails,
 	events and calls) `days` days old, so the lead looks untouched since then."""

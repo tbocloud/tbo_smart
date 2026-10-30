@@ -5,6 +5,7 @@ docs/erpnext-lead-cutover.md §2.1). Nothing on a site without ERPNext."""
 import frappe
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
+from tbo_smart.lead_pipeline import lead_category
 from tbo_smart.lead_pipeline.statuses import NEW_LEAD, STATUS_NAMES
 from tbo_smart.sales import DEAL, LEAD, LEAD_LINK, erpnext_installed
 from tbo_smart.sales.departments import DEPARTMENT, LEAD_TYPES
@@ -51,6 +52,15 @@ def get_pipeline_fields() -> dict:
 	}
 	return {
 		"Lead": [
+			{
+				# with ERPNext's industry, state and no_of_employees: lead_category.py
+				"fieldname": "tbo_district",
+				"fieldtype": "Data",
+				"label": "District",
+				"insert_after": "state",
+				"in_standard_filter": 1,
+				"description": "Free text; Kerala's districts are suggested in the hub.",
+			},
 			{
 				"fieldname": "tbo_stage",
 				"fieldtype": "Select",
@@ -318,6 +328,7 @@ def setup_lead_pipeline() -> None:
 	ensure_default_stages()
 	ensure_other_reason()
 	ensure_hub_role()
+	lead_category.seed_industries()
 	sync_print_format()
 	seed_proposal_templates()
 	seed_agreement_clauses()
