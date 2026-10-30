@@ -700,6 +700,7 @@ failing it is `New reply`. The class is kept as the lead's **`last_reply_class`*
 The owner is the lead's owner, else whoever approved its latest outreach message. A lead that is
 closed (Won or Lost-type) keeps its stage; an older reply never undoes a newer one.
 
+- **`get_options`** returns `outreach`: true while Outreach is on (the hub shows its tab then).
 - **Rows and `get_lead`** return `last_reply_class` and `last_reply_on`.
 - **`list_leads`** takes `last_reply_class`: a value, a list or a JSON list; another value is
   refused (417).
@@ -761,7 +762,7 @@ call.
   `update_outreach`, `regenerate_outreach`, `approve_outreach`, `mark_outreach_sent`,
   `cancel_outreach`; `last_reply_class` and `last_reply_on` on rows and `get_lead`;
   `list_leads`' `last_reply_class`; `get_category_counts`' `last_reply_class`;
-  `draft_lead_message`'s `first_message`.
+  `get_options`' `outreach`; `draft_lead_message`'s `first_message`.
 - **v1.16 (2026-10-30):** call-outcome stages and the last call (§2.16): the Not Responding, Not
   Interested and Wrong Number stages in `get_options`; `last_call_result` and `last_call_on` on
   rows and `get_lead`; `list_leads`' `last_call_result`; `get_category_counts`' `last_call_result`;

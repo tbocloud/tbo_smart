@@ -15,7 +15,7 @@ from frappe import _
 from frappe.query_builder.functions import Min
 from frappe.utils import cint, flt, get_datetime, getdate
 
-from tbo_smart import lead_source
+from tbo_smart import lead_source, outreach
 from tbo_smart.api.mobile.capabilities import CRM_ROLES, get_capabilities
 from tbo_smart.api.mobile.crm import check_assignee, get_crm_users
 from tbo_smart.api.mobile.utils import get_full_names
@@ -236,7 +236,7 @@ def acting_as(acting_user: str | None):
 def get_options(acting_user: str | None = None) -> dict:
 	"""Pick lists for the lead page: stages (in pipeline order), sources, segments, owners (the
 	sales users), territories, industries, `can_find_prospects` and `prospecting` (providers, default
-	department and limits, for those who may find prospects), `departments` (the active lead departments:
+	department and limits, for those who may find prospects), `outreach` (Outreach is on), `departments` (the active lead departments:
 	{name, lead_type, is_active, is_head, is_member} for the acting user) and `lead_types`."""
 	with acting_as(acting_user):
 		prospecting = prospect_runs.options()
@@ -256,6 +256,8 @@ def get_options(acting_user: str | None = None) -> dict:
 			# Find prospects (docs/prospecting.md): managers and department heads, while it is on
 			"can_find_prospects": prospecting is not None,
 			"prospecting": prospecting,
+			# the Outreach tab (docs/prospecting.md Phase 2): drafts a person approves, while it is on
+			"outreach": outreach.enabled(),
 		}
 
 
