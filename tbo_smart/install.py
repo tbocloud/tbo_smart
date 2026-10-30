@@ -7,6 +7,7 @@ from tbo_smart.checkin.setup import setup_checkin_location
 from tbo_smart.finance.setup import setup_finance
 from tbo_smart.lead_pipeline.setup import setup_lead_pipeline
 from tbo_smart.quotation_control import COMMISSION_FIELD
+from tbo_smart.sales.call_batches.setup import after_migrate as setup_call_batches
 from tbo_smart.smart_leads.setup import setup_smart_leads
 from tbo_smart.telephony.setup import setup_telephony
 
@@ -28,6 +29,7 @@ def after_install():
 	setup_checkin_location()
 	setup_smart_leads()
 	setup_lead_pipeline()
+	setup_call_batches()
 	setup_telephony()
 
 

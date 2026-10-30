@@ -6,7 +6,8 @@
  "engine": "InnoDB",
  "field_order": [
   "user",
-  "full_name"
+  "full_name",
+  "daily_call_cap"
  ],
  "fields": [
   {
@@ -24,11 +25,18 @@
    "in_list_view": 1,
    "label": "Full name",
    "read_only": 1
+  },
+  {
+   "fieldname": "daily_call_cap",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Calls a day",
+   "description": "Members only; blank uses the department's cap."
   }
  ],
  "istable": 1,
  "links": [],
- "modified": "2026-10-28 10:00:00.000000",
+ "modified": "2026-10-30 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Lead Department User",

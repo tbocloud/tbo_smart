@@ -1,0 +1,55 @@
+{
+ "actions": [],
+ "links": [],
+ "module": "Tbo Smart",
+ "owner": "Administrator",
+ "states": [],
+ "engine": "InnoDB",
+ "creation": "2026-10-30 10:00:00.000000",
+ "modified": "2026-10-30 10:00:00.000000",
+ "modified_by": "Administrator",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "istable": 1,
+ "name": "TBO Call Slot",
+ "permissions": [],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "field_order": [
+  "label",
+  "start_time",
+  "end_time",
+  "size"
+ ],
+ "fields": [
+  {
+   "fieldname": "label",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Label",
+   "reqd": 1
+  },
+  {
+   "fieldname": "start_time",
+   "fieldtype": "Time",
+   "in_list_view": 1,
+   "label": "Starts",
+   "reqd": 1
+  },
+  {
+   "fieldname": "end_time",
+   "fieldtype": "Time",
+   "in_list_view": 1,
+   "label": "Ends",
+   "reqd": 1
+  },
+  {
+   "fieldname": "size",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Calls in this slot",
+   "reqd": 1,
+   "default": "50"
+  }
+ ]
+}

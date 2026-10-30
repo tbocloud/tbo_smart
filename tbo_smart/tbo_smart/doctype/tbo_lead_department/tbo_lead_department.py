@@ -5,10 +5,13 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
+from tbo_smart.sales.call_batches.settings import validate_slots
+
 
 class TBOLeadDepartment(Document):
 	def validate(self):
 		self.check_people_are_listed_once()
+		validate_slots(self)
 
 	def check_people_are_listed_once(self):
 		for table, label in (("heads", _("Heads")), ("members", _("Members"))):

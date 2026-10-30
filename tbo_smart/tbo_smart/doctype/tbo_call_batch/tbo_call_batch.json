@@ -1,0 +1,119 @@
+{
+ "actions": [],
+ "links": [],
+ "module": "Tbo Smart",
+ "owner": "Administrator",
+ "states": [],
+ "engine": "InnoDB",
+ "creation": "2026-10-30 10:00:00.000000",
+ "modified": "2026-10-30 10:00:00.000000",
+ "modified_by": "Administrator",
+ "doctype": "DocType",
+ "autoname": "format:CB-{YY}{MM}{DD}-{####}",
+ "naming_rule": "Expression",
+ "name": "TBO Call Batch",
+ "description": "The leads one salesperson must call in one time slot (docs/call-batches.md).",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "field_order": [
+  "user",
+  "department",
+  "batch_date",
+  "slot",
+  "column_break_when",
+  "starts_at",
+  "ends_at",
+  "status",
+  "section_break_items",
+  "items"
+ ],
+ "fields": [
+  {
+   "fieldname": "user",
+   "fieldtype": "Link",
+   "options": "User",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Salesperson",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "department",
+   "fieldtype": "Link",
+   "options": "TBO Lead Department",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Department",
+   "reqd": 1
+  },
+  {
+   "fieldname": "batch_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Date",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "slot",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Slot",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_when",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "starts_at",
+   "fieldtype": "Datetime",
+   "label": "Starts",
+   "reqd": 1
+  },
+  {
+   "fieldname": "ends_at",
+   "fieldtype": "Datetime",
+   "label": "Ends",
+   "reqd": 1
+  },
+  {
+   "default": "Active",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Active\nClosed",
+   "search_index": 1
+  },
+  {
+   "fieldname": "section_break_items",
+   "fieldtype": "Section Break",
+   "label": "Leads"
+  },
+  {
+   "fieldname": "items",
+   "fieldtype": "Table",
+   "options": "TBO Call Batch Item",
+   "label": "Leads"
+  }
+ ],
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "write": 1
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Sales Manager"
+  }
+ ]
+}

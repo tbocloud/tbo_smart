@@ -1,4 +1,4 @@
-# Hub leads API (`tbo_smart.api.hub_leads`), v1.12
+# Hub leads API (`tbo_smart.api.hub_leads`), v1.13
 
 **Status:** built 2026-10-16. The TBO Support hub's lead page (tbocloud/helpdesk) shows and edits
 tboindia's leads through these methods. The leads are ERPNext's own **Lead**
@@ -41,7 +41,7 @@ curl -s -X POST https://india.teambackoffice.com/api/method/tbo_smart.api.hub_le
 
 | Method | Verb | Arguments | Returns |
 | --- | --- | --- | --- |
-| `get_options` | GET | `acting_user` | `{stages: [{name, label, type, color}], sources: [], segments: [], departments: [{name, lead_type, is_active, assignment, stale_after_days, is_head, is_member}], lead_types: [], owners: [{email, full_name}], territories: [], industries: [], can_call}` |
+| `get_options` | GET | `acting_user` | `{stages: [{name, label, type, color}], sources: [], segments: [], departments: [{name, lead_type, is_active, assignment, stale_after_days, call_batches_enabled, is_head, is_member}], lead_types: [], owners: [{email, full_name}], territories: [], industries: [], can_call}` |
 | `list_leads` | GET | `search?`, `stage?`, `owner?`, `segment?`, `source?`, `temperature?` (Hot / Warm / Cold), `metric?` with `period?` / `from_date?` / `to_date?` (§2.4), `view` (`all` / `mine` / `call_today` / `follow_up`, default `all`), `start` (0), `page_length` (20, at most 100), `acting_user` | `{rows: [Row], total}` |
 | `get_overview` | GET | `period` (`week` / `month` / `quarter` / `custom`; default `month`, or `custom` when dates are sent), `from_date?`, `to_date?` (custom), `owner?`, `acting_user` | Overview (§2.4) |
 | `get_lead_intake` | GET | `from_date?`, `to_date?` (default today, at most 62 days), `owner?`, `acting_user` | Intake (§2.4.1) |
@@ -67,6 +67,10 @@ curl -s -X POST https://india.teambackoffice.com/api/method/tbo_smart.api.hub_le
 | `dismiss_ai_stage` | POST | `name`, `acting_user` | LeadAI, without the stage suggestion |
 | `draft_lead_message` | POST | `name`, `channel` (`whatsapp` / `email`), `language` (`en` / `ml`, WhatsApp), `acting_user` | `{channel, subject, text, to?, url?}`: nothing is sent |
 | `log_message_sent` | POST | `name`, `channel`, `text`, `acting_user` | the new timeline `Item` (an activity by the acting user) |
+| `get_my_calls` | GET | `acting_user` | MyCalls (§2.13) |
+| `get_next_batch` | POST | `department?`, `industry?`, `state?`, `district?`, `acting_user` | `{created, reason, batch?, slot?, size?}` (§2.13) |
+| `record_call_outcome` | POST | `batch_item`, `outcome`, `note?`, `callback_at?`, `acting_user` | `{item, outcome, retry_at}` (§2.13) |
+| `get_call_batches_report` | GET | `date?` (default today), `acting_user` | `{date, people: [Person], totals}` (§2.13) |
 
 ### 2.1 Shapes
 
@@ -492,6 +496,40 @@ Business = {from_date, to_date, department, currency,
 
 With `department`, the lead figures, invoices, receipts and outstanding are narrowed to it.
 
+### 2.13 Today's calls (`call-batches.md`)
+
+```
+MyCalls = {enabled, reason?,            # enabled false: none of the person's departments hands out batches
+  date, batch: {name, slot, department, starts_at, ends_at, seconds_left, batches: [name]} | null,
+  counts: {size, called, connected, pending, scheduled, overdue},   # size/called/connected: the running batches
+  today: {size, called, connected},                                  # all of today's batches
+  pending: [Call], scheduled: [Call], overdue: [Call],
+  can_call, next_batch: {allowed, reason}, next_slot: {label, starts_at} | null}
+Call = {item, batch, slot, lead, priority (1-5), reason, is_repeat, retry_at, attempts, batch_ends_at,
+  summary: {name, lead_name, company_name, industry, district, phone, stage, temperature,
+            last_note, next_step, wrong_number}}
+Person = {user, user_name, department, size, called, connected, overdue, batches: [{name, slot,
+  status, starts_at, ends_at, size, called, connected, overdue}]}
+```
+
+`pending` are due now (best priority first), `scheduled` come back later in the running batch
+(a retry or a call back), `overdue` belong to a slot that is over (kept 7 days, still callable).
+`record_call_outcome` takes an `item` from these lists; `outcome` is `Connected`, `Not answered`,
+`Busy`, `Call back` (`callback_at` required, a date-time), `Not interested` or `Wrong number`.
+It logs the call as `log_call` does and removes the item from the queue. Not answered and Busy
+come back once, two hours later, while the batch still runs. `get_next_batch` answers
+`{created: false, reason}` (HTTP 200) while calls are pending, overdue calls pass the department's
+`overdue_block_limit`, the daily cap is reached or no slot is open. `get_call_batches_report`
+is for Sales Managers, System Managers and department heads (their departments); `connected`
+counts answered calls (Connected, Call back, Not interested). The batch rules are part of
+`get_lead_departments` / `save_lead_department` (below).
+
+`save_lead_department` `values` also take: `call_batches_enabled`, `daily_call_cap`,
+`pull_unassigned`, `overdue_block_limit`, `campaign_industry`, `campaign_state`,
+`campaign_district`, `call_slots` (`[{label, start_time "HH:MM", end_time, size}]`, no overlaps;
+empty: Morning 10:00-13:00 and Afternoon 14:00-18:00, 50 each) and `member_caps` (`{user: cap}`).
+`get_lead_departments` returns the same keys.
+
 ## 3. Links back to the hub
 
 Teams messages, emails and the morning digest link to the lead page when TBO Smart Settings →
@@ -530,6 +568,8 @@ is 403); `log_call` (the outcomes, the acting user, the lead's write permission)
 
 ## Changelog
 
+- **v1.13 (2026-10-30):** today's calls (§2.13): `get_my_calls`, `get_next_batch`,
+  `record_call_outcome`, `get_call_batches_report`; departments carry the call-batch rules.
 - **v1.12 (2026-10-30):** `get_business_overview` (§2.12) and `get_options`' `can_view_business`;
   the TBO Management role. The overview's Meetings held and Proposals sent now also count from the
   stage log (they read 0 for leads moved by hand or imported), and a won lead's value falls back
