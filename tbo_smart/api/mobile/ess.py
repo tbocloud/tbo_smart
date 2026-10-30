@@ -25,7 +25,6 @@ from frappe.utils import (
 )
 from frappe.utils.print_format import download_pdf
 from hrms.api import (
-	get_advance_account,
 	get_attendance_calendar_events,
 	get_company_cost_center_and_expense_account,
 	get_expense_approval_details,
@@ -613,7 +612,8 @@ def create_advance(
 
 	Currency defaults to the company currency (an advance in another currency cannot be
 	settled through an Expense Claim); the advance account to the company's Default Employee
-	Advance Account (hrms.api.get_advance_account). Employee Advance has no approver field, so
+	Advance Account (read from the Company, as hrms.api.get_advance_account did before HRMS v16
+	removed it). Employee Advance has no approver field, so
 	the draft is routed to the employee's expense approver (Employee, else Department, as HRMS
 	picks for Expense Claims) by sharing it with Write and Submit, the way HRMS shares an
 	Expense Claim with its approver. Paying it stays with Accounts.
@@ -632,7 +632,9 @@ def create_advance(
 	exchange_rate = flt(get_exchange_rate(currency, company_currency, posting_date))
 	if not exchange_rate:
 		frappe.throw(_("No exchange rate from {0} to {1} is set up.").format(currency, company_currency))
-	advance_account = advance_account or get_advance_account(employee.company)
+	advance_account = advance_account or frappe.db.get_value(
+		"Company", employee.company, "default_employee_advance_account", cache=True
+	)
 	if advance_account and frappe.db.get_value("Account", advance_account, "company") != employee.company:
 		frappe.throw(
 			_("Advance account {0} does not belong to {1}.").format(advance_account, employee.company)
