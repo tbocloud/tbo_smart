@@ -225,6 +225,8 @@ class BatchFiller:
 		candidates = [
 			lead for lead in pool if lead.name not in self.taken and self.callable_in_campaign(lead)
 		]
+		if not candidates:
+			return
 		newest = stale.latest_activity([lead.name for lead in candidates])
 		longest_quiet = sorted(
 			candidates,

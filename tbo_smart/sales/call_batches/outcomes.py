@@ -169,7 +169,7 @@ def sync_calls(user: str) -> int:
 		frappe.qb.from_(Item)
 		.join(Batch)
 		.on(Batch.name == Item.parent)
-		.select(Item.name, Item.parent, Item.lead, Item.creation, Batch.starts_at)
+		.select(Item.name, Item.parent, Item.lead, Batch.starts_at)
 		.where(
 			(Batch.user == user)
 			& (Batch.batch_date >= since)
@@ -193,22 +193,27 @@ def sync_calls(user: str) -> int:
 	open_names = {row.name for row in open_rows}
 	for parent in dict.fromkeys(row.parent for row in open_rows):
 		batch = frappe.get_doc(BATCH, parent, for_update=True)
+		# a retry or call back counts only a call made after the lead's last recorded one
+		# (a child row's `creation` is its batch's, so it cannot say when the row was added)
+		done = {}
+		for row in batch.items:
+			if row.outcome and row.called_at:
+				done[row.lead] = max(
+					done.get(row.lead, get_datetime(row.called_at)), get_datetime(row.called_at)
+				)
+		since = get_datetime(batch.starts_at)
 		for row in list(batch.items):
 			if row.outcome or row.name not in open_names:
 				continue
+			after = max(since, done.get(row.lead, since))
 			call = next(
-				(
-					call
-					for call in calls
-					if call.lead == row.lead
-					and get_datetime(call.started_at) > get_datetime(row.creation)
-					and get_datetime(call.started_at) >= get_datetime(batch.starts_at)
-				),
+				(call for call in calls if call.lead == row.lead and get_datetime(call.started_at) > after),
 				None,
 			)
 			if call:
 				outcome = CONNECTED if call.status == CALL_ANSWERED else NOT_ANSWERED
 				apply(batch, row, outcome, "", None, call.started_at)
+				done[row.lead] = get_datetime(call.started_at)
 				closed += 1
 	if closed:
 		# the hub reads the queue with a GET, which Frappe would roll back
