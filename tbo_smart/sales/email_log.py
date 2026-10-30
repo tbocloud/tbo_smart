@@ -42,6 +42,11 @@ def outside_addresses(doc, account: str) -> list[str]:
 	found = addresses(doc)
 	if not found:
 		return []
+	return sorted(found - internal_addresses(found))
+
+
+def internal_addresses(found: set[str]) -> set[str]:
+	"""The addresses in `found` that are the team's own: a system user's or an Email Account's."""
 	internal = set(
 		frappe.get_all(
 			"User", filters={"email": ("in", list(found)), "user_type": "System User"}, pluck="email"
@@ -50,7 +55,7 @@ def outside_addresses(doc, account: str) -> list[str]:
 	internal |= set(
 		frappe.get_all("Email Account", filters={"email_id": ("in", list(found))}, pluck="email_id")
 	)
-	return sorted(found - {address.lower() for address in internal})
+	return {address.lower() for address in internal}
 
 
 def matching_lead(outside: list[str]) -> str | None:

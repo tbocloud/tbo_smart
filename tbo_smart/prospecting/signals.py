@@ -242,6 +242,58 @@ def prospect_of(profile_json) -> dict | None:
 	}
 
 
+# what a first message may be written from: findings, never the page's own words (the email and
+# phone are on the lead already)
+MESSAGE_SIGNALS = (
+	"has_website",
+	"online_booking",
+	"booking_tool",
+	"whatsapp",
+	"hiring",
+	"tech",
+	"software",
+	"last_updated_year",
+	"https",
+)
+VALUE_CHARS = 40
+
+
+def first_message_context(lead: str) -> dict | None:
+	"""{why_call, signals} for a lead Find prospects created that nobody has written to yet, else
+	None. The AI writes the first message from this and the lead's own facts only."""
+	row = frappe.db.get_value(
+		"Lead", lead, ["tbo_source_ref", "tbo_prospect_run", "tbo_web_profile"], as_dict=True
+	)
+	if not row or not (row.tbo_source_ref or row.tbo_prospect_run) or written_to(lead):
+		return None
+	block = prospect_of(row.tbo_web_profile) or {}
+	signals = block.get("signals") or {}
+	return {
+		"why_call": block.get("why_call"),
+		"signals": {
+			key: value[:VALUE_CHARS] if isinstance(value, str) else value
+			for key, value in signals.items()
+			if key in MESSAGE_SIGNALS and isinstance(value, str | int | float | bool)
+		},
+	}
+
+
+def written_to(lead: str) -> bool:
+	"""We already sent the lead a mail, or an outreach message went to them."""
+	return bool(
+		frappe.db.exists(
+			"Communication",
+			{
+				"reference_doctype": "Lead",
+				"reference_name": lead,
+				"communication_medium": "Email",
+				"sent_or_received": "Sent",
+			},
+		)
+		or frappe.db.exists("TBO Outreach Message", {"lead": lead, "status": "Sent"})
+	)
+
+
 def unread_leads(run: str) -> list[str]:
 	"""The leads a run created that have no website reading yet."""
 	rows = frappe.get_all(

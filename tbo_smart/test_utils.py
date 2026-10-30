@@ -3172,3 +3172,117 @@ def make_prospect_category(industry: str, **fields) -> None:
 			**fields,
 		}
 	).insert(ignore_permissions=True)
+
+
+# ---------- Outreach (docs/prospecting.md §10 and §11) ----------
+
+
+def enable_outreach(**values) -> None:
+	"""Outreach on with 30 emails per user a day, drafts of up to 50 leads per request and a send
+	window of the whole day, plus any `values` (settings fields)."""
+	set_smart_lead_settings(
+		**{
+			"enable_outreach": 1,
+			"outreach_daily_cap": 30,
+			"outreach_max_batch": 50,
+			"outreach_window_start": "00:00:00",
+			"outreach_window_end": "23:59:59",
+			**values,
+		}
+	)
+
+
+def disable_outreach() -> None:
+	"""Outreach off, its numbers back to their defaults."""
+	set_smart_lead_settings(
+		enable_outreach=0,
+		outreach_daily_cap=30,
+		outreach_max_batch=50,
+		outreach_window_start="09:30:00",
+		outreach_window_end="18:00:00",
+	)
+
+
+def make_prospect_lead(owner: str | None, first_name: str = "Palm Resort", **fields) -> str:
+	"""A lead Find prospects created (a source reference and its website findings: bookings by
+	phone only, on a site last updated in 2019), with an email and a mobile number."""
+	lead = make_lead(
+		owner,
+		first_name,
+		company_name=first_name,
+		email_id=f"{first_name.lower().replace(' ', '.')}@prospect.test",
+		mobile_no="9847012345",
+		tbo_source_ref=f"gplace:{first_name.replace(' ', '-')}",
+		**fields,
+	)
+	profile = {
+		"prospect": {
+			"signals": {
+				"has_website": True,
+				"online_booking": False,
+				"whatsapp": False,
+				"last_updated_year": 2019,
+				"email": "private@prospect.test",
+			},
+			"why_call": "Takes bookings by phone only.",
+			"read_on": "2026-10-30 10:00:00",
+		}
+	}
+	frappe.db.set_value("Lead", lead, "tbo_web_profile", json.dumps(profile), update_modified=False)
+	return lead
+
+
+def make_outreach_message(lead: str, channel: str = "Email", owner: str | None = None, **fields) -> str:
+	"""A TBO Outreach Message for `lead` (a Draft unless `fields` say otherwise), created as `owner`."""
+	previous = frappe.session.user
+	if owner:
+		frappe.set_user(owner)  # the message is theirs - nosemgrep
+	try:
+		doc = frappe.get_doc(
+			{
+				"doctype": "TBO Outreach Message",
+				"lead": lead,
+				"channel": channel,
+				"subject": "Hello from TBO" if channel == "Email" else None,
+				"body": "Hi, we help resorts take bookings online.",
+				"recipient": frappe.db.get_value(
+					"Lead", lead, "email_id" if channel == "Email" else "mobile_no"
+				),
+				**fields,
+			}
+		)
+		doc.insert(ignore_permissions=True)
+	finally:
+		frappe.set_user(previous)  # nosemgrep
+	return doc.name
+
+
+def delete_outreach_messages() -> None:
+	"""Delete every TBO Outreach Message and commit."""
+	frappe.db.delete("TBO Outreach Message")
+	frappe.db.commit()  # nosemgrep
+
+
+def make_incoming_reply(lead: str, text: str, sender: str = "client@prospect.test", sent_on=None):
+	"""A received email on `lead` from `sender` (someone outside the team), as a normal reply makes it.
+	The job that sorts it is not queued: tests call `replies.process_reply` themselves."""
+	with patch("frappe.enqueue"):
+		return _insert_reply(lead, text, sender, sent_on)
+
+
+def _insert_reply(lead: str, text: str, sender: str, sent_on):
+	return frappe.get_doc(
+		{
+			"doctype": "Communication",
+			"communication_type": "Communication",
+			"communication_medium": "Email",
+			"sent_or_received": "Received",
+			"sender": sender,
+			"recipients": "outbox@tbosmart.test",
+			"subject": "Re: Hello from TBO",
+			"content": text,
+			"reference_doctype": "Lead",
+			"reference_name": lead,
+			"communication_date": sent_on or frappe.utils.now_datetime(),
+		}
+	).insert(ignore_permissions=True)

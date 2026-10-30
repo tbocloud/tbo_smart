@@ -174,7 +174,14 @@
   "serper_api_key",
   "prospect_monthly_cap",
   "prospect_max_results",
-  "prospect_categories"
+  "prospect_categories",
+  "outreach_section",
+  "enable_outreach",
+  "outreach_daily_cap",
+  "outreach_max_batch",
+  "column_break_outreach",
+  "outreach_window_start",
+  "outreach_window_end"
  ],
  "fields": [
   {
@@ -1286,6 +1293,49 @@
    "label": "Industry to provider categories",
    "options": "TBO Prospect Category",
    "description": "Overrides the built-in mapping for an industry. Industries not listed use the built-in one."
+  },
+  {
+   "fieldname": "outreach_section",
+   "fieldtype": "Section Break",
+   "label": "Outreach",
+   "description": "AI first messages that a person approves before they go, and replies sorted automatically (docs/prospecting.md Phase 2). Email goes out through the default outgoing Email Account."
+  },
+  {
+   "fieldname": "enable_outreach",
+   "fieldtype": "Check",
+   "label": "Enable Outreach",
+   "description": "Switches on drafting, sending and the reply sorter. Nothing is ever sent without a person approving it."
+  },
+  {
+   "fieldname": "outreach_daily_cap",
+   "fieldtype": "Int",
+   "label": "Emails per user per day",
+   "default": "30",
+   "description": "Approved emails past this wait for the next working day. 0 stops email sending."
+  },
+  {
+   "fieldname": "outreach_max_batch",
+   "fieldtype": "Int",
+   "label": "Drafts per request",
+   "default": "50"
+  },
+  {
+   "fieldname": "column_break_outreach",
+   "fieldtype": "Column Break",
+   "label": ""
+  },
+  {
+   "fieldname": "outreach_window_start",
+   "fieldtype": "Time",
+   "label": "Send window starts",
+   "default": "09:30:00",
+   "description": "Emails go out Monday to Saturday between these times, site time; approved ones outside wait."
+  },
+  {
+   "fieldname": "outreach_window_end",
+   "fieldtype": "Time",
+   "label": "Send window ends",
+   "default": "18:00:00"
   }
  ],
  "index_web_pages_for_search": 0,

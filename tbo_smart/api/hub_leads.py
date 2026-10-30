@@ -15,7 +15,7 @@ from frappe import _
 from frappe.query_builder.functions import Min
 from frappe.utils import cint, flt, get_datetime, getdate
 
-from tbo_smart import lead_source
+from tbo_smart import lead_source, outreach
 from tbo_smart.api.mobile.capabilities import CRM_ROLES, get_capabilities
 from tbo_smart.api.mobile.crm import check_assignee, get_crm_users
 from tbo_smart.api.mobile.utils import get_full_names
@@ -33,6 +33,7 @@ from tbo_smart.lead_pipeline.proposals import latest_proposals, lead_proposals, 
 from tbo_smart.lead_pipeline.quotations import latest_quotations, lead_quotations
 from tbo_smart.lead_pipeline.setup import HUB_ROLE, MANAGEMENT_ROLE, SEGMENTS
 from tbo_smart.lead_pipeline.statuses import STATUS_NAMES, needs_lost_reason, stage_options
+from tbo_smart.outreach import replies
 from tbo_smart.prospecting import runs as prospect_runs
 from tbo_smart.prospecting import signals as prospect_signals
 from tbo_smart.query import aggregate
@@ -107,6 +108,8 @@ ROW_FIELDS = [
 	"tbo_stage",
 	"tbo_last_call_result as last_call_result",
 	"tbo_last_call_on as last_call_on",
+	"tbo_last_reply_class as last_reply_class",
+	"tbo_last_reply_on as last_reply_on",
 	"tbo_segment as segment",
 	"tbo_department",
 	"tbo_lead_type",
@@ -142,6 +145,8 @@ LEAD_DETAIL_FIELDS = [
 	"tbo_stage",
 	"tbo_last_call_result as last_call_result",
 	"tbo_last_call_on as last_call_on",
+	"tbo_last_reply_class as last_reply_class",
+	"tbo_last_reply_on as last_reply_on",
 	"status",
 	"lead_owner",
 	"tbo_score",
@@ -231,7 +236,7 @@ def acting_as(acting_user: str | None):
 def get_options(acting_user: str | None = None) -> dict:
 	"""Pick lists for the lead page: stages (in pipeline order), sources, segments, owners (the
 	sales users), territories, industries, `can_find_prospects` and `prospecting` (providers, default
-	department and limits, for those who may find prospects), `departments` (the active lead departments:
+	department and limits, for those who may find prospects), `outreach` (Outreach is on), `departments` (the active lead departments:
 	{name, lead_type, is_active, is_head, is_member} for the acting user) and `lead_types`."""
 	with acting_as(acting_user):
 		prospecting = prospect_runs.options()
@@ -251,6 +256,8 @@ def get_options(acting_user: str | None = None) -> dict:
 			# Find prospects (docs/prospecting.md): managers and department heads, while it is on
 			"can_find_prospects": prospecting is not None,
 			"prospecting": prospecting,
+			# the Outreach tab (docs/prospecting.md Phase 2): drafts a person approves, while it is on
+			"outreach": outreach.enabled(),
 		}
 
 
@@ -278,6 +285,7 @@ def list_leads(
 	district: list | str | None = None,
 	org_size: list | str | None = None,
 	last_call_result: list | str | None = None,
+	last_reply_class: list | str | None = None,
 	acting_user: str | None = None,
 ) -> dict:
 	"""The leads the acting user may see, newest change first: {rows, total}. `view`: all, mine
@@ -287,7 +295,8 @@ def list_leads(
 	keeps one lead department's leads (the acting user still sees only what they may).
 	`industry`, `state`, `district` and `org_size` each take a value or a list (a JSON list in a
 	GET) and keep the leads with any of them; `last_call_result` does the same for the outcome of
-	the lead's last call (Connected, Not answered, Busy, Call back, Not interested, Wrong number)."""
+	the lead's last call (Connected, Not answered, Busy, Call back, Not interested, Wrong number);
+	`last_reply_class` the same for the class of its last email reply (Interested, Question, …)."""
 	if view not in VIEWS:
 		frappe.throw(_("view must be one of {0}.").format(", ".join(VIEWS)))
 	start = max(cint(start), 0)
@@ -301,6 +310,8 @@ def list_leads(
 		filters.update(lead_category.category_filters(industry, state, district, org_size))
 		if last_call_result:
 			filters["tbo_last_call_result"] = ("in", lead_calls.result_filter(last_call_result))
+		if last_reply_class:
+			filters["tbo_last_reply_class"] = ("in", replies.class_filter(last_reply_class))
 		if temperature:
 			if temperature not in TEMPERATURES:
 				frappe.throw(_("temperature must be one of {0}.").format(", ".join(TEMPERATURES)))
@@ -423,6 +434,8 @@ def serialize_rows(rows: list) -> list[dict]:
 			"tbo_stage": row.tbo_stage,
 			"last_call_result": row.last_call_result or None,
 			"last_call_on": row.last_call_on,
+			"last_reply_class": row.last_reply_class,
+			"last_reply_on": row.last_reply_on,
 			"segment": row.segment,
 			"tbo_department": row.tbo_department,
 			"tbo_lead_type": row.tbo_lead_type,
@@ -1074,10 +1087,14 @@ def add_note(name: str, note: str, acting_user: str | None = None) -> dict:
 
 @frappe.whitelist()
 def get_category_counts(acting_user: str | None = None) -> dict:
-	"""{industry, state, district, org_size, last_call_result}: each {value: number of leads}
+	"""{industry, state, district, org_size, last_call_result, last_reply_class}: each {value: number of leads}
 	over the leads the acting user may see."""
 	with acting_as(acting_user):
-		return {**lead_category.get_counts(), "last_call_result": lead_calls.get_counts()}
+		return {
+			**lead_category.get_counts(),
+			"last_call_result": lead_calls.get_counts(),
+			"last_reply_class": replies.get_counts(),
+		}
 
 
 @frappe.whitelist(methods=["POST"])
