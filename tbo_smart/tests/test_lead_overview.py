@@ -171,7 +171,8 @@ class TestLeadOverview(FrappeTestCase):
 		self.assertEqual(listed("hot"), {self.hot})
 		self.assertEqual(listed("open"), {self.new, self.hot, self.stale, self.revived})
 		self.assertEqual(listed("meetings"), {self.hot})
-		self.assertEqual(listed("quotations"), {self.hot})
+		# the hot lead's sent quotation and the won lead's passage through Proposal Sent
+		self.assertEqual(listed("quotations"), {self.hot, self.won})
 		self.assertIn(self.revived, listed("contacted"))
 		self.assertNotIn(self.stale, listed("contacted"))
 		self.assertEqual(listed("new"), {self.new, self.hot, self.won, self.lost})

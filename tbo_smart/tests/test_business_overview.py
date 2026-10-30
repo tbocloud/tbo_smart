@@ -128,8 +128,10 @@ class TestBusinessOverview(FrappeTestCase):
 	def test_revenue_counts_invoices_and_what_is_owed(self):
 		enable_finance_receivables()
 		before = hub.get_business_overview(acting_user=BOSS)["revenue"]
+		frappe.set_user("Administrator")
 		deal = make_finance_deal(BDE)
 		make_deal_invoice(deal, rate=1000)
+		frappe.set_user(HUB)
 		after = hub.get_business_overview(acting_user=BOSS)
 		self.assertGreater(after["revenue"]["invoiced"], before["invoiced"])
 		self.assertGreater(after["revenue"]["outstanding"], before["outstanding"])
