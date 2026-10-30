@@ -12,6 +12,8 @@ from frappe import _
 from frappe.custom.doctype.property_setter.property_setter import make_property_setter
 from frappe.utils import cint
 
+from tbo_smart.query import aggregate
+
 INDUSTRY_TYPE = "Industry Type"
 MANAGER_ROLES = ("System Manager", "Sales Manager")
 MAX_BULK = 500
@@ -310,7 +312,7 @@ def districts_by_state() -> dict[str, list[str]]:
 	rows = frappe.get_list(
 		"Lead",
 		filters={"tbo_district": ("is", "set")},
-		fields=["state", "tbo_district", "count(name) as total"],
+		fields=["state", "tbo_district", aggregate("count", "name", "total")],
 		group_by="state, tbo_district",
 		order_by="total desc",
 	)
@@ -338,7 +340,7 @@ def get_counts() -> dict:
 		rows = frappe.get_list(
 			"Lead",
 			filters={field: ("is", "set")},
-			fields=[field, "count(name) as total"],
+			fields=[field, aggregate("count", "name", "total")],
 			group_by=field,
 		)
 		counts[key] = {row[field]: cint(row.total) for row in rows}

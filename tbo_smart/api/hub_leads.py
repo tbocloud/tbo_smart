@@ -34,6 +34,7 @@ from tbo_smart.lead_pipeline.setup import HUB_ROLE, MANAGEMENT_ROLE, SEGMENTS
 from tbo_smart.lead_pipeline.statuses import STATUS_NAMES, stage_options, status_type
 from tbo_smart.prospecting import runs as prospect_runs
 from tbo_smart.prospecting import signals as prospect_signals
+from tbo_smart.query import aggregate
 from tbo_smart.sales import departments, duplicates, erpnext_installed, stale
 from tbo_smart.sales.activities import (
 	OPEN,
@@ -364,9 +365,9 @@ def search_filters(search: str | None) -> dict | None:
 
 def count_leads(filters: dict, or_filters: dict | None) -> int:
 	return cint(
-		frappe.get_list("Lead", filters=filters, or_filters=or_filters, fields=["count(name) as total"])[
-			0
-		].total
+		frappe.get_list(
+			"Lead", filters=filters, or_filters=or_filters, fields=[aggregate("count", "name", "total")]
+		)[0].total
 	)
 
 
