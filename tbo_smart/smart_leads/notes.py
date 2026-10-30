@@ -10,7 +10,7 @@ from frappe import _
 from frappe.utils import add_days, getdate, now_datetime, strip_html
 
 from tbo_smart import ai
-from tbo_smart.lead_pipeline.statuses import STATUS_NAMES, status_type
+from tbo_smart.lead_pipeline.statuses import STATUS_NAMES, needs_lost_reason
 from tbo_smart.sales.activities import add_call, add_follow_up_task, add_note, close_due_follow_ups
 from tbo_smart.sales.stages import system_save
 from tbo_smart.smart_leads import FOLLOW_UP_TYPE
@@ -128,7 +128,7 @@ def set_lead_status(lead: str, status: str, notes: str | None = None) -> str:
 	doc = frappe.get_doc("Lead", lead)
 	doc.check_permission("write")
 	doc.tbo_stage = status
-	if status_type(status) == "Lost" and not doc.tbo_lost_reason:
+	if needs_lost_reason(status) and not doc.tbo_lost_reason:
 		doc.tbo_lost_reason = "Other"
 		doc.tbo_lost_notes = strip_html(notes or "").strip()[:500] or _("Closed from TBO smart leads")
 	system_save(doc)

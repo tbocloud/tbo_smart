@@ -6,11 +6,12 @@ import frappe
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
 from tbo_smart.lead_pipeline import lead_category
-from tbo_smart.lead_pipeline.statuses import NEW_LEAD, STATUS_NAMES
+from tbo_smart.lead_pipeline.statuses import AUTO_LOST_REASONS, LOST_STATUSES, NEW_LEAD, STATUS_NAMES
 from tbo_smart.sales import DEAL, LEAD, LEAD_LINK, erpnext_installed
+from tbo_smart.sales.call_batches import OUTCOMES as CALL_RESULTS
 from tbo_smart.sales.departments import DEPARTMENT, LEAD_TYPES
 from tbo_smart.sales.opportunity import STAGE_TYPES, ensure_default_stages
-from tbo_smart.sales.stages import OTHER_REASON
+from tbo_smart.sales.stages import OTHER_REASON, ensure_lost_reason
 
 QUOTE_STATUSES = (
 	"Draft",
@@ -24,6 +25,7 @@ QUOTE_STATUSES = (
 	"Rejected",
 	"Expired",
 )
+LOST_DEPENDS_ON = "eval:" + str(list(LOST_STATUSES)).replace("'", '"') + ".includes(doc.tbo_stage)"
 PRINT_FORMAT = "TBO Quotation"
 SEGMENTS = ("Retail", "Small", "Medium", "Large", "Premium")
 HUB_ROLE = "Hub Integration"
@@ -75,11 +77,31 @@ def get_pipeline_fields() -> dict:
 				"description": "TBO's pipeline stage. ERPNext sets Status itself.",
 			},
 			{
+				# set by lead_pipeline/call_outcomes.py from every call logged on the lead
+				"fieldname": "tbo_last_call_result",
+				"fieldtype": "Select",
+				"options": "\n" + "\n".join(CALL_RESULTS),
+				"label": "Last call result",
+				"insert_after": "tbo_stage",
+				"read_only": 1,
+				"no_copy": 1,
+				"in_standard_filter": 1,
+				"search_index": 1,
+			},
+			{
+				"fieldname": "tbo_last_call_on",
+				"fieldtype": "Datetime",
+				"label": "Last call on",
+				"insert_after": "tbo_last_call_result",
+				"read_only": 1,
+				"no_copy": 1,
+			},
+			{
 				"fieldname": "tbo_segment",
 				"fieldtype": "Select",
 				"options": "\n" + "\n".join(SEGMENTS),
 				"label": "Segment",
-				"insert_after": "tbo_stage",
+				"insert_after": "tbo_last_call_on",
 				"in_standard_filter": 1,
 			},
 			{
@@ -109,14 +131,14 @@ def get_pipeline_fields() -> dict:
 				"options": "Opportunity Lost Reason",
 				"label": "Lost reason",
 				"insert_after": "tbo_lead_type",
-				"depends_on": "eval:doc.tbo_stage == 'Closed – Lost'",
+				"depends_on": LOST_DEPENDS_ON,
 			},
 			{
 				"fieldname": "tbo_lost_notes",
 				"fieldtype": "Small Text",
 				"label": "Lost notes",
 				"insert_after": "tbo_lost_reason",
-				"depends_on": "eval:doc.tbo_stage == 'Closed – Lost'",
+				"depends_on": LOST_DEPENDS_ON,
 			},
 			{
 				# what the client's website says, read once for its proposals (proposal_profile)
@@ -460,11 +482,10 @@ def ensure_management_role() -> None:
 
 
 def ensure_other_reason() -> None:
-	"""Free-text lost reasons are saved as "Other" with the text as the notes."""
-	if not frappe.db.exists("Opportunity Lost Reason", OTHER_REASON):
-		frappe.get_doc({"doctype": "Opportunity Lost Reason", "lost_reason": OTHER_REASON}).insert(
-			ignore_permissions=True
-		)
+	"""Free-text lost reasons are saved as "Other" with the text as the notes; Not Interested and
+	Wrong Number fill their own."""
+	for reason in (OTHER_REASON, *AUTO_LOST_REASONS.values()):
+		ensure_lost_reason(reason)
 
 
 def sync_print_format() -> None:

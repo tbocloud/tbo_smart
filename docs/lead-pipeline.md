@@ -36,7 +36,7 @@ feature updates it in the same pull request. The screens are the TBO Support hub
 
 ### 2.1 The stages (`lead_pipeline/statuses.py`)
 
-A lead's stage is the custom **`Lead.tbo_stage`**, a Select of these 13 names in this order
+A lead's stage is the custom **`Lead.tbo_stage`**, a Select of these 16 names in this order
 (default New Lead). ERPNext's own `Lead.status` is left alone: ERPNext sets it itself (Lead,
 Opportunity, Quotation, Converted…). Each stage has a type, as Frappe CRM's lead statuses had,
 and a colour name for the screens (`stage_options()`, also the hub's `get_options`). The code
@@ -46,17 +46,20 @@ names them in this one module.
 | --- | --- | --- | --- | --- |
 | 1 | New Lead | Open | yes | 10 |
 | 2 | Contacted | Ongoing | yes | 18 |
-| 3 | Meeting Scheduled | Ongoing | yes | 24 |
-| 4 | First Meeting Completed | Ongoing | yes | 26 |
-| 5 | Second Meeting Completed | Ongoing | yes | 28 |
-| 6 | Third Meeting Completed | Ongoing | yes | 30 |
-| 7 | Proposal Sent | Ongoing | yes | 32 |
-| 8 | Negotiation | Ongoing | yes | 34 |
-| 9 | Positive / Interested | Ongoing | yes | 22 |
-| 10 | Follow-up Required | Ongoing | yes | 16 |
-| 11 | On Hold | On Hold | yes | 4 |
-| 12 | Closed – Won | Won | no | 0 (closed) |
-| 13 | Closed – Lost | Lost | no | 0 (closed) |
+| 3 | Not Responding | Ongoing | yes | 12 |
+| 4 | Meeting Scheduled | Ongoing | yes | 24 |
+| 5 | First Meeting Completed | Ongoing | yes | 26 |
+| 6 | Second Meeting Completed | Ongoing | yes | 28 |
+| 7 | Third Meeting Completed | Ongoing | yes | 30 |
+| 8 | Proposal Sent | Ongoing | yes | 32 |
+| 9 | Negotiation | Ongoing | yes | 34 |
+| 10 | Positive / Interested | Ongoing | yes | 22 |
+| 11 | Follow-up Required | Ongoing | yes | 16 |
+| 12 | On Hold | On Hold | yes | 4 |
+| 13 | Closed – Won | Won | no | 0 (closed) |
+| 14 | Closed – Lost | Lost | no | 0 (closed) |
+| 15 | Not Interested | Lost | no | 0 (closed) |
+| 16 | Wrong Number | Lost | no | 0 (closed) |
 
 - **Stage history:** every stage a lead enters is a row of its **`tbo_stage_log`** (TBO Stage
   Change: `stage`, `previous_stage`, `changed_on`, `changed_by`; the insert is the first row),
@@ -67,7 +70,13 @@ names them in this one module.
   The mobile `set_lead_status`, the MOM's lead stage and the hub's `set_stage` take a
   `lost_reason`: a lost reason's name is used as it is, free text becomes "Other" with the text
   in the notes (one helper, `sales.stages.set_lost_reason`, also for deals).
-- `OPEN_STATUSES` (everything but Closed – Won and Closed – Lost) is the single list smart leads
+- **Not Responding, Not Interested, Wrong Number** (§2.3): called but not answered (call again,
+  open and callable), picked up and declined, an invalid number. The two Lost ones fill their own
+  lost reason ("Not interested", "Wrong number" Opportunity Lost Reasons, made on migrate) and
+  Wrong Number sets `tbo_wrong_number`, so neither asks for one (`needs_lost_reason`); a lead
+  reopened keeps its reason like a Closed – Lost one. The funnel does not count Not Responding as
+  contacted, and scoring treats a move between it and Contacted as sideways.
+- `OPEN_STATUSES` (every stage that is not Won or Lost) is the single list smart leads
   use for scoring, Call today, the follow-up engine and the triage.
 
 ### 2.2 Automatic moves (`lead_pipeline/transitions.py`)
@@ -79,7 +88,7 @@ names them in this one module.
 | A quotation is sent / under negotiation / accepted (§9.3) | Proposal Sent / Negotiation / Closed – Won |
 
 - An automatic move only goes **forward** along `PROGRESS` and never touches a closed lead.
-  Contacted, Positive / Interested, Follow-up Required and On Hold rank together before the
+  Contacted, Not Responding, Positive / Interested, Follow-up Required and On Hold rank together before the
   first meeting. So a status someone set by hand (say Negotiation) is never pulled back by a
   later meeting; Additional meetings (4th and later) move nothing.
 - **Manual changes** are always allowed, from the lead page, the MOM dialog or the app.
@@ -98,6 +107,20 @@ names them in this one module.
   (`reassign_leads`) and a caller's new lead (`telephony.calls.new_caller_lead`). A person
   editing the lead's own fields (`hub_leads.update_lead`, the desk) is still asked for them.
 
+### 2.3 Call outcomes (`lead_pipeline/call_outcomes.py`)
+
+Every call recorded on a lead ends in one helper, `apply_call_outcome(lead, outcome, called_at,
+callback_at)`: the hub's Log call (`log_call`), a call batch outcome and the batch sync, and a
+MyOperator call (outgoing, or incoming and answered). It keeps **`tbo_last_call_result`**
+(Select: Connected, Not answered, Busy, Call back, Not interested, Wrong number) and
+**`tbo_last_call_on`** on the lead, and moves the stage (with the pipeline on): Not answered or
+Busy takes New Lead, Contacted or Not Responding to Not Responding; Connected takes New Lead or
+Not Responding to Contacted; Call back takes New Lead, Contacted or Not Responding to
+Follow-up Required and makes the follow-up for `callback_at`; Not interested and Wrong number
+take any stage before the first meeting to Not Interested / Wrong Number. A lead further along,
+or closed, keeps its stage. A call older than the last one changes nothing. MyOperator's
+missed and voicemail read as Not answered, answered as Connected. API: `hub-leads-api.md` §2.16.
+
 ## 3. The status migration (done)
 
 On 2026-10-16 a patch mapped the 1,572 migrated CRM Leads' old statuses (New, Contacted, Nurture,
@@ -111,7 +134,7 @@ has it (`erpnext-lead-cutover.md` §4).
 
 | Doctype | Field | Purpose |
 | --- | --- | --- |
-| Lead | `tbo_stage` (Select), `tbo_stage_log` (TBO Stage Change), `tbo_lost_reason`, `tbo_lost_notes` | §2 |
+| Lead | `tbo_stage` (Select), `tbo_stage_log` (TBO Stage Change), `tbo_lost_reason`, `tbo_lost_notes`, `tbo_last_call_result`, `tbo_last_call_on` | §2 |
 | Lead | `tbo_segment` (Select Retail, Small, Medium, Large, Premium) | The client's segment: its price list and discount band (§9.8) |
 | Lead | `tbo_department` (Link TBO Lead Department), `tbo_lead_type` (Select) | Lead departments and who sees them (`lead-departments.md`) |
 | Lead / Opportunity | `crm_lead_ref` / `crm_deal_ref` (hidden) | The Frappe CRM record a copy came from (`erpnext-lead-cutover.md`) |

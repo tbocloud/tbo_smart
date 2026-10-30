@@ -16,7 +16,7 @@ from frappe import _
 from frappe.utils import add_to_date, cint, escape_html, format_datetime, get_datetime, getdate, now_datetime
 
 from tbo_smart.lead_pipeline import pipeline_enabled, setting
-from tbo_smart.lead_pipeline.statuses import CLOSED_LOST, MEETING_COMPLETED, MEETING_SCHEDULED, status_type
+from tbo_smart.lead_pipeline.statuses import MEETING_COMPLETED, MEETING_SCHEDULED, status_type
 from tbo_smart.lead_pipeline.transitions import advance_lead
 from tbo_smart.sales import lead_url
 from tbo_smart.sales.activities import add_follow_up_task
@@ -98,8 +98,9 @@ class LeadMeeting:
 			self.meeting_link = None
 
 	def validate_lead(self):
-		if self.is_new() and status_type(frappe.db.get_value("Lead", self.lead, "tbo_stage")) == "Lost":
-			frappe.throw(_("This lead is {0}. Reopen it before scheduling a meeting.").format(CLOSED_LOST))
+		stage = frappe.db.get_value("Lead", self.lead, "tbo_stage")
+		if self.is_new() and status_type(stage) == "Lost":
+			frappe.throw(_("This lead is {0}. Reopen it before scheduling a meeting.").format(stage))
 
 	def validate_place(self):
 		if self.meeting_type not in MEETING_TYPES:

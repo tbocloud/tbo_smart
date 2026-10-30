@@ -18,6 +18,7 @@ from tbo_smart.lead_pipeline.statuses import (
 	MEETING_SCHEDULED,
 	NEGOTIATION,
 	NEW_LEAD,
+	NOT_RESPONDING,
 	ON_HOLD,
 	POSITIVE,
 	PROPOSAL_SENT,
@@ -37,6 +38,7 @@ HOT_FROM, WARM_FROM = 55, 30
 STATUS_POINTS = {
 	NEW_LEAD: 10,
 	CONTACTED: 18,
+	NOT_RESPONDING: 12,
 	FOLLOW_UP_REQUIRED: 16,
 	POSITIVE: 22,
 	ON_HOLD: 4,
@@ -195,7 +197,10 @@ def reason_line(reasons: list[str], limit: int = 4) -> str:
 
 
 def status_positions() -> dict:
-	return {name: position for position, name in enumerate(STATUS_NAMES, start=1)}
+	positions = {name: position for position, name in enumerate(STATUS_NAMES, start=1)}
+	# a call that went unanswered and the one that got through are the same step, not a move back
+	positions[NOT_RESPONDING] = positions[CONTACTED]
+	return positions
 
 
 # ---------- writing ----------

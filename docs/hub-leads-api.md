@@ -42,7 +42,7 @@ curl -s -X POST https://india.teambackoffice.com/api/method/tbo_smart.api.hub_le
 | Method | Verb | Arguments | Returns |
 | --- | --- | --- | --- |
 | `get_options` | GET | `acting_user` | `{stages: [{name, label, type, color}], sources: [], segments: [], departments: [{name, lead_type, is_active, assignment, stale_after_days, call_batches_enabled, is_head, is_member}], lead_types: [], owners: [{email, full_name}], territories: [], industries: [], org_sizes: [], states: [], kerala_districts: [], districts_by_state: {state: [district]}, can_call}` (§2.12) |
-| `list_leads` | GET | `search?`, `stage?`, `owner?`, `segment?`, `source?`, `temperature?` (Hot / Warm / Cold), `industry?`, `state?`, `district?`, `org_size?` (each a value or a list, §2.14), `metric?` with `period?` / `from_date?` / `to_date?` (§2.4), `view` (`all` / `mine` / `call_today` / `follow_up`, default `all`), `start` (0), `page_length` (20, at most 100), `acting_user` | `{rows: [Row], total}` |
+| `list_leads` | GET | `search?`, `stage?`, `owner?`, `segment?`, `source?`, `temperature?` (Hot / Warm / Cold), `industry?`, `state?`, `district?`, `org_size?` (each a value or a list, §2.14), `last_call_result?` (a value or a list, §2.16), `metric?` with `period?` / `from_date?` / `to_date?` (§2.4), `view` (`all` / `mine` / `call_today` / `follow_up`, default `all`), `start` (0), `page_length` (20, at most 100), `acting_user` | `{rows: [Row], total}` |
 | `get_overview` | GET | `period` (`week` / `month` / `quarter` / `custom`; default `month`, or `custom` when dates are sent), `from_date?`, `to_date?` (custom), `owner?`, `acting_user` | Overview (§2.4) |
 | `get_lead_intake` | GET | `from_date?`, `to_date?` (default today, at most 62 days), `owner?`, `acting_user` | Intake (§2.4.1) |
 | `get_proposal_money` | GET | `period`, `from_date?`, `to_date?`, `owner?` (as `get_overview`), `acting_user` | Money (§2.8) |
@@ -50,7 +50,7 @@ curl -s -X POST https://india.teambackoffice.com/api/method/tbo_smart.api.hub_le
 | `get_lead` | GET | `name`, `acting_user` | `{lead: Lead, timeline: [Item], quotations: [Quotation], proposals: [Proposal row], allowed_stages: [stage name]}` |
 | `create_lead` | POST | `data`, `allow_duplicate?` (1 to create past a duplicate, §2.9), `acting_user` | as `get_lead` |
 | `find_duplicate_leads` | GET | `email?`, `phone?`, `company?`, `exclude?` (a lead name), `acting_user` | `[Match]` (§2.9) |
-| `get_category_counts` | GET | `acting_user` | `{industry, state, district, org_size}`, each `{value: leads}` (§2.14) |
+| `get_category_counts` | GET | `acting_user` | `{industry, state, district, org_size, last_call_result}`, each `{value: leads}` (§2.14, §2.16) |
 | `add_industry` | POST | `name`, `acting_user` | `{name, created}` (§2.14) |
 | `bulk_set_lead_category` | POST | `leads` (list of names), `values`, `acting_user` | `{updated, skipped: [{name, reason}]}` (§2.14) |
 | `get_stale_leads` | GET | `days` (3), `acting_user` | `[Stale]` (§2.10) |
@@ -60,6 +60,7 @@ curl -s -X POST https://india.teambackoffice.com/api/method/tbo_smart.api.hub_le
 | `delete_lead_photo` | POST | `lead`, `file` (a Photo's `name`), `acting_user` | `{deleted: file}` |
 | `get_lead_photo` | GET | `lead`, `file`, `thumb?` (1: a small JPEG), `acting_user` | the image bytes (`Content-Type` image/png, image/jpeg or image/webp), not JSON |
 | `set_stage` | POST | `name`, `stage`, `note?`, `acting_user` | as `get_lead` |
+| `log_call` | POST | `lead`, `outcome`, `note?`, `callback_at?` (Call back), `acting_user` | `{name, status, outcomes, stage}` (§2.7, §2.16) |
 | `add_note` | POST | `name`, `note`, `acting_user` | the new timeline `Item` |
 | `get_rate_card` | GET | `acting_user` | `RateCard` (§2.3) |
 | `save_rate_card` | POST | `rows` (JSON list of `{segment, price_list, max_discount}`), `acting_user` | `RateCard` |
@@ -142,7 +143,7 @@ Quotation = {name, docstatus, tbo_quote_status, transaction_date, valid_till, cu
 
 - `create_lead` needs a name or a company. ERPNext checks the email (unique unless CRM Settings
   allow duplicates, and never the owner's own).
-- `set_stage` to **Closed – Lost** needs `note`: a lost reason's name, or free text saved as
+- `set_stage` to **Closed – Lost** needs `note` (Not Interested and Wrong Number need none, §2.16): a lost reason's name, or free text saved as
   "Other" with the text as `tbo_lost_notes`. For any other stage `note` is added as a note.
   Closed – Won makes the deal (with the lead pipeline on).
 - `add_note` needs read on the lead (as the app's notes do).
@@ -333,14 +334,17 @@ also `list_leads` metrics (open leads the AI read so, now; none while AI runs le
 Click-to-call, the recording player and the telephony settings are in
 `tbo_smart.api.telephony` (`telephony-myoperator.md` §4), with the same `acting_user` rule.
 
-**`log_call(lead, outcome, note?, acting_user?)`** (POST) logs a call made outside MyOperator
-(MyOperator is not live everywhere yet). `outcome` is `Connected`, `No answer`, `Busy` or
-`Voicemail`; it needs write permission on the lead. It creates an **outgoing TBO Call** for the
-acting user (the one source of calls) and its call Event on the lead's timeline, and returns
-`{name, status, outcomes}`: `Connected` is stored as Answered, `No answer` and `Busy` as Missed,
-`Voicemail` as Voicemail, with `call_id` `manual-<random>`, no duration and no recording. It
-works with telephony switched off. A connected manual call counts in the Scoreboard's `calls`
-(with no talk time).
+**`log_call(lead, outcome, note?, callback_at?, acting_user?)`** (POST) logs a call made outside
+MyOperator (MyOperator is not live everywhere yet). `outcome` is `Connected`, `Not answered`,
+`Busy`, `Call back` (needs `callback_at`), `Not interested` or `Wrong number`, the call batch
+outcomes; the older `No answer` and `Voicemail` still work and read as Not answered. It needs
+write permission on the lead. It creates an **outgoing TBO Call** for the acting user (the one
+source of calls) and its call Event on the lead's timeline, and returns
+`{name, status, outcomes, stage}`: Connected, Call back and Not interested are stored as
+Answered, Not answered, No answer, Busy and Wrong number as Missed, `Voicemail` as Voicemail,
+with `call_id` `manual-<random>`, no duration and no recording. `stage` is the stage the call
+moved the lead to, else `null` (§2.16). It works with telephony switched off. A connected manual
+call counts in the Scoreboard's `calls` (with no talk time).
 
 ### 2.8 Proposals and money
 
@@ -603,6 +607,47 @@ A finished run's leads have no owner (`lead_owner` empty) in the run's departmen
 hiring, tech, software, last_updated_year, https} | {has_website: false} | {unreadable: true},
 read_on}`. `get_lead`'s `lead` no longer carries `tbo_web_profile`.
 
+### 2.16 Call outcomes: stages and the last call
+
+Three stages say what a call told the salesperson (`lead_pipeline/statuses.py`, `get_options`'
+`stages` carries them with their type and colour):
+
+| Stage | Type | Colour | Meaning |
+| --- | --- | --- | --- |
+| Not Responding | Ongoing | orange | Called, not answered, busy or switched off: call again. Open, callable, in Call today, batches and stale leads |
+| Not Interested | Lost | red | Picked up and declined. `tbo_lost_reason` is set to "Not interested" |
+| Wrong Number | Lost | gray | Invalid or wrong number. `tbo_lost_reason` "Wrong number" and `tbo_wrong_number` set |
+
+Lost-type stages count as lost everywhere (funnel, win rate, business, lost reasons) and leave
+the open lists. Setting Not Interested or Wrong Number by hand (`set_stage`, any `note` is
+added as a note) needs no reason; Closed – Lost still does.
+
+**One helper, three callers.** `lead_pipeline/call_outcomes.apply_call_outcome` is used by
+`log_call`, a call-batch outcome (and the batch sync) and a MyOperator call (outgoing, or
+incoming and answered; a missed incoming call says nothing about the lead). It sets the lead's
+**`last_call_result`** (`Connected`, `Not answered`, `Busy`, `Call back`, `Not interested`,
+`Wrong number`) and **`last_call_on`**, and, with the lead pipeline on, moves the stage:
+
+| Outcome | From | To |
+| --- | --- | --- |
+| Not answered, Busy (also MyOperator missed, voicemail) | New Lead, Contacted, Not Responding | Not Responding |
+| Connected (MyOperator answered) | New Lead, Not Responding | Contacted |
+| Call back (`callback_at` makes the follow-up) | New Lead, Contacted, Not Responding | Follow-up Required |
+| Not interested | any stage before the first meeting | Not Interested |
+| Wrong number | any stage before the first meeting | Wrong Number |
+
+A lead at Meeting Scheduled or later, and a Won or Lost one, keeps its stage (the BD moves it
+by hand); its last call is still recorded. A call older than the lead's last call changes
+nothing, so a call logged by hand and then synced is counted once. Each move is a system save
+with a timeline comment, so the stage log keeps it.
+
+- **Rows and `get_lead`** return `last_call_result` and `last_call_on` (`null` when never
+  called).
+- **`list_leads`** takes `last_call_result`: a value, a list or a JSON list, any of them;
+  another value is refused (400). It combines with every other filter and view.
+- **`get_category_counts`** adds `last_call_result`: `{outcome: leads}` over the leads the
+  acting user may see (never-called leads are left out).
+
 ## 3. Links back to the hub
 
 Teams messages, emails and the morning digest link to the lead page when TBO Smart Settings →
@@ -643,9 +688,18 @@ filters (single, several, JSON), rows and `get_lead`, cleaning on create and upd
 positive leads, quotations, meetings and follow-ups, new leads without imports, the week to date
 and the scope (a salesperson sees themselves, a Sales Manager everyone, `owner` outside the scope
 is 403); `log_call` (the outcomes, the acting user, the lead's write permission).
+`tbo_smart/tests/test_call_outcomes.py`: the new stages and their types, the stage each outcome moves
+a lead to (and where it stays), the automatic lost reason and wrong-number flag, an older call
+never undoing a newer one, the pipeline off, `log_call`'s `stage`, the rows, `get_lead`, the
+`last_call_result` filter and its counts; `test_telephony.py`: MyOperator calls set the last
+call.
 
 ## Changelog
 
+- **v1.16 (2026-10-30):** call-outcome stages and the last call (§2.16): the Not Responding, Not
+  Interested and Wrong Number stages in `get_options`; `last_call_result` and `last_call_on` on
+  rows and `get_lead`; `list_leads`' `last_call_result`; `get_category_counts`' `last_call_result`;
+  `log_call` takes the call batch outcomes and `callback_at` and returns `stage`.
 - **v1.15 (2026-10-30):** find prospects (§2.15): `estimate_prospect_run`, `start_prospect_run`,
   `get_prospect_runs`, `get_prospect_run`; `get_options`' `can_find_prospects` and `prospecting`;
   `get_lead`'s `lead.prospect`.

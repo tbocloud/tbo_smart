@@ -17,7 +17,16 @@ LEAD_SOURCE = "Phone call"
 INCOMING, OUTGOING = "Incoming", "Outgoing"
 ANSWERED, MISSED, VOICEMAIL = "Answered", "Missed", "Voicemail"
 # what a salesperson can say about a call they logged by hand, and the status it is stored as
-MANUAL_OUTCOMES = {"Connected": ANSWERED, "No answer": MISSED, "Busy": MISSED, "Voicemail": VOICEMAIL}
+MANUAL_OUTCOMES = {
+	"Connected": ANSWERED,
+	"No answer": MISSED,
+	"Not answered": MISSED,
+	"Busy": MISSED,
+	"Voicemail": VOICEMAIL,
+	"Call back": ANSWERED,
+	"Not interested": ANSWERED,
+	"Wrong number": MISSED,
+}
 DEFAULT_MIN_SUMMARY_SECONDS = 30
 DEFAULT_TRANSCRIPTION_MODEL = "gpt-4o-transcribe"
 DEFAULT_RECORDING_DAYS = 180

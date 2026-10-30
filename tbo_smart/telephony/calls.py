@@ -19,6 +19,7 @@ from frappe.query_builder.functions import Coalesce, Count, Sum
 from frappe.utils import add_days, cint, getdate, now_datetime, today
 
 from tbo_smart import lead_source
+from tbo_smart.lead_pipeline.call_outcomes import apply_call_outcome
 from tbo_smart.lead_pipeline.statuses import OPEN_STATUSES
 from tbo_smart.sales.activities import CALL, CANCELLED, OPEN, add_event, add_follow_up_task
 from tbo_smart.sales.stages import system_save
@@ -167,6 +168,9 @@ def process_call(call: str) -> None:
 			else:
 				doc.event = log_call_event(doc).name
 			settle_call_back(doc, owner or doc.agent or fallback_owner())
+			# a missed incoming call says nothing about a lead who did not answer us
+			if doc.direction == OUTGOING or doc.status == ANSWERED:
+				apply_call_outcome(doc.lead, doc.status, doc.started_at)
 	if wants_summary(doc) and not doc.ai_status:
 		doc.ai_status = "Pending"
 	doc.save(ignore_permissions=True)

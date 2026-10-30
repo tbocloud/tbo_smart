@@ -10,7 +10,8 @@ import frappe
 from frappe import _
 from frappe.utils import add_to_date, get_datetime, getdate, now_datetime
 
-from tbo_smart.sales.activities import OPEN, add_follow_up_task, add_note, next_follow_ups
+from tbo_smart.lead_pipeline.call_outcomes import apply_call_outcome, schedule_call_back
+from tbo_smart.sales.activities import OPEN, add_note
 from tbo_smart.sales.call_batches import (
 	ACTIVE,
 	BATCH,
@@ -26,7 +27,6 @@ from tbo_smart.sales.call_batches import (
 	UNREACHED,
 	WRONG_NUMBER,
 )
-from tbo_smart.smart_leads import FOLLOW_UP_TYPE
 from tbo_smart.telephony import ANSWERED as CALL_ANSWERED
 from tbo_smart.telephony.calls import log_manual_call
 
@@ -92,6 +92,7 @@ def apply(batch, row, outcome: str, note: str, callback, called_at):
 	if outcome == WRONG_NUMBER:
 		frappe.db.set_value("Lead", lead, "tbo_wrong_number", 1, update_modified=False)
 		add_note("Lead", lead, _("Wrong number, reported from the daily calls."))
+	apply_call_outcome(lead, outcome, called_at)
 	batch.save(ignore_permissions=True)
 	return comes_back
 
@@ -120,17 +121,7 @@ def set_callback(batch, row, callback, repeat: bool = True):
 	"""The lead's follow-up becomes `callback`; inside this batch it also comes back to the
 	queue at that time."""
 	lead = row.lead
-	frappe.db.set_value("Lead", lead, "tbo_callback_at", callback, update_modified=False)
-	if next_follow_ups("Lead", [lead]).get(lead) != getdate(callback):
-		owner = frappe.db.get_value("Lead", lead, "lead_owner") or frappe.session.user
-		add_follow_up_task(
-			"Lead",
-			lead,
-			callback,
-			title=_("Call back {0}").format(frappe.db.get_value("Lead", lead, "lead_name") or lead),
-			assigned_to=owner,
-			task_type=FOLLOW_UP_TYPE,
-		)
+	schedule_call_back(lead, callback)
 	if not repeat or callback >= get_datetime(batch.ends_at):
 		return None
 	batch.append(
