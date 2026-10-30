@@ -7,7 +7,14 @@ from frappe.utils import add_days, getdate, now_datetime, nowdate
 from tbo_smart.api import hub_leads as hub
 from tbo_smart.api import lead_quotation
 from tbo_smart.lead_pipeline import overview
-from tbo_smart.lead_pipeline.statuses import CLOSED_LOST, CLOSED_WON, CONTACTED, POSITIVE, PROPOSAL_SENT
+from tbo_smart.lead_pipeline.statuses import (
+	CLOSED_LOST,
+	CLOSED_WON,
+	CONTACTED,
+	POSITIVE,
+	PROPOSAL_SENT,
+	STATUS_NAMES,
+)
 from tbo_smart.test_utils import (
 	age_lead,
 	change_lead_stage,
@@ -141,7 +148,7 @@ class TestLeadOverview(FrappeTestCase):
 	def test_pipeline_value_funnel_and_breakdowns(self):
 		result = hub.get_overview(acting_user=BDE)
 		stages = {row["stage"]: row for row in result["pipeline"]}
-		self.assertEqual(len(stages), 13)
+		self.assertEqual(len(stages), len(STATUS_NAMES))
 		# sending the quotation moved the hot lead on to Proposal Sent
 		self.assertEqual(frappe.db.get_value("Lead", self.hot, "tbo_stage"), PROPOSAL_SENT)
 		self.assertEqual(stages[PROPOSAL_SENT]["count"], 1)

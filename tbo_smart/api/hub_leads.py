@@ -421,7 +421,7 @@ def serialize_rows(rows: list) -> list[dict]:
 			"email_id": row.email_id,
 			"mobile_no": row.mobile_no,
 			"tbo_stage": row.tbo_stage,
-			"last_call_result": row.last_call_result,
+			"last_call_result": row.last_call_result or None,
 			"last_call_on": row.last_call_on,
 			"segment": row.segment,
 			"tbo_department": row.tbo_department,
@@ -677,6 +677,7 @@ def lead_payload(name: str) -> dict:
 	lead.prospect = prospect_signals.prospect_of(lead.pop("tbo_web_profile"))
 	lead.photo_count = lead_place.photo_count(name)
 	lead.district = lead.pop("tbo_district")
+	lead.last_call_result = lead.last_call_result or None
 	lead.org_size = lead.pop("no_of_employees")
 	lead.owner_name = frappe.utils.get_fullname(lead.lead_owner) if lead.lead_owner else None
 	lead.deal = lead_opportunity(name)
