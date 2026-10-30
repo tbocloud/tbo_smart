@@ -21,6 +21,7 @@ from frappe.utils import (
 	today,
 )
 
+from tbo_smart import lead_source
 from tbo_smart.api.mobile.utils import get_full_names, percent
 from tbo_smart.lead_pipeline import document_types as kinds
 from tbo_smart.lead_pipeline import setting
@@ -145,7 +146,7 @@ class LeadOverview(PipelineDashboard):
 			"hot": self.high_potential(),
 			"by_owner": self.by_owner(new, contacted),
 			"by_segment": self.by_field("tbo_segment", new, won),
-			"by_source": self.by_field("source", new, won),
+			"by_source": self.by_field(lead_source.field(), new, won),
 		}
 
 	# ---------- leads behind each number ----------
