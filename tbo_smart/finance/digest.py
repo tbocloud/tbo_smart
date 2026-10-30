@@ -16,6 +16,7 @@ from frappe.utils import add_days, date_diff, flt, fmt_money, formatdate, getdat
 from tbo_smart.finance import allocation_enabled, get_setting, receivables_enabled
 from tbo_smart.finance.allocation import allocation_totals
 from tbo_smart.finance.reminders import ReminderRun, load_exceptions
+from tbo_smart.query import aggregate
 
 FINAL_NOTICE_DAYS = 30
 
@@ -56,7 +57,7 @@ def build_digest(on_date=None) -> dict:
 	exceptions = frappe.get_all(
 		"TBO Finance Exception",
 		filters={"category": "Receivable", "status": ("in", ["Open", "Pending Approval"])},
-		fields=["status", "count(name) as count"],
+		fields=["status", aggregate("count", "name", "count")],
 		group_by="status",
 	)
 	return {
