@@ -18,7 +18,7 @@ from frappe.utils import cint, flt, get_datetime, getdate
 from tbo_smart.api.mobile.capabilities import CRM_ROLES, get_capabilities
 from tbo_smart.api.mobile.crm import check_assignee, get_crm_users
 from tbo_smart.api.mobile.utils import get_full_names
-from tbo_smart.lead_pipeline import rate_card, require_quotations, setting
+from tbo_smart.lead_pipeline import lead_place, rate_card, require_quotations, setting
 from tbo_smart.lead_pipeline.business import build_business, can_view_business
 from tbo_smart.lead_pipeline.client_documents import chain as document_chain
 from tbo_smart.lead_pipeline.daily_report import DailyReport, week_start
@@ -26,6 +26,7 @@ from tbo_smart.lead_pipeline.dashboard import company_currency, people, scope_ow
 from tbo_smart.lead_pipeline.meetings import DOCTYPE as MEETING
 from tbo_smart.lead_pipeline.money import ProposalMoney
 from tbo_smart.lead_pipeline.overview import LeadOverview, SalesActivity, period_range
+from tbo_smart.lead_pipeline.proposal_media import decode
 from tbo_smart.lead_pipeline.proposals import latest_proposals, lead_proposals, proposals_enabled
 from tbo_smart.lead_pipeline.quotations import latest_quotations, lead_quotations
 from tbo_smart.lead_pipeline.setup import HUB_ROLE, MANAGEMENT_ROLE, SEGMENTS
@@ -81,6 +82,11 @@ LEAD_FIELDS = {
 	"tbo_department": "tbo_department",
 	"lead_type": "tbo_lead_type",
 	"tbo_lead_type": "tbo_lead_type",
+	"google_profile_url": "tbo_google_profile_url",
+	"maps_url": "tbo_maps_url",
+	"latitude": "tbo_latitude",
+	"longitude": "tbo_longitude",
+	"location_note": "tbo_location_note",
 }
 ROW_FIELDS = [
 	"name",
@@ -122,6 +128,11 @@ LEAD_DETAIL_FIELDS = [
 	"tbo_score_reason",
 	"tbo_lost_reason",
 	"tbo_lost_notes",
+	"tbo_google_profile_url",
+	"tbo_maps_url",
+	"tbo_latitude",
+	"tbo_longitude",
+	"tbo_location_note",
 	"creation",
 	"modified",
 ]
@@ -549,7 +560,7 @@ def get_business_overview(
 ) -> dict:
 	"""The management-only Business overview, company-wide: the pipeline, proposals given,
 	onboardings, revenue (invoiced, collected, outstanding), the six-month trend, top clients and
-	figures by department (docs/hub-leads-api.md §2.11). Only System Manager and the TBO
+	figures by department (docs/hub-leads-api.md §2.12). Only System Manager and the TBO
 	Management role; anyone else is refused whatever their sales scope. `include_profit` adds
 	income minus expense from the ledger."""
 	with acting_as(acting_user):
@@ -592,6 +603,16 @@ def lead_payload(name: str) -> dict:
 	frappe.has_permission("Lead", "read", name, throw=True)
 	lead = frappe.get_all("Lead", filters={"name": name}, fields=LEAD_DETAIL_FIELDS)[0]
 	lead.segment = lead.pop("tbo_segment")
+	lead.place = lead_place.place_of(lead)
+	for key in (
+		"tbo_google_profile_url",
+		"tbo_maps_url",
+		"tbo_latitude",
+		"tbo_longitude",
+		"tbo_location_note",
+	):
+		lead.pop(key)
+	lead.photo_count = lead_place.photo_count(name)
 	lead.owner_name = frappe.utils.get_fullname(lead.lead_owner) if lead.lead_owner else None
 	lead.deal = lead_opportunity(name)
 	lead.next_follow_up = next_follow_ups("Lead", [name]).get(name)
@@ -903,6 +924,46 @@ def update_lead(name: str, data: dict | str, acting_user: str | None = None) -> 
 		lead.save()
 		schedule_follow_up(lead, data.get("next_follow_up"))
 		return lead_payload(name)
+
+
+@frappe.whitelist()
+def get_lead_photos(lead: str, acting_user: str | None = None) -> list[dict]:
+	"""The lead's photos, newest first: [{name, file_name, file_url, file_size, caption,
+	uploaded_by, uploaded_by_name, uploaded_on}]. `file_url` is private: show a photo through
+	get_lead_photo."""
+	with acting_as(acting_user):
+		return lead_place.get_photos(lead)
+
+
+@frappe.whitelist(methods=["POST"])
+def upload_lead_photo(
+	lead: str, filename: str, content: str, caption: str | None = None, acting_user: str | None = None
+) -> dict:
+	"""A photo on the lead (`content` base64; PNG, JPEG or WebP, at most 10 MB; at most 20 per
+	lead). Needs write on the lead. Returns the photo as get_lead_photos lists it."""
+	with acting_as(acting_user):
+		return lead_place.add_photo(lead, filename, decode(content), caption)
+
+
+@frappe.whitelist(methods=["POST"])
+def delete_lead_photo(lead: str, file: str, acting_user: str | None = None) -> dict:
+	"""Delete a photo: who added it, the lead's owner or a manager (with write on the lead)."""
+	with acting_as(acting_user):
+		lead_place.remove_photo(lead, file)
+		return {"deleted": file}
+
+
+@frappe.whitelist()
+def get_lead_photo(lead: str, file: str, thumb: int | str = 0, acting_user: str | None = None) -> None:
+	"""The photo's image bytes (`thumb` 1: a JPEG of at most 480 px) to anyone who may read the
+	lead; the response is the file, not JSON."""
+	with acting_as(acting_user):
+		content, mime, name = lead_place.photo_bytes(lead, file, thumb)
+	frappe.local.response.filename = name
+	frappe.local.response.filecontent = content
+	frappe.local.response.content_type = mime
+	frappe.local.response.display_content_as = "inline"
+	frappe.local.response.type = "download"
 
 
 @frappe.whitelist(methods=["POST"])

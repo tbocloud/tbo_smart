@@ -1,4 +1,4 @@
-"""The management-only Business overview (docs/hub-leads-api.md §2.11).
+"""The management-only Business overview (docs/hub-leads-api.md §2.12).
 
 Company-wide figures for a meeting: the clients in the pipeline, the proposals given, the
 onboardings (won clients and projects started) and the revenue that came in. Only System Manager

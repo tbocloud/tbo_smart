@@ -1,4 +1,4 @@
-# Hub leads API (`tbo_smart.api.hub_leads`), v1.11
+# Hub leads API (`tbo_smart.api.hub_leads`), v1.12
 
 **Status:** built 2026-10-16. The TBO Support hub's lead page (tbocloud/helpdesk) shows and edits
 tboindia's leads through these methods. The leads are ERPNext's own **Lead**
@@ -52,6 +52,10 @@ curl -s -X POST https://india.teambackoffice.com/api/method/tbo_smart.api.hub_le
 | `find_duplicate_leads` | GET | `email?`, `phone?`, `company?`, `exclude?` (a lead name), `acting_user` | `[Match]` (§2.9) |
 | `get_stale_leads` | GET | `days` (3), `acting_user` | `[Stale]` (§2.10) |
 | `update_lead` | POST | `name`, `data`, `acting_user` | as `get_lead` |
+| `get_lead_photos` | GET | `lead`, `acting_user` | `[Photo]` (§2.11), newest first |
+| `upload_lead_photo` | POST | `lead`, `filename`, `content` (base64), `caption?`, `acting_user` | the new `Photo` |
+| `delete_lead_photo` | POST | `lead`, `file` (a Photo's `name`), `acting_user` | `{deleted: file}` |
+| `get_lead_photo` | GET | `lead`, `file`, `thumb?` (1: a small JPEG), `acting_user` | the image bytes (`Content-Type` image/png, image/jpeg or image/webp), not JSON |
 | `set_stage` | POST | `name`, `stage`, `note?`, `acting_user` | as `get_lead` |
 | `add_note` | POST | `name`, `note`, `acting_user` | the new timeline `Item` |
 | `get_rate_card` | GET | `acting_user` | `RateCard` (§2.3) |
@@ -77,7 +81,9 @@ Lead = {name, lead_name, first_name, last_name, company_name, email_id, mobile_n
   status (ERPNext's own, read only), lead_owner, owner_name, tbo_score, tbo_temperature
   (Hot / Warm / Cold), tbo_score_reason, tbo_lost_reason, tbo_lost_notes, creation, modified,
   next_follow_up (date | null), deal (the Opportunity once won | null), can_write,
-  can_call (the acting user may use MyOperator click-to-call)}
+  can_call (the acting user may use MyOperator click-to-call),
+  place: {google_profile_url, maps_url, latitude, longitude, location_note} (each null while
+  empty, §2.11), photo_count}
 
 Item = {kind: "note" | "call" | "activity" | "meeting" | "stage" | "quotation" | "ai" |
   "proposal", at, who (user | null), who_name, text, ref (the record's name)}
@@ -123,6 +129,7 @@ Quotation = {name, docstatus, tbo_quote_status, transaction_date, valid_till, cu
 | `segment` | `tbo_segment`; moving a lead from one segment to another needs a preset editor (417 otherwise; `lead-pipeline.md` §9.8) |
 | `lead_owner` | another sales user: only within the acting user's reach (anyone for a Sales Manager outside the hierarchy, their team for a team lead, nobody for a salesperson); 403 otherwise |
 | `note` | `create_lead` only: the lead's first note |
+| `google_profile_url`, `maps_url`, `latitude`, `longitude`, `location_note` | the lead's place (`tbo_google_profile_url`, `tbo_maps_url`, `tbo_latitude`, `tbo_longitude`, `tbo_location_note`; rules in §2.11); an empty value clears it |
 | `next_follow_up` | `YYYY-MM-DD`: a Sales follow-up ToDo for the lead owner that day, unless one is already open for it; an empty value adds nothing (it never closes one) |
 
 - `create_lead` needs a name or a company. ERPNext checks the email (unique unless CRM Settings
@@ -414,7 +421,38 @@ The leads the acting user may see (their normal scope) that are open (not Closed
 Lost or On Hold) and have been quiet for `days` or more, longest quiet first. A department's
 `stale_after_days` (when above 0) replaces `days` for its leads.
 
-### 2.11 Business overview (management only)
+### 2.11 Place and photos
+
+```
+Photo = {name (the File), file_name, file_url (private: not loadable by the hub), file_size,
+  caption | null, uploaded_by (user), uploaded_by_name, uploaded_on (datetime)}
+```
+
+For whoever goes to meet the client (`lead_place.py`; the Lead's **Place** section holds the
+fields, saved through `update_lead`/`create_lead` or the desk form alike):
+
+- `google_profile_url`: the client's Google Business Profile. `maps_url`: a Google Maps place or
+  pin link. Both are https links to Google only (a scheme-less link gets `https://`); anything else,
+  or a link with a user name in it, is 417. Profile: `maps.app.goo.gl`, `g.page`,
+  `business.google.com`, `share.google`, `goo.gl/maps…`, or `google.<tld>/maps…`. Map link:
+  `maps.app.goo.gl`, `goo.gl/maps…` or `google.<tld>/maps…`. At most 500 characters.
+- `latitude` (-90 to 90), `longitude` (-180 to 180): the pin, from a map or the phone's GPS. Both
+  or neither; 0 and 0 means none. 417 outside the range. `location_note`: how to find it, at most
+  500 characters.
+- **Photos** are private Files attached to the Lead and marked `tbo_lead_photo` (so a scanned
+  business card on the same lead is never listed). PNG, JPEG or WebP, told by the bytes, at most
+  **10 MB** each and **20 per lead**; anything else is 417 (HEIC with its own message: the hub
+  resizes to JPEG in the browser before it uploads). `caption` is cut to 140 characters.
+- **Permissions:** `get_lead_photos` and `get_lead_photo` need read on the lead,
+  `upload_lead_photo` and `delete_lead_photo` write. Delete is further limited to who added the
+  photo, the lead's owner, or a Sales Manager / System Manager (403). A `file` that isn't a photo
+  of this lead is 404.
+- `get_lead_photo` answers with the bytes (`thumb=1`: a JPEG of at most 480 px, turned upright);
+  the hub streams them to the person's browser with private cache headers.
+- `get_lead` returns the place and `photo_count`; the list `Row` has neither.
+- Needs `bench migrate` (Lead's Place section; File's `tbo_lead_photo` and `tbo_caption`).
+
+### 2.12 Business overview (management only)
 
 `get_business_overview(from_date, to_date, department=None, include_profit=0, acting_user)`
 (GET, `lead_pipeline/business.py`): the company-wide figures for a management meeting. **Who:**
@@ -478,6 +516,11 @@ reads follow the acting user; writes are theirs (owner, lead owner, note author)
 returns to the integration user; field, owner and lost-reason rules; the follow-up view; the
 options. `tests/test_segment_rate_card.py`: the rate card methods (acting user, editors only).
 
+`tbo_smart/tests/test_lead_place.py`: the place round trip and clearing, Google-only links,
+coordinate ranges, write permission; photos added, listed, served and thumbnailed, images only,
+size and count limits, privacy, other leads' files and other attachments never served, who may
+delete.
+
 `tbo_smart/tests/test_lead_wave1.py`: see `lead-departments.md` §9.
 
 `tbo_smart/tests/test_daily_report.py`: the daily report's calls, fresh and follow-up leads,
@@ -487,10 +530,13 @@ is 403); `log_call` (the outcomes, the acting user, the lead's write permission)
 
 ## Changelog
 
-- **v1.11 (2026-10-30):** `get_business_overview` (§2.11) and `get_options`' `can_view_business`;
+- **v1.12 (2026-10-30):** `get_business_overview` (§2.12) and `get_options`' `can_view_business`;
   the TBO Management role. The overview's Meetings held and Proposals sent now also count from the
   stage log (they read 0 for leads moved by hand or imported), and a won lead's value falls back
   to its deal's amount, then its Sales Orders'; `get_proposal_money` follows (§2.4, §2.8).
+- **v1.11 (2026-10-30):** place and photos (§2.11): `get_lead_photos`, `upload_lead_photo`,
+  `delete_lead_photo`, `get_lead_photo`; the lead's `place` and `photo_count`; `update_lead` takes
+  `google_profile_url`, `maps_url`, `latitude`, `longitude` and `location_note`.
 - **v1.10 (2026-10-29):** `find_duplicate_leads` and `get_stale_leads` (§2.9, §2.10);
   `create_lead`'s `allow_duplicate` and its duplicate refusal; departments carry `assignment`
   (`Manual` / `Round robin`) and `stale_after_days` in `get_lead_departments`,
