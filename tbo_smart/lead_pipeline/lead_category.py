@@ -9,6 +9,7 @@ a district that is not on the lists is kept, only trimmed and given a tidy case.
 
 import frappe
 from frappe import _
+from frappe.custom.doctype.property_setter.property_setter import make_property_setter
 from frappe.utils import cint
 
 INDUSTRY_TYPE = "Industry Type"
@@ -118,6 +119,7 @@ STATE_ALIASES = {
 	"new delhi": "Delhi",
 	"ksa": "Saudi Arabia",
 }
+ORG_SIZES = ("1-10", "11-50", "51-200", "201-500", "501-1000", "1000+")
 FACETS = {
 	"industry": "industry",
 	"state": "state",
@@ -132,6 +134,33 @@ def seed_industries() -> None:
 	for name in INDUSTRIES:
 		if not frappe.db.exists(INDUSTRY_TYPE, name):
 			frappe.get_doc({"doctype": INDUSTRY_TYPE, "industry": name}).insert(ignore_permissions=True)
+
+
+def ensure_blank_org_size() -> None:
+	"""ERPNext's employee bands have no empty choice, so a Lead saved without one got the first
+	("1-10"). A leading empty option keeps "not known" as it is."""
+	make_property_setter("Lead", "no_of_employees", "options", "\n" + "\n".join(ORG_SIZES), "Text")
+
+
+def clear_default_org_size() -> int:
+	"""Clears "1-10" on every lead, but only while no lead holds any other band: then it can only
+	be the old forced default (the leads were never asked), not an answer. Returns the leads
+	cleared."""
+	other = frappe.db.exists(
+		"Lead", {"no_of_employees": ("in", [band for band in ORG_SIZES if band != ORG_SIZES[0]])}
+	)
+	if other:
+		return 0
+	leads = frappe.get_all("Lead", filters={"no_of_employees": ORG_SIZES[0]}, pluck="name")
+	for chunk in range(0, len(leads), 1000):
+		frappe.db.set_value(
+			"Lead",
+			{"name": ("in", leads[chunk : chunk + 1000])},
+			"no_of_employees",
+			None,
+			update_modified=False,
+		)
+	return len(leads)
 
 
 def org_sizes() -> list[str]:

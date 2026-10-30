@@ -196,6 +196,16 @@ class TestLeadCategory(FrappeTestCase):
 			acting_user=MANAGER,
 		)
 
+	def test_a_lead_without_a_size_has_none(self):
+		self.assertFalse(hub.get_lead(self.bare, acting_user=BDE2)["lead"]["org_size"])
+
+	def test_the_forced_default_size_is_cleared_only_while_it_is_the_only_one(self):
+		frappe.set_user("Administrator")
+		frappe.db.set_value("Lead", self.bare, "no_of_employees", "1-10")
+		# self.resort holds 51-200: "1-10" may be a real answer, so nothing is touched
+		self.assertEqual(category.clear_default_org_size(), 0)
+		self.assertEqual(frappe.db.get_value("Lead", self.bare, "no_of_employees"), "1-10")
+
 	def test_counts_are_the_acting_users(self):
 		counts = hub.get_category_counts(acting_user=BDE)
 		self.assertEqual(counts["industry"]["Resorts"], 1)

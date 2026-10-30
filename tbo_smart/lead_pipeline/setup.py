@@ -329,6 +329,7 @@ def setup_lead_pipeline() -> None:
 	ensure_other_reason()
 	ensure_hub_role()
 	lead_category.seed_industries()
+	lead_category.ensure_blank_org_size()
 	sync_print_format()
 	seed_proposal_templates()
 	seed_agreement_clauses()
