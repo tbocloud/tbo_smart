@@ -189,6 +189,25 @@ def get_pipeline_fields() -> dict:
 				"description": "e.g. 2nd floor, above SBI, parking behind.",
 			},
 			{
+				# where a prospect came from (docs/prospecting.md §4): the provider's id for the place,
+				# so the same business is never imported twice, and the run that found it
+				"fieldname": "tbo_source_ref",
+				"fieldtype": "Data",
+				"label": "Source reference",
+				"insert_after": "tbo_location_note",
+				"search_index": 1,
+				**hidden,
+			},
+			{
+				"fieldname": "tbo_prospect_run",
+				"fieldtype": "Link",
+				"options": "TBO Prospect Run",
+				"label": "Prospect run",
+				"insert_after": "tbo_source_ref",
+				"search_index": 1,
+				**hidden,
+			},
+			{
 				"fieldname": "tbo_stage_section",
 				"fieldtype": "Section Break",
 				"label": "Stage history",

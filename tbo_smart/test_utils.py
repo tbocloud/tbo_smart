@@ -3068,3 +3068,107 @@ def delete_call_batches(users: list[str] | tuple) -> None:
 def get_batch_items(batch: str) -> list:
 	"""The items of a call batch, in list order."""
 	return frappe.get_doc("TBO Call Batch", batch).items
+
+
+def enable_prospecting(**values) -> None:
+	"""Find prospects on with OpenStreetMap only, a USD 20 cap and runs of up to 100 businesses,
+	plus any `values` (settings fields)."""
+	set_smart_lead_settings(
+		**{
+			"enable_prospecting": 1,
+			"prospect_osm_enabled": 1,
+			"prospect_dataforseo_enabled": 0,
+			"prospect_serper_enabled": 0,
+			"prospect_monthly_cap": 20,
+			"prospect_max_results": 100,
+			"prospect_default_department": None,
+			**values,
+		}
+	)
+
+
+def disable_prospecting() -> None:
+	"""Find prospects off, the default department cleared."""
+	set_smart_lead_settings(enable_prospecting=0, prospect_default_department=None)
+
+
+def make_prospect_place(name: str = "Idukki") -> dict:
+	"""A district as `geo.locate` returns it: a one-degree box around 9.8N 77E."""
+	return {
+		"name": name,
+		"relation": 1819274,
+		"south": 9.3,
+		"north": 10.3,
+		"west": 76.5,
+		"east": 77.5,
+		"lat": 9.8,
+		"lng": 77.0,
+	}
+
+
+def make_prospect_business(name: str = "Prospect Test Resort", **fields) -> dict:
+	"""A business as a provider returns it, inside `make_prospect_place`, with a phone and a place id."""
+	return {
+		"name": name,
+		"phone": "+91 98470 12345",
+		"website": "",
+		"address": "Munnar Road",
+		"city": "Munnar",
+		"latitude": 9.8,
+		"longitude": 77.0,
+		"ref": f"gplace:{name.replace(' ', '-')}",
+		"maps_url": "https://www.google.com/maps?cid=1",
+		"category": "resort",
+		**fields,
+	}
+
+
+def make_prospect_run(values: dict | None = None, **fields) -> str:
+	"""A TBO Prospect Run in the Estimated state (Idukki, Resorts, OpenStreetMap) inserted as
+	Administrator; `fields` override the run's fields."""
+	run = frappe.get_doc(
+		{
+			"doctype": "TBO Prospect Run",
+			"industry": "Resorts",
+			"state": "Kerala",
+			"districts": "Idukki",
+			"provider": "OpenStreetMap",
+			"max_results": 10,
+			"require_phone": 1,
+			"status": "Estimated",
+			**(values or {}),
+			**fields,
+		}
+	)
+	run.insert(ignore_permissions=True)
+	return run.name
+
+
+def delete_prospect_runs() -> None:
+	"""Delete every TBO Prospect Run and the leads they created, then commit."""
+	delete_leads_matching(tbo_prospect_run=("is", "set"))
+	for name in frappe.get_all("TBO Prospect Run", pluck="name"):
+		frappe.delete_doc("TBO Prospect Run", name, force=True, ignore_permissions=True)
+	frappe.db.commit()  # nosemgrep
+
+
+def make_industry(name: str) -> str:
+	"""The Industry Type `name`, if the site does not have it yet."""
+	if not frappe.db.exists("Industry Type", name):
+		frappe.get_doc({"doctype": "Industry Type", "industry": name}).insert(ignore_permissions=True)
+	return name
+
+
+def make_prospect_category(industry: str, **fields) -> None:
+	"""A row of TBO Smart Settings' "Industry to provider categories" for `industry`; `fields`
+	are osm_tags, dataforseo_category, search_phrase."""
+	frappe.get_doc(
+		{
+			"doctype": "TBO Prospect Category",
+			"parent": "TBO Smart Settings",
+			"parenttype": "TBO Smart Settings",
+			"parentfield": "prospect_categories",
+			"industry": industry,
+			**fields,
+		}
+	).insert(ignore_permissions=True)

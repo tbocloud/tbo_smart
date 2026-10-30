@@ -23,6 +23,10 @@ def claim_owner(doc, method=None) -> None:
 	empty). Frappe fills an empty Lead Owner with the session user before this runs, so the owner
 	counts as empty when it is that default: a user outside the department who is only the one
 	inserting. A caller that means round robin sets `doc.flags.round_robin`."""
+	if doc.flags.get("unassigned_pool"):
+		# Find prospects: the lead waits in the department's pool for the call batches to hand out
+		doc.lead_owner = None
+		return
 	if not doc.get("tbo_department") or not wants_round_robin(doc):
 		return
 	user = next_member(doc.tbo_department)

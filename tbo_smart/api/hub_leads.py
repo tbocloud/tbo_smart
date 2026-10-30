@@ -32,6 +32,8 @@ from tbo_smart.lead_pipeline.proposals import latest_proposals, lead_proposals, 
 from tbo_smart.lead_pipeline.quotations import latest_quotations, lead_quotations
 from tbo_smart.lead_pipeline.setup import HUB_ROLE, MANAGEMENT_ROLE, SEGMENTS
 from tbo_smart.lead_pipeline.statuses import STATUS_NAMES, stage_options, status_type
+from tbo_smart.prospecting import runs as prospect_runs
+from tbo_smart.prospecting import signals as prospect_signals
 from tbo_smart.sales import departments, duplicates, erpnext_installed, stale
 from tbo_smart.sales.activities import (
 	OPEN,
@@ -146,6 +148,7 @@ LEAD_DETAIL_FIELDS = [
 	"tbo_latitude",
 	"tbo_longitude",
 	"tbo_location_note",
+	"tbo_web_profile",
 	"creation",
 	"modified",
 ]
@@ -221,9 +224,11 @@ def acting_as(acting_user: str | None):
 @frappe.whitelist()
 def get_options(acting_user: str | None = None) -> dict:
 	"""Pick lists for the lead page: stages (in pipeline order), sources, segments, owners (the
-	sales users), territories, industries, `departments` (the active lead departments:
+	sales users), territories, industries, `can_find_prospects` and `prospecting` (providers, default
+	department and limits, for those who may find prospects), `departments` (the active lead departments:
 	{name, lead_type, is_active, is_head, is_member} for the acting user) and `lead_types`."""
 	with acting_as(acting_user):
+		prospecting = prospect_runs.options()
 		return {
 			"stages": stage_options(),
 			"sources": lead_source.names(),
@@ -237,6 +242,9 @@ def get_options(acting_user: str | None = None) -> dict:
 			"can_call": can_call(),
 			# the Business overview is for System Manager and the TBO Management role only
 			"can_view_business": can_view_business(),
+			# Find prospects (docs/prospecting.md): managers and department heads, while it is on
+			"can_find_prospects": prospecting is not None,
+			"prospecting": prospecting,
 		}
 
 
@@ -636,6 +644,7 @@ def lead_payload(name: str) -> dict:
 		"tbo_location_note",
 	):
 		lead.pop(key)
+	lead.prospect = prospect_signals.prospect_of(lead.pop("tbo_web_profile"))
 	lead.photo_count = lead_place.photo_count(name)
 	lead.district = lead.pop("tbo_district")
 	lead.org_size = lead.pop("no_of_employees")
@@ -1207,3 +1216,40 @@ def get_call_batches_report(date: str | None = None, acting_user: str | None = N
 	starts_at, ends_at, size, called, connected, overdue}]}], totals}."""
 	with acting_as(acting_user):
 		return call_reads.get_call_batches_report(date)
+
+
+# ---------- find prospects (docs/prospecting.md) ----------
+
+
+@frappe.whitelist(methods=["POST"])
+def estimate_prospect_run(values: dict | str, acting_user: str | None = None) -> dict:
+	"""Create a prospect run (or, with `name` in `values`, estimate a draft again) and price it.
+	`values`: industry, state, districts (a list or lines), provider (OpenStreetMap, DataForSEO or
+	Serper), max_results, department, require_phone. Nothing is searched or paid for yet. Managers
+	and the department's head only (PermissionError). Returns the run: {name, status "Estimated",
+	estimated_cost (USD), expected_count, estimate_note, ...}."""
+	with acting_as(acting_user):
+		return prospect_runs.estimate_run(values)
+
+
+@frappe.whitelist(methods=["POST"])
+def start_prospect_run(name: str, acting_user: str | None = None) -> dict:
+	"""Start an estimated run in the background; refused when a paid run would pass the monthly
+	cap. Returns the run, Running."""
+	with acting_as(acting_user):
+		return prospect_runs.start_run(name)
+
+
+@frappe.whitelist()
+def get_prospect_runs(acting_user: str | None = None) -> list[dict]:
+	"""The newest 50 runs the acting user may see: managers all, a head their department's."""
+	with acting_as(acting_user):
+		return prospect_runs.list_runs()
+
+
+@frappe.whitelist()
+def get_prospect_run(name: str, acting_user: str | None = None) -> dict:
+	"""One run with its log and the leads it created: {..., log, leads: [{name, company_name,
+	phone, website, city, stage, owner, why_call}]}."""
+	with acting_as(acting_user):
+		return prospect_runs.read_run(name)

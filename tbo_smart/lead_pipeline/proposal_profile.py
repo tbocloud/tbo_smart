@@ -41,6 +41,8 @@ MAX_FIELD = 1000
 MAX_PAGES = 3
 MAX_REDIRECTS = 3
 TIMEOUT = (3, 6)
+PROSPECT_KEY = "prospect"
+USER_AGENT = "TBO-Proposals/1.0 (+https://teambackoffice.com)"
 OBVIOUS = re.compile(r"about|company|who-we-are|services|solutions|products|what-we-do", re.I)
 
 
@@ -115,12 +117,23 @@ def profile_defaults(lead: str) -> dict:
 	}
 
 
-def cached_web_profile(value) -> dict:
+def stored_profile(value) -> dict:
 	try:
 		data = json.loads(value) if value else {}
 	except ValueError:
 		return {}
 	return data if isinstance(data, dict) else {}
+
+
+def cached_web_profile(value) -> dict:
+	"""The summary the AI wrote for proposals, without the prospecting block kept beside it."""
+	return {key: val for key, val in stored_profile(value).items() if key != PROSPECT_KEY}
+
+
+def prospect_block(value) -> dict:
+	"""What Find prospects learnt from the website (docs/prospecting.md §5), kept in the same JSON."""
+	block = stored_profile(value).get(PROSPECT_KEY)
+	return block if isinstance(block, dict) else {}
 
 
 def read_website(lead: str, url: str | None = None, refresh: bool = False) -> dict:
@@ -150,10 +163,14 @@ def read_website(lead: str, url: str | None = None, refresh: bool = False) -> di
 		for field in ("about", "industry", "size", "locations", "current_software", "key_processes")
 	}
 	profile["website"] = url
+	kept = prospect_block(row.tbo_web_profile)
 	frappe.db.set_value(
 		"Lead",
 		lead,
-		{"tbo_web_profile": json.dumps(profile), "tbo_web_profile_on": now_datetime()},
+		{
+			"tbo_web_profile": json.dumps({**profile, **({PROSPECT_KEY: kept} if kept else {})}),
+			"tbo_web_profile_on": now_datetime(),
+		},
 		update_modified=False,
 	)
 	return profile
@@ -242,7 +259,7 @@ def is_ip(host: str) -> bool:
 	return True
 
 
-def fetch(url: str) -> tuple[str, str]:
+def fetch(url: str, user_agent: str = USER_AGENT) -> tuple[str, str]:
 	"""(final url, html) of one page: redirects followed by hand, each one checked again; at most
 	MAX_PAGE_BYTES read."""
 	for _hop in range(MAX_REDIRECTS + 1):
@@ -253,7 +270,7 @@ def fetch(url: str) -> tuple[str, str]:
 				timeout=TIMEOUT,
 				allow_redirects=False,
 				stream=True,
-				headers={"User-Agent": "TBO-Proposals/1.0 (+https://teambackoffice.com)"},
+				headers={"User-Agent": user_agent},
 			)
 		except requests.RequestException as e:
 			request_failed(e)

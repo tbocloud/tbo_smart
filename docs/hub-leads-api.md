@@ -1,4 +1,4 @@
-# Hub leads API (`tbo_smart.api.hub_leads`), v1.14
+# Hub leads API (`tbo_smart.api.hub_leads`), v1.15
 
 **Status:** built 2026-10-16. The TBO Support hub's lead page (tbocloud/helpdesk) shows and edits
 tboindia's leads through these methods. The leads are ERPNext's own **Lead**
@@ -570,6 +570,39 @@ duplicates); only district is new (`lead_pipeline/lead_category.py`, the field i
   period in several grouped queries (`overview.py`); filtering every one would not be small.
   `list_leads(metric=…, industry=…)` does narrow the leads behind a number.
 
+### 2.15 Find prospects (`prospecting.md`)
+
+```
+Run = {name, industry, state, districts: [str], provider, department, max_results, require_phone,
+  status ("Draft" | "Estimated" | "Running" | "Done" | "Failed"),
+  estimated_cost (USD), expected_count, estimate_note, actual_cost (USD),
+  count_found, count_duplicates, count_skipped, count_created,
+  started_at, finished_at, creation, owner, owner_name}
+RunDetail = {...Run, log, leads: [{name, company_name, phone, website, city, stage, owner, why_call}]}   # up to 200
+Prospecting = {providers: [{key, label, paid, available, coverage}], default_department,
+  max_results, max_districts, monthly_cap, month_spend}      # USD
+Prospect = {why_call: str | null, signals: {...}, read_on}   # on get_lead's lead, null until read
+```
+
+`get_options` returns `can_find_prospects` and `prospecting`: true and the providers (`available`
+is false while a provider is switched off or lacks its login or key) for System Managers, Sales
+Managers and department heads while TBO Smart Settings → Prospecting → **Enable Find prospects**
+is on; otherwise false and `null`. Everything below is 403 (`PermissionError`) for anyone else; a
+head acts for their own departments only.
+
+| Method | Does |
+|---|---|
+| `estimate_prospect_run(values, acting_user)` POST | Creates a run (or, with `name` in `values`, a draft again) and prices it. `values`: `industry` (an Industry Type), `state`, `districts` (list or lines, at most `max_districts`), `provider` (`OpenStreetMap`, `DataForSEO` or `Serper`), `max_results` (1 to `prospecting.max_results`), `department` (active; blank: the default), `require_phone` (default 1). Nothing is searched or bought. OpenStreetMap counts what the map holds (`expected_count`, capped at `max_results`); a paid provider gives its price and `max_results` as the upper bound. A paid run that would pass the monthly cap is refused here. Returns the Run, Estimated. |
+| `start_prospect_run(name, acting_user)` POST | Only an Estimated run. Checks the cap again, sets Running and queues the job. Returns the Run. |
+| `get_prospect_runs(acting_user)` | The newest 50 runs the user may see (managers all, a head their departments'). |
+| `get_prospect_run(name, acting_user)` | RunDetail. Poll it while Running: the counts grow district by district. |
+
+A finished run's leads have no owner (`lead_owner` empty) in the run's department, source
+`Prospecting – <provider>`, and read for signals shortly after: `get_lead`'s `lead.prospect` is
+`{why_call, signals: {has_website, online_booking, booking_tool, whatsapp, email, phone, social,
+hiring, tech, software, last_updated_year, https} | {has_website: false} | {unreadable: true},
+read_on}`. `get_lead`'s `lead` no longer carries `tbo_web_profile`.
+
 ## 3. Links back to the hub
 
 Teams messages, emails and the morning digest link to the lead page when TBO Smart Settings →
@@ -604,6 +637,8 @@ filters (single, several, JSON), rows and `get_lead`, cleaning on create and upd
 
 `tbo_smart/tests/test_lead_wave1.py`: see `lead-departments.md` §9.
 
+`tbo_smart/tests/test_prospecting.py`: see `prospecting.md` §9.
+
 `tbo_smart/tests/test_daily_report.py`: the daily report's calls, fresh and follow-up leads,
 positive leads, quotations, meetings and follow-ups, new leads without imports, the week to date
 and the scope (a salesperson sees themselves, a Sales Manager everyone, `owner` outside the scope
@@ -611,6 +646,9 @@ is 403); `log_call` (the outcomes, the acting user, the lead's write permission)
 
 ## Changelog
 
+- **v1.15 (2026-10-30):** find prospects (§2.15): `estimate_prospect_run`, `start_prospect_run`,
+  `get_prospect_runs`, `get_prospect_run`; `get_options`' `can_find_prospects` and `prospecting`;
+  `get_lead`'s `lead.prospect`.
 - **v1.14 (2026-10-30):** lead categories (§2.14): `industry`, `state`, `district`, `org_size`
   on `list_leads`, rows, `get_lead`, `create_lead` and `update_lead`; `get_options`' `org_sizes`,
   `states`, `kerala_districts`, `districts_by_state`; `get_category_counts`, `add_industry`,
