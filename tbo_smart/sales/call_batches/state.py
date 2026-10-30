@@ -57,19 +57,30 @@ class CallQueue:
 		since = add_to_date(getdate(self.now), days=-OVERDUE_DAYS)
 		self.rows = [row for row in item_rows({"user": user}) if getdate(row.batch_date) >= since]
 		self.running = [row for row in self.rows if self.is_running(row)]
-		self.pending = sorted(
-			(row for row in self.running if not row.outcome and not self.waits(row)),
-			key=lambda row: (row.priority or 9, get_datetime(row.retry_at or row.starts_at)),
-		)
-		self.scheduled = sorted(
-			(row for row in self.running if not row.outcome and self.waits(row)), key=lambda row: row.retry_at
-		)
+		self.pending = self.due_now()
+		self.scheduled = self.coming_back()
 		queued = {row.lead for row in self.pending + self.scheduled}
 		self.overdue = [
 			row
 			for row in self.rows
 			if not row.outcome and not self.is_running(row) and row.lead not in queued
 		]
+
+	def due_now(self) -> list:
+		rows = [row for row in self.running if not row.outcome and not self.waits(row)]
+		return sorted(rows, key=self.queue_order)
+
+	def coming_back(self) -> list:
+		rows = [row for row in self.running if not row.outcome and self.waits(row)]
+		return sorted(rows, key=self.retry_order)
+
+	@staticmethod
+	def queue_order(row) -> tuple:
+		return (row.priority or 9, get_datetime(row.retry_at or row.starts_at))
+
+	@staticmethod
+	def retry_order(row):
+		return get_datetime(row.retry_at)
 
 	def is_running(self, row) -> bool:
 		return row.status == ACTIVE and get_datetime(row.ends_at) > self.now
