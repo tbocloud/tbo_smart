@@ -1,5 +1,6 @@
 import json
 from datetime import datetime
+from html import unescape
 from unittest.mock import patch
 
 import frappe
@@ -229,7 +230,7 @@ class TestDraftOutreach(OutreachCase):
 		self.assertEqual(message.subject, DRAFT_ANSWER["subject"])
 
 	def test_a_run_drafts_its_leads(self):
-		run = make_prospect_run()
+		run = make_prospect_run(department=DEPARTMENT)
 		frappe.db.set_value("Lead", self.lead, "tbo_prospect_run", run)
 		result, enqueue = self.request(run=run)
 		self.assertEqual(result["queued"], 1)
@@ -417,7 +418,7 @@ class TestApproveAndSend(OutreachCase):
 		sent = sendmail.call_args.kwargs
 		self.assertEqual(sent["recipients"], ["palm.resort@prospect.test"])
 		self.assertEqual((sent["reference_doctype"], sent["reference_name"]), ("Lead", self.lead))
-		self.assertIn(OPT_OUT, sent["message"], "every email carries the opt-out line")
+		self.assertIn(OPT_OUT, unescape(sent["message"]), "every email carries the opt-out line")
 		row = frappe.db.get_value(
 			"TBO Outreach Message",
 			name,
@@ -545,7 +546,7 @@ class TestApproveAndSend(OutreachCase):
 		self.assertIn("&lt;b&gt;there", html)
 		self.assertIn("second line", html)
 		self.assertEqual(html.count("<p"), 3)
-		self.assertTrue(html.rstrip().endswith("</p>") and OPT_OUT in html)
+		self.assertTrue(html.rstrip().endswith("</p>") and OPT_OUT in unescape(html))
 
 
 class TestWhatsAppByHand(OutreachCase):
