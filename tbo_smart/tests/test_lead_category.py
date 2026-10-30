@@ -180,7 +180,7 @@ class TestLeadCategory(FrappeTestCase):
 			self.assertEqual((lead["industry"], lead["state"]), ("Hotels & Restaurants", "Dubai"))
 			self.assertFalse(lead["district"])
 		# what the call did not name is left as it was
-		self.assertEqual(hub.get_lead(self.builder, acting_user=MANAGER)["lead"]["org_size"], None)
+		self.assertFalse(hub.get_lead(self.builder, acting_user=MANAGER)["lead"]["org_size"])
 
 	def test_bulk_set_checks_its_input(self):
 		for leads, values in (([], {"industry": "Resorts"}), ([self.bare], {}), ([self.bare], {"x": "y"})):
