@@ -7,6 +7,7 @@ from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
 from tbo_smart.lead_pipeline import lead_category
 from tbo_smart.lead_pipeline.statuses import AUTO_LOST_REASONS, LOST_STATUSES, NEW_LEAD, STATUS_NAMES
+from tbo_smart.outreach import REPLY_CLASSES
 from tbo_smart.sales import DEAL, LEAD, LEAD_LINK, erpnext_installed
 from tbo_smart.sales.call_batches import OUTCOMES as CALL_RESULTS
 from tbo_smart.sales.departments import DEPARTMENT, LEAD_TYPES
@@ -97,11 +98,31 @@ def get_pipeline_fields() -> dict:
 				"no_copy": 1,
 			},
 			{
+				# set by outreach/replies.py from the newest incoming mail on the lead
+				"fieldname": "tbo_last_reply_class",
+				"fieldtype": "Select",
+				"options": "\n" + "\n".join(REPLY_CLASSES),
+				"label": "Last reply",
+				"insert_after": "tbo_last_call_on",
+				"read_only": 1,
+				"no_copy": 1,
+				"in_standard_filter": 1,
+				"search_index": 1,
+			},
+			{
+				"fieldname": "tbo_last_reply_on",
+				"fieldtype": "Datetime",
+				"label": "Last reply on",
+				"insert_after": "tbo_last_reply_class",
+				"read_only": 1,
+				"no_copy": 1,
+			},
+			{
 				"fieldname": "tbo_segment",
 				"fieldtype": "Select",
 				"options": "\n" + "\n".join(SEGMENTS),
 				"label": "Segment",
-				"insert_after": "tbo_last_call_on",
+				"insert_after": "tbo_last_reply_on",
 				"in_standard_filter": 1,
 			},
 			{

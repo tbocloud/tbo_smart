@@ -1,4 +1,4 @@
-# Find prospects (v1.0)
+# Find prospects (v1.1: Phase 1 finding, Phase 2 outreach)
 
 **Status:** built 2026-10-30. TBO sells mainly by phone. A manager or department head picks an
 industry and districts ("Resorts in Idukki", "Ayurvedic hospitals in Malappuram"); the businesses
@@ -145,7 +145,7 @@ existing smart-leads setting, not part of this.
 3. Serper is optional: an API key from serper.dev.
 4. Check the DataForSEO category ids for the industries that matter (§3).
 
-## 9. Tests
+## 9. Tests (Phase 1)
 
 `tbo_smart/tests/test_prospecting.py` (HTTP is mocked; nothing paid or on the network is called):
 the mapping and its override, tags that could alter a query refused; the OpenStreetMap query, the
@@ -156,3 +156,117 @@ the job's counts, failure keeps the cost, listing and opening, the options flag)
 is found, booking tools, the Why call line, at most three requests, unreachable and blocked sites,
 private addresses never fetched, the findings beside the proposal summary, one failing lead not
 stopping the rest, the hub's `lead.prospect`).
+
+## 10. Phase 2: the first message, approved by a person
+
+The flow: **Draft first messages** (from a run's leads or a selection) → the outbox → a person reads,
+edits and **approves** → the email goes, or the BD sends the WhatsApp by hand → the lead replies →
+the reply is sorted and acted on (§11). The hub's Leads → Outreach tab drives it
+(`hub-leads-api.md` §2.17).
+
+**Drafting reuses `smart_leads/autopilot.draft_message`** (the hub's "Draft a message"), not a
+second drafter. For a lead Find prospects created (`tbo_source_ref` or `tbo_prospect_run` set)
+that nobody has written to (no sent email on the lead, no Sent outreach message) it writes the
+*first* message from `signals.first_message_context`: the "Why call" line and a fixed list of
+findings (booking tool, WhatsApp, hiring, tech, software, site last updated, https), never the
+page's own words, and never the lead's own email or phone. The prompt says to open with one
+honest observation from those ("I saw you take bookings by phone only"). The number guard is the
+existing one: a number, count or year that is not in the lead's facts or the findings throws the
+draft away. Email and WhatsApp only.
+
+**The outbox** is the doctype **TBO Outreach Message**: lead, channel, subject, body, status
+(Draft, Approved, Sent, Failed, Cancelled), drafted_by (AI or User), recipient, approved_by,
+approved_on, sent_on, error, communication, prospect_run, batch, and the lead's department (so a
+head sees the department's). Drafting a batch is a background job (a request is capped, default
+50 leads); each lead is skipped with a reason when it is unsubscribed, Lost-type, has no address
+for the channel, the user cannot edit it, or already has a live first message on that channel.
+
+**Sending.**
+
+- **Email** goes through the default outgoing Email Account. A Communication referencing the Lead
+  is created (it is what the reply threads to and what shows on the lead's timeline) and the mail
+  is queued with `frappe.sendmail`. "Sent" means handed to the email queue; the Communication's
+  delivery status follows. There is no outgoing account: approval fails with "Set up an outgoing
+  email account first." Replies come back to that account, so it should have incoming mail on.
+- **WhatsApp** has no API yet. Approving marks it ready; the hub opens
+  `https://wa.me/<number>?text=<message>` and the BD sends it by hand, then confirms **Mark sent**,
+  which logs it on the lead. `sending.DELIVERERS` maps a channel to a function that delivers it;
+  adding `WhatsApp: <function>` for the Cloud API makes approving deliver WhatsApp like an email.
+- **Guards** (all in `outreach/guards.py`): at most **Emails per user per day** (default 30,
+  counted on the approver); an opt-out line under every email; a send window, Monday to Saturday,
+  09:30 to 18:00 site time by default, outside it an approved email waits and the sender (every
+  10 minutes) delivers it when the window opens, oldest first, within each approver's cap;
+  an unsubscribed lead and a Lost-type stage (Closed - Lost, Not Interested, Wrong Number) are
+  never written to, also when that happened after approval (the message is then Cancelled);
+  one first message per lead per channel (Cancelled and Failed ones may be redrafted).
+
+**Decisions made without the owner** (change them in the settings or ask):
+
+1. Outreach has its own switch, **Enable Outreach**, off by default. Drafting, sending and the
+   reply sorter all follow it; Find prospects can stay on without it.
+2. The send window is Monday to Saturday. Sunday is closed; there is no holiday calendar.
+3. The cap counts per approver, not per lead owner, because the approver is the person who answers
+   for the send. A cap of 0 stops email (it does not mean unlimited).
+4. The opt-out line is added when the email is sent, not stored in the body, so the person edits
+   only their own words; the hub shows what will be added.
+5. A failed email is not retried: it shows the error and the person edits it (it becomes a Draft
+   again) or cancels it.
+6. The email is not given a Reply-To, so replies come to the outgoing account and thread to the
+   Communication. A BD who prefers replies in their own mailbox must BCC the lead email log
+   mailbox (§ of `lead-departments.md` on BCC logging).
+7. An approved email whose lead unsubscribed or was lost before delivery is Cancelled, not Failed.
+
+## 11. Phase 2: replies sorted
+
+`outreach/replies.py`, hooked on Communication `after_insert` (after the BCC log has put the mail
+on its lead). A received email on a lead from an address that is not the team's (a system user's or
+an Email Account's, so BCC copies of our own mail are ignored) is queued for sorting. The AI reads
+the new text only (the prompt treats it as data from a stranger, ignores quoted mail and
+signatures; cut to 2,000 characters) and answers one of Interested, Question, Objection, Not now,
+Not interested, Unsubscribe, Out of office. It is kept as the lead's `tbo_last_reply_class` and
+`tbo_last_reply_on` (a custom field pair, filterable and shown on the AI card), then:
+
+| Class | Does |
+|---|---|
+| Interested, Question | Stage to Positive / Interested when the lead is before its first meeting; a follow-up ToDo for the owner today; notification |
+| Objection | A follow-up for the owner today; notification; the stage stays (decision 8) |
+| Not now | Follow-up Required (from New Lead, Contacted, Not Responding), a follow-up in 30 days |
+| Not interested | Not Interested (the call-outcome rule: only before a meeting) |
+| Unsubscribe | `unsubscribed = 1` and the lead's Draft and Approved messages are Cancelled |
+| Out of office | Nothing |
+
+It reuses `call_outcomes.target_stage` for Not now (the Call back rule) and Not interested (the
+Declined rule), and `set_lead_status` for the move, so the stage log, the automatic lost reason and
+"never past a meeting, never a closed lead" are the call outcomes' own. A reply older than the
+lead's last reply changes nothing. With the AI off or failing the class is **New reply**: only a
+notification and the flag, for a person.
+
+Decisions made without the owner, continued:
+
+8. An Objection needs a person to answer today, but it is not enough to move the stage.
+9. No keyword "stop" check runs when the AI is off: the opt-out line we add is quoted in most
+   replies and would match. An unsubscribe request with the AI off waits for a person (New reply).
+
+## 12. Tests (Phase 2)
+
+`tbo_smart/tests/test_outreach.py` (the AI and `frappe.sendmail` are mocked; nothing is sent):
+the first message from the signals and the Why call line (email and WhatsApp, an ordinary lead
+unchanged, no longer a first message after a send, the number guard and the year from the
+signals); drafting (background, a run's leads, the skip reasons, dedupe, the cap, the AI off,
+one failing lead not stopping the rest, progress); the outbox (who sees what, counts, the cap
+left, the WhatsApp link, no sales role refused); editing, regenerating and cancelling; approving
+(nothing sends unapproved, the Communication on the lead and the opt-out line, no outgoing account,
+the window, the daily cap, unsubscribed and lost leads, an error kept on the message, who may
+approve); WhatsApp by hand and a pluggable sender; the send window; the reply sorter (every class,
+never past a meeting, no double follow-up, unsubscribe cancelling drafts, AI off or failing,
+older replies, the team's own mail ignored, the hook); the leads list filter, rows and counts.
+
+## 13. What the owner sets up (Phase 2)
+
+1. TBO Smart Settings → **Outreach** → switch **Enable Outreach** on once the rest is ready.
+2. An **outgoing Email Account** marked default outgoing (Email Account list), with incoming mail on
+   if replies should reach the ERP; the sender name is the approving person's name. Without it,
+   approving an email fails with "Set up an outgoing email account first."
+3. The AI provider key (smart leads' existing setting) for drafting and sorting replies.
+4. **Emails per user per day** (default 30), the send window (09:30 to 18:00), drafts per request.
+5. The hub's integration role already covers the new methods; nothing else to configure there.

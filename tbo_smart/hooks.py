@@ -237,6 +237,8 @@ doc_events = {
 		"after_insert": [
 			"tbo_smart.sales.email_log.log_to_lead",
 			"tbo_smart.smart_leads.autopilot.activity_changed",
+			# sorts a reply once it is on its lead (docs/prospecting.md §11)
+			"tbo_smart.outreach.replies.on_communication",
 		]
 	},
 	"ToDo": {"on_update": "tbo_smart.smart_leads.scoring.activity_changed"},
@@ -287,6 +289,8 @@ scheduler_events = {
 		"*/15 * * * *": ["tbo_smart.lead_pipeline.meetings.run_meeting_clock"],
 		# Daily call batches: close ended slots and hand out the one that is running
 		"*/5 * * * *": ["tbo_smart.sales.call_batches.clock.run_call_batch_clock"],
+		# Outreach: approved emails wait for the send window and the daily cap (docs/prospecting.md §10)
+		"*/10 * * * *": ["tbo_smart.outreach.sending.send_approved"],
 	},
 }
 

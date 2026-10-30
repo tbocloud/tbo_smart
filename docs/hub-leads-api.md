@@ -1,4 +1,4 @@
-# Hub leads API (`tbo_smart.api.hub_leads`), v1.15
+# Hub leads API (`tbo_smart.api.hub_leads`), v1.17
 
 **Status:** built 2026-10-16. The TBO Support hub's lead page (tbocloud/helpdesk) shows and edits
 tboindia's leads through these methods. The leads are ERPNext's own **Lead**
@@ -648,6 +648,65 @@ with a timeline comment, so the stage log keeps it.
 - **`get_category_counts`** adds `last_call_result`: `{outcome: leads}` over the leads the
   acting user may see (never-called leads are left out).
 
+### 2.17 Outreach: first messages and replies (`prospecting.md` §10, §11)
+
+Methods are in **`tbo_smart.api.hub_outreach`** (same auth, `acting_user` and 403 rules as §1).
+All need TBO Smart Settings → Outreach → **Enable Outreach** (otherwise 417 "Outreach is switched
+off") and, for each message, write permission on its lead. **Nothing sends without
+`approve_outreach`.**
+
+```
+Message = {name, lead, lead_name, company_name, lead_stage, unsubscribed, last_reply_class,
+  department, channel ("Email" | "WhatsApp"), status ("Draft" | "Approved" | "Sent" | "Failed" |
+  "Cancelled"), subject, body, recipient, drafted_by ("AI" | "User"), owner, owner_name,
+  approved_by, approved_on, sent_on, error, communication, prospect_run, batch,
+  url (WhatsApp: https://wa.me/<number>?text=<encoded body>, else null),
+  queued (an Approved email waiting for the window or the cap), creation, modified}
+Result = {name, status, message}      # status null: not found or no permission
+```
+
+| Method | Does |
+|---|---|
+| `draft_outreach(channel, leads?, run?, acting_user)` POST | `channel` `Email` or `WhatsApp` (any case); `leads` a list (or JSON list) or `run` a prospect run (its leads). Checks each lead now, then drafts the eligible ones in the background (`autopilot.draft_message`, §2.6: for a lead Find prospects created and nobody has written to, from its website signals and Why call line). Returns `{batch, queued, skipped: [{lead, lead_name, reason}]}`. Skipped: not found, the user cannot edit it, a first message is already in the outbox (Draft, Approved or Sent) on that channel, unsubscribed, Lost-type stage, no address for the channel, or over **Drafts per request** (default 50, at most 200). 417 when the AI is not set up. |
+| `get_outbox(status?, batch?, run?, acting_user)` | `status` one value, a list or a JSON list. The user's own messages, a department head's department's too, managers all; newest 200. Returns `{enabled, email_ready (an outgoing Email Account exists), rows: [Message], counts: {status: n}, cap: {limit, used, left, queued}, window: {start, end, open, next}, drafting: {batch, total, done, failed} or null, opt_out, today}`. `counts` ignore the status filter. |
+| `update_outreach(name, body, subject?, acting_user)` POST | Edit a Draft (or a Failed message, which becomes a Draft again). An email needs a subject. Returns Result. |
+| `regenerate_outreach(name, acting_user)` POST | A new AI text for a Draft or Failed message. Returns Result. |
+| `approve_outreach(names, acting_user)` POST | `names` a list or JSON list. Returns `[Result]`. A Draft becomes Approved (`approved_by`, `approved_on`). **Email**: sent at once through the default outgoing Email Account when the send window is open and the approver has sends left today (status Sent, a Communication on the lead, `communication`, `sent_on`); otherwise it stays Approved with the reason in `message` and the 10-minute sender delivers it. A send error makes it Failed with `error`. **WhatsApp**: stays Approved (ready); the hub opens `url`. Unsubscribed and Lost-type leads make it Cancelled with `error`. 417 "Set up an outgoing email account first." when an email is among the names and the site has no outgoing account. |
+| `mark_outreach_sent(names, acting_user)` POST | The BD sent these approved WhatsApp messages by hand: Sent, `sent_on`, logged on the lead as the BD's WhatsApp. |
+| `cancel_outreach(names, acting_user)` POST | Draft, Approved and Failed messages become Cancelled; a Sent one is refused in its Result. |
+
+**Rules every email passes:** one first message per lead per channel (a Cancelled message may be
+redrafted); an opt-out line is added under every email when it is sent (`opt_out` in `get_outbox`);
+**Emails per user per day** (default 30, counted on the approver, 0 stops email); the send window
+(Monday to Saturday, default 09:30 to 18:00 site time; outside it approved emails wait); an
+unsubscribed or Lost-type lead is never written to, also when it became so after approval.
+
+**Replies.** With Outreach on, an incoming email on a lead from outside the team (a normal reply,
+or mail BCC-logged by `email_log`) is classified by the AI into `Interested`, `Question`,
+`Objection`, `Not now`, `Not interested`, `Unsubscribe` or `Out of office`; with the AI off or
+failing it is `New reply`. The class is kept as the lead's **`last_reply_class`** and
+**`last_reply_on`** (`null` when none) and acted on:
+
+| Class | Stage (only from before the first meeting) | Also |
+| --- | --- | --- |
+| Interested, Question | Positive / Interested | Follow-up for the owner today (unless one is due by today); notification |
+| Objection | stays | Follow-up for the owner today; notification |
+| Not now | Follow-up Required (from New Lead, Contacted, Not Responding) | Follow-up in 30 days; notification |
+| Not interested | Not Interested | Notification |
+| Unsubscribe | stays | `unsubscribed` set; its Draft and Approved messages are Cancelled; notification |
+| Out of office | stays | nothing |
+| New reply | stays | notification, for a person to read |
+
+The owner is the lead's owner, else whoever approved its latest outreach message. A lead that is
+closed (Won or Lost-type) keeps its stage; an older reply never undoes a newer one.
+
+- **Rows and `get_lead`** return `last_reply_class` and `last_reply_on`.
+- **`list_leads`** takes `last_reply_class`: a value, a list or a JSON list; another value is
+  refused (417).
+- **`get_category_counts`** adds `last_reply_class`: `{class: leads}`.
+- **`draft_lead_message`** (§2.6) returns `first_message` (true when written from website signals)
+  and, for WhatsApp, `to`.
+
 ## 3. Links back to the hub
 
 Teams messages, emails and the morning digest link to the lead page when TBO Smart Settings →
@@ -694,8 +753,15 @@ never undoing a newer one, the pipeline off, `log_call`'s `stage`, the rows, `ge
 `last_call_result` filter and its counts; `test_telephony.py`: MyOperator calls set the last
 call.
 
+`tbo_smart/tests/test_outreach.py` (AI and email mocked): see `prospecting.md` §12.
+
 ## Changelog
 
+- **v1.17 (2026-10-30):** outreach (§2.17): `hub_outreach.draft_outreach`, `get_outbox`,
+  `update_outreach`, `regenerate_outreach`, `approve_outreach`, `mark_outreach_sent`,
+  `cancel_outreach`; `last_reply_class` and `last_reply_on` on rows and `get_lead`;
+  `list_leads`' `last_reply_class`; `get_category_counts`' `last_reply_class`;
+  `draft_lead_message`'s `first_message`.
 - **v1.16 (2026-10-30):** call-outcome stages and the last call (§2.16): the Not Responding, Not
   Interested and Wrong Number stages in `get_options`; `last_call_result` and `last_call_on` on
   rows and `get_lead`; `list_leads`' `last_call_result`; `get_category_counts`' `last_call_result`;
