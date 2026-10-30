@@ -12,7 +12,7 @@ from tbo_smart.api.hub_leads import acting_as
 from tbo_smart.outreach import drafting, outbox, require_enabled, sending
 
 
-def names_of(names) -> list[str]:
+def names_of(names: list | str | None) -> list[str]:
 	names = frappe.parse_json(names) if isinstance(names, str) and names.strip().startswith("[") else names
 	names = [names] if isinstance(names, str) else list(names or [])
 	if not names:
@@ -21,7 +21,9 @@ def names_of(names) -> list[str]:
 
 
 @frappe.whitelist(methods=["POST"])
-def draft_outreach(channel: str, leads=None, run: str | None = None, acting_user: str | None = None) -> dict:
+def draft_outreach(
+	channel: str, leads: list | str | None = None, run: str | None = None, acting_user: str | None = None
+) -> dict:
 	"""Draft first messages for `leads` (a list) or a prospect `run`'s leads, in the background:
 	{batch, queued, skipped: [{lead, lead_name, reason}]}. Leads the user may not edit, that
 	unsubscribed, are lost, have no address or already have a first message on the channel are
@@ -33,7 +35,10 @@ def draft_outreach(channel: str, leads=None, run: str | None = None, acting_user
 
 @frappe.whitelist()
 def get_outbox(
-	status=None, batch: str | None = None, run: str | None = None, acting_user: str | None = None
+	status: list | str | None = None,
+	batch: str | None = None,
+	run: str | None = None,
+	acting_user: str | None = None,
 ) -> dict:
 	"""The acting user's drafts (a head sees their departments', a manager everyone's), newest first:
 	{enabled, email_ready, rows, counts, cap, window, drafting, opt_out, today}."""
@@ -62,7 +67,7 @@ def regenerate_outreach(name: str, acting_user: str | None = None) -> dict:
 
 
 @frappe.whitelist(methods=["POST"])
-def approve_outreach(names, acting_user: str | None = None) -> list[dict]:
+def approve_outreach(names: list | str, acting_user: str | None = None) -> list[dict]:
 	"""Approve drafts: [{name, status, message}]. An email goes out at once when the send window is
 	open and the user's daily cap allows, else it stays Approved and the 10-minute sender delivers
 	it. A WhatsApp message becomes Approved (ready); the hub opens WhatsApp and the BD confirms with
@@ -74,14 +79,14 @@ def approve_outreach(names, acting_user: str | None = None) -> list[dict]:
 
 
 @frappe.whitelist(methods=["POST"])
-def cancel_outreach(names, acting_user: str | None = None) -> list[dict]:
+def cancel_outreach(names: list | str, acting_user: str | None = None) -> list[dict]:
 	"""Withdraw drafts, approved and failed messages: [{name, status, message}]."""
 	with acting_as(acting_user):
 		return sending.cancel(names_of(names))
 
 
 @frappe.whitelist(methods=["POST"])
-def mark_outreach_sent(names, acting_user: str | None = None) -> list[dict]:
+def mark_outreach_sent(names: list | str, acting_user: str | None = None) -> list[dict]:
 	"""The BD sent these approved WhatsApp messages by hand: they become Sent and are logged on the
 	lead as the BD's."""
 	with acting_as(acting_user):
