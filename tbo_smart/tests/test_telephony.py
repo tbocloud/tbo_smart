@@ -5,7 +5,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, getdate, today
 
-from tbo_smart import ai
+from tbo_smart import ai, lead_source
 from tbo_smart.api import hub_leads as hub
 from tbo_smart.api import telephony as api
 from tbo_smart.api.mobile import crm
@@ -555,7 +555,7 @@ class TestSetup(TelephonyTestCase):
 		setup.setup_telephony()
 		self.assertEqual(frappe.db.get_single_value("TBO Smart Settings", "telephony_create_leads"), 1)
 		self.assertEqual(frappe.db.get_single_value("TBO Smart Settings", "telephony_recording_days"), 180)
-		self.assertTrue(frappe.db.exists("Lead Source", "Phone call"))
+		self.assertTrue(lead_source.exists("Phone call"))
 		# a value someone saved is never overwritten
 		frappe.db.set_single_value("TBO Smart Settings", "telephony_create_leads", 0)
 		setup.setup_telephony()

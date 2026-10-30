@@ -13,7 +13,7 @@ import frappe
 from frappe.query_builder.functions import Max, Min
 from frappe.utils import cstr, date_diff, get_datetime, getdate, strip_html
 
-from tbo_smart import ai
+from tbo_smart import ai, lead_source
 from tbo_smart.sales.activities import DONE, OPEN, calls_of, notes_of, task_title
 from tbo_smart.smart_leads import OPEN_STATUSES
 from tbo_smart.smart_leads.migration import get_migration_notes, is_migration_note
@@ -79,7 +79,10 @@ class LeadFacts:
 		if not self.names:
 			return []
 		return frappe.get_all(
-			"Lead", filters={"name": ("in", self.names)}, fields=LEAD_FIELDS, limit_page_length=0
+			"Lead",
+			filters={"name": ("in", self.names)},
+			fields=lead_source.fields(LEAD_FIELDS),
+			limit_page_length=0,
 		)
 
 	def load_notes(self) -> dict[str, list]:

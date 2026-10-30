@@ -13,6 +13,7 @@ from frappe.query_builder import Case
 from frappe.query_builder.functions import Count, IfNull, Sum
 from frappe.utils import add_days, cint, flt, get_first_day, getdate, now_datetime, today
 
+from tbo_smart import lead_source
 from tbo_smart.api.mobile.capabilities import get_capabilities, scope_users
 from tbo_smart.api.mobile.utils import get_full_names, percent
 from tbo_smart.lead_pipeline import pipeline_enabled, setting
@@ -120,7 +121,7 @@ class PipelineDashboard:
 		if self.owners is not None:
 			criterion &= Lead.lead_owner.isin(self.owners or [""])
 		if self.source:
-			criterion &= Lead.source == self.source
+			criterion &= Lead[lead_source.field()] == self.source
 		if self.status:
 			criterion &= Lead.tbo_stage == self.status
 		return criterion

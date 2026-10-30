@@ -24,6 +24,7 @@ from frappe.query_builder.functions import Count
 from frappe.utils import cint, escape_html, flt, get_fullname, getdate, now_datetime
 from frappe.utils.nestedset import rebuild_tree
 
+from tbo_smart import lead_source
 from tbo_smart.lead_pipeline.statuses import CLOSED_LOST, CLOSED_WON, NEW_LEAD, STATUS_NAMES, STATUSES
 from tbo_smart.sales.hierarchy import DOCTYPE as HIERARCHY
 from tbo_smart.sales.stages import OTHER_REASON
@@ -200,7 +201,7 @@ class Cutover:
 
 	def copy_masters(self) -> None:
 		for row in rows_of("CRM Lead Source"):
-			ensure("Lead Source", row.name, {"source_name": row.name})
+			lead_source.ensure(row.name)
 		for row in rows_of("CRM Lost Reason"):
 			ensure("Opportunity Lost Reason", row.name, {"lost_reason": row.name})
 		ensure("Opportunity Lost Reason", OTHER_REASON, {"lost_reason": OTHER_REASON})
@@ -334,7 +335,7 @@ class Cutover:
 			"job_title": row.job_title,
 			"no_of_employees": row.no_of_employees,
 			"annual_revenue": flt(row.annual_revenue),
-			"source": row.source if frappe.db.exists("Lead Source", row.source or "") else None,
+			lead_source.field(): row.source if lead_source.exists(row.source) else None,
 			"industry": row.industry if frappe.db.exists("Industry Type", row.industry or "") else None,
 			"territory": row.territory if frappe.db.exists("Territory", row.territory or "") else None,
 			"lead_owner": row.lead_owner if row.lead_owner in self.users else None,
@@ -453,7 +454,7 @@ class Cutover:
 			"website": row.website,
 			"no_of_employees": row.no_of_employees,
 			"annual_revenue": flt(row.annual_revenue),
-			"source": row.source if frappe.db.exists("Lead Source", row.source or "") else None,
+			lead_source.field(): row.source if lead_source.exists(row.source) else None,
 			"industry": row.industry if frappe.db.exists("Industry Type", row.industry or "") else None,
 			"territory": row.territory if frappe.db.exists("Territory", row.territory or "") else None,
 			"company": row.get("tbo_company") or company,

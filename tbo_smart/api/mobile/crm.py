@@ -32,6 +32,7 @@ from frappe.utils import add_days, cint, flt, getdate, now_datetime, today
 from hrms.api import upload_base64_file
 from pypika.terms import EmptyCriterion, LiteralValue
 
+from tbo_smart import lead_source
 from tbo_smart.api.mobile.capabilities import (
 	CRM_ROLES,
 	get_sales_team,
@@ -159,7 +160,7 @@ def get_options() -> dict:
 	"""The site's lead sources, lead stages, deal stages and lost reasons, in pipeline order."""
 	require_crm()
 	return {
-		"lead_sources": frappe.get_list("Lead Source", pluck="name", order_by="name asc"),
+		"lead_sources": lead_source.names(check_permissions=True),
 		"lead_statuses": [{"name": name, "type": kind} for name, kind, _color in STATUSES],
 		"deal_stages": deal_stages(),
 		"lost_reasons": frappe.get_list("Opportunity Lost Reason", pluck="name", order_by="name asc"),
@@ -202,7 +203,7 @@ def get_leads(
 	start, length = page_window(page, page_length)
 	leads = frappe.get_list(
 		"Lead",
-		fields=LEAD_FIELDS,
+		fields=lead_source.fields(LEAD_FIELDS),
 		filters=filters,
 		or_filters=or_filters,
 		order_by="creation desc",
@@ -225,7 +226,7 @@ def overview_filters(
 
 	filters = {}
 	if source:
-		filters["source"] = source
+		filters[lead_source.field()] = source
 	if temperature:
 		if temperature not in TEMPERATURES:
 			frappe.throw(_("temperature must be one of {0}.").format(", ".join(TEMPERATURES)))
@@ -246,7 +247,7 @@ def get_lead(name: str) -> dict:
 	"""One lead with its notes, tasks and activity."""
 	require_crm()
 	frappe.has_permission("Lead", "read", name, throw=True)
-	lead = frappe.get_all("Lead", filters={"name": name}, fields=LEAD_FIELDS)[0]
+	lead = frappe.get_all("Lead", filters={"name": name}, fields=lead_source.fields(LEAD_FIELDS))[0]
 	return {**serialize_leads([lead])[0], **app_timeline("Lead", name)}
 
 
@@ -295,7 +296,7 @@ def create_lead(
 			"company_name": organization,
 			"email_id": email,
 			"mobile_no": mobile_no,
-			"source": source or get_channel_lead_source(channel),
+			lead_source.field(): source or get_channel_lead_source(channel),
 			"lead_owner": frappe.session.user,
 		}
 	)
@@ -403,11 +404,11 @@ def check_source_channel(source_channel: str | None) -> str | None:
 
 
 def get_channel_lead_source(channel: str | None) -> str | None:
-	"""An existing Lead Source that names the channel; never creates one."""
+	"""An existing lead source that names the channel; never creates one."""
 	names = SOURCE_CHANNELS[channel][1] if channel else ()
 	if not names:
 		return None
-	return frappe.db.get_value("Lead Source", {"name": ("in", names)}, "name")
+	return frappe.db.get_value(lead_source.doctype(), {"name": ("in", names)}, "name")
 
 
 def check_card_image(card_image: str | None) -> str | None:

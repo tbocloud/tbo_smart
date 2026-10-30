@@ -11,6 +11,7 @@ Customer ERPNext made from the lead (`Customer.lead_name`) or the deal's own Cus
 import frappe
 from frappe.utils import flt, getdate, today
 
+from tbo_smart import lead_source
 from tbo_smart.sales import DEAL, LEAD_LINK
 from tbo_smart.sales.stages import record_change
 
@@ -133,7 +134,7 @@ def make_opportunity(lead, stage: str | None = None) -> str:
 			"sales_stage": stage,
 			"opportunity_owner": lead.lead_owner or frappe.session.user,
 			"company": deal.company or lead.get("company") or get_default_company(),
-			"source": lead.get("source"),
+			lead_source.field(): lead.get(lead_source.field()),
 			"territory": lead.get("territory"),
 		}
 	)
