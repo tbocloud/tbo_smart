@@ -107,6 +107,7 @@ def import_business(business: dict, run) -> str:
 	domain = domain_of(business.get("website"))
 	if existing_lead(business, domain):
 		return "duplicate"
+	lead_source.ensure(source_name(run.provider))
 	lead = frappe.new_doc("Lead")
 	lead.update(lead_values(business, run))
 	lead.flags.unassigned_pool = True

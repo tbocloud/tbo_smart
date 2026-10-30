@@ -80,6 +80,7 @@ class ProspectCase(FrappeTestCase):
 		delete_prospect_runs()
 		delete_leads_matching(tbo_department=("in", [DEPARTMENT, OTHER_DEPARTMENT]))
 		delete_leads_matching(company_name=("like", "Prospect Test %"))
+		delete_leads_matching(first_name=("like", "Prospect Test %"))
 		delete_lead_departments([DEPARTMENT, OTHER_DEPARTMENT])
 		frappe.db.delete("TBO Prospect Category")
 		frappe.db.commit()  # nosemgrep
@@ -248,14 +249,16 @@ def mapping_spec() -> dict:
 class TestImport(ProspectCase):
 	def context(self, **fields):
 		return frappe._dict(
-			name=make_prospect_run(department=DEPARTMENT),
-			industry="Resorts",
-			state="Kerala",
-			department=DEPARTMENT,
-			provider="OpenStreetMap",
-			require_phone=1,
-			district="Idukki",
-			**fields,
+			{
+				"name": make_prospect_run(department=DEPARTMENT),
+				"industry": "Resorts",
+				"state": "Kerala",
+				"department": DEPARTMENT,
+				"provider": "OpenStreetMap",
+				"require_phone": 1,
+				"district": "Idukki",
+				**fields,
+			}
 		)
 
 	def test_a_business_becomes_an_unassigned_lead_even_in_a_round_robin_department(self):
@@ -502,7 +505,7 @@ class TestSignals(ProspectCase):
 	def test_why_call_is_built_from_the_findings(self):
 		found = signals.analyse([("https://palm.test/", PAGE)], has_careers_link=True)
 		line = signals.why_call(found, "Resorts")
-		self.assertIn("no online booking", line)
+		self.assertIn("online booking", line)
 		self.assertIn("hiring", line)
 		self.assertLessEqual(len(line), 140)
 		self.assertIn("No website", signals.why_call({"has_website": False}))

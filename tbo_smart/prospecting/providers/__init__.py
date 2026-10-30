@@ -6,6 +6,8 @@ A business: {name, phone, website, address, city, latitude, longitude, ref, maps
 same place being imported twice.
 """
 
+import re
+
 import frappe
 from frappe import _
 
@@ -81,5 +83,5 @@ def first_phone(value) -> str:
 	for part in str(value or "").replace("/", ";").replace(",", ";").split(";"):
 		digits = "".join(ch for ch in part if ch.isdigit())
 		if len(digits) >= 7:
-			return part.strip()[:40]
+			return re.sub(r"[^\d+\-() ]", "", part).strip()[:40]
 	return ""
