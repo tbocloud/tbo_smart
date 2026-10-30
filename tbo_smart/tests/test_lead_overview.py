@@ -124,7 +124,8 @@ class TestLeadOverview(FrappeTestCase):
 		totals = mine["totals"]
 		# the aged leads were created before this month
 		self.assertEqual((totals["new"], totals["won"], totals["lost"]), (4, 1, 1))
-		self.assertEqual((totals["meetings"], totals["quotations_sent"], totals["hot"]), (1, 1, 1))
+		# the hot lead's quotation and the won lead's stage log both count as a proposal sent
+		self.assertEqual((totals["meetings"], totals["quotations_sent"], totals["hot"]), (1, 2, 1))
 		self.assertEqual((totals["overdue"], totals["stale"]), (1, 1))
 		self.assertEqual(mine["lost_reasons"], [{"reason": "Other", "count": 1}])
 		everyone = hub.get_overview(acting_user=MANAGER)

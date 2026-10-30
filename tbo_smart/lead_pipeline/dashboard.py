@@ -28,6 +28,7 @@ from tbo_smart.lead_pipeline.quotations import (
 )
 from tbo_smart.lead_pipeline.statuses import (
 	LOST_STATUSES,
+	MEETING_COMPLETED,
 	OPEN_STATUSES,
 	POSITIVE,
 	STATUS_NAMES,
@@ -240,23 +241,46 @@ class PipelineDashboard:
 	def meetings_query(self):
 		return frappe.qb.from_(self.Meeting).join(self.Lead).on(self.Lead.name == self.Meeting.lead)
 
-	def meetings_completed(self) -> dict:
-		"""Meetings whose MOM was submitted in the range: 1st, 2nd, 3rd and additional."""
-		Meeting = self.Meeting
-		rows = (
+	def held_meetings(self) -> dict:
+		"""{(lead, meeting number): lead owner} of the meetings held in the range: a submitted MOM
+		(its date) or the lead entering First / Second / Third Meeting Completed (its stage log).
+		Leads moved there by hand or imported have no meeting record, so the MOM alone read 0 while
+		the stage log and the pipeline showed meetings."""
+		Meeting, Lead = self.Meeting, self.Lead
+		held = {}
+		for lead, number, owner in (
 			self.meetings_query()
-			.select(Meeting.stage, Count(Meeting.name))
+			.select(Meeting.lead, Meeting.stage, Lead.lead_owner)
 			.where(
 				(Meeting.status == MOM_SUBMITTED)
 				& self.in_range(Meeting.submitted_on)
 				& self.lead_criterion()
 			)
-			.groupby(Meeting.stage)
-		).run()
+		).run():
+			held[(lead, cint(number))] = owner
+		Log = frappe.qb.DocType("TBO Stage Change")
+		number_of = {stage: number for number, stage in MEETING_COMPLETED.items()}
+		for lead, stage, owner in (
+			frappe.qb.from_(Log)
+			.join(Lead)
+			.on(Lead.name == Log.parent)
+			.select(Log.parent, Log.stage, Lead.lead_owner)
+			.where(
+				(Log.parenttype == "Lead")
+				& Log.stage.isin(list(number_of))
+				& self.in_range(Log.changed_on)
+				& self.lead_criterion()
+			)
+		).run():
+			held.setdefault((lead, number_of[stage]), owner)
+		return held
+
+	def meetings_completed(self) -> dict:
+		"""Meetings held in the range (`held_meetings`): 1st, 2nd, 3rd and additional."""
 		result = {"first": 0, "second": 0, "third": 0, "additional": 0}
 		keys = {1: "first", 2: "second", 3: "third"}
-		for stage, count in rows:
-			result[keys.get(cint(stage), "additional")] += cint(count)
+		for _lead, number in self.held_meetings():
+			result[keys.get(number, "additional")] += 1
 		result["total"] = sum(result.values())
 		return result
 
@@ -311,11 +335,6 @@ class PipelineDashboard:
 			self.meetings_query()
 			.select(
 				Lead.lead_owner,
-				Sum(
-					Case()
-					.when((Meeting.status == MOM_SUBMITTED) & self.in_range(Meeting.submitted_on), 1)
-					.else_(0)
-				).as_("held"),
 				Sum(Case().when(ended, 1).else_(0)).as_("ended"),
 				Sum(Case().when(ended & (Meeting.status == MOM_SUBMITTED), 1).else_(0)).as_("ended_with_mom"),
 				Sum(Case().when(Meeting.status == MOM_PENDING, 1).else_(0)).as_("mom_pending"),
@@ -341,6 +360,8 @@ class PipelineDashboard:
 		rows: dict[str, dict] = {}
 		for row in meetings:
 			rows.setdefault(row.lead_owner, {}).update(row)
+		for owner in self.held_meetings().values():
+			rows.setdefault(owner, {})["held"] = cint(rows.get(owner, {}).get("held")) + 1
 		for row in quotes:
 			rows.setdefault(row.lead_owner, {}).update(row)
 		for owner, count in won.items():

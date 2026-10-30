@@ -22,19 +22,22 @@ from frappe.utils import (
 )
 
 from tbo_smart.api.mobile.utils import get_full_names, percent
+from tbo_smart.lead_pipeline import document_types as kinds
 from tbo_smart.lead_pipeline import setting
 from tbo_smart.lead_pipeline.dashboard import PipelineDashboard
-from tbo_smart.lead_pipeline.meetings import CANCELLED, MOM_SUBMITTED
+from tbo_smart.lead_pipeline.meetings import CANCELLED
+from tbo_smart.lead_pipeline.proposals import DOCTYPE as PROPOSAL
 from tbo_smart.lead_pipeline.statuses import (
 	CLOSED_WON,
 	CONTACTED,
-	MEETING_SCHEDULED,
+	FIRST_MEETING,
 	OPEN_STATUSES,
 	POSITIVE,
 	PROGRESS,
 	PROPOSAL_SENT,
 	STATUSES,
 )
+from tbo_smart.sales import DEAL, LEAD_LINK
 from tbo_smart.sales.activities import CANCELLED as TASK_CANCELLED
 from tbo_smart.sales.activities import DONE, OPEN
 from tbo_smart.smart_leads import ai_leads_enabled
@@ -62,11 +65,12 @@ AI_METRICS = {
 	"stage_suggested": lambda Lead: Lead.tbo_ai_stage.isnotnull() & (Lead.tbo_ai_stage != ""),
 }
 DEFAULT_STALE_DAYS = 21
-# the funnel's steps: how far along the pipeline a lead created in the range got
+# the funnel's steps: how far along the pipeline a lead created in the range got; "meeting" is
+# a meeting held (First Meeting Completed or later), as the "meetings" figure counts
 FUNNEL = (
 	("created", 0),
 	("contacted", PROGRESS[CONTACTED]),
-	("meeting", PROGRESS[MEETING_SCHEDULED]),
+	("meeting", PROGRESS[FIRST_MEETING]),
 	("proposal", PROGRESS[PROPOSAL_SENT]),
 	("won", PROGRESS[CLOSED_WON]),
 )
@@ -110,6 +114,7 @@ class LeadOverview(PipelineDashboard):
 		lost = self.closed_rows("Lost")
 		quotations = self.quotations()
 		pipeline = self.pipeline()
+		won_values = self.lead_values([row.name for row in won])
 		open_stages = [row for row in pipeline if row["stage"] in OPEN_STATUSES]
 		return {
 			"from_date": self.from_date,
@@ -123,7 +128,8 @@ class LeadOverview(PipelineDashboard):
 				"mom_pending": self.mom_pending()["count"],
 				"quotations_sent": self.quotations_sent(),
 				"won": len(won),
-				"won_value": self.lead_value([row.name for row in won]),
+				"won_value": flt(sum(won_values.values()), 2),
+				"won_unpriced": sum(1 for row in won if not won_values.get(row.name)),
 				"lost": len(lost),
 				"stale": len(self.stale_leads()),
 				"overdue": self.overdue_follow_ups(),
@@ -366,59 +372,108 @@ class LeadOverview(PipelineDashboard):
 		).run(pluck=True)
 
 	def meeting_leads(self) -> list[str]:
-		Meeting = self.Meeting
-		return (
-			self.meetings_query()
-			.select(Meeting.lead)
-			.distinct()
-			.where(
-				(Meeting.status == MOM_SUBMITTED)
-				& self.in_range(Meeting.submitted_on)
-				& self.lead_criterion()
-			)
-		).run(pluck=True)
+		return list({lead for lead, _number in self.held_meetings()})
 
 	def quotation_query(self):
 		return frappe.qb.from_(self.Quotation).join(self.Lead).on(self.Lead.name == self.Quotation.tbo_lead)
 
-	def quotation_leads(self) -> list[str]:
-		Quotation = self.Quotation
-		return (
+	def sent_leads(self) -> set:
+		"""The leads a proposal went to in the range: a quotation sent (`tbo_sent_on`), a proposal
+		document sent (`sent_on`), or the lead entering Proposal Sent (its stage log). Leads
+		moved there by hand or imported have no sent document, so the documents alone read 0
+		while the pipeline showed Proposal Sent."""
+		Quotation, Proposal, Log, Lead = (
+			self.Quotation,
+			frappe.qb.DocType(PROPOSAL),
+			frappe.qb.DocType("TBO Stage Change"),
+			self.Lead,
+		)
+		sent = set(
 			self.quotation_query()
 			.select(Quotation.tbo_lead)
-			.distinct()
 			.where((Quotation.docstatus != 2) & self.in_range(Quotation.tbo_sent_on) & self.lead_criterion())
-		).run(pluck=True)
+			.run(pluck=True)
+		)
+		sent.update(
+			frappe.qb.from_(Proposal)
+			.join(Lead)
+			.on(Lead.name == Proposal.lead)
+			.select(Proposal.lead)
+			.where(
+				(Proposal.document_type == kinds.PROPOSAL)
+				& self.in_range(Proposal.sent_on)
+				& self.lead_criterion()
+			)
+			.run(pluck=True)
+		)
+		sent.update(
+			frappe.qb.from_(Log)
+			.join(Lead)
+			.on(Lead.name == Log.parent)
+			.select(Log.parent)
+			.where(
+				(Log.parenttype == "Lead")
+				& (Log.stage == PROPOSAL_SENT)
+				& self.in_range(Log.changed_on)
+				& self.lead_criterion()
+			)
+			.run(pluck=True)
+		)
+		return sent
+
+	def quotation_leads(self) -> list[str]:
+		return list(self.sent_leads())
 
 	def quotations_sent(self) -> int:
-		Quotation = self.Quotation
-		return cint(
-			(
-				self.quotation_query()
-				.select(Count(Quotation.name))
-				.where(
-					(Quotation.docstatus != 2) & self.in_range(Quotation.tbo_sent_on) & self.lead_criterion()
-				)
-			).run()[0][0]
-		)
+		"""Leads a proposal was sent to in the range (`sent_leads`), each once."""
+		return len(self.sent_leads())
+
+	def lead_values(self, leads: list[str]) -> dict:
+		"""{lead: what it is worth}: its latest quotations' total; else its deal's amount; else
+		its Sales Orders' total. Leads won without any of them are 0."""
+		values = dict.fromkeys(leads, 0.0)
+		if not leads:
+			return values
+		Quotation, Deal = frappe.qb.DocType("Quotation"), frappe.qb.DocType(DEAL)
+		Order = frappe.qb.DocType("Sales Order")
+		for lead, value in (
+			frappe.qb.from_(Quotation)
+			.select(Quotation.tbo_lead, Sum(Quotation.base_grand_total))
+			.where(
+				Quotation.tbo_lead.isin(leads) & (Quotation.docstatus != 2) & (Quotation.tbo_is_latest == 1)
+			)
+			.groupby(Quotation.tbo_lead)
+		).run():
+			values[lead] = flt(value)
+		for lead, value in (
+			frappe.qb.from_(Deal)
+			.select(
+				Deal[LEAD_LINK],
+				Sum(
+					Deal.opportunity_amount
+					* Case().when(IfNull(Deal.conversion_rate, 0) > 0, Deal.conversion_rate).else_(1)
+				),
+			)
+			.where(Deal[LEAD_LINK].isin(leads) & (Deal.status != "Lost"))
+			.groupby(Deal[LEAD_LINK])
+		).run():
+			if not values[lead]:
+				values[lead] = flt(value)
+		if any(not value for value in values.values()):
+			for lead, value in (
+				frappe.qb.from_(Order)
+				.join(Deal)
+				.on(Deal.name == Order.opportunity)
+				.select(Deal[LEAD_LINK], Sum(Order.base_grand_total))
+				.where(Deal[LEAD_LINK].isin(leads) & (Order.docstatus == 1))
+				.groupby(Deal[LEAD_LINK])
+			).run():
+				if not values[lead]:
+					values[lead] = flt(value)
+		return values
 
 	def lead_value(self, leads: list[str]) -> float:
-		"""What these leads are worth: their latest quotations' total."""
-		if not leads:
-			return 0.0
-		Quotation = frappe.qb.DocType("Quotation")
-		return flt(
-			(
-				frappe.qb.from_(Quotation)
-				.select(Sum(Quotation.base_grand_total))
-				.where(
-					Quotation.tbo_lead.isin(leads)
-					& (Quotation.docstatus != 2)
-					& (Quotation.tbo_is_latest == 1)
-				)
-			).run()[0][0],
-			2,
-		)
+		return flt(sum(self.lead_values(leads).values()), 2)
 
 	def pipeline(self) -> list[dict]:
 		"""Every stage now, in pipeline order: its leads and their latest quotations' value."""
@@ -623,24 +678,12 @@ class SalesActivity(LeadOverview):
 		return rows
 
 	def won_value_by_owner(self, won: list) -> dict:
-		"""{owner: the latest quotations' total of their leads won in the range}, in one query."""
-		owner_of = {row.name: row.lead_owner for row in won}
-		values = dict.fromkeys(owner_of.values(), 0.0)
-		if not owner_of:
-			return values
-		Quotation = self.Quotation
-		for lead, value in (
-			frappe.qb.from_(Quotation)
-			.select(Quotation.tbo_lead, Sum(Quotation.base_grand_total))
-			.where(
-				Quotation.tbo_lead.isin(list(owner_of))
-				& (Quotation.docstatus != 2)
-				& (Quotation.tbo_is_latest == 1)
-			)
-			.groupby(Quotation.tbo_lead)
-		).run():
-			values[owner_of[lead]] += flt(value)
-		return values
+		"""{owner: the worth (`lead_values`) of their leads won in the range}."""
+		values = self.lead_values([row.name for row in won])
+		result = dict.fromkeys((row.lead_owner for row in won), 0.0)
+		for row in won:
+			result[row.lead_owner] += values.get(row.name, 0.0)
+		return result
 
 	def follow_ups_by_person(self) -> dict:
 		"""{user: {done, on_time, overdue}}: follow-ups on leads closed in the range (on time when
