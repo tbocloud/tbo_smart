@@ -66,8 +66,8 @@ its Event) and sets the item's outcome, which removes it from the queue:
 | Connected | Connected | Due follow-ups of the lead close. A `callback_at` sets the next follow-up. The hub asks for a note and stage. |
 | Not answered / Busy | No answer / Busy | One more try 2 hours later in the same batch, if the batch is still running then; after that, or when the slot ends first, the lead returns tomorrow as priority 2. |
 | Call back | Connected | `callback_at` (required) becomes `tbo_callback_at` and a follow-up ToDo; inside this batch the lead returns to the queue at that time. |
-| Not interested | Connected | Due follow-ups close. The hub offers Closed - Lost with a reason (`set_stage`). |
-| Wrong number | No answer | `tbo_wrong_number` is set and a note added. |
+| Not interested | Connected | Due follow-ups close. The lead becomes Not Interested (lost reason "Not interested"). |
+| Wrong number | No answer | `tbo_wrong_number` is set, a note added and the lead becomes Wrong Number. |
 
 A call logged on the lead by any other route (MyOperator, the Log call dialog, the app) counts
 too: `sync_calls` gives the person's open items the outcome of their newest later call (Answered:
@@ -100,3 +100,6 @@ endpoints in `api/hub_leads.py`; tests `tests/test_call_batches.py`, helpers in 
 - The follow-up field in use is the lead's open ToDo (`next_follow_ups`); call-back time-of-day is
   kept in `tbo_callback_at` because a ToDo only has a date.
 - Closing due follow-ups on a conversation keeps yesterday's finished work from coming back.
+
+Every outcome also sets the lead's last call result and may move its stage
+(`lead-pipeline.md` §2.3), through `apply_call_outcome`.

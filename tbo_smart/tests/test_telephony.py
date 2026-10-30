@@ -178,6 +178,19 @@ class TestWebhook(TelephonyTestCase):
 		self.assertEqual(str(call.started_at), "2026-10-19 10:58:04")
 
 
+class TestCallResult(TelephonyTestCase):
+	def test_an_outgoing_call_sets_the_leads_last_call_result(self):
+		post_myoperator_webhook(
+			myoperator_event("C-OUT-MISS", direction="outgoing", status="missed", agent=AGENT)
+		)
+		self.assertEqual(frappe.db.get_value("Lead", self.lead, "tbo_last_call_result"), "Not answered")
+		self.assertTrue(frappe.db.get_value("Lead", self.lead, "tbo_last_call_on"))
+
+	def test_a_missed_incoming_call_says_nothing_about_the_lead(self):
+		post_myoperator_webhook(myoperator_event("C-IN-MISS", status="missed"))
+		self.assertIsNone(frappe.db.get_value("Lead", self.lead, "tbo_last_call_result") or None)
+
+
 class TestMatching(TelephonyTestCase):
 	def test_number_formats_match_the_same_lead(self):
 		for number in ("+91 98765 43210", "9876543210", "09876543210", "+91-98765-43210"):

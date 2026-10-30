@@ -22,7 +22,7 @@ from tbo_smart.lead_pipeline.mom import (
 from tbo_smart.lead_pipeline.mom import (
 	draft_mom as ai_draft_mom,
 )
-from tbo_smart.lead_pipeline.statuses import NEW_LEAD, status_type
+from tbo_smart.lead_pipeline.statuses import NEW_LEAD, needs_lost_reason, status_type
 from tbo_smart.sales.activities import OPEN, task_title
 from tbo_smart.sales.opportunity import lead_opportunity
 from tbo_smart.sales.stages import set_lead_stage
@@ -294,7 +294,7 @@ def save_mom(
 	next_values = parse(next_meeting) if next_meeting else None
 	if cint(submit):
 		closing = status_type(lead_status) in ("Won", "Lost")
-		if status_type(lead_status) == "Lost" and not (lost_reason or "").strip():
+		if needs_lost_reason(lead_status) and not (lost_reason or "").strip():
 			frappe.throw(_("Give a reason for losing the lead."))
 		validate_submit(doc, bool(next_values), closing)
 		mark_submitted(doc)

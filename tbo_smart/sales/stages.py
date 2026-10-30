@@ -10,7 +10,14 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime
 
-from tbo_smart.lead_pipeline.statuses import CLOSED_LOST, NEW_LEAD, STATUS_NAMES, status_type
+from tbo_smart.lead_pipeline.statuses import (
+	AUTO_LOST_REASONS,
+	CLOSED_LOST,
+	NEW_LEAD,
+	STATUS_NAMES,
+	WRONG_NUMBER,
+	needs_lost_reason,
+)
 from tbo_smart.sales import DEAL, LEAD
 
 LOG_FIELD = "tbo_stage_log"
@@ -47,12 +54,26 @@ class LeadStage:
 
 	def validate(self):
 		self.set_default()
+		self.fill_lost_reason()
+		self.flag_wrong_number()
 		self.require_lost_reason()
 		record_change(self.doc)
 
 	def set_default(self):
 		if not self.doc.get("tbo_stage"):
 			self.doc.tbo_stage = NEW_LEAD
+
+	def fill_lost_reason(self):
+		"""Not Interested and Wrong Number are lost for a known reason: no prompt, no typing."""
+		reason = AUTO_LOST_REASONS.get(self.doc.tbo_stage)
+		if not reason or (self.doc.get("tbo_lost_reason") and not self.doc.has_value_changed("tbo_stage")):
+			return
+		ensure_lost_reason(reason)
+		self.doc.tbo_lost_reason, self.doc.tbo_lost_notes = reason, None
+
+	def flag_wrong_number(self):
+		if self.doc.tbo_stage == WRONG_NUMBER and self.doc.meta.has_field("tbo_wrong_number"):
+			self.doc.tbo_wrong_number = 1
 
 	def require_lost_reason(self):
 		"""A lost lead says why, as Frappe CRM asked: a lost reason, and notes for "Other"."""
@@ -69,14 +90,14 @@ def validate_lead(doc, method=None):
 
 
 def set_lead_stage(name: str, stage: str, lost_reason: str | None = None):
-	"""Save a lead's new stage under the session user's permissions; a Lost-type stage (Closed –
-	Lost) needs a reason (`set_lost_reason`). Returns the lead."""
+	"""Save a lead's new stage under the session user's permissions; a Lost-type stage that
+	needs one (Closed – Lost) gets a reason (`set_lost_reason`); Not Interested and Wrong Number fill theirs. Returns the lead."""
 	if stage not in STATUS_NAMES:
 		frappe.throw(_("{0} is not a lead stage.").format(stage))
 	lead = frappe.get_doc(LEAD, name)
 	lead.check_permission("write")
 	lead.tbo_stage = stage
-	if status_type(stage) == "Lost":
+	if needs_lost_reason(stage):
 		set_lost_reason(lead, lost_reason, _("Give a reason for losing the lead."))
 	system_save(lead)
 	return lead
@@ -109,6 +130,14 @@ def set_lost_reason(doc, lost_reason: str | None, missing: str) -> None:
 	else:
 		doc.set("lost_reasons", [{"lost_reason": name}])
 		doc.order_lost_reason = notes
+
+
+def ensure_lost_reason(name: str) -> None:
+	"""The Opportunity Lost Reason `name`, made when it is not there yet."""
+	if not frappe.db.exists("Opportunity Lost Reason", name):
+		frappe.get_doc({"doctype": "Opportunity Lost Reason", "lost_reason": name}).insert(
+			ignore_permissions=True
+		)
 
 
 def lead_lost_reason(lead) -> str | None:

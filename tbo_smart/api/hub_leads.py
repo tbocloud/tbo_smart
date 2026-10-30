@@ -19,6 +19,7 @@ from tbo_smart import lead_source
 from tbo_smart.api.mobile.capabilities import CRM_ROLES, get_capabilities
 from tbo_smart.api.mobile.crm import check_assignee, get_crm_users
 from tbo_smart.api.mobile.utils import get_full_names
+from tbo_smart.lead_pipeline import call_outcomes as lead_calls
 from tbo_smart.lead_pipeline import lead_category, lead_place, rate_card, require_quotations, setting
 from tbo_smart.lead_pipeline.business import build_business, can_view_business
 from tbo_smart.lead_pipeline.client_documents import chain as document_chain
@@ -31,7 +32,7 @@ from tbo_smart.lead_pipeline.proposal_media import decode
 from tbo_smart.lead_pipeline.proposals import latest_proposals, lead_proposals, proposals_enabled
 from tbo_smart.lead_pipeline.quotations import latest_quotations, lead_quotations
 from tbo_smart.lead_pipeline.setup import HUB_ROLE, MANAGEMENT_ROLE, SEGMENTS
-from tbo_smart.lead_pipeline.statuses import STATUS_NAMES, stage_options, status_type
+from tbo_smart.lead_pipeline.statuses import STATUS_NAMES, needs_lost_reason, stage_options
 from tbo_smart.prospecting import runs as prospect_runs
 from tbo_smart.prospecting import signals as prospect_signals
 from tbo_smart.query import aggregate
@@ -104,6 +105,8 @@ ROW_FIELDS = [
 	"email_id",
 	"mobile_no",
 	"tbo_stage",
+	"tbo_last_call_result as last_call_result",
+	"tbo_last_call_on as last_call_on",
 	"tbo_segment as segment",
 	"tbo_department",
 	"tbo_lead_type",
@@ -137,6 +140,8 @@ LEAD_DETAIL_FIELDS = [
 	"tbo_department",
 	"tbo_lead_type",
 	"tbo_stage",
+	"tbo_last_call_result as last_call_result",
+	"tbo_last_call_on as last_call_on",
 	"status",
 	"lead_owner",
 	"tbo_score",
@@ -272,6 +277,7 @@ def list_leads(
 	state: list | str | None = None,
 	district: list | str | None = None,
 	org_size: list | str | None = None,
+	last_call_result: list | str | None = None,
 	acting_user: str | None = None,
 ) -> dict:
 	"""The leads the acting user may see, newest change first: {rows, total}. `view`: all, mine
@@ -280,7 +286,8 @@ def list_leads(
 	`to_date`) keeps the leads one number of the overview counts (get_overview). `department`
 	keeps one lead department's leads (the acting user still sees only what they may).
 	`industry`, `state`, `district` and `org_size` each take a value or a list (a JSON list in a
-	GET) and keep the leads with any of them."""
+	GET) and keep the leads with any of them; `last_call_result` does the same for the outcome of
+	the lead's last call (Connected, Not answered, Busy, Call back, Not interested, Wrong number)."""
 	if view not in VIEWS:
 		frappe.throw(_("view must be one of {0}.").format(", ".join(VIEWS)))
 	start = max(cint(start), 0)
@@ -292,6 +299,8 @@ def list_leads(
 		if department:
 			filters["tbo_department"] = department
 		filters.update(lead_category.category_filters(industry, state, district, org_size))
+		if last_call_result:
+			filters["tbo_last_call_result"] = ("in", lead_calls.result_filter(last_call_result))
 		if temperature:
 			if temperature not in TEMPERATURES:
 				frappe.throw(_("temperature must be one of {0}.").format(", ".join(TEMPERATURES)))
@@ -412,6 +421,8 @@ def serialize_rows(rows: list) -> list[dict]:
 			"email_id": row.email_id,
 			"mobile_no": row.mobile_no,
 			"tbo_stage": row.tbo_stage,
+			"last_call_result": row.last_call_result,
+			"last_call_on": row.last_call_on,
 			"segment": row.segment,
 			"tbo_department": row.tbo_department,
 			"tbo_lead_type": row.tbo_lead_type,
@@ -554,13 +565,31 @@ def get_daily_report(
 
 
 @frappe.whitelist(methods=["POST"])
-def log_call(lead: str, outcome: str, note: str | None = None, acting_user: str | None = None) -> dict:
-	"""Log a call the acting user made outside MyOperator on `lead`: `outcome` is Connected, No
-	answer, Busy or Voicemail. It is stored as an outgoing TBO Call by them, the single source of
-	calls, and shows on the lead's timeline. Needs write permission on the lead."""
+def log_call(
+	lead: str,
+	outcome: str,
+	note: str | None = None,
+	callback_at: str | None = None,
+	acting_user: str | None = None,
+) -> dict:
+	"""Log a call the acting user made outside MyOperator on `lead`: `outcome` is Connected, Not
+	answered, Busy, Call back (`callback_at` required), Not interested or Wrong number (No answer
+	and Voicemail also read as Not answered). It is stored as an outgoing TBO Call by them, the
+	single source of calls, and shows on the lead's timeline. It also sets the lead's last call
+	result and moves its stage (docs/lead-pipeline.md §2.3). Needs write permission on the
+	lead. Returns {name, status, outcomes, stage}: `stage` the one it moved the lead to, else
+	null."""
 	with acting_as(acting_user):
+		if outcome == "Call back" and not callback_at:
+			frappe.throw(_("Say when to call back."))
 		call = log_manual_call(lead, outcome, note)
-		return {"name": call.name, "status": call.status, "outcomes": list(MANUAL_OUTCOMES)}
+		stage = lead_calls.apply_call_outcome(lead, outcome, call.started_at, callback_at)
+		return {
+			"name": call.name,
+			"status": call.status,
+			"outcomes": list(MANUAL_OUTCOMES),
+			"stage": stage,
+		}
 
 
 @frappe.whitelist()
@@ -1008,11 +1037,11 @@ def get_lead_photo(lead: str, file: str, thumb: int | str = 0, acting_user: str 
 
 @frappe.whitelist(methods=["POST"])
 def set_stage(name: str, stage: str, note: str | None = None, acting_user: str | None = None) -> dict:
-	"""Move the lead to `stage`. Closed – Lost needs `note`, its lost reason (a lost reason's name,
+	"""Move the lead to `stage`. Closed – Lost needs `note`, its lost reason (Not Interested and Wrong Number fill their own) (a lost reason's name,
 	or free text, saved as "Other" with the text); for any other stage `note` is added as a
 	note."""
 	with acting_as(acting_user):
-		if status_type(stage) == "Lost":
+		if needs_lost_reason(stage):
 			set_lead_stage(name, stage, note)
 		else:
 			set_lead_stage(name, stage)
@@ -1044,10 +1073,10 @@ def add_note(name: str, note: str, acting_user: str | None = None) -> dict:
 
 @frappe.whitelist()
 def get_category_counts(acting_user: str | None = None) -> dict:
-	"""{industry, state, district, org_size}: each {value: number of leads} over the leads the
-	acting user may see."""
+	"""{industry, state, district, org_size, last_call_result}: each {value: number of leads}
+	over the leads the acting user may see."""
 	with acting_as(acting_user):
-		return lead_category.get_counts()
+		return {**lead_category.get_counts(), "last_call_result": lead_calls.get_counts()}
 
 
 @frappe.whitelist(methods=["POST"])

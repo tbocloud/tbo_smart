@@ -32,6 +32,7 @@ from tbo_smart.lead_pipeline.statuses import (
 	CLOSED_WON,
 	CONTACTED,
 	FIRST_MEETING,
+	NOT_RESPONDING,
 	OPEN_STATUSES,
 	POSITIVE,
 	PROGRESS,
@@ -518,7 +519,9 @@ class LeadOverview(PipelineDashboard):
 				.select(Log.parent, Log.stage)
 				.where((Log.parenttype == "Lead") & Log.parent.isin(list(created)))
 			).run():
-				furthest[lead] = max(furthest[lead], PROGRESS.get(stage, 0))
+				# a call nobody answered is not a lead contacted
+				reached = 0 if stage == NOT_RESPONDING else PROGRESS.get(stage, 0)
+				furthest[lead] = max(furthest[lead], reached)
 		total = len(created)
 		return [
 			{
