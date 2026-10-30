@@ -112,11 +112,12 @@ def get_departments() -> list[dict]:
 
 
 def active_departments_for(user: str) -> list[dict]:
-	"""[{name, lead_type, is_active, assignment, stale_after_days, is_head, is_member}] for the active departments."""
+	"""[{name, lead_type, is_active, assignment, stale_after_days, call_batches_enabled, is_head,
+	is_member}] for the active departments."""
 	departments = frappe.get_all(
 		DEPARTMENT,
 		filters={"is_active": 1},
-		fields=["name", "lead_type", "is_active", "assignment", "stale_after_days"],
+		fields=["name", "lead_type", "is_active", "assignment", "stale_after_days", "call_batches_enabled"],
 		order_by="name asc",
 	)
 	roles = {
@@ -130,6 +131,7 @@ def active_departments_for(user: str) -> list[dict]:
 			"is_active": cint(row.is_active),
 			"assignment": row.assignment or ASSIGNMENTS[0],
 			"stale_after_days": cint(row.stale_after_days),
+			"call_batches_enabled": cint(row.call_batches_enabled),
 			"is_head": (row.name, "heads") in roles,
 			"is_member": (row.name, "members") in roles,
 		}

@@ -126,6 +126,7 @@ class TestLeadDepartments(FrappeTestCase):
 				"is_active": 1,
 				"assignment": "Manual",
 				"stale_after_days": 0,
+				"call_batches_enabled": 0,
 				"is_head": True,
 				"is_member": False,
 			},
