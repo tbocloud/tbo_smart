@@ -119,7 +119,7 @@ class TestCommission(FrappeTestCase):
 		delete_lead_pipeline_records(OWNERS)
 		delete_lead_departments([DEPARTMENT])
 		make_lead_department(DEPARTMENT, heads=[HEAD], members=[BDE, BDE2, MANAGER])
-		self.project = make_project("TBO Commission Project A")
+		self.project = make_project(f"TBO Commission A {frappe.generate_hash(length=6)}")
 		frappe.set_user(HUB)
 
 	def tearDown(self):
@@ -187,7 +187,7 @@ class TestCommission(FrappeTestCase):
 		self.assertEqual(self.person(BDE)["commission"], 1000)
 
 	def test_all_collections_basis_pools_the_projects(self):
-		other = make_project("TBO Commission Project B")
+		other = make_project(f"TBO Commission B {frappe.generate_hash(length=6)}")
 		make_commission_plan("Pool", SLABS, basis="Collected (all)")
 		self.receipt(BDE, 60000)
 		self.receipt(BDE, 90000, project=other)
@@ -197,7 +197,7 @@ class TestCommission(FrappeTestCase):
 		self.assertEqual(sum(r["commission"] for r in row["projects"]), 3500)
 
 	def test_project_basis_runs_each_project_on_its_own(self):
-		other = make_project("TBO Commission Project B")
+		other = make_project(f"TBO Commission B {frappe.generate_hash(length=6)}")
 		make_commission_plan("Each", SLABS)
 		self.receipt(BDE, 60000)
 		self.receipt(BDE, 90000, project=other)

@@ -3292,8 +3292,18 @@ def _insert_reply(lead: str, text: str, sender: str, sent_on):
 
 
 def delete_commission_records() -> None:
-	"""Delete every commission statement, project set-up and plan, and commit."""
-	for doctype in ("TBO Commission Statement", "TBO Project Commission", "TBO Commission Plan"):
+	"""Delete every commission statement, project set-up and plan with their child rows, and
+	commit."""
+	for doctype in (
+		"TBO Commission Statement",
+		"TBO Commission Statement Line",
+		"TBO Commission Statement Slab",
+		"TBO Commission Statement Payment",
+		"TBO Project Commission",
+		"TBO Project Commission Earner",
+		"TBO Commission Plan",
+		"TBO Commission Slab",
+	):
 		frappe.db.delete(doctype)
 	frappe.db.commit()  # nosemgrep
 
