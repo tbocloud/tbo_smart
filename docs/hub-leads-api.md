@@ -1,4 +1,4 @@
-# Hub leads API (`tbo_smart.api.hub_leads`), v1.17
+# Hub leads API (`tbo_smart.api.hub_leads`), v1.18
 
 **Status:** built 2026-10-16. The TBO Support hub's lead page (tbocloud/helpdesk) shows and edits
 tboindia's leads through these methods. The leads are ERPNext's own **Lead**
@@ -708,6 +708,45 @@ closed (Won or Lost-type) keeps its stage; an older reply never undoes a newer o
 - **`draft_lead_message`** (§2.6) returns `first_message` (true when written from website signals)
   and, for WhatsApp, `to`.
 
+### 2.18 Commission (`commission.md`)
+
+Module `tbo_smart.api.hub_commission`; every method takes `acting_user` (§1). Money is the
+company currency. `month` is `YYYY-MM` (or any date in it).
+
+- **`get_commission(month, user=None, department=None)`** (GET): the month, live. A salesperson sees
+  themselves, a department head their departments' people, a Sales Manager, System Manager or
+  TBO Management everyone; asking for anyone else is 403. A statement that is Approved or Paid
+  stands as approved (`frozen`: 1). Returns `{month, currency, scope ("own" / "department" /
+  "all"), can_manage, rows, totals: {collected, commission}, unattributed}`. A row is `{user,
+  full_name, plans, collected, target, achievement, reached: {slab_no, rate, above_target} or null,
+  commission, statement, status (null: no statement yet), frozen, approved_by, approved_on,
+  paid_on, projects: [{project, plan, collected, share_percent, credited, target, commission}],
+  breakdown: [{project, slab_no, from_amount, to_amount, amount, slab_rate, rate, above_target,
+  commission}], payments: [{payment_entry, date, kind, amount, project, lead, customer}]}`.
+  `unattributed` (managers, with no `user` or `department`) is `{amount, count, reasons:
+  {reason: amount}, payments: [{payment_entry, date, kind, amount, customer, lead, project,
+  reason}]}`; everyone else gets null. `kind` is Receipt, Refund, Cancelled receipt or Cancelled
+  refund; cancelled and refunded money is negative.
+- **`generate_statements(month)`** (POST, managers): creates or refreshes the Draft statements of
+  everyone with money in the month. Returns `[{user, name, status, commission, skipped}]`;
+  `skipped` is 1 for an Approved or Paid statement, which is never touched.
+- **`approve_statement(name)`** (POST, managers): Draft to Approved; returns `{name, status,
+  approved_by}`. Nobody approves their own statement except a System Manager. Another status is 417.
+- **`mark_paid(name)`** (POST, managers): Approved to Paid; returns `{name, status}`.
+- **`get_commission_plans()`** (managers): `{plans: [{name, plan_name, is_active, basis,
+  department, lead_type, project_type, user, monthly_target, above_target_rate, slabs: [{from_amount,
+  to_amount (null: no limit), rate}]}], currency, departments, lead_types}`.
+- **`save_commission_plan(values, name=None)`** (POST, managers): creates (no `name`) or updates a
+  plan from the plan fields above. Slabs may not overlap, rates are 0 to 100, and two active plans
+  may not have the same conditions (417). A plan cannot be renamed.
+- **`get_project_commission(project)`** (managers): `{setup, collected, payments, commission,
+  currency}`. `setup` is null when the project has none, else `{project, is_active, lead,
+  project_type, earners: [{user, share_percent}], plan, use_override, override_target,
+  override_above_target_rate, override_slabs}`. `collected` is all money collected on the project
+  so far, `commission` what statements credit on it.
+- **`save_project_commission(values)`** (POST, managers): `values` is the setup above (`project`
+  names it). Earners' shares must add up to 100. Returns `get_project_commission`'s answer.
+
 ## 3. Links back to the hub
 
 Teams messages, emails and the morning digest link to the lead page when TBO Smart Settings →
@@ -756,8 +795,18 @@ call.
 
 `tbo_smart/tests/test_outreach.py` (AI and email mocked): see `prospecting.md` §12.
 
+`tbo_smart/tests/test_commission.py`: the slab maths and plan matching (`commission.md` §3), receipts to
+projects and earners, splits, own slabs, pooled and per-project basis, Unattributed, a cancelled receipt
+in the next month, statements (draft, refresh, approve, freeze, paid), who sees whom, and plans and
+project set-ups saved by managers only.
+
 ## Changelog
 
+- **v1.18 (2026-10-31):** commission (§2.18): `hub_commission.get_commission`,
+  `generate_statements`, `approve_statement`, `mark_paid`, `get_commission_plans`,
+  `save_commission_plan`, `get_project_commission`, `save_project_commission`; the monthly draft
+  job. `BusinessOverview.traced_allocations` returns each allocation's lead, owner, lead type and
+  project (`allocations` is unchanged).
 - **v1.17 (2026-10-30):** outreach (§2.17): `hub_outreach.draft_outreach`, `get_outbox`,
   `update_outreach`, `regenerate_outreach`, `approve_outreach`, `mark_outreach_sent`,
   `cancel_outreach`; `last_reply_class` and `last_reply_on` on rows and `get_lead`;

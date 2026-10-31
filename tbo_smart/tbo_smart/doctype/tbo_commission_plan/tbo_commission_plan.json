@@ -1,0 +1,150 @@
+{
+ "actions": [],
+ "autoname": "field:plan_name",
+ "creation": "2026-10-31 10:00:00.000000",
+ "description": "A commission rule: who and what it applies to, and the progressive slabs on money collected.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "plan_name",
+  "is_active",
+  "basis",
+  "period",
+  "section_conditions",
+  "department",
+  "lead_type",
+  "column_break_c",
+  "project_type",
+  "user",
+  "section_slabs",
+  "monthly_target",
+  "above_target_rate",
+  "slabs"
+ ],
+ "fields": [
+  {
+   "fieldname": "plan_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Plan",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Active"
+  },
+  {
+   "default": "Project collected",
+   "description": "Project collected: each project's money runs through the slabs on its own. Collected (all): everything the person collected in the month runs through them once.",
+   "fieldname": "basis",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Basis",
+   "options": "Project collected\nCollected (all)",
+   "reqd": 1
+  },
+  {
+   "default": "Monthly",
+   "fieldname": "period",
+   "fieldtype": "Select",
+   "label": "Period",
+   "options": "Monthly",
+   "reqd": 1
+  },
+  {
+   "description": "Leave a condition blank to ignore it. The plan matching the most conditions wins (user, then project type, lead type, department).",
+   "fieldname": "section_conditions",
+   "fieldtype": "Section Break",
+   "label": "Applies when"
+  },
+  {
+   "fieldname": "department",
+   "fieldtype": "Link",
+   "label": "Department",
+   "options": "TBO Lead Department"
+  },
+  {
+   "fieldname": "lead_type",
+   "fieldtype": "Select",
+   "label": "Lead type",
+   "options": "\nERP / Software\nContent / Digital Marketing"
+  },
+  {
+   "fieldname": "column_break_c",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "project_type",
+   "fieldtype": "Data",
+   "label": "Project type"
+  },
+  {
+   "fieldname": "user",
+   "fieldtype": "Link",
+   "label": "User",
+   "options": "User"
+  },
+  {
+   "fieldname": "section_slabs",
+   "fieldtype": "Section Break",
+   "label": "Slabs"
+  },
+  {
+   "description": "Per project under Project collected, per person under Collected (all). Blank or 0: no target.",
+   "fieldname": "monthly_target",
+   "fieldtype": "Currency",
+   "label": "Monthly target"
+  },
+  {
+   "description": "Money collected above the target earns this rate where it is higher than the slab's.",
+   "fieldname": "above_target_rate",
+   "fieldtype": "Percent",
+   "label": "Above-target rate %"
+  },
+  {
+   "fieldname": "slabs",
+   "fieldtype": "Table",
+   "label": "Slabs",
+   "options": "TBO Commission Slab"
+  }
+ ],
+ "links": [],
+ "modified": "2026-10-31 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tbo Smart",
+ "name": "TBO Commission Plan",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

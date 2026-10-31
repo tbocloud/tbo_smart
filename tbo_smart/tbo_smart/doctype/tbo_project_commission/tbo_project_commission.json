@@ -1,0 +1,134 @@
+{
+ "actions": [],
+ "autoname": "field:project",
+ "creation": "2026-10-31 10:00:00.000000",
+ "description": "Who earns commission on a project's collections and by which plan or slabs.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "project",
+  "is_active",
+  "lead",
+  "project_type",
+  "section_earners",
+  "earners",
+  "section_plan",
+  "plan",
+  "use_override",
+  "override_target",
+  "override_above_target_rate",
+  "override_slabs"
+ ],
+ "fields": [
+  {
+   "description": "The project's name as it is on the invoices (ERPNext Project), or the hub project (PROJ-0001) when the invoices carry none.",
+   "fieldname": "project",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Project",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Active"
+  },
+  {
+   "fieldname": "lead",
+   "fieldtype": "Link",
+   "label": "Lead",
+   "options": "Lead"
+  },
+  {
+   "fieldname": "project_type",
+   "fieldtype": "Data",
+   "label": "Project type"
+  },
+  {
+   "fieldname": "section_earners",
+   "fieldtype": "Section Break",
+   "label": "Who earns"
+  },
+  {
+   "description": "Shares add up to 100. Blank: the owner of the lead behind the payment earns all of it.",
+   "fieldname": "earners",
+   "fieldtype": "Table",
+   "label": "Earners",
+   "options": "TBO Project Commission Earner"
+  },
+  {
+   "fieldname": "section_plan",
+   "fieldtype": "Section Break",
+   "label": "How"
+  },
+  {
+   "description": "Blank: the plan that matches the rules.",
+   "fieldname": "plan",
+   "fieldtype": "Link",
+   "label": "Plan",
+   "options": "TBO Commission Plan"
+  },
+  {
+   "fieldname": "use_override",
+   "fieldtype": "Check",
+   "label": "Use this project's own slabs instead"
+  },
+  {
+   "depends_on": "use_override",
+   "fieldname": "override_target",
+   "fieldtype": "Currency",
+   "label": "Target"
+  },
+  {
+   "depends_on": "use_override",
+   "fieldname": "override_above_target_rate",
+   "fieldtype": "Percent",
+   "label": "Above-target rate %"
+  },
+  {
+   "depends_on": "use_override",
+   "fieldname": "override_slabs",
+   "fieldtype": "Table",
+   "label": "Slabs",
+   "options": "TBO Commission Slab"
+  }
+ ],
+ "links": [],
+ "modified": "2026-10-31 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tbo Smart",
+ "name": "TBO Project Commission",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

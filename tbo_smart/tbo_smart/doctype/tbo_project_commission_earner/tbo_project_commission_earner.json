@@ -1,0 +1,41 @@
+{
+ "actions": [],
+ "creation": "2026-10-31 10:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "user",
+  "share_percent"
+ ],
+ "fields": [
+  {
+   "columns": 4,
+   "fieldname": "user",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "User",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "share_percent",
+   "fieldtype": "Percent",
+   "in_list_view": 1,
+   "label": "Share %",
+   "reqd": 1
+  }
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-10-31 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tbo Smart",
+ "name": "TBO Project Commission Earner",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
