@@ -75,6 +75,7 @@ class BusinessOverview(LeadOverview):
 		self.department = department or None
 		self.company = frappe.defaults.get_global_default("company")
 		self._orders = None
+		self._lead_facts = None
 
 	def lead_criterion(self, Lead=None):
 		Lead = Lead or self.Lead
@@ -235,44 +236,71 @@ class BusinessOverview(LeadOverview):
 
 	# ---------- revenue ----------
 
-	def order_departments(self) -> dict:
-		"""{Sales Order: department of the lead behind it ("" when the lead has none)}, through the
-		deal made from the lead or a line from the lead's quotation."""
+	def order_leads(self) -> dict:
+		"""{Sales Order: the lead behind it}, through the deal made from the lead or a line from the
+		lead's quotation. The one tracer: departments and commission owners are read from it."""
 		if self._orders is None:
 			Order, Item = frappe.qb.DocType("Sales Order"), frappe.qb.DocType("Sales Order Item")
 			Deal, Quotation, Lead = frappe.qb.DocType(DEAL), self.Quotation, self.Lead
 			found = {}
-			for order, department in (
+			for order, lead in (
 				frappe.qb.from_(Item)
 				.join(Quotation)
 				.on(Quotation.name == Item.prevdoc_docname)
 				.join(Lead)
 				.on(Lead.name == Quotation[LEAD_LINK])
-				.select(Item.parent, IfNull(Lead.tbo_department, ""))
+				.select(Item.parent, Lead.name)
 				.distinct()
 				.where(Item.parenttype == "Sales Order")
 			).run():
-				found[order] = department
-			for order, department in (
+				found[order] = lead
+			for order, lead in (
 				frappe.qb.from_(Order)
 				.join(Deal)
 				.on(Deal.name == Order.opportunity)
 				.join(Lead)
 				.on(Lead.name == Deal[LEAD_LINK])
-				.select(Order.name, IfNull(Lead.tbo_department, ""))
+				.select(Order.name, Lead.name)
 				.where(Order.docstatus == 1)
 			).run():
-				found[order] = department
+				found[order] = lead
 			self._orders = found
 		return self._orders
 
-	def invoice_departments(self, invoices: list[str]) -> dict:
-		"""{Sales Invoice: department ("" none) of the lead behind it}; invoices that cannot be
-		traced to a lead are left out."""
+	def lead_facts(self) -> dict:
+		"""{lead: (department "" when none, owner or None, lead type or None)} of every lead an order
+		traces to."""
+		if self._lead_facts is None:
+			Lead = self.Lead
+			leads = set(self.order_leads().values())
+			self._lead_facts = (
+				{
+					name: (department, owner, lead_type)
+					for name, department, owner, lead_type in (
+						frappe.qb.from_(Lead)
+						.select(
+							Lead.name, IfNull(Lead.tbo_department, ""), Lead.lead_owner, Lead.tbo_lead_type
+						)
+						.where(Lead.name.isin(list(leads)))
+					).run()
+				}
+				if leads
+				else {}
+			)
+		return self._lead_facts
+
+	def order_departments(self) -> dict:
+		"""{Sales Order: department of the lead behind it ("" when the lead has none)}."""
+		facts = self.lead_facts()
+		return {order: facts[lead][0] for order, lead in self.order_leads().items() if lead in facts}
+
+	def invoice_leads(self, invoices: list[str]) -> dict:
+		"""{Sales Invoice: the lead behind it}; invoices that cannot be traced to a lead are left
+		out."""
 		if not invoices:
 			return {}
 		Item = frappe.qb.DocType("Sales Invoice Item")
-		orders, found = self.order_departments(), {}
+		orders, found = self.order_leads(), {}
 		for invoice, order in (
 			frappe.qb.from_(Item)
 			.select(Item.parent, Item.sales_order)
@@ -281,6 +309,14 @@ class BusinessOverview(LeadOverview):
 			if order in orders:
 				found.setdefault(invoice, orders[order])
 		return found
+
+	def invoice_departments(self, invoices: list[str]) -> dict:
+		"""{Sales Invoice: department ("" none) of the lead behind it}; invoices that cannot be
+		traced to a lead are left out."""
+		facts = self.lead_facts()
+		return {
+			invoice: facts[lead][0] for invoice, lead in self.invoice_leads(invoices).items() if lead in facts
+		}
 
 	def invoices(self, start, end) -> list:
 		"""The submitted Sales Invoices posted from `start` to before `end`, returns included
@@ -338,9 +374,11 @@ class BusinessOverview(LeadOverview):
 			if department == self.department
 		]
 
-	def allocations(self, criterion) -> list:
-		"""[(posting date, amount, department or None)] of the receipts matching `criterion`,
-		allocated to Sales Orders and Invoices (None: not traced to a lead)."""
+	def traced_allocations(self, criterion) -> list[dict]:
+		"""The receipts matching `criterion`, allocated to Sales Orders and Invoices, one row per
+		allocation: {entry, date, payment_type, docstatus, modified, party, amount (company
+		currency), lead (None: not traced to a lead), owner, department, lead_type, project (of the
+		order or invoice, or None)}."""
 		Entry = frappe.qb.DocType("Payment Entry")
 		Reference = frappe.qb.DocType("Payment Entry Reference")
 		rows = (
@@ -348,7 +386,12 @@ class BusinessOverview(LeadOverview):
 			.join(Entry)
 			.on(Entry.name == Reference.parent)
 			.select(
+				Entry.name,
 				Entry.posting_date,
+				Entry.payment_type,
+				Entry.docstatus,
+				Entry.modified,
+				Entry.party,
 				Reference.reference_doctype,
 				Reference.reference_name,
 				Reference.allocated_amount,
@@ -359,19 +402,56 @@ class BusinessOverview(LeadOverview):
 				& (Reference.parenttype == "Payment Entry")
 				& Reference.reference_doctype.isin(("Sales Order", "Sales Invoice"))
 			)
-		).run()
-		orders = self.order_departments()
-		invoice_departments = self.invoice_departments(
-			[name for _d, kind, name, _a, _r in rows if kind == "Sales Invoice"]
+		).run(as_dict=True)
+		orders = self.order_leads()
+		invoices = self.invoice_leads(
+			[r.reference_name for r in rows if r.reference_doctype == "Sales Invoice"]
 		)
-		return [
-			(
-				date,
-				flt(amount) * (flt(rate) or 1),
-				orders.get(name) if kind == "Sales Order" else invoice_departments.get(name),
+		facts = self.lead_facts()
+		projects = self.reference_projects(rows)
+		result = []
+		for row in rows:
+			lead = (orders if row.reference_doctype == "Sales Order" else invoices).get(row.reference_name)
+			department, owner, lead_type = facts.get(lead, (None, None, None))
+			result.append(
+				{
+					"entry": row.name,
+					"date": row.posting_date,
+					"payment_type": row.payment_type,
+					"docstatus": row.docstatus,
+					"modified": row.modified,
+					"party": row.party,
+					"amount": flt(row.allocated_amount) * (flt(row.source_exchange_rate) or 1),
+					"lead": lead,
+					"owner": owner,
+					"department": department,
+					"lead_type": lead_type,
+					"project": projects.get((row.reference_doctype, row.reference_name)),
+				}
 			)
-			for date, kind, name, amount, rate in rows
-		]
+		return result
+
+	@staticmethod
+	def reference_projects(rows) -> dict:
+		"""{(doctype, name): project} of the Sales Orders and Invoices `rows` allocate to, where the
+		document names a project."""
+		found = {}
+		for doctype in ("Sales Order", "Sales Invoice"):
+			names = {r.reference_name for r in rows if r.reference_doctype == doctype}
+			if names:
+				Document = frappe.qb.DocType(doctype)
+				for name, project in (
+					frappe.qb.from_(Document)
+					.select(Document.name, Document.project)
+					.where(Document.name.isin(list(names)) & (IfNull(Document.project, "") != ""))
+				).run():
+					found[(doctype, name)] = project
+		return found
+
+	def allocations(self, criterion) -> list:
+		"""[(posting date, amount, department or None)] of the receipts matching `criterion`,
+		allocated to Sales Orders and Invoices (None: not traced to a lead)."""
+		return [(row["date"], row["amount"], row["department"]) for row in self.traced_allocations(criterion)]
 
 	def outstanding(self) -> float:
 		"""What customers still owe now: submitted Sales Invoices' outstanding amounts (credit

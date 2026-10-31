@@ -291,6 +291,8 @@ scheduler_events = {
 		"*/5 * * * *": ["tbo_smart.sales.call_batches.clock.run_call_batch_clock"],
 		# Outreach: approved emails wait for the send window and the daily cap (docs/prospecting.md §10)
 		"*/10 * * * *": ["tbo_smart.outreach.sending.send_approved"],
+		# Commission: the previous month's Draft statements on the 1st, 03:00 (docs/commission.md)
+		"0 3 1 * *": ["tbo_smart.lead_pipeline.commission.generate_previous_month"],
 	},
 }
 

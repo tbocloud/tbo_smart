@@ -3286,3 +3286,77 @@ def _insert_reply(lead: str, text: str, sender: str, sent_on):
 			"communication_date": sent_on or frappe.utils.now_datetime(),
 		}
 	).insert(ignore_permissions=True)
+
+
+# ---------- Sales commission (docs/commission.md) ----------
+
+
+def delete_commission_records() -> None:
+	"""Delete every commission statement, project set-up and plan with their child rows, and
+	commit."""
+	for doctype in (
+		"TBO Commission Statement",
+		"TBO Commission Statement Line",
+		"TBO Commission Statement Slab",
+		"TBO Commission Statement Payment",
+		"TBO Project Commission",
+		"TBO Project Commission Earner",
+		"TBO Commission Plan",
+		"TBO Commission Slab",
+	):
+		frappe.db.delete(doctype)
+	frappe.db.commit()  # nosemgrep
+
+
+def make_project(name: str) -> str:
+	"""The name (PROJ-0001 style) of an ERPNext Project whose project_name is `name`, created when
+	missing, for invoices and orders to carry."""
+	found = frappe.db.get_value("Project", {"project_name": name})
+	if found:
+		return found
+	return frappe.get_doc({"doctype": "Project", "project_name": name}).insert(ignore_permissions=True).name
+
+
+def make_commission_plan(name: str, slabs: list[tuple], **fields) -> str:
+	"""A TBO Commission Plan whose slabs are (from, to or None, rate %) rows; `fields` are plan
+	fields (basis, monthly_target, above_target_rate, department, lead_type, project_type, user)."""
+	doc = frappe.get_doc(
+		{
+			"doctype": "TBO Commission Plan",
+			"plan_name": name,
+			"slabs": [{"from_amount": a, "to_amount": b, "rate": r} for a, b, r in slabs],
+			**fields,
+		}
+	)
+	doc.insert(ignore_permissions=True)
+	return doc.name
+
+
+def make_project_commission(project: str, earners: list[tuple] = (), **fields) -> str:
+	"""A TBO Project Commission for `project` with (user, share %) earners; `fields` are its other
+	fields (plan, use_override, override_target, override_slabs, ...)."""
+	doc = frappe.get_doc(
+		{
+			"doctype": "TBO Project Commission",
+			"project": project,
+			"earners": [{"user": user, "share_percent": share} for user, share in earners],
+			**fields,
+		}
+	)
+	doc.insert(ignore_permissions=True)
+	return doc.name
+
+
+def make_commission_receipt(
+	owner: str, amount: float, project: str | None = None, department: str | None = None
+):
+	"""A lead owned by `owner` with a deal and a submitted Sales Order of `amount` (naming
+	`project`), and a customer receipt for all of it. Returns (lead, receipt Payment Entry)."""
+	fields = {"tbo_department": department} if department else {}
+	lead = make_lead(owner, f"Commission {frappe.generate_hash(length=6)}", **fields)
+	customer = make_customer(f"TBO Commission {frappe.generate_hash(length=8)}")
+	deal = make_deal(owner, opportunity_from="Customer", party_name=customer, tbo_lead=lead)
+	order = make_vat_order(deal, amount, vat=0)
+	if project:
+		frappe.db.set_value("Sales Order", order.name, "project", project, update_modified=False)
+	return lead, make_receipt("Sales Order", order.name, amount)

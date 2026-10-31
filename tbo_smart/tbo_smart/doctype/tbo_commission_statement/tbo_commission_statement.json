@@ -1,0 +1,186 @@
+{
+ "actions": [],
+ "autoname": "format:COMM-{#####}",
+ "creation": "2026-10-31 10:00:00.000000",
+ "description": "One user's commission for one month. Draft until a manager approves it; an approved statement is never rewritten.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "user",
+  "full_name",
+  "month",
+  "status",
+  "section_figures",
+  "plans",
+  "collected",
+  "target",
+  "achievement",
+  "commission",
+  "section_approval",
+  "approved_by",
+  "approved_on",
+  "paid_on",
+  "section_lines",
+  "lines",
+  "breakdown",
+  "payments"
+ ],
+ "fields": [
+  {
+   "fieldname": "user",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "User",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "user.full_name",
+   "fieldname": "full_name",
+   "fieldtype": "Data",
+   "label": "Name",
+   "read_only": 1
+  },
+  {
+   "description": "The first day of the month.",
+   "fieldname": "month",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Month",
+   "reqd": 1
+  },
+  {
+   "default": "Draft",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Draft\nApproved\nPaid",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_figures",
+   "fieldtype": "Section Break",
+   "label": "Figures"
+  },
+  {
+   "fieldname": "plans",
+   "fieldtype": "Data",
+   "label": "Plans",
+   "read_only": 1
+  },
+  {
+   "fieldname": "collected",
+   "fieldtype": "Currency",
+   "label": "Collected",
+   "read_only": 1
+  },
+  {
+   "fieldname": "target",
+   "fieldtype": "Currency",
+   "label": "Target",
+   "read_only": 1
+  },
+  {
+   "fieldname": "achievement",
+   "fieldtype": "Percent",
+   "label": "Achievement %",
+   "read_only": 1
+  },
+  {
+   "fieldname": "commission",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Commission",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_approval",
+   "fieldtype": "Section Break",
+   "label": "Approval"
+  },
+  {
+   "fieldname": "approved_by",
+   "fieldtype": "Link",
+   "label": "Approved by",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "approved_on",
+   "fieldtype": "Datetime",
+   "label": "Approved on",
+   "read_only": 1
+  },
+  {
+   "fieldname": "paid_on",
+   "fieldtype": "Datetime",
+   "label": "Paid on",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_lines",
+   "fieldtype": "Section Break",
+   "label": "Projects"
+  },
+  {
+   "fieldname": "lines",
+   "fieldtype": "Table",
+   "label": "Projects",
+   "options": "TBO Commission Statement Line",
+   "read_only": 1
+  },
+  {
+   "fieldname": "breakdown",
+   "fieldtype": "Table",
+   "label": "Slab breakdown",
+   "options": "TBO Commission Statement Slab",
+   "read_only": 1
+  },
+  {
+   "fieldname": "payments",
+   "fieldtype": "Table",
+   "label": "Payments",
+   "options": "TBO Commission Statement Payment",
+   "read_only": 1
+  }
+ ],
+ "links": [],
+ "modified": "2026-10-31 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tbo Smart",
+ "name": "TBO Commission Statement",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
