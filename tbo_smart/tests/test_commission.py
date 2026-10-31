@@ -131,7 +131,8 @@ class TestCommission(FrappeTestCase):
 	def person(self, user, as_user=BOSS):
 		return next((r for r in self.month(as_user)["rows"] if r["user"] == user), None)
 
-	def receipt(self, owner, amount, project="TBO Commission Project A"):
+	def receipt(self, owner, amount, project=...):
+		project = self.project if project is ... else project
 		frappe.set_user("Administrator")
 		found = make_commission_receipt(owner, amount, project, DEPARTMENT)
 		frappe.set_user(HUB)
