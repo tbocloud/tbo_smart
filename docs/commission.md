@@ -90,6 +90,12 @@ matching plan earns nothing; nobody but a System Manager approves their own; Dra
 for people with money in the month. The sales activity targets in the daily report are unrelated to
 this money target.
 
+**Project names.** ERPNext's Project and the hub's Project are both named PROJ-0001, PROJ-0002 and so
+on, and are different records. A set-up keyed `PROJ-0001` matches an invoice whose ERPNext project is
+PROJ-0001 and a lead whose documents link the hub project PROJ-0001, whichever it is. Where the two
+numberings disagree, key the set-up on the name the invoices carry and make sure the other
+numbering does not collide.
+
 ## 6. What the owner sets up
 
 1. Settings → CRM → Commission plans: at least one default plan (no conditions) with slabs, a target and

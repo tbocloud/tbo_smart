@@ -3299,10 +3299,12 @@ def delete_commission_records() -> None:
 
 
 def make_project(name: str) -> str:
-	"""An ERPNext Project called `name` (created when missing), for invoices and orders to name."""
-	if not frappe.db.exists("Project", name):
-		frappe.get_doc({"doctype": "Project", "project_name": name}).insert(ignore_permissions=True)
-	return name
+	"""The name (PROJ-0001 style) of an ERPNext Project whose project_name is `name`, created when
+	missing, for invoices and orders to carry."""
+	found = frappe.db.get_value("Project", {"project_name": name})
+	if found:
+		return found
+	return frappe.get_doc({"doctype": "Project", "project_name": name}).insert(ignore_permissions=True).name
 
 
 def make_commission_plan(name: str, slabs: list[tuple], **fields) -> str:
