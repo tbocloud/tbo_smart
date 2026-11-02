@@ -77,10 +77,11 @@ def whatsapp_status(message_id: str, status: str, error: str | None = None) -> d
 @frappe.whitelist()
 def get_lead_whatsapp(lead: str, acting_user: str | None = None) -> dict:
 	"""The lead's WhatsApp state for its reply box: {to, conversation_id, contact_id, last_in,
-	window_open, window_ends, blocked}. `blocked` says why nothing may be sent."""
+	window_open, window_ends, blocked, can_write}. `blocked` says why nothing may be sent."""
 	with acting_as(acting_user):
 		frappe.has_permission("Lead", "read", lead, throw=True)
-		return whatsapp.lead_state(lead)
+		can_write = bool(frappe.has_permission("Lead", "write", lead))  # a flag for the screen - nosemgrep
+		return {**whatsapp.lead_state(lead), "can_write": can_write}
 
 
 @frappe.whitelist(methods=["POST"])

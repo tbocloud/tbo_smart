@@ -285,6 +285,7 @@ class TestReplyBox(WhatsAppCase):
 		state = self.as_hub(chat.get_lead_whatsapp, lead=self.lead)
 		self.assertFalse(state["window_open"])
 		self.assertEqual(state["to"], PHONE)
+		self.assertTrue(state["can_write"])
 
 	def test_an_unsubscribed_lead_cannot_be_written_to(self):
 		frappe.db.set_value("Lead", self.lead, "unsubscribed", 1)

@@ -764,8 +764,8 @@ Queued = {name, lead, to ("+" and digits), body, lead_name, first_name, company_
   contact_id, conversation_id, window_open}
 WhatsApp (on an outbox Message) = {via_chat, chat_status (null | Queued | Sending | Sent |
   Delivered | Read | Failed), template, window_open, first_name, company_name, why_call}
-LeadWhatsApp (get_lead's lead.whatsapp, get_lead_whatsapp) = {to, conversation_id, contact_id,
-  last_in, window_open, window_ends, blocked}
+LeadWhatsApp (get_lead's lead.whatsapp) = {to, conversation_id, contact_id, last_in,
+  window_open, window_ends, blocked}; get_lead_whatsapp adds can_write
 ```
 
 `window_open` is true for 24 hours after the lead's last WhatsApp message to us. WhatsApp allows
