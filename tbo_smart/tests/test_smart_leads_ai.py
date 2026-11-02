@@ -131,6 +131,12 @@ class TestPhone(FrappeTestCase):
 		self.assertEqual(normalise_phone("+91 98470 12345"), "919847012345")
 		self.assertEqual(normalise_phone("919847012345"), "919847012345")
 
+	def test_a_trunk_zero_is_dropped_before_any_country_code(self):
+		self.assertEqual(normalise_phone("0501234567", "971"), "971501234567")
+		self.assertEqual(normalise_phone("050 123 4567", "971"), "971501234567")
+		self.assertEqual(normalise_phone("971501234567", "971"), "971501234567")
+		self.assertEqual(normalise_phone("09847012345"), "919847012345")
+
 	def test_international_numbers_are_kept(self):
 		self.assertEqual(normalise_phone("+971 50 418 2276"), "971504182276")
 		self.assertEqual(normalise_phone("00971504182276"), "971504182276")
