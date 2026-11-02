@@ -7,7 +7,9 @@ from tbo_smart.outreach import EMAIL, MESSAGE, OPT_OUT, STATUSES, WHATSAPP, dail
 from tbo_smart.outreach.drafting import current_progress
 from tbo_smart.outreach.guards import in_window, next_window, queued_count, sent_today, window_times
 from tbo_smart.outreach.sending import outgoing_account
+from tbo_smart.outreach.whatsapp import first_name_of, window_open
 from tbo_smart.prospecting import headed_departments
+from tbo_smart.prospecting.signals import prospect_of
 from tbo_smart.query import aggregate
 from tbo_smart.sales.departments import MANAGER_ROLES
 from tbo_smart.smart_leads.utils import whatsapp_link
@@ -30,6 +32,9 @@ FIELDS = [
 	"sent_on",
 	"error",
 	"communication",
+	"via_chat",
+	"chat_status",
+	"template",
 	"prospect_run",
 	"batch",
 	"creation",
@@ -91,7 +96,15 @@ def get_outbox(user: str, status=None, batch: str | None = None, run: str | None
 		for row in frappe.get_all(
 			"Lead",
 			filters={"name": ("in", [row.lead for row in rows] or [""])},
-			fields=["name", "company_name", "tbo_stage", "unsubscribed", "tbo_last_reply_class"],
+			fields=[
+				"name",
+				"company_name",
+				"tbo_stage",
+				"unsubscribed",
+				"tbo_last_reply_class",
+				"tbo_web_profile",
+				"tbo_whatsapp_last_in",
+			],
 			ignore_permissions=True,
 		)
 	}
@@ -149,6 +162,22 @@ def serialize(row, lead, full_names: dict) -> dict:
 		"batch": row.batch,
 		"url": whatsapp_link(row.recipient, row.body) if row.channel == WHATSAPP else None,
 		"queued": row.channel == EMAIL and row.status == "Approved",
+		"whatsapp": whatsapp_facts(row, lead) if row.channel == WHATSAPP else None,
 		"creation": row.creation,
 		"modified": row.modified,
+	}
+
+
+def whatsapp_facts(row, lead) -> dict:
+	"""What the hub needs to pick and fill a template for a WhatsApp message and to show how it
+	is going: {via_chat, chat_status, template, window_open, first_name, company_name, why_call}.
+	`window_open` is true within 24 hours of the lead's last WhatsApp message (free text allowed)."""
+	return {
+		"via_chat": bool(cint(row.via_chat)),
+		"chat_status": row.chat_status or None,
+		"template": row.template,
+		"window_open": window_open(lead.tbo_whatsapp_last_in) if lead else False,
+		"first_name": first_name_of(row.lead_name),
+		"company_name": lead.company_name if lead else None,
+		"why_call": (prospect_of(lead.tbo_web_profile) or {}).get("why_call") if lead else None,
 	}

@@ -3288,6 +3288,41 @@ def _insert_reply(lead: str, text: str, sender: str, sent_on):
 	).insert(ignore_permissions=True)
 
 
+# ---------- WhatsApp through TBO Chat (docs/whatsapp-outreach.md) ----------
+
+
+def make_queued_whatsapp(lead: str, owner: str, **fields) -> str:
+	"""An Approved WhatsApp outreach message for `lead` that waits for TBO Chat (as after approving
+	with the hub's inbox set), approved by `owner` a minute ago."""
+	return make_outreach_message(
+		lead,
+		"WhatsApp",
+		owner=owner,
+		status="Approved",
+		approved_by=owner,
+		approved_on=frappe.utils.add_to_date(frappe.utils.now_datetime(), minutes=-1),
+		via_chat=1,
+		chat_status="Queued",
+		recipient=frappe.db.get_value("Lead", lead, "mobile_no"),
+		**fields,
+	)
+
+
+def receive_chat(phone: str, text: str, **fields) -> dict:
+	"""A WhatsApp message from `phone` arriving through the hub (`whatsapp.receive`), without
+	queueing the reply sorter: tests call `replies.process_reply` on `result["communication"]`."""
+	from tbo_smart.outreach import whatsapp
+
+	with patch("frappe.enqueue"):
+		return whatsapp.receive(phone, text, **fields)
+
+
+def delete_chat_communications() -> None:
+	"""Remove the WhatsApp (medium Chat) Communications the tests filed on leads."""
+	for name in frappe.get_all("Communication", filters={"communication_medium": "Chat"}, pluck="name"):
+		frappe.delete_doc("Communication", name, force=True, ignore_permissions=True)
+
+
 # ---------- Sales commission (docs/commission.md) ----------
 
 

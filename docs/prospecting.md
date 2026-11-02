@@ -188,10 +188,12 @@ for the channel, the user cannot edit it, or already has a live first message on
   is queued with `frappe.sendmail`. "Sent" means handed to the email queue; the Communication's
   delivery status follows. There is no outgoing account: approval fails with "Set up an outgoing
   email account first." Replies come back to that account, so it should have incoming mail on.
-- **WhatsApp** has no API yet. Approving marks it ready; the hub opens
+- **WhatsApp** goes through TBO Chat once the hub has a WhatsApp inbox (`whatsapp-outreach.md`):
+  approving queues it, the hub sends it (a template for a first message, free text only within 24
+  hours of the lead's reply) and reports back. Without an inbox it is manual: approving marks it ready; the hub opens
   `https://wa.me/<number>?text=<message>` and the BD sends it by hand, then confirms **Mark sent**,
   which logs it on the lead. `sending.DELIVERERS` maps a channel to a function that delivers it;
-  adding `WhatsApp: <function>` for the Cloud API makes approving deliver WhatsApp like an email.
+  `DELIVERERS[WhatsApp]` is `whatsapp.queue_for_chat`, used when the hub approves with `send_whatsapp`.
 - **Guards** (all in `outreach/guards.py`): at most **Emails per user per day** (default 30,
   counted on the approver); an opt-out line under every email; a send window, Monday to Saturday,
   09:30 to 18:00 site time by default, outside it an approved email waits and the sender (every
@@ -247,6 +249,11 @@ Decisions made without the owner, continued:
 9. No keyword "stop" check runs when the AI is off: the opt-out line we add is quoted in most
    replies and would match. An unsubscribe request with the AI off waits for a person (New reply).
 
+**WhatsApp replies** take the same path: the hub forwards a lead's WhatsApp message, it is filed as
+a Communication (medium Chat) and `process_reply` sorts it with the same classes and actions. A
+reply that is only "stop" or "unsubscribe" is an Unsubscribe without the AI
+(`whatsapp-outreach.md` §3).
+
 ## 12. Tests (Phase 2)
 
 `tbo_smart/tests/test_outreach.py` (the AI and `frappe.sendmail` are mocked; nothing is sent):
@@ -270,3 +277,5 @@ older replies, the team's own mail ignored, the hook); the leads list filter, ro
 3. The AI provider key (smart leads' existing setting) for drafting and sorting replies.
 4. **Emails per user per day** (default 30), the send window (09:30 to 18:00), drafts per request.
 5. The hub's integration role already covers the new methods; nothing else to configure there.
+6. WhatsApp: nothing on the ERP. Connect the number in TBO Chat and set the inbox and templates in
+   the hub (`whatsapp-outreach.md`).

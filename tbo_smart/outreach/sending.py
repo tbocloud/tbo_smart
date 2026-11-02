@@ -4,8 +4,8 @@ Nothing leaves without a person's approval. Approving an email checks the rules 
 (unsubscribed, lost, the daily cap, the send window) and sends it, or leaves it Approved for the
 10-minute sender to deliver when the window and the cap allow. WhatsApp has no API yet: approving
 marks the message ready, the hub opens wa.me for the BD and the BD confirms "Sent" by hand.
-`DELIVERERS` is where a future WhatsApp Cloud API plugs in: add `WHATSAPP: send_whatsapp` and
-approving a WhatsApp message will deliver it like an email.
+When the hub says TBO Chat is set up (`via_chat`), `DELIVERERS[WHATSAPP]` queues the message
+instead and the hub sends it through Chatwoot (`whatsapp.py`, docs/whatsapp-outreach.md).
 """
 
 from email.utils import formataddr
@@ -30,6 +30,7 @@ from tbo_smart.outreach import (
 	enabled,
 )
 from tbo_smart.outreach.guards import blocked_reason, cap_left, in_window, never_contact, next_window
+from tbo_smart.outreach.whatsapp import queue_for_chat
 from tbo_smart.sales.activities import add_log
 
 SEND_BATCH = 100
@@ -71,7 +72,7 @@ def update(name: str, subject: str | None, body: str) -> dict:
 	doc.body = body
 	doc.subject = (subject or "").strip() if doc.channel == EMAIL else None
 	if doc.status == FAILED:
-		doc.status, doc.error = DRAFT, None
+		doc.status, doc.error, doc.via_chat, doc.chat_status = DRAFT, None, 0, ""
 	doc.save(ignore_permissions=True)
 	return result(doc)
 
@@ -105,10 +106,11 @@ def cancel_pending(lead: str, reason: str) -> int:
 # ---------- approving ----------
 
 
-def approve(names: list[str], user: str) -> list[dict]:
+def approve(names: list[str], user: str, via_chat: bool = False) -> list[dict]:
 	"""Approve drafts as `user`, who must be able to write to each lead. Emails are then sent at
-	once when the window and the daily cap allow, else left for the sender. Fails as a whole when
-	an email is among them and there is no outgoing Email Account."""
+	once when the window and the daily cap allow, else left for the sender. WhatsApp messages are
+	queued for TBO Chat when `via_chat` (the hub has an inbox), else left for the BD to send by
+	hand. Fails as a whole when an email is among them and there is no outgoing Email Account."""
 	docs, results = [], []
 	for name in names:
 		try:
@@ -118,11 +120,11 @@ def approve(names: list[str], user: str) -> list[dict]:
 	if any(doc.channel == EMAIL for doc in docs) and not outgoing_account():
 		frappe.throw(_("Set up an outgoing email account first."))
 	for doc in docs:
-		results.append(approve_one(doc, user))
+		results.append(approve_one(doc, user, via_chat))
 	return results
 
 
-def approve_one(doc, user: str) -> dict:
+def approve_one(doc, user: str, via_chat: bool = False) -> dict:
 	if doc.status != DRAFT:
 		return result(doc, _("It is {0}, so it cannot be approved.").format(_(doc.status)))
 	if not (doc.body or "").strip() or (doc.channel == EMAIL and not (doc.subject or "").strip()):
@@ -135,8 +137,11 @@ def approve_one(doc, user: str) -> dict:
 		return result(doc, reason)  # a missing address is for the person to fix
 	doc.status, doc.approved_by, doc.approved_on = APPROVED, user, now_datetime()
 	doc.save(ignore_permissions=True)
-	if doc.channel not in DELIVERERS:
-		return result(doc, _("Ready: open WhatsApp, send it, then mark it sent."))
+	if doc.channel == WHATSAPP:
+		if not via_chat:
+			return result(doc, _("Ready: open WhatsApp, send it, then mark it sent."))
+		DELIVERERS[WHATSAPP](doc)
+		return result(doc, _("Approved. TBO Chat sends it in a minute."))
 	return deliver(doc)
 
 
@@ -220,7 +225,7 @@ def send_email(doc) -> None:
 	doc.save(ignore_permissions=True)
 
 
-DELIVERERS = {EMAIL: send_email}
+DELIVERERS = {EMAIL: send_email, WHATSAPP: queue_for_chat}
 
 
 def send_approved() -> None:
@@ -230,7 +235,7 @@ def send_approved() -> None:
 		return
 	names = frappe.get_all(
 		MESSAGE,
-		filters={"status": APPROVED, "channel": ("in", list(DELIVERERS))},
+		filters={"status": APPROVED, "channel": EMAIL},
 		order_by="approved_on asc",
 		limit=SEND_BATCH,
 		pluck="name",
@@ -258,7 +263,7 @@ def mark_sent(names: list[str]) -> list[dict]:
 		if doc.channel != WHATSAPP or doc.status != APPROVED:
 			results.append(result(doc, _("Only an approved WhatsApp message can be marked sent.")))
 			continue
-		doc.status, doc.sent_on = SENT, now_datetime()
+		doc.status, doc.sent_on, doc.via_chat, doc.chat_status = SENT, now_datetime(), 0, ""
 		doc.save(ignore_permissions=True)
 		add_log("Lead", doc.lead, "whatsapp", doc.body)
 		results.append(result(doc))

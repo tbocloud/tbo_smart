@@ -8,7 +8,7 @@ from frappe.utils import cint, get_datetime, get_time, now_datetime, today
 
 from tbo_smart.lead_pipeline.statuses import LOST_STATUSES
 from tbo_smart.outreach import APPROVED, EMAIL, LIVE, MESSAGE, SENT, WHATSAPP, daily_cap, setting
-from tbo_smart.smart_leads.utils import normalise_phone
+from tbo_smart.smart_leads.utils import INDIA, normalise_phone
 
 DEFAULT_START = "09:30:00"
 DEFAULT_END = "18:00:00"
@@ -41,12 +41,13 @@ def blocked_reason(lead: str, channel: str) -> str | None:
 	return None
 
 
-def whatsapp_number(row) -> str | None:
+def whatsapp_number(row, country: str = INDIA) -> str | None:
+	"""The lead's first usable number (mobile, WhatsApp, then phone) as digits with the country code."""
 	return next(
 		(
-			normalise_phone(number)
+			normalise_phone(number, country)
 			for number in (row.mobile_no, row.whatsapp_no, row.phone)
-			if normalise_phone(number)
+			if normalise_phone(number, country)
 		),
 		None,
 	)
