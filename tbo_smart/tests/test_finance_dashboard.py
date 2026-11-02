@@ -1,6 +1,6 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import get_first_day, get_last_day, nowdate
+from frappe.utils import add_days, get_first_day, get_last_day, nowdate
 
 from tbo_smart.finance import dashboard
 from tbo_smart.test_utils import (
@@ -36,7 +36,8 @@ class TestFinanceDashboard(FrappeTestCase):
 		enable_finance_workflow(enable_finance_dashboard=1, enable_fund_allocation=1, enable_reconciliation=1)
 		self.addCleanup(reset_finance_settings)
 		self.addCleanup(frappe.set_user, "Administrator")
-		self.window = (get_first_day(nowdate()), get_last_day(nowdate()))
+		# starts days before the month, so an invoice posted a few days ago stays inside it on the 1st to the 3rd
+		self.window = (add_days(get_first_day(nowdate()), -5), get_last_day(nowdate()))
 
 	def test_bde_sees_own_sales_figures_only(self):
 		own = make_finance_deal(BDE)
