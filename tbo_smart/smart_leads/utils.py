@@ -14,17 +14,17 @@ INDIA = "91"
 def normalise_phone(phone: str | None, country: str = INDIA) -> str | None:
 	"""International digits without "+", or None when there is no usable number.
 
-	A 10-digit number gets the default `country` code (India, +91, TBO's market) added. A trunk 0 before 10 digits
-	is dropped the same way. "00" or "+" starts an international number, kept as it is.
+	"+" or "00" starts an international number, kept as it is. Otherwise a single trunk 0 is
+	dropped and the default `country` code (India, 91, TBO's market) is added, unless the number
+	already starts with it and is longer than 10 digits ("919847012345").
 	"""
 	raw = (phone or "").strip()
 	digits = NON_DIGITS.sub("", raw)
 	if raw.startswith("00"):
 		digits = digits[2:]
 	elif not raw.startswith("+"):
-		if len(digits) == 11 and digits.startswith("0"):
-			digits = digits[1:]
-		if len(digits) == 10:
+		digits = digits.removeprefix("0")
+		if len(digits) <= 10 or not digits.startswith(country):
 			digits = country + digits
 	return digits if 8 <= len(digits) <= 15 else None
 
