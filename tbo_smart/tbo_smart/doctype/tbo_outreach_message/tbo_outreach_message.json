@@ -24,7 +24,13 @@
   "column_break_outcome",
   "sent_on",
   "communication",
-  "error"
+  "error",
+  "section_break_chat",
+  "via_chat",
+  "chat_status",
+  "column_break_chat",
+  "chat_message_id",
+  "template"
  ],
  "fields": [
   {
@@ -161,10 +167,50 @@
    "fieldtype": "Small Text",
    "label": "Error",
    "read_only": 1
+  },
+  {
+   "fieldname": "section_break_chat",
+   "fieldtype": "Section Break",
+   "label": "TBO Chat (WhatsApp)"
+  },
+  {
+   "fieldname": "via_chat",
+   "fieldtype": "Check",
+   "label": "Send through TBO Chat",
+   "read_only": 1,
+   "default": "0",
+   "description": "Set when it was approved to go through the hub's TBO Chat inbox instead of by hand."
+  },
+  {
+   "fieldname": "chat_status",
+   "fieldtype": "Select",
+   "label": "Chat status",
+   "options": "\nQueued\nSending\nSent\nDelivered\nRead\nFailed",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "column_break_chat",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "chat_message_id",
+   "fieldtype": "Data",
+   "label": "Chat message id",
+   "read_only": 1,
+   "no_copy": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "template",
+   "fieldtype": "Data",
+   "label": "WhatsApp template used",
+   "read_only": 1,
+   "no_copy": 1
   }
  ],
  "links": [],
- "modified": "2026-10-30 20:00:00.000000",
+ "modified": "2026-11-02 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Outreach Message",

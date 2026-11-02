@@ -586,7 +586,7 @@ class TestWhatsAppByHand(OutreachCase):
 			doc.save(ignore_permissions=True)
 
 		with patch.dict(sending.DELIVERERS, {"WhatsApp": fake_cloud_api}):
-			results = self.as_hub(hub.approve_outreach, names=[name])
+			results = self.as_hub(hub.approve_outreach, names=[name], send_whatsapp=1)
 		self.assertEqual((delivered, results[0]["status"]), ([name], "Sent"))
 
 

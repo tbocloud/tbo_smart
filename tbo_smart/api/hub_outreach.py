@@ -7,6 +7,7 @@ each message's lead. Nothing is sent without `approve_outreach`.
 
 import frappe
 from frappe import _
+from frappe.utils import cint
 
 from tbo_smart.api.hub_leads import acting_as
 from tbo_smart.outreach import drafting, outbox, require_enabled, sending
@@ -67,15 +68,18 @@ def regenerate_outreach(name: str, acting_user: str | None = None) -> dict:
 
 
 @frappe.whitelist(methods=["POST"])
-def approve_outreach(names: list | str, acting_user: str | None = None) -> list[dict]:
+def approve_outreach(
+	names: list | str, acting_user: str | None = None, send_whatsapp: int | str = 0
+) -> list[dict]:
 	"""Approve drafts: [{name, status, message}]. An email goes out at once when the send window is
 	open and the user's daily cap allows, else it stays Approved and the 10-minute sender delivers
-	it. A WhatsApp message becomes Approved (ready); the hub opens WhatsApp and the BD confirms with
-	`mark_outreach_sent`. Fails with "Set up an outgoing email account first." when an email is
+	it. A WhatsApp message becomes Approved (ready); with `send_whatsapp` 1 (the hub has a TBO Chat
+	inbox) it is queued for the hub to send (docs/whatsapp-outreach.md), else the hub opens WhatsApp
+	and the BD confirms with `mark_outreach_sent`. Fails with "Set up an outgoing email account first." when an email is
 	among them and the site has none."""
 	with acting_as(acting_user) as user:
 		require_enabled()
-		return sending.approve(names_of(names), user)
+		return sending.approve(names_of(names), user, bool(cint(send_whatsapp)))
 
 
 @frappe.whitelist(methods=["POST"])

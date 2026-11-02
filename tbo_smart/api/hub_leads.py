@@ -33,7 +33,7 @@ from tbo_smart.lead_pipeline.proposals import latest_proposals, lead_proposals, 
 from tbo_smart.lead_pipeline.quotations import latest_quotations, lead_quotations
 from tbo_smart.lead_pipeline.setup import HUB_ROLE, MANAGEMENT_ROLE, SEGMENTS
 from tbo_smart.lead_pipeline.statuses import STATUS_NAMES, needs_lost_reason, stage_options
-from tbo_smart.outreach import replies
+from tbo_smart.outreach import replies, whatsapp
 from tbo_smart.prospecting import runs as prospect_runs
 from tbo_smart.prospecting import signals as prospect_signals
 from tbo_smart.query import aggregate
@@ -70,6 +70,7 @@ TEMPERATURES = ("Hot", "Warm", "Cold")
 SALES_USER = "Sales User"
 MAX_PAGE_LENGTH = 100
 MAX_INTAKE_DAYS = 62
+WHATSAPP_TIMELINE_LIMIT = 100
 # what the hub may write on a lead, by the key it sends
 LEAD_FIELDS = {
 	"first_name": "first_name",
@@ -695,6 +696,7 @@ def lead_payload(name: str) -> dict:
 	lead.owner_name = frappe.utils.get_fullname(lead.lead_owner) if lead.lead_owner else None
 	lead.deal = lead_opportunity(name)
 	lead.next_follow_up = next_follow_ups("Lead", [name]).get(name)
+	lead.whatsapp = whatsapp.lead_state(name)
 	lead.can_write = bool(frappe.has_permission("Lead", "write", name))  # a flag for the screen - nosemgrep
 	lead.can_call = can_call()
 	quotations = lead_quotations(name, QUOTATION_FIELDS)
@@ -732,6 +734,7 @@ def timeline(name: str, quotations: list, proposals: list) -> list[dict]:
 				"ref": note.name,
 			}
 		)
+	items.extend(whatsapp_items(name))
 	query, Event, _participant = events_of("Lead", [name])
 	events = query.select(
 		Event.name, Event.event_category, Event.subject, Event.description, Event.starts_on, Event.owner
@@ -820,6 +823,32 @@ def timeline(name: str, quotations: list, proposals: list) -> list[dict]:
 		key=lambda item: get_datetime(item["at"]) if item["at"] else get_datetime("1900-01-01"), reverse=True
 	)
 	return items
+
+
+def whatsapp_items(name: str) -> list[dict]:
+	"""The WhatsApp conversation with the lead (filed by outreach/whatsapp.py): `direction` is
+	"in" for what the lead wrote, "out" for what we sent."""
+	return [
+		{
+			"kind": "whatsapp",
+			"direction": "in" if row.sent_or_received == "Received" else "out",
+			"at": row.communication_date,
+			"who": None if row.sent_or_received == "Received" else row.sender,
+			"text": plain_text(row.content),
+			"ref": row.name,
+		}
+		for row in frappe.get_all(
+			"Communication",
+			filters={
+				"reference_doctype": "Lead",
+				"reference_name": name,
+				"communication_medium": whatsapp.MEDIUM,
+			},
+			fields=["name", "sent_or_received", "communication_date", "sender", "content"],
+			order_by="communication_date desc",
+			limit_page_length=WHATSAPP_TIMELINE_LIMIT,
+		)
+	]
 
 
 def ai_notes(name: str) -> list:

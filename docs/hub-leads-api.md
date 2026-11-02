@@ -1,4 +1,4 @@
-# Hub leads API (`tbo_smart.api.hub_leads`), v1.18
+# Hub leads API (`tbo_smart.api.hub_leads`), v1.19
 
 **Status:** built 2026-10-16. The TBO Support hub's lead page (tbocloud/helpdesk) shows and edits
 tboindia's leads through these methods. The leads are ERPNext's own **Lead**
@@ -661,7 +661,8 @@ Message = {name, lead, lead_name, company_name, lead_stage, unsubscribed, last_r
   "Cancelled"), subject, body, recipient, drafted_by ("AI" | "User"), owner, owner_name,
   approved_by, approved_on, sent_on, error, communication, prospect_run, batch,
   url (WhatsApp: https://wa.me/<number>?text=<encoded body>, else null),
-  queued (an Approved email waiting for the window or the cap), creation, modified}
+  queued (an Approved email waiting for the window or the cap),
+  whatsapp (WhatsApp only, else null: §2.19), creation, modified}
 Result = {name, status, message}      # status null: not found or no permission
 ```
 
@@ -671,7 +672,7 @@ Result = {name, status, message}      # status null: not found or no permission
 | `get_outbox(status?, batch?, run?, acting_user)` | `status` one value, a list or a JSON list. The user's own messages, a department head's department's too, managers all; newest 200. Returns `{enabled, email_ready (an outgoing Email Account exists), rows: [Message], counts: {status: n}, cap: {limit, used, left, queued}, window: {start, end, open, next}, drafting: {batch, total, done, failed} or null, opt_out, today}`. `counts` ignore the status filter. |
 | `update_outreach(name, body, subject?, acting_user)` POST | Edit a Draft (or a Failed message, which becomes a Draft again). An email needs a subject. Returns Result. |
 | `regenerate_outreach(name, acting_user)` POST | A new AI text for a Draft or Failed message. Returns Result. |
-| `approve_outreach(names, acting_user)` POST | `names` a list or JSON list. Returns `[Result]`. A Draft becomes Approved (`approved_by`, `approved_on`). **Email**: sent at once through the default outgoing Email Account when the send window is open and the approver has sends left today (status Sent, a Communication on the lead, `communication`, `sent_on`); otherwise it stays Approved with the reason in `message` and the 10-minute sender delivers it. A send error makes it Failed with `error`. **WhatsApp**: stays Approved (ready); the hub opens `url`. Unsubscribed and Lost-type leads make it Cancelled with `error`. 417 "Set up an outgoing email account first." when an email is among the names and the site has no outgoing account. |
+| `approve_outreach(names, acting_user, send_whatsapp?)` POST | `names` a list or JSON list. Returns `[Result]`. A Draft becomes Approved (`approved_by`, `approved_on`). **Email**: sent at once through the default outgoing Email Account when the send window is open and the approver has sends left today (status Sent, a Communication on the lead, `communication`, `sent_on`); otherwise it stays Approved with the reason in `message` and the 10-minute sender delivers it. A send error makes it Failed with `error`. **WhatsApp**: stays Approved (ready); the hub opens `url`, or, with `send_whatsapp` 1 (the hub has a TBO Chat inbox), it is queued for the hub to send (§2.19). Unsubscribed and Lost-type leads make it Cancelled with `error`. 417 "Set up an outgoing email account first." when an email is among the names and the site has no outgoing account. |
 | `mark_outreach_sent(names, acting_user)` POST | The BD sent these approved WhatsApp messages by hand: Sent, `sent_on`, logged on the lead as the BD's WhatsApp. |
 | `cancel_outreach(names, acting_user)` POST | Draft, Approved and Failed messages become Cancelled; a Sent one is refused in its Result. |
 
@@ -747,6 +748,48 @@ company currency. `month` is `YYYY-MM` (or any date in it).
 - **`save_project_commission(values)`** (POST, managers): `values` is the setup above (`project`
   names it). Earners' shares must add up to 100. Returns `get_project_commission`'s answer.
 
+### 2.19 WhatsApp through TBO Chat (`whatsapp-outreach.md`)
+
+Methods are in **`tbo_smart.api.hub_whatsapp`**. The hub owns the Chatwoot connection; the ERP owns
+the lead. The first five are the **integration user's own calls** (no `acting_user`; anyone else
+gets 403). The last two run as the acting user (§1).
+
+**Sending is pulled by the hub.** `approve_outreach(..., send_whatsapp=1)` queues an approved
+WhatsApp message (`chat_status` Queued); without it, approving stays manual (§2.17). The hub
+fetches the queue every minute (and right after an approval), sends each message through Chatwoot
+and reports the result.
+
+```
+Queued = {name, lead, to ("+" and digits), body, lead_name, first_name, company_name, why_call,
+  contact_id, conversation_id, window_open}
+WhatsApp (on an outbox Message) = {via_chat, chat_status (null | Queued | Sending | Sent |
+  Delivered | Read | Failed), template, window_open, first_name, company_name, why_call}
+LeadWhatsApp (get_lead's lead.whatsapp, get_lead_whatsapp) = {to, conversation_id, contact_id,
+  last_in, window_open, window_ends, blocked}
+```
+
+`window_open` is true for 24 hours after the lead's last WhatsApp message to us. WhatsApp allows
+free text only then; the first message needs an approved template, chosen and filled by the hub
+from `first_name`, `company_name` and `why_call`.
+
+| Method | Does |
+|---|---|
+| `get_whatsapp_queue(country_code?, limit?)` | Queued messages, **during the send window only**, oldest approval first (default 20). Each is claimed (`chat_status` Sending) so it is handed out once. `country_code` (digits, default 91) is added to 10-digit numbers. A lead that unsubscribed or was lost meanwhile has its message Cancelled; one with no usable number Failed. Returns `[Queued]`. |
+| `report_whatsapp(name, state, text?, contact_id?, conversation_id?, message_id?, template?, error?)` POST | `state` `sent`: the message is Sent (`sent_on`, `template`, `chat_message_id`), `text` (what really went: the template filled in, or the free text) is filed on the lead, the ids are kept on the lead. `failed`: Failed with `error`. `manual`: TBO Chat is not ready (no inbox or template); the message stays Approved and the BD sends it by hand. Only a Queued or Sending message may be reported. Returns Result. |
+| `receive_whatsapp(phone, text, conversation_id?, contact_id?, message_id?, at?, sender_name?)` POST | A WhatsApp message a contact sent. The lead is the one holding `conversation_id`, else the most recently changed lead whose mobile, WhatsApp or phone number ends in the same 10 digits. Matched: filed as a Communication (medium Chat, received) on the lead, once per `message_id`; `tbo_whatsapp_last_in` opens the 24-hour window; with Outreach on it is queued for the reply sorter (`prospecting.md` §11). A reply that is only "stop" or "unsubscribe" is an Unsubscribe without the AI. Returns `{matched, lead, communication}`; not matched: not a lead's chat. |
+| `whatsapp_status(message_id, status, error?)` POST | A delivery receipt: `sent`, `delivered`, `read` or `failed`. An older receipt never undoes a newer one; `failed` makes the message Failed with `error`. Returns `{matched, status}`. |
+| `get_lead_whatsapp(lead, acting_user)` | `LeadWhatsApp` for the reply box. `blocked` says why nothing may be sent (unsubscribed, lost, no number). |
+| `log_lead_whatsapp(lead, text, message_id?, contact_id?, conversation_id?, acting_user)` POST | The acting user sent `text` from the lead page through TBO Chat: filed on the lead as theirs. Needs write permission; refused (417) while `blocked`. Returns `{communication}`. |
+
+- **`get_lead`** returns `lead.whatsapp` (`LeadWhatsApp`) and timeline entries
+  `{kind: "whatsapp", direction: "in" | "out", at, who, text, ref}` (the last 100 messages).
+- **Lead fields** (read-only custom fields): `tbo_chat_contact_id`, `tbo_chat_conversation_id`,
+  `tbo_whatsapp_last_in`. **Outreach message fields:** `via_chat`, `chat_status`,
+  `chat_message_id`, `template`.
+- **Phone numbers** are normalised to E.164 with the country code the hub passes (default 91).
+- **A message left in Sending** (the hub crashed between fetching and reporting) shows as Sending
+  in the outbox; cancel it or confirm it sent by hand.
+
 ## 3. Links back to the hub
 
 Teams messages, emails and the morning digest link to the lead page when TBO Smart Settings →
@@ -802,6 +845,10 @@ project set-ups saved by managers only.
 
 ## Changelog
 
+- **v1.19 (2026-11-02):** WhatsApp through TBO Chat (§2.19): `hub_whatsapp.get_whatsapp_queue`,
+  `report_whatsapp`, `receive_whatsapp`, `whatsapp_status`, `get_lead_whatsapp`,
+  `log_lead_whatsapp`; `approve_outreach`' `send_whatsapp`; outbox rows' `whatsapp`; `get_lead`'s
+  `lead.whatsapp` and `whatsapp` timeline entries.
 - **v1.18 (2026-10-31):** commission (§2.18): `hub_commission.get_commission`,
   `generate_statements`, `approve_statement`, `mark_paid`, `get_commission_plans`,
   `save_commission_plan`, `get_project_commission`, `save_project_commission`; the monthly draft
