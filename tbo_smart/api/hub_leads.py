@@ -827,11 +827,11 @@ def timeline(name: str, quotations: list, proposals: list) -> list[dict]:
 
 def whatsapp_items(name: str) -> list[dict]:
 	"""The WhatsApp conversation with the lead (filed by outreach/whatsapp.py): `direction` is
-	"in" for what the lead wrote, "out" for what we sent."""
+	"incoming" for what the lead wrote, "outgoing" for what we sent."""
 	return [
 		{
 			"kind": "whatsapp",
-			"direction": "in" if row.sent_or_received == "Received" else "out",
+			"direction": "incoming" if row.sent_or_received == "Received" else "outgoing",
 			"at": row.communication_date,
 			"who": None if row.sent_or_received == "Received" else row.sender,
 			"text": plain_text(row.content),

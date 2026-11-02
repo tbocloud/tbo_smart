@@ -163,7 +163,8 @@ class TestReporting(WhatsAppCase):
 		self.assertEqual(self.value("tbo_chat_contact_id"), "11")
 		timeline = leads_api.timeline(self.lead, [], [])
 		self.assertEqual(
-			[(i["kind"], i["direction"]) for i in timeline if i["kind"] == "whatsapp"], [("whatsapp", "out")]
+			[(i["kind"], i["direction"]) for i in timeline if i["kind"] == "whatsapp"],
+			[("whatsapp", "outgoing")],
 		)
 
 	def test_failed_keeps_the_reason_for_a_person(self):
@@ -230,7 +231,7 @@ class TestReplies(WhatsAppCase):
 		self.assertEqual(self.value("tbo_chat_conversation_id"), "31")
 		self.assertTrue(whatsapp.lead_state(self.lead)["window_open"])
 		items = [i for i in leads_api.timeline(self.lead, [], []) if i["kind"] == "whatsapp"]
-		self.assertEqual((items[0]["direction"], items[0]["text"]), ("in", "Hello"))
+		self.assertEqual((items[0]["direction"], items[0]["text"]), ("incoming", "Hello"))
 
 	def test_the_same_chat_message_is_filed_once(self):
 		receive_chat(PHONE, "Hello", message_id="m1")
@@ -279,7 +280,7 @@ class TestReplyBox(WhatsAppCase):
 			chat.log_lead_whatsapp, lead=self.lead, text="Thanks!", message_id="out-1", conversation_id="5"
 		)
 		items = [i for i in leads_api.timeline(self.lead, [], []) if i["kind"] == "whatsapp"]
-		self.assertEqual({i["direction"] for i in items}, {"in", "out"})
+		self.assertEqual({i["direction"] for i in items}, {"incoming", "outgoing"})
 
 	def test_without_a_reply_the_window_is_closed(self):
 		state = self.as_hub(chat.get_lead_whatsapp, lead=self.lead)

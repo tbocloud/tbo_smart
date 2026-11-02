@@ -782,7 +782,7 @@ from `first_name`, `company_name` and `why_call`.
 | `log_lead_whatsapp(lead, text, message_id?, contact_id?, conversation_id?, acting_user)` POST | The acting user sent `text` from the lead page through TBO Chat: filed on the lead as theirs. Needs write permission; refused (417) while `blocked`. Returns `{communication}`. |
 
 - **`get_lead`** returns `lead.whatsapp` (`LeadWhatsApp`) and timeline entries
-  `{kind: "whatsapp", direction: "in" | "out", at, who, text, ref}` (the last 100 messages).
+  `{kind: "whatsapp", direction: "incoming" | "outgoing", at, who, text, ref}` (the last 100 messages).
 - **Lead fields** (read-only custom fields): `tbo_chat_contact_id`, `tbo_chat_conversation_id`,
   `tbo_whatsapp_last_in`. **Outreach message fields:** `via_chat`, `chat_status`,
   `chat_message_id`, `template`.
