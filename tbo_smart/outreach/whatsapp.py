@@ -244,7 +244,9 @@ def file_message(
 			"sent_or_received": "Received" if received else "Sent",
 			"subject": SUBJECT,
 			"content": escape_html(text or "").replace("\n", "<br>"),
-			"sender": row.lead_name if received else (who or frappe.session.user),
+			"sender": None
+			if received
+			else (who or frappe.session.user),  # a phone number is not an email address
 			"sender_full_name": name or (row.lead_name if received else frappe.utils.get_fullname(who)),
 			"phone_no": row.mobile_no if received else None,
 			"reference_doctype": "Lead",
