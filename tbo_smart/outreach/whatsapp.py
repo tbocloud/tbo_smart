@@ -16,6 +16,7 @@ from frappe.utils import add_to_date, cint, escape_html, get_datetime, now_datet
 from tbo_smart.outreach import APPROVED, CANCELLED, FAILED, MESSAGE, SENT, WHATSAPP
 from tbo_smart.outreach.guards import in_window, never_contact, whatsapp_number
 from tbo_smart.prospecting.signals import prospect_of
+from tbo_smart.sales import products
 from tbo_smart.smart_leads.utils import INDIA, normalise_phone
 
 QUEUED = "Queued"
@@ -90,6 +91,12 @@ def first_name_of(lead_name: str | None) -> str:
 	return (lead_name or "").split()[0] if (lead_name or "").strip() else ""
 
 
+def selling_fields(lead: str) -> dict:
+	"""The lead's product and its intro line, for the chat template's {{1}} and {{2}} (None: TBO)."""
+	selling = products.selling_of(lead) or {}
+	return {"product": selling.get("name"), "product_intro": selling.get("intro")}
+
+
 def pending(country: str | None = None, limit: int = QUEUE_LIMIT) -> list[dict]:
 	"""Approved WhatsApp messages waiting for TBO Chat, oldest approval first, during the send
 	window only. Each is claimed (Sending) so a second call never hands it out again. A message
@@ -144,6 +151,7 @@ def pending(country: str | None = None, limit: int = QUEUE_LIMIT) -> list[dict]:
 				"first_name": first_name_of(lead.lead_name),
 				"company_name": lead.company_name,
 				"why_call": (prospect_of(lead.tbo_web_profile) or {}).get("why_call"),
+				**selling_fields(doc.lead),
 				"contact_id": lead.tbo_chat_contact_id or None,
 				"conversation_id": lead.tbo_chat_conversation_id or None,
 				"window_open": window_open(lead.tbo_whatsapp_last_in),

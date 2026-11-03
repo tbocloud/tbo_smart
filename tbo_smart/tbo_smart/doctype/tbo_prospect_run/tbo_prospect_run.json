@@ -9,6 +9,7 @@
   "districts",
   "provider",
   "department",
+  "product",
   "column_break_run",
   "max_results",
   "require_phone",
@@ -187,6 +188,12 @@
    "fieldtype": "Long Text",
    "label": "Log",
    "read_only": 1
+  },
+  {
+   "fieldname": "product",
+   "fieldtype": "Data",
+   "label": "Product / brand",
+   "description": "One of the department's products; the new leads get it."
   }
  ],
  "links": [],

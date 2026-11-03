@@ -446,9 +446,11 @@ def make_lead_department(
 	is_active: int = 1,
 	assignment: str = "Manual",
 	stale_after_days: int = 0,
+	products: list[dict] | tuple = (),
 ) -> str:
 	"""A TBO Lead Department with the given heads and members (members in the order given, the
-	round robin's order), inserted as Administrator."""
+	round robin's order) and `products` (rows of product_name, is_active, intro_line), inserted
+	as Administrator."""
 	doc = frappe.get_doc(
 		{
 			"doctype": "TBO Lead Department",
@@ -459,6 +461,7 @@ def make_lead_department(
 			"stale_after_days": stale_after_days,
 			"heads": [{"user": user} for user in heads],
 			"members": [{"user": user} for user in members],
+			"products": list(products),
 		}
 	)
 	doc.insert(ignore_permissions=True)

@@ -129,6 +129,7 @@ class TestLeadDepartments(FrappeTestCase):
 				"call_batches_enabled": 0,
 				"is_head": True,
 				"is_member": False,
+				"products": [],
 			},
 		)
 		rows = {row["name"]: row for row in hub.get_options(acting_user=MEMBER)["departments"]}

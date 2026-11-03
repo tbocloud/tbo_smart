@@ -16,13 +16,15 @@ SAVE_FIELDS = {
 	"campaign_industry",
 	"campaign_state",
 	"campaign_district",
+	"campaign_product",
 	"call_slots",
 	"member_caps",
 }
 
 
 def serialize(department) -> dict:
-	"""{call_batches_enabled, daily_call_cap, pull_unassigned, overdue_block_limit, campaign_*,
+	"""{call_batches_enabled, daily_call_cap, pull_unassigned, overdue_block_limit, campaign_* (industry,
+	state, district, product),
 	call_slots: [{label, start_time "HH:MM", end_time, size}], member_caps: {user: cap}}. The
 	slots are the defaults while the department has none of its own."""
 	return {
@@ -35,6 +37,7 @@ def serialize(department) -> dict:
 		"campaign_industry": department.campaign_industry or "",
 		"campaign_state": department.campaign_state or "",
 		"campaign_district": department.campaign_district or "",
+		"campaign_product": department.campaign_product or "",
 		"call_slots": [
 			{
 				"label": slot.label,
@@ -58,7 +61,7 @@ def apply(department, values: dict) -> None:
 	for field in ("daily_call_cap", "overdue_block_limit"):
 		if field in values:
 			department.set(field, max(cint(values[field]), 0))
-	for field in ("campaign_industry", "campaign_state", "campaign_district"):
+	for field in ("campaign_industry", "campaign_state", "campaign_district", "campaign_product"):
 		if field in values:
 			department.set(field, (values[field] or "").strip())
 	if "call_slots" in values:

@@ -56,7 +56,7 @@ the field to match on the phrase.
 
 ## 4. Runs and the import
 
-**TBO Prospect Run** (`industry`, `state`, `districts`, `provider`, `max_results`, `department`,
+**TBO Prospect Run** (`industry`, `state`, `districts`, `provider`, `max_results`, `department`, `product`,
 `require_phone`, `status`, `estimated_cost`, `expected_count`, `estimate_note`, `actual_cost`,
 `count_found/duplicates/skipped/created`, `started_at`, `finished_at`, `log`). Flow:
 `estimate_prospect_run` (creates it, Estimated) → `start_prospect_run` (cap check, Running, queued
@@ -75,8 +75,8 @@ The import (`prospecting/importer.py`) for each business:
    match counts here, unlike in `create_lead`, because calling the same business twice is the
    cost; a chain's branches with the same name are the price of that;
 3. otherwise a Lead: first name and company = the business, `mobile_no`, `website`, `city`,
-   `industry`, `state` and `tbo_district` (when the lead categories are installed), `tbo_department`,
-   source **Prospecting – <provider>**, `tbo_maps_url`, `tbo_latitude/longitude`, `tbo_location_note`
+   `industry`, `state` and `tbo_district` (when the lead categories are installed), `tbo_department`, `tbo_product`
+   (the run's product, when it has one), source **Prospecting – <provider>**, `tbo_maps_url`, `tbo_latitude/longitude`, `tbo_location_note`
    (the address), `tbo_source_ref`, `tbo_prospect_run`. **No owner**: `lead.flags.unassigned_pool`
    makes `sales.assignment.claim_owner` leave it unowned even in a round-robin department, so the
    call batches' unassigned-pool step hands it out.

@@ -37,7 +37,7 @@ from tbo_smart.outreach import replies, whatsapp
 from tbo_smart.prospecting import runs as prospect_runs
 from tbo_smart.prospecting import signals as prospect_signals
 from tbo_smart.query import aggregate
-from tbo_smart.sales import departments, duplicates, erpnext_installed, stale
+from tbo_smart.sales import departments, duplicates, erpnext_installed, products, stale
 from tbo_smart.sales.activities import (
 	OPEN,
 	add_follow_up_task,
@@ -94,6 +94,7 @@ LEAD_FIELDS = {
 	"tbo_department": "tbo_department",
 	"lead_type": "tbo_lead_type",
 	"tbo_lead_type": "tbo_lead_type",
+	"product": "tbo_product",
 	"google_profile_url": "tbo_google_profile_url",
 	"maps_url": "tbo_maps_url",
 	"latitude": "tbo_latitude",
@@ -114,6 +115,7 @@ ROW_FIELDS = [
 	"tbo_segment as segment",
 	"tbo_department",
 	"tbo_lead_type",
+	"tbo_product as product",
 	"industry",
 	"state",
 	"tbo_district as district",
@@ -143,6 +145,7 @@ LEAD_DETAIL_FIELDS = [
 	"tbo_segment",
 	"tbo_department",
 	"tbo_lead_type",
+	"tbo_product as product",
 	"tbo_stage",
 	"tbo_last_call_result as last_call_result",
 	"tbo_last_call_on as last_call_on",
@@ -287,6 +290,7 @@ def list_leads(
 	org_size: list | str | None = None,
 	last_call_result: list | str | None = None,
 	last_reply_class: list | str | None = None,
+	product: list | str | None = None,
 	acting_user: str | None = None,
 ) -> dict:
 	"""The leads the acting user may see, newest change first: {rows, total}. `view`: all, mine
@@ -294,7 +298,7 @@ def list_leads(
 	follow-up due by today, earliest first). `metric` (with `period`, or `from_date` and
 	`to_date`) keeps the leads one number of the overview counts (get_overview). `department`
 	keeps one lead department's leads (the acting user still sees only what they may).
-	`industry`, `state`, `district` and `org_size` each take a value or a list (a JSON list in a
+	`industry`, `state`, `district`, `org_size` and `product` (a product of the department) each take a value or a list (a JSON list in a
 	GET) and keep the leads with any of them; `last_call_result` does the same for the outcome of
 	the lead's last call (Connected, Not answered, Busy, Call back, Not interested, Wrong number);
 	`last_reply_class` the same for the class of its last email reply (Interested, Question, …)."""
@@ -308,7 +312,7 @@ def list_leads(
 			filters[lead_source.field()] = source
 		if department:
 			filters["tbo_department"] = department
-		filters.update(lead_category.category_filters(industry, state, district, org_size))
+		filters.update(lead_category.category_filters(industry, state, district, org_size, product))
 		if last_call_result:
 			filters["tbo_last_call_result"] = ("in", lead_calls.result_filter(last_call_result))
 		if last_reply_class:
@@ -440,6 +444,7 @@ def serialize_rows(rows: list) -> list[dict]:
 			"segment": row.segment,
 			"tbo_department": row.tbo_department,
 			"tbo_lead_type": row.tbo_lead_type,
+			"product": row.product,
 			"industry": row.industry,
 			"state": row.state,
 			"district": row.district,
@@ -693,6 +698,7 @@ def lead_payload(name: str) -> dict:
 	lead.district = lead.pop("tbo_district")
 	lead.last_call_result = lead.last_call_result or None
 	lead.org_size = lead.pop("no_of_employees")
+	lead.product_intro = (products.calling_for([name]).get(name) or {}).get("intro_line")
 	lead.owner_name = frappe.utils.get_fullname(lead.lead_owner) if lead.lead_owner else None
 	lead.deal = lead_opportunity(name)
 	lead.next_follow_up = next_follow_ups("Lead", [name]).get(name)
@@ -1116,7 +1122,7 @@ def add_note(name: str, note: str, acting_user: str | None = None) -> dict:
 
 @frappe.whitelist()
 def get_category_counts(acting_user: str | None = None) -> dict:
-	"""{industry, state, district, org_size, last_call_result, last_reply_class}: each {value: number of leads}
+	"""{industry, state, district, org_size, product, last_call_result, last_reply_class}: each {value: number of leads}
 	over the leads the acting user may see."""
 	with acting_as(acting_user):
 		return {
@@ -1135,8 +1141,10 @@ def add_industry(name: str, acting_user: str | None = None) -> dict:
 
 @frappe.whitelist(methods=["POST"])
 def bulk_set_lead_category(leads: list | str, values: dict | str, acting_user: str | None = None) -> dict:
-	"""Set `industry`, `state`, `district` and/or `org_size` (in `values`; "" clears one) on up to
-	500 leads (a System Manager or Sales Manager): {updated, skipped: [{name, reason}]}."""
+	"""Set `industry`, `state`, `district`, `org_size` and/or `product` (in `values`; "" clears one)
+	on up to 500 leads: {updated, skipped: [{name, reason}]}. The first four need a System Manager
+	or Sales Manager; `product` alone also a head of the leads' department (a lead whose department
+	lacks the product, or that the person does not manage, is skipped)."""
 	with acting_as(acting_user):
 		return lead_category.bulk_set(leads, parse_data(values))
 
@@ -1213,7 +1221,8 @@ def set_segment_rate(
 @frappe.whitelist()
 def get_lead_departments(acting_user: str | None = None) -> list[dict]:
 	"""Every lead department, inactive ones too, to any lead user: [{name, department_name,
-	lead_type, is_active, heads, members}] (heads and members: [{user, full_name}])."""
+	lead_type, is_active, heads, members, products}] (heads and members: [{user, full_name}];
+	products: [{product_name, is_active, intro_line, website}], switched-off ones too)."""
 	with acting_as(acting_user):
 		return departments.get_departments()
 
@@ -1222,7 +1231,8 @@ def get_lead_departments(acting_user: str | None = None) -> list[dict]:
 def save_lead_department(values: dict | str, name: str | None = None, acting_user: str | None = None) -> dict:
 	"""Create (no `name`) or update a lead department. `values`: department_name (new only),
 	lead_type, is_active, heads and members (lists of user emails; a list given replaces the
-	old one). Sales Manager or System Manager only (PermissionError otherwise). Returns the
+	old one), products (a list of {product_name, is_active, intro_line, website}; it replaces the
+	old list, a name is unique within the department) and the call-batch rules. Sales Manager or System Manager only (PermissionError otherwise). Returns the
 	department as get_lead_departments lists it."""
 	with acting_as(acting_user):
 		return departments.save_department(parse_data(values), name or None)
@@ -1246,8 +1256,9 @@ def get_my_calls(acting_user: str | None = None) -> dict:
 	scheduled, overdue}, today: {size, called, connected}, pending: [Call], scheduled: [Call],
 	overdue: [Call], can_call, next_batch: {allowed, reason}, next_slot: {label, starts_at} | null}.
 	Call = {item, batch, slot, lead, priority, reason, is_repeat, retry_at, attempts,
-	batch_ends_at, summary: {name, lead_name, company_name, industry, district, phone, stage,
-	temperature, last_note, next_step, wrong_number}}. Calls made another way since (MyOperator,
+	batch_ends_at, product, intro_line, calling_for (the product, else the department's name),
+	summary: {name, lead_name, company_name, industry, district, phone, stage, temperature,
+	last_note, next_step, wrong_number}}; batch also carries campaign_product. Calls made another way since (MyOperator,
 	Log call) are counted first."""
 	with acting_as(acting_user):
 		return call_reads.get_my_calls()
@@ -1259,14 +1270,15 @@ def get_next_batch(
 	industry: str | None = None,
 	state: str | None = None,
 	district: str | None = None,
+	product: str | None = None,
 	acting_user: str | None = None,
 ) -> dict:
 	"""Hand the acting user their next batch: {created, reason, batch?, slot?, size?}. Nothing
 	is created while calls are pending, overdue calls pass the department's limit, the daily cap
-	is reached or no slot is open; `reason` says which. `industry`, `state` and `district` narrow
-	the new leads of this batch (blank: the department's campaign filter)."""
+	is reached or no slot is open; `reason` says which. `industry`, `state`, `district` and
+	`product` narrow the new leads of this batch (blank: the department's campaign filter)."""
 	with acting_as(acting_user):
-		return call_reads.get_next_batch(department or None, industry, state, district)
+		return call_reads.get_next_batch(department or None, industry, state, district, product)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -1302,7 +1314,8 @@ def get_call_batches_report(date: str | None = None, acting_user: str | None = N
 def estimate_prospect_run(values: dict | str, acting_user: str | None = None) -> dict:
 	"""Create a prospect run (or, with `name` in `values`, estimate a draft again) and price it.
 	`values`: industry, state, districts (a list or lines), provider (OpenStreetMap, DataForSEO or
-	Serper), max_results, department, require_phone. Nothing is searched or paid for yet. Managers
+	Serper), max_results, department, product (one of the department's active products; the new
+	leads get it), require_phone. Nothing is searched or paid for yet. Managers
 	and the department's head only (PermissionError). Returns the run: {name, status "Estimated",
 	estimated_cost (USD), expected_count, estimate_note, ...}."""
 	with acting_as(acting_user):
