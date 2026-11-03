@@ -83,6 +83,7 @@ def lead_values(business: dict, run) -> dict:
 		"city": business.get("city") or run.district or None,
 		"industry": run.industry,
 		"tbo_department": run.department,
+		"tbo_product": run.get("product"),
 		lead_source.field(): source_name(run.provider),
 		"tbo_maps_url": business.get("maps_url") or None,
 		"tbo_latitude": business.get("latitude"),

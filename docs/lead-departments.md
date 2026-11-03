@@ -1,4 +1,4 @@
-# Lead departments (living spec, v1.2, Phase 1 to 3)
+# Lead departments (living spec, v1.3, Phase 1 to 3 and products)
 
 Leads belong to a department (GrowthX and the like) that admins create. The department's
 **heads** see every lead of it; the people who follow a lead (its owner, or anyone it is
@@ -106,6 +106,59 @@ none the Communication is left as it is. Setup: create a mailbox such as log@tea
 add it as an **incoming** Email Account in Frappe, select it in the setting, then BCC it on mails
 to clients (a mail forwarded to it works too).
 
+## 10. Products / brands under a department (v1.3)
+
+**Why.** GrowthX has sub-teams that sell different things (Solar / PhoebiX, BillaX, WilpeX,
+PrintagX, Foamia, Avera). A BD must say which name they are calling under, and each product's
+leads are kept apart.
+
+**Data.**
+- **TBO Lead Product** (child table `products` on the department): `product_name` (required,
+  unique in the department ignoring case), `is_active` (default on), `intro_line` (at most 140
+  characters, e.g. "PhoebiX - solar ERP for installers") and an optional `website`.
+- **Lead** custom field `tbo_product` (Data, after the lead type). Empty is allowed. A
+  department with no products behaves exactly as before.
+- **Department** `campaign_product` ("Calls for product", next to `campaign_industry`).
+- **TBO Prospect Run** `product`.
+
+**Rules** (`sales/products.py`, Lead validate `validate_lead_product`).
+- A product must be an **active** product of the lead's department. Checked when the product or
+  the department changes, so a lead stays editable after its product is switched off. Matching
+  ignores case and stores the name as listed.
+- Only a **System Manager, Sales Manager or a head of the lead's department** may set or change
+  it, singly or in bulk. The owner sees the product but cannot change it. Trusted code
+  (Find prospects, imports) saves with `ignore_permissions`.
+- Moving a lead to a department that lacks its product is refused until the product is cleared.
+- `campaign_product` must be an active product of the department. Switch the campaign off (or
+  change it) before switching that product off.
+
+**Calling.** The call-batch campaign filter gains `product` (`CAMPAIGN_COLUMNS`): new leads in
+a batch (priority 3 to 5, not follow-ups) are only of the campaign product. Every call in
+`get_my_calls` carries `product`, `intro_line` and `calling_for` (the product, else the
+department's name). Outreach drafts and the WhatsApp first message use the product's name and
+intro; a lead with no product is written from TBO as before (decision: not the department's
+name, because "GrowthX" means nothing to the client).
+
+**API.** `docs/hub-leads-api.md` §2.20.
+
+### How to use (staff)
+
+*Managers (Sales Manager, System Manager)*
+1. In the support hub open **Settings, CRM, Lead departments** and pick GrowthX.
+2. Under **Products / brands** press **Add product**. Type the name (PhoebiX) and one short line
+   to say on the call ("PhoebiX - solar ERP for installers"). Add BillaX, WilpeX, PrintagX,
+   Foamia, Avera and Solar the same way. Press **Save**.
+3. To call for one product tomorrow, set **Calls for product** to PhoebiX and save. The next
+   batches give each BD only PhoebiX leads (follow-ups still come).
+4. To tag leads: on the **Leads** list tick them, press **Set category**, choose **Product** and
+   apply. Or open a lead and pick the **Product**.
+5. To stop using a name, switch it **off**. Leads keep it; nobody can pick it any more.
+
+*BDs*
+- **Today's calls** shows **Calling for: PhoebiX** and the intro line on every call. A lead
+  with no product shows the department name. Say that name when you introduce yourself.
+- You can see a lead's product but only managers change it. Ask your manager.
+
 ## 9. Tests
 
 `tbo_smart/tests/test_lead_wave1.py`: round-robin order, wrap, skipping disabled users and the
@@ -121,5 +174,11 @@ own, a member only their own, a lead without a department is unchanged, a depart
 off opens nothing, the lead type default and override, an inactive department is refused, the
 owner must be one of the department's people, the options, the list filter, create through the
 hub, and who may save departments.
+
+`tbo_smart/tests/test_lead_products.py`: only managers and the department's head change a
+product (the owner cannot, singly or in bulk), validation against the department's active
+products, the list filter and counts, the options, saving products and the campaign product,
+the batch campaign filter, calls carrying the product and intro line, outreach using the product,
+and Find prospects giving it to new leads.
 
 `tbo_smart/tests/test_client_documents.py` (`TestContentLeadChain`): a content lead gets the strategy preset by default, its chain after the accepted proposal is the project, an ERP lead's chain is unchanged, and `get_accepted_proposal` / `link_project` on the proposal.

@@ -1,4 +1,4 @@
-# Hub leads API (`tbo_smart.api.hub_leads`), v1.19
+# Hub leads API (`tbo_smart.api.hub_leads`), v1.20
 
 **Status:** built 2026-10-16. The TBO Support hub's lead page (tbocloud/helpdesk) shows and edits
 tboindia's leads through these methods. The leads are ERPNext's own **Lead**
@@ -761,7 +761,7 @@ and reports the result.
 
 ```
 Queued = {name, lead, to ("+" and digits), body, lead_name, first_name, company_name, why_call,
-  contact_id, conversation_id, window_open}
+  product, product_intro, contact_id, conversation_id, window_open}
 WhatsApp (on an outbox Message) = {via_chat, chat_status (null | Queued | Sending | Sent |
   Delivered | Read | Failed), template, window_open, first_name, company_name, why_call}
 LeadWhatsApp (get_lead's lead.whatsapp) = {to, conversation_id, contact_id, last_in,
@@ -770,7 +770,9 @@ LeadWhatsApp (get_lead's lead.whatsapp) = {to, conversation_id, contact_id, last
 
 `window_open` is true for 24 hours after the lead's last WhatsApp message to us. WhatsApp allows
 free text only then; the first message needs an approved template, chosen and filled by the hub
-from `first_name`, `company_name` and `why_call`.
+from `first_name`, `company_name` and `why_call`. A lead with a product (§2.20) also carries
+`product` and `product_intro` (null: the message is from TBO); the hub may fill the template's
+name and intro with them.
 
 | Method | Does |
 |---|---|
@@ -789,6 +791,31 @@ from `first_name`, `company_name` and `why_call`.
 - **Phone numbers** are normalised to E.164 with the country code the hub passes (default 91).
 - **A message left in Sending** (the hub crashed between fetching and reporting) shows as Sending
   in the outbox; cancel it or confirm it sent by hand.
+
+### 2.20 Products / brands under a department (`lead-departments.md` §10)
+
+A department (GrowthX) lists the names its people call under (PhoebiX, BillaX, ...). A lead
+carries one in `tbo_product`. A department with no products behaves as before.
+
+```
+Product = {product_name, is_active, intro_line (at most 140 characters), website}
+```
+
+| Where | Change |
+|---|---|
+| `get_options` | `departments[].products`: the department's **active** `[Product]`. |
+| `get_lead_departments`, `save_lead_department` | `products: [Product]`, all of them (switched-off ones too). `save_lead_department`'s `values.products` replaces the list; names are unique in a department ignoring case (ValidationError), a name is required. `values.campaign_product` ("Calls for product") must be an active product or blank. Managers only, as before. |
+| `list_leads` | `product` (one value or a list, a JSON list in a GET). Rows carry `product`. |
+| `get_lead` | `lead.product`. |
+| `create_lead`, `update_lead` | `data.product`: must be an active product of the lead's department (any case, stored as listed; "" clears; ValidationError otherwise; set the department first). Only a System Manager, a Sales Manager or a head of that department may set or change it (PermissionError for the lead's owner, who still sees it). Saving other fields never trips this. Moving a lead to a department that lacks its product is refused until the product is cleared. A product switched off later stays on its leads and does not block edits. |
+| `bulk_set_lead_category` | `values.product` (alone or with the others). The other categories still need a System Manager or Sales Manager; `product` alone also a department head. A lead whose department lacks the product, or that the person does not manage, is in `skipped` (`reason`). |
+| `get_category_counts` | `product`: `{value: leads}`. |
+| `estimate_prospect_run` | `values.product`: an active product of the run's department; the run's new leads get it. Runs return `product`. |
+| `get_next_batch` | `product` narrows this batch's new leads; blank: the department's `campaign_product`. |
+| `get_my_calls` | Every Call carries `product`, `intro_line` (null without a product) and `calling_for`: the product, else the department's name ("Calling for: ..."). `batch.campaign_product` is the department's campaign product (null: none). |
+| Outreach | First messages and drafts for a lead with a product are written for that product: the AI gets `selling: {name, intro}` and names it once. Without one they are from TBO as before. WhatsApp `Queued` rows carry `product` and `product_intro`. |
+
+Department campaign rules: `campaign_product` joins `campaign_industry/state/district`.
 
 ## 3. Links back to the hub
 
@@ -845,6 +872,12 @@ project set-ups saved by managers only.
 
 ## Changelog
 
+- **v1.20 (2026-11-03):** products / brands under a department (§2.20): `get_options`'
+  `departments[].products`; `products` and `campaign_product` on `get_lead_departments` /
+  `save_lead_department`; `product` on `list_leads`, its rows, `get_lead`, `create_lead`,
+  `update_lead`, `bulk_set_lead_category`, `get_category_counts`, prospect runs and
+  `get_next_batch`; `get_my_calls`' `product`, `intro_line`, `calling_for` and
+  `batch.campaign_product`; `Queued` WhatsApp rows' `product` and `product_intro`.
 - **v1.19 (2026-11-02):** WhatsApp through TBO Chat (§2.19): `hub_whatsapp.get_whatsapp_queue`,
   `report_whatsapp`, `receive_whatsapp`, `whatsapp_status`, `get_lead_whatsapp`,
   `log_lead_whatsapp`; `approve_outreach`' `send_whatsapp`; outbox rows' `whatsapp`; `get_lead`'s

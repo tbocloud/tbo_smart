@@ -42,7 +42,12 @@ DEFAULT_SLOTS = (
 )
 # the department's campaign filter and the Lead column each narrows (lead-categories adds the
 # last one; a column that is not there yet is skipped)
-CAMPAIGN_COLUMNS = {"industry": "industry", "state": "state", "district": "tbo_district"}
+CAMPAIGN_COLUMNS = {
+	"industry": "industry",
+	"state": "state",
+	"district": "tbo_district",
+	"product": "tbo_product",
+}
 
 
 def slots_of(department) -> list[frappe._dict]:

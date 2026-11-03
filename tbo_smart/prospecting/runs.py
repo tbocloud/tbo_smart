@@ -26,7 +26,7 @@ from tbo_smart.prospecting import (
 	signals,
 )
 from tbo_smart.prospecting.providers import ProviderError, get_provider, registry
-from tbo_smart.sales import departments
+from tbo_smart.sales import departments, products
 from tbo_smart.sales.departments import DEPARTMENT
 
 DEFAULT_MAX_RESULTS = 100
@@ -40,6 +40,7 @@ RUN_FIELDS = [
 	"districts",
 	"provider",
 	"department",
+	"product",
 	"max_results",
 	"require_phone",
 	"status",
@@ -114,6 +115,7 @@ def clean_values(values: dict) -> dict:
 	department = values.get("department") or setting("prospect_default_department")
 	if not department or not cint(frappe.db.get_value(DEPARTMENT, department, "is_active")):
 		frappe.throw(_("Choose an active department for the new leads."))
+	product = products.clean_for(department, values.get("product"))
 	provider = get_provider(values.get("provider") or "")
 	if not provider.available():
 		frappe.throw(_("{0} is not switched on or not set up in TBO Smart Settings.").format(provider.label))
@@ -127,6 +129,7 @@ def clean_values(values: dict) -> dict:
 		"districts": "\n".join(parse_districts(values.get("districts"))),
 		"provider": provider.key,
 		"department": department,
+		"product": product,
 		"max_results": max_results,
 		"require_phone": 1 if cint(values.get("require_phone", 1)) else 0,
 	}
@@ -225,6 +228,7 @@ def execute(doc, log: list[str]) -> None:
 		industry=doc.industry,
 		state=doc.state,
 		department=doc.department,
+		product=doc.product,
 		provider=provider.key,
 		require_phone=cint(doc.require_phone),
 		district=None,

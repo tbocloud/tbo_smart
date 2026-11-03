@@ -174,11 +174,20 @@ def get_pipeline_fields() -> dict:
 				"fetch_if_empty": 1,
 			},
 			{
+				"fieldname": "tbo_product",
+				"fieldtype": "Data",
+				"label": "Product / brand",
+				"insert_after": "tbo_lead_type",
+				"in_standard_filter": 1,
+				"search_index": 1,
+				"description": "One of the department's products (docs/lead-departments.md); only managers set it.",
+			},
+			{
 				"fieldname": "tbo_lost_reason",
 				"fieldtype": "Link",
 				"options": "Opportunity Lost Reason",
 				"label": "Lost reason",
-				"insert_after": "tbo_lead_type",
+				"insert_after": "tbo_product",
 				"depends_on": LOST_DEPENDS_ON,
 			},
 			{

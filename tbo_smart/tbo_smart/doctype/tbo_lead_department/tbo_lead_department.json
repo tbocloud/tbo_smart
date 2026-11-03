@@ -16,6 +16,8 @@
   "section_break_people",
   "heads",
   "members",
+  "section_break_products",
+  "products",
   "section_break_calls",
   "call_batches_enabled",
   "daily_call_cap",
@@ -25,6 +27,7 @@
   "campaign_industry",
   "campaign_state",
   "campaign_district",
+  "campaign_product",
   "call_slots"
  ],
  "fields": [
@@ -155,10 +158,28 @@
    "options": "TBO Call Slot",
    "label": "Call slots",
    "description": "Blank: Morning 10:00-13:00 and Afternoon 14:00-18:00, 50 calls each."
+  },
+  {
+   "fieldname": "section_break_products",
+   "fieldtype": "Section Break",
+   "label": "Products / brands",
+   "description": "The names a caller can call under, e.g. PhoebiX and BillaX under GrowthX. A department with none works as before."
+  },
+  {
+   "fieldname": "products",
+   "fieldtype": "Table",
+   "label": "Products / brands",
+   "options": "TBO Lead Product"
+  },
+  {
+   "fieldname": "campaign_product",
+   "fieldtype": "Data",
+   "label": "Campaign: product",
+   "description": "Blank: any. New leads in a batch (not follow-ups) are only of this product."
   }
  ],
  "links": [],
- "modified": "2026-10-30 10:00:00.000000",
+ "modified": "2026-11-03 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Lead Department",

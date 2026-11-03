@@ -13,6 +13,7 @@ from frappe.custom.doctype.property_setter.property_setter import make_property_
 from frappe.utils import cint
 
 from tbo_smart.query import aggregate
+from tbo_smart.sales import products
 
 INDUSTRY_TYPE = "Industry Type"
 MANAGER_ROLES = ("System Manager", "Sales Manager")
@@ -127,6 +128,7 @@ FACETS = {
 	"state": "state",
 	"district": "tbo_district",
 	"org_size": "no_of_employees",
+	"product": "tbo_product",
 }
 
 
@@ -239,13 +241,14 @@ def as_list(value) -> list[str]:
 	return [text for text in (" ".join(str(item or "").split()) for item in value) if text]
 
 
-def category_filters(industry=None, state=None, district=None, org_size=None) -> dict:
+def category_filters(industry=None, state=None, district=None, org_size=None, product=None) -> dict:
 	"""Lead filters for the categories asked: each takes a value or a list (any of them)."""
 	asked = {
 		"industry": industry,
 		"state": [clean_state(item) for item in as_list(state)],
 		"tbo_district": [clean_district(item) for item in as_list(district)],
 		"no_of_employees": org_size,
+		"tbo_product": product,
 	}
 	filters = {}
 	for field, value in asked.items():
@@ -277,10 +280,13 @@ def add_industry(name: str) -> dict:
 
 
 def bulk_set(leads: list, values: dict) -> dict:
-	"""Set the categories in `values` ({industry?, state?, district?, org_size?}; "" clears one)
-	on up to MAX_BULK leads: {updated, skipped: [{name, reason}]}. A lead the acting user may not
-	write is skipped, not an error."""
-	require_manager()
+	"""Set the categories in `values` ({industry?, state?, district?, org_size?, product?}; ""
+	clears one) on up to MAX_BULK leads: {updated, skipped: [{name, reason}]}. A lead the acting
+	user may not write is skipped, not an error. A product is set only by a manager or the head of
+	the lead's department, and must be a product of that department; the other categories need a
+	System Manager or Sales Manager."""
+	if set(values) - {"product"}:
+		require_manager()
 	leads = list(dict.fromkeys(as_list(leads)))
 	if not leads:
 		frappe.throw(_("Pick the leads first."))
@@ -289,18 +295,26 @@ def bulk_set(leads: list, values: dict) -> dict:
 	unknown = sorted(set(values) - set(FACETS))
 	if unknown:
 		frappe.throw(_("Unknown fields: {0}").format(", ".join(unknown)))
-	changes = category_fields(values)
-	if not changes:
-		frappe.throw(_("Choose at least one of industry, state, district and size."))
+	changes = category_fields({key: value for key, value in values.items() if key != "product"})
+	if not changes and "product" not in values:
+		frappe.throw(_("Choose at least one of industry, state, district, size and product."))
 	updated, skipped = 0, []
 	for name in leads:
 		if not frappe.db.exists("Lead", name):
 			skipped.append({"name": name, "reason": "missing"})
-		elif not frappe.has_permission("Lead", "write", name):
+			continue
+		if not frappe.has_permission("Lead", "write", name):
 			skipped.append({"name": name, "reason": "not allowed"})
-		else:
-			frappe.db.set_value("Lead", name, changes)
-			updated += 1
+			continue
+		lead_changes = dict(changes)
+		if "product" in values:
+			product, reason = products.bulk_value(name, values["product"])
+			if reason:
+				skipped.append({"name": name, "reason": reason})
+				continue
+			lead_changes["tbo_product"] = product
+		frappe.db.set_value("Lead", name, lead_changes)
+		updated += 1
 	return {"updated": updated, "skipped": skipped}
 
 
@@ -333,7 +347,7 @@ def get_options() -> dict:
 
 
 def get_counts() -> dict:
-	"""{industry, state, district, org_size}: each {value: leads} over the leads the acting user
+	"""{industry, state, district, org_size, product}: each {value: leads} over the leads the acting user
 	may see (leads without a value are left out)."""
 	counts = {}
 	for key, field in FACETS.items():

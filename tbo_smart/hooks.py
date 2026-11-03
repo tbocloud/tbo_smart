@@ -206,6 +206,7 @@ doc_events = {
 			"tbo_smart.sales.stages.validate_lead",
 			"tbo_smart.lead_pipeline.rate_card.validate_lead_segment",
 			"tbo_smart.sales.departments.validate_lead_department",
+			"tbo_smart.sales.products.validate_lead_product",
 			"tbo_smart.sales.duplicates.skip_import_duplicates",
 			"tbo_smart.lead_pipeline.lead_place.validate_place",
 		],

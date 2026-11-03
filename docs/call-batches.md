@@ -15,7 +15,7 @@ Set on the department (hub: Settings, CRM, Lead departments):
 | `daily_call_cap` | 100 | Leads handed to one person in a day, retries not counted. A member's own `daily_call_cap` (Members table) replaces it. |
 | `pull_unassigned` | on | When the batch has room, pull the department's unassigned open leads. |
 | `overdue_block_limit` | 10 | Overdue calls above this block the next batch and, at slot end, tell the heads. |
-| `campaign_industry/state/district` | blank | Narrow new leads (priority 3-5, not follow-ups) to this industry, state or district. A column Lead does not have yet (`tbo_district` arrives with lead categories) is skipped. |
+| `campaign_industry/state/district/product` | blank | Narrow new leads (priority 3-5, not follow-ups) to this industry, state, district or product (`lead-departments.md` §10; the product must be one of the department's active products). A column Lead does not have yet (`tbo_district` arrives with lead categories) is skipped. |
 
 ## 2. Doctypes
 
@@ -77,7 +77,8 @@ for.
 ## 6. Reading and the next batch
 
 `get_my_calls`: the running batches' counts, the pending, scheduled and overdue calls with a lead
-summary, time left and whether the next batch is allowed. Overdue calls stay for 7 days and are
+summary, time left and whether the next batch is allowed. Every call also carries the lead's
+`product`, its `intro_line` and `calling_for` (the product, else the department): "Calling for: PhoebiX". Overdue calls stay for 7 days and are
 never removed; a lead that is back in a running batch is not listed overdue twice.
 
 `get_next_batch` hands out another batch of the current slot (labelled `<slot> +2`, ...) or, between

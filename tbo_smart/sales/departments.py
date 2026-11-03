@@ -9,6 +9,7 @@ import frappe
 from frappe import _
 from frappe.utils import cint
 
+from tbo_smart.sales import products
 from tbo_smart.sales.call_batches import settings as call_settings
 
 DEPARTMENT = "TBO Lead Department"
@@ -24,6 +25,7 @@ SAVE_FIELDS = {
 	"stale_after_days",
 	"heads",
 	"members",
+	"products",
 } | call_settings.SAVE_FIELDS
 
 
@@ -103,6 +105,7 @@ def serialize(name: str) -> dict:
 		"stale_after_days": cint(row.stale_after_days),
 		"heads": user_rows(name, "heads"),
 		"members": user_rows(name, "members"),
+		"products": products.serialize(products.rows_of(name)),
 	}
 
 
@@ -113,7 +116,7 @@ def get_departments() -> list[dict]:
 
 def active_departments_for(user: str) -> list[dict]:
 	"""[{name, lead_type, is_active, assignment, stale_after_days, call_batches_enabled, is_head,
-	is_member}] for the active departments."""
+	is_member, products}] for the active departments (products: the active ones)."""
 	departments = frappe.get_all(
 		DEPARTMENT,
 		filters={"is_active": 1},
@@ -134,6 +137,7 @@ def active_departments_for(user: str) -> list[dict]:
 			"call_batches_enabled": cint(row.call_batches_enabled),
 			"is_head": (row.name, "heads") in roles,
 			"is_member": (row.name, "members") in roles,
+			"products": products.active_serialized(row.name),
 		}
 		for row in departments
 	]
@@ -152,8 +156,9 @@ def can_manage() -> bool:
 
 def save_department(values: dict, name: str | None = None) -> dict:
 	"""Create (no `name`) or update a department from `values` (department_name, lead_type,
-	is_active, assignment, stale_after_days, heads and members as lists of users, and the call
-	batch rules of `call_batches.settings`); the name does not change."""
+	is_active, assignment, stale_after_days, heads and members as lists of users, products as a
+	list of {product_name, is_active, intro_line, website}, and the call batch rules of
+	`call_batches.settings`); the name does not change."""
 	require_manager()
 	unknown = sorted(set(values) - SAVE_FIELDS)
 	if unknown:
@@ -188,6 +193,8 @@ def save_department(values: dict, name: str | None = None) -> dict:
 				doc.append(
 					table, {"user": user, "daily_call_cap": caps.get(user) if table == "members" else None}
 				)
+	if "products" in values:
+		products.apply(doc, values["products"] or [])
 	call_settings.apply(doc, values)
 	doc.save()
 	return serialize(doc.name)

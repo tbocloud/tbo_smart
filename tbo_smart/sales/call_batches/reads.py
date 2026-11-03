@@ -6,6 +6,7 @@ from frappe import _
 from frappe.utils import cint, get_datetime, getdate, now_datetime
 
 from tbo_smart.sales import departments as lead_departments
+from tbo_smart.sales import products
 from tbo_smart.sales.activities import notes_of, plain_text
 from tbo_smart.sales.call_batches import (
 	ACTIVE,
@@ -67,7 +68,9 @@ def lead_summaries(names: list[str]) -> dict[str, dict]:
 	return summaries
 
 
-def serialize_row(row, summaries: dict) -> dict:
+def serialize_row(row, summaries: dict, calling: dict) -> dict:
+	"""One call. `product` and `intro_line` are the lead's product (None without one);
+	`calling_for` is what the caller says they are calling under: the product, else the department."""
 	return {
 		"item": row.name,
 		"batch": row.batch,
@@ -80,6 +83,12 @@ def serialize_row(row, summaries: dict) -> dict:
 		"attempts": cint(row.attempts),
 		"batch_ends_at": row.ends_at,
 		"summary": summaries.get(row.lead) or {"name": row.lead},
+		**{
+			"product": None,
+			"intro_line": None,
+			"calling_for": row.department,
+			**{key: value for key, value in (calling.get(row.lead) or {}).items() if value},
+		},
 	}
 
 
@@ -103,6 +112,7 @@ def get_my_calls() -> dict:
 	queue = CallQueue(user)
 	names = list(dict.fromkeys(row.lead for row in queue.pending + queue.scheduled + queue.overdue))
 	summaries = lead_summaries(names)
+	calling = products.calling_for(names)
 	running = queue.running
 	newest = max(running, key=lambda row: get_datetime(row.starts_at)) if running else None
 	counts = queue.totals(running)
@@ -119,21 +129,27 @@ def get_my_calls() -> dict:
 			"ends_at": newest.ends_at,
 			"seconds_left": max(int((get_datetime(newest.ends_at) - queue.now).total_seconds()), 0),
 			"batches": queue.running_batches,
+			"campaign_product": frappe.db.get_value(
+				lead_departments.DEPARTMENT, newest.department, "campaign_product"
+			)
+			or None,
 		}
 		if newest
 		else None,
 		"counts": counts,
 		"today": queue.totals(queue.today()),
-		"pending": [serialize_row(row, summaries) for row in queue.pending],
-		"scheduled": [serialize_row(row, summaries) for row in queue.scheduled],
-		"overdue": [serialize_row(row, summaries) for row in queue.overdue],
+		"pending": [serialize_row(row, summaries, calling) for row in queue.pending],
+		"scheduled": [serialize_row(row, summaries, calling) for row in queue.scheduled],
+		"overdue": [serialize_row(row, summaries, calling) for row in queue.overdue],
 		"can_call": can_call(user),
 		"next_batch": {"allowed": decision["allowed"], "reason": decision["reason"]},
 		"next_slot": decision.get("next_slot"),
 	}
 
 
-def get_next_batch(department: str | None = None, industry=None, state=None, district=None) -> dict:
+def get_next_batch(
+	department: str | None = None, industry=None, state=None, district=None, product=None
+) -> dict:
 	"""Hand the session user their next batch when the rules allow it: {created, reason, batch,
 	size}. Nothing is created (and `reason` says why) while calls are pending, overdue calls pass
 	the department's limit, the daily cap is reached or no slot is open."""
@@ -142,7 +158,10 @@ def get_next_batch(department: str | None = None, industry=None, state=None, dis
 	user = frappe.session.user
 	sync_calls(user)
 	return create_next_batch(
-		user, CallQueue(user), department, {"industry": industry, "state": state, "district": district}
+		user,
+		CallQueue(user),
+		department,
+		{"industry": industry, "state": state, "district": district, "product": product},
 	)
 
 
