@@ -225,6 +225,15 @@ class TestSavingProducts(ProductCase):
 		listed = next(row for row in self.as_hub(hub.get_lead_departments, BD) if row["name"] == GROWTHX)
 		self.assertEqual(len(listed["products"]), 4, "switched-off ones are listed for the editor")
 
+	def test_renaming_a_product_moves_its_leads_and_the_campaign_product(self):
+		lead = self.lead("Prod Renamed", tbo_product=PHOEBIX)
+		self.as_hub(hub.save_lead_department, MANAGER, {"campaign_product": PHOEBIX}, GROWTHX)
+		rows = [{**PRODUCTS[0], "product_name": "PhoebiX Solar", "previous_name": PHOEBIX}, *PRODUCTS[1:]]
+		saved = self.as_hub(hub.save_lead_department, MANAGER, {"products": rows}, GROWTHX)
+		self.assertEqual(self.product_of(lead), "PhoebiX Solar")
+		self.assertEqual(saved["campaign_product"], "PhoebiX Solar")
+		self.assertEqual(saved["products"][0]["product_name"], "PhoebiX Solar")
+
 	def test_the_campaign_product_must_be_an_active_product(self):
 		saved = self.as_hub(hub.save_lead_department, MANAGER, {"campaign_product": PHOEBIX}, GROWTHX)
 		self.assertEqual(saved["campaign_product"], PHOEBIX)

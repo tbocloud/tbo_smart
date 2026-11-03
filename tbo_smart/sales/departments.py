@@ -193,10 +193,10 @@ def save_department(values: dict, name: str | None = None) -> dict:
 				doc.append(
 					table, {"user": user, "daily_call_cap": caps.get(user) if table == "members" else None}
 				)
-	if "products" in values:
-		products.apply(doc, values["products"] or [])
+	renames = products.apply(doc, values["products"] or []) if "products" in values else []
 	call_settings.apply(doc, values)
 	doc.save()
+	products.carry_renames(doc.name, renames)
 	return serialize(doc.name)
 
 

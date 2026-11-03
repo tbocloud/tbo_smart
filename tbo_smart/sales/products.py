@@ -54,13 +54,23 @@ def find(department: str | None, product: str | None, active_only: bool = True) 
 	return None
 
 
-def apply(department, rows: list) -> None:
+def apply(department, rows: list) -> list[tuple[str, str]]:
 	"""Replace the department's products with `rows` ({product_name, is_active?, intro_line?,
-	website?}); the caller saves it. Names are tidied and must be unique ignoring case."""
+	website?, previous_name?}); the caller saves it and then calls `carry_renames` with what this
+	returns. A row with a `previous_name` that differs from its new name renames that product:
+	its leads follow. Names are tidied and must be unique ignoring case."""
 	if not isinstance(rows, list | tuple):
 		frappe.throw(_("products must be a list."))
+	existing = {row.product_name.lower(): row.product_name for row in department.get("products") or []}
+	renames = []
 	department.set("products", [])
 	for row in rows:
+		previous = existing.get(" ".join(str(row.get("previous_name") or "").split()).lower())
+		new = " ".join(str(row.get("product_name") or "").split())
+		if previous and new and previous != new:
+			renames.append((previous, new))
+			if (department.campaign_product or "").lower() == previous.lower():
+				department.campaign_product = new
 		department.append(
 			"products",
 			{
@@ -69,6 +79,19 @@ def apply(department, rows: list) -> None:
 				"intro_line": " ".join(str(row.get("intro_line") or "").split()),
 				"website": (row.get("website") or "").strip(),
 			},
+		)
+	return renames
+
+
+def carry_renames(department: str, renames: list[tuple[str, str]]) -> None:
+	"""Move the department's leads from each renamed product's old name to its new one."""
+	for old, new in renames:
+		frappe.db.set_value(
+			"Lead",
+			{"tbo_department": department, "tbo_product": old},
+			"tbo_product",
+			new,
+			update_modified=False,
 		)
 
 

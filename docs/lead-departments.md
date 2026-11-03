@@ -128,6 +128,8 @@ leads are kept apart.
 - Only a **System Manager, Sales Manager or a head of the lead's department** may set or change
   it, singly or in bulk. The owner sees the product but cannot change it. Trusted code
   (Find prospects, imports) saves with `ignore_permissions`.
+- Renaming a product (a `previous_name` on its row when saving the department) moves its leads and
+  the campaign product to the new name.
 - Moving a lead to a department that lacks its product is refused until the product is cleared.
 - `campaign_product` must be an active product of the department. Switch the campaign off (or
   change it) before switching that product off.
