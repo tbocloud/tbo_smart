@@ -469,7 +469,7 @@ def triage_answer(close: set, invent: set = frozenset()):
 					{
 						"id": row["lead"],
 						"bucket": "suggest_close" if row["lead"] in close else "call_again",
-						"reason": "Said 3 times they are not interested"
+						"reason": "Said 777 times they are not interested"
 						if row["lead"] in invent
 						else ("No interest in the notes" if row["lead"] in close else "Never called back"),
 					}
