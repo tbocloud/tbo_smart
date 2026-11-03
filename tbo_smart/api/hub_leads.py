@@ -37,7 +37,7 @@ from tbo_smart.outreach import replies, whatsapp
 from tbo_smart.prospecting import runs as prospect_runs
 from tbo_smart.prospecting import signals as prospect_signals
 from tbo_smart.query import aggregate
-from tbo_smart.sales import departments, duplicates, erpnext_installed, stale
+from tbo_smart.sales import departments, duplicates, erpnext_installed, products, stale
 from tbo_smart.sales.activities import (
 	OPEN,
 	add_follow_up_task,
@@ -698,6 +698,7 @@ def lead_payload(name: str) -> dict:
 	lead.district = lead.pop("tbo_district")
 	lead.last_call_result = lead.last_call_result or None
 	lead.org_size = lead.pop("no_of_employees")
+	lead.product_intro = (products.calling_for([name]).get(name) or {}).get("intro_line")
 	lead.owner_name = frappe.utils.get_fullname(lead.lead_owner) if lead.lead_owner else None
 	lead.deal = lead_opportunity(name)
 	lead.next_follow_up = next_follow_ups("Lead", [name]).get(name)

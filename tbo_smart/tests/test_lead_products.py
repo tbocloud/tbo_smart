@@ -100,7 +100,8 @@ class TestProductRules(ProductCase):
 
 	def test_the_owner_sees_the_product_but_cannot_clear_or_set_it_on_a_new_lead(self):
 		lead = self.lead("Prod Tagged", tbo_product=PHOEBIX)
-		self.assertEqual(self.as_hub(hub.get_lead, BD, lead)["lead"]["product"], PHOEBIX)
+		detail = self.as_hub(hub.get_lead, BD, lead)["lead"]
+		self.assertEqual((detail["product"], detail["product_intro"]), (PHOEBIX, INTRO))
 		with self.assertRaises(frappe.PermissionError):
 			self.as_hub(hub.update_lead, BD, lead, {"product": ""})
 		self.assertEqual(self.product_of(lead), PHOEBIX)

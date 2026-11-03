@@ -806,7 +806,7 @@ Product = {product_name, is_active, intro_line (at most 140 characters), website
 | `get_options` | `departments[].products`: the department's **active** `[Product]`. |
 | `get_lead_departments`, `save_lead_department` | `products: [Product]`, all of them (switched-off ones too). `save_lead_department`'s `values.products` replaces the list; names are unique in a department ignoring case (ValidationError), a name is required. `values.campaign_product` ("Calls for product") must be an active product or blank. Managers only, as before. |
 | `list_leads` | `product` (one value or a list, a JSON list in a GET). Rows carry `product`. |
-| `get_lead` | `lead.product`. |
+| `get_lead` | `lead.product` and `lead.product_intro` (null without a product). |
 | `create_lead`, `update_lead` | `data.product`: must be an active product of the lead's department (any case, stored as listed; "" clears; ValidationError otherwise; set the department first). Only a System Manager, a Sales Manager or a head of that department may set or change it (PermissionError for the lead's owner, who still sees it). Saving other fields never trips this. Moving a lead to a department that lacks its product is refused until the product is cleared. A product switched off later stays on its leads and does not block edits. |
 | `bulk_set_lead_category` | `values.product` (alone or with the others). The other categories still need a System Manager or Sales Manager; `product` alone also a department head. A lead whose department lacks the product, or that the person does not manage, is in `skipped` (`reason`). |
 | `get_category_counts` | `product`: `{value: leads}`. |
