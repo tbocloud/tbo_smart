@@ -18,6 +18,7 @@ from tbo_smart.test_utils import (
 	delete_leads_matching,
 	delete_sales_records,
 	disable_sales_hierarchy,
+	make_batch_department,
 	make_call_batch,
 	make_callable_lead,
 	make_lead,
@@ -245,6 +246,8 @@ class TestSavingProducts(ProductCase):
 class TestCallingUnderAProduct(ProductCase):
 	def setUp(self):
 		super().setUp()
+		delete_lead_departments([GROWTHX])
+		make_batch_department(GROWTHX, members=[BD], heads=[HEAD], products=PRODUCTS)
 		for target in (
 			"tbo_smart.sales.call_batches.next_batch.is_off_today",
 			"tbo_smart.sales.call_batches.clock.is_off_today",
