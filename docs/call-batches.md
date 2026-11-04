@@ -42,7 +42,8 @@ not On Hold) of the department:
    the person (owner and a ToDo assignment). The rows are read `FOR UPDATE SKIP LOCKED`, so two
    people being handed batches at once never get the same lead.
 
-Steps 3 to 5 need a phone number and follow the campaign filter. A lead is never in two active
+Steps 3 to 5 need a phone number and follow the campaign filter (the department's campaign, a limit that
+always wins, then the person's focus, §10). A lead is never in two active
 batches and never twice on one day. A lead owned by the person but outside any department is not
 batched.
 
@@ -89,10 +90,43 @@ day, a slot is open and there is a lead to call. Otherwise it returns `{created:
 `get_call_batches_report(date)`: per person and batch, size, called, connected (answered), overdue.
 Sales Managers, System Managers and department heads (their departments).
 
+## 10. Calling for: the BD's switch (`sales/call_batches/focus.py`)
+
+A salesperson in more than one department, or in one with products (GrowthX: PhoebiX, BillaX),
+chooses what they are calling for: a department, optionally one of its products and one
+district. It is kept per person in a **TBO BD Focus** (named by the user: one row each).
+
+- **Who may pick what:** only departments they are a member of that have call batches on, and
+  that department's *active* products. A department's `campaign_product` / `campaign_district`
+  (a manager's limit) is the only choice and always wins over the person's. Districts offered
+  are those of the leads they could be handed.
+- **What it changes:** the clock opens each slot's batch only for the focus department (no
+  focus: every department, as before); new leads in a batch (steps 3 to 5, never follow-ups or
+  retries) follow the focus product and district. Calls already handed out stay on the list until
+  done.
+- **Switching** (`set_calling_focus`) saves the choice and starts the next batch for it when the
+  rules allow (nothing pending, overdue within the limit, under the daily cap, a slot open).
+  When they do not, the answer says so in plain words and the next batch follows the switch.
+- A choice that no longer holds (batches switched off, the person left the department, the
+  product switched off) is ignored, part by part.
+
+### Staff how to use (BDs)
+
+1. Open **Leads**. You land on **Today's calls**: only your own calls, nobody else's.
+2. At the top, **Calling for** shows what you call now (for example *Hotels (StayVeX)*). Tap it to
+   switch to another department or product, and pick a district if you want. Tap **Start calling**.
+3. Tap **Call** on a lead. When you come back, a sheet asks **how did it go?** Tap one big button:
+   Connected, Not answered, Busy, Call back, Not interested, Wrong number.
+4. If you forget, a banner says *You have N calls without a result*. Tap it to finish them one by
+   one. If you did not really call, choose *I didn't call*.
+
+Manager hint: turn on **daily call batches** for a department (Settings, CRM, Lead departments)
+so its members can call from Today's calls and see it in the switch.
+
 ## 7. Files
 
 `tbo_smart/sales/call_batches/` (`__init__` rules, `fill`, `outcomes`, `state`, `next_batch`,
-`reads`, `clock`, `settings`, `setup`); doctypes under `tbo_smart/tbo_smart/doctype/tbo_call_*`;
+`reads`, `clock`, `settings`, `setup`, `focus`); doctypes under `tbo_smart/tbo_smart/doctype/tbo_call_*` and `tbo_bd_focus`;
 endpoints in `api/hub_leads.py`; tests `tests/test_call_batches.py`, helpers in `test_utils.py`.
 
 ## 8. Decisions
@@ -100,6 +134,8 @@ endpoints in `api/hub_leads.py`; tests `tests/test_call_batches.py`, helpers in 
 - Batches are off until a department switches them on, so deploying changes nothing by itself.
 - The follow-up field in use is the lead's open ToDo (`next_follow_ups`); call-back time-of-day is
   kept in `tbo_callback_at` because a ToDo only has a date.
+- The department's campaign is a limit, not a default: a request or a person's focus only fills
+  what it leaves open (before, a request replaced it).
 - Closing due follow-ups on a conversation keeps yesterday's finished work from coming back.
 
 Every outcome also sets the lead's last call result and may move its stage

@@ -1,4 +1,4 @@
-"""The Lead Bank for the TBO Support hub (docs/hub-leads-api.md §2.21, docs/lead-bank.md).
+"""The Lead Bank for the TBO Support hub (docs/hub-leads-api.md §2.22, docs/lead-bank.md).
 
 Any enabled staff member may add a lead and see the leads they added: unlike the leads API, no
 sales role is asked for, and nothing here reads the CRM beyond that. The hub's integration user

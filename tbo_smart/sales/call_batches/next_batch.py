@@ -13,6 +13,7 @@ from tbo_smart.sales.call_batches import (
 	slots_of,
 )
 from tbo_smart.sales.call_batches.fill import build_batch, campaign_of, room_for
+from tbo_smart.sales.call_batches.focus import get_focus
 from tbo_smart.sales.call_batches.state import CallQueue
 
 
@@ -22,6 +23,9 @@ def pick_department(user: str, queue: CallQueue, name: str | None):
 		departments = [d for d in departments if d.name == name]
 	if not departments:
 		return None
+	if not name:
+		chosen = (get_focus(user) or {}).get("department")
+		departments = [d for d in departments if d.name == chosen] or departments
 	running = {row.department for row in queue.running}
 	return next((d for d in departments if d.name in running), departments[0])
 
@@ -106,7 +110,7 @@ def create_next_batch(user: str, queue: CallQueue, department_name: str | None, 
 		max(now, starts),
 		ends,
 		slot.size,
-		campaign_of(department, request),
+		campaign_of(department, request, get_focus(user)),
 		allow_empty=False,
 	)
 	if not batch:

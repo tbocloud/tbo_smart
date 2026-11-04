@@ -1,6 +1,6 @@
 # Sales commission
 
-**Status:** built 2026-10-31; referral added 2026-11-04 (§7). Contract: `hub-leads-api.md` §2.18, §2.21. The hub shows it on Leads →
+**Status:** built 2026-10-31; referral added 2026-11-04 (§7). Contract: `hub-leads-api.md` §2.18, §2.22. The hub shows it on Leads →
 Commission, Settings → CRM → Commission plans and the project page.
 
 Commission is a percentage on **money collected**, worked out per **project** and per month, with a

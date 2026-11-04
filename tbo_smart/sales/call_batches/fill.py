@@ -35,11 +35,14 @@ PHONE_FIELDS = ("mobile_no", "phone", "whatsapp_no")
 TEMPERATURE_RANK = {"Hot": 0, "Warm": 1}
 
 
-def campaign_of(department, request: dict | None = None) -> dict:
-	"""{industry, state, district} to narrow new leads to: the request's, else the department's."""
+def campaign_of(department, request: dict | None = None, focus: dict | None = None) -> dict:
+	"""{industry, state, district, product} to narrow new leads to. The department's own campaign
+	is a limit set by a manager and always wins; where it leaves a key open the request's value
+	is used, else the person's focus (when it is for this department)."""
 	request = request or {}
+	chosen = (focus or {}) if (focus or {}).get("department") == department.name else {}
 	return {
-		key: (request.get(key) or department.get(f"campaign_{key}") or "").strip().lower()
+		key: (department.get(f"campaign_{key}") or request.get(key) or chosen.get(key) or "").strip().lower()
 		for key in CAMPAIGN_COLUMNS
 	}
 

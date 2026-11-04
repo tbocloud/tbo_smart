@@ -1,6 +1,6 @@
 # Lead Bank
 
-**Status:** built 2026-11-04. Contract: `hub-leads-api.md` §2.21. The hub's side (the screens, the
+**Status:** built 2026-11-04. Contract: `hub-leads-api.md` §2.22. The hub's side (the screens, the
 photo reading) is in the hub repo's `docs/lead-bank.md`. Referral commission: `commission.md` §7.
 
 Every staff member can add a lead from a photo of a shop board, visiting card, banner or ad, and
@@ -23,7 +23,7 @@ salespeople, so it has to be one big button and a photo.
 - **Made by the system, not the collector.** A designer has no CRM permissions, so the lead is
   inserted by the integration user with `tbo_collected_by` set; the collector never gets access to
   the lead. The leads API stays closed to anyone without a sales role; the Lead Bank methods take
-  any enabled System User (§2.21).
+  any enabled System User (§2.22).
 - **Region** from the phone prefix (+91 / +971 / +966, or 00 for the plus, or a full number; a
   10-digit mobile starting 6 to 9 is India), else from the GPS fix (rough boxes: the UAE first,
   since the KSA's box overlaps it), else the collector picks. The collector's choice wins.
