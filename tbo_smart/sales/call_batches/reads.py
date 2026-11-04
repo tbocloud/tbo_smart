@@ -19,6 +19,7 @@ from tbo_smart.sales.call_batches import (
 	slot_window,
 	slots_of,
 )
+from tbo_smart.sales.call_batches import focus as bd_focus
 from tbo_smart.sales.call_batches.fill import build_batch, campaign_of, room_for
 from tbo_smart.sales.call_batches.outcomes import sync_calls
 from tbo_smart.sales.call_batches.state import CallQueue, item_rows
@@ -106,6 +107,8 @@ def get_my_calls() -> dict:
 			"pending": [],
 			"scheduled": [],
 			"overdue": [],
+			"focus": None,
+			"focus_options": [],
 			"reason": _("Daily call batches are not switched on for your department."),
 		}
 	sync_calls(user)
@@ -144,6 +147,40 @@ def get_my_calls() -> dict:
 		"can_call": can_call(user),
 		"next_batch": {"allowed": decision["allowed"], "reason": decision["reason"]},
 		"next_slot": decision.get("next_slot"),
+		"focus": bd_focus.get_focus(user),
+		"focus_options": bd_focus.options_for(user),
+	}
+
+
+def set_calling_focus(
+	department: str | None = None, product: str | None = None, district: str | None = None
+) -> dict:
+	"""Save what the session user is calling for and start the next batch for it when the rules
+	allow: {focus, label, message, next_batch: {created, reason, size?, slot?}}. `message` says in
+	plain words what happens next. A blank department clears the choice."""
+	from tbo_smart.sales.call_batches.next_batch import create_next_batch
+
+	user = frappe.session.user
+	sync_calls(user)
+	chosen = bd_focus.set_focus(user, department, product, district)
+	label = bd_focus.describe(chosen)
+	if not chosen:
+		return {
+			"focus": None,
+			"label": "",
+			"message": _("Done. You will get calls from all your departments."),
+			"next_batch": {"created": False, "reason": None},
+		}
+	result = create_next_batch(user, CallQueue(user), chosen["department"], {})
+	if result["created"]:
+		message = _("Calling for {0}. Your next {1} calls are ready.").format(label, result["size"])
+	else:
+		message = _("Calling for {0}. Your next batch will be for it. {1}").format(label, result["reason"])
+	return {
+		"focus": chosen,
+		"label": label,
+		"message": message,
+		"next_batch": {key: result.get(key) for key in ("created", "reason", "size", "slot")},
 	}
 
 

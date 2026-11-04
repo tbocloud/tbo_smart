@@ -19,6 +19,7 @@ from tbo_smart.sales.call_batches import (
 	slots_of,
 )
 from tbo_smart.sales.call_batches.fill import build_batch, campaign_of
+from tbo_smart.sales.call_batches.focus import get_focus
 from tbo_smart.sales.call_batches.outcomes import sync_calls
 from tbo_smart.sales.call_batches.state import CallQueue
 
@@ -89,7 +90,12 @@ def open_batch(department, user: str, slot, starts, ends, today) -> None:
 	try:
 		if is_off_today(user, today):
 			return
-		build_batch(department, user, slot.label, starts, ends, slot.size, campaign_of(department))
+		focus = get_focus(user)
+		if focus and focus["department"] != department.name:
+			return  # they chose to call for another of their departments
+		build_batch(
+			department, user, slot.label, starts, ends, slot.size, campaign_of(department, None, focus)
+		)
 		frappe.db.commit()  # nosemgrep
 	except Exception:
 		frappe.db.rollback()  # nosemgrep
