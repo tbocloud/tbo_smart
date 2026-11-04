@@ -332,6 +332,7 @@ class TestMyLeads(LeadBankCase):
 				"Meeting Scheduled": "Meeting",
 				"Proposal Sent": "Meeting",
 				WON: "Won",
+				"Closed – Lost": "Not interested",
 				"Not Interested": "Not interested",
 				"Wrong Number": "Not interested",
 			},

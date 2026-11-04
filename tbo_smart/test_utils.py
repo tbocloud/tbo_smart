@@ -3488,8 +3488,13 @@ def reset_referral_settings(department: str | None = None) -> None:
 
 
 def delete_lead_bank_records() -> None:
-	"""Delete the leads the Lead Bank tests made (by their email domain), the notifications they
-	sent and every commission record, and commit."""
+	"""Delete the leads the Lead Bank tests made (by their email domain) with their deals, the
+	notifications they sent and every commission record, and commit."""
+	leads = frappe.get_all(
+		"Lead", filters={"email_id": ("like", f"%@{LEAD_BANK_EMAIL_DOMAIN}")}, pluck="name"
+	)
+	# a deleted lead's name is used again, so its deals must go or its receipts follow the name
+	delete_lead_deals(leads)
 	delete_leads_matching(email_id=("like", f"%@{LEAD_BANK_EMAIL_DOMAIN}"))
 	frappe.db.delete("Notification Log", {"subject": ("like", "A Lead Bank lead%")})
 	delete_commission_records()
