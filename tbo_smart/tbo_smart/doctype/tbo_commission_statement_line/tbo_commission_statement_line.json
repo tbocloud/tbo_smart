@@ -11,7 +11,9 @@
   "share_percent",
   "credited",
   "target",
-  "commission"
+  "commission",
+  "kind",
+  "lead"
  ],
  "fields": [
   {
@@ -60,6 +62,21 @@
    "fieldtype": "Currency",
    "in_list_view": 1,
    "label": "Commission"
+  },
+  {
+   "columns": 1,
+   "default": "Sales",
+   "fieldname": "kind",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Kind",
+   "options": "Sales\nReferral"
+  },
+  {
+   "fieldname": "lead",
+   "fieldtype": "Link",
+   "label": "Lead",
+   "options": "Lead"
   }
  ],
  "istable": 1,

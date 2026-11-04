@@ -1,4 +1,4 @@
-# Hub leads API (`tbo_smart.api.hub_leads`), v1.21
+# Hub leads API (`tbo_smart.api.hub_leads`), v1.22
 
 **Status:** built 2026-10-16. The TBO Support hub's lead page (tbocloud/helpdesk) shows and edits
 tboindia's leads through these methods. The leads are ERPNext's own **Lead**
@@ -832,6 +832,55 @@ FocusOption = {department, products: [{product_name, intro_line}], districts: [t
 | `set_calling_focus` | `department` (blank clears the choice), `product?` (an active product of it, any case; ValidationError otherwise), `district?` (free text; the locked one when the department sets one). Returns `{focus, label, message, next_batch: {created, reason, size?, slot?}}`; `message` is plain words for the screen. It then tries to start the next batch for the focus under the usual rules (nothing pending, overdue within the limit, under the cap, a slot open), so `created` false with a `reason` is normal. ValidationError for a department the person is not a member of with batches on. |
 | `get_next_batch` | Without `department`, the focus department; the request's `product` / `district` fill what the focus and the department leave open. **The department's `campaign_*` now always wins** over a request (it is a limit). |
 
+### 2.22 The Lead Bank (`lead-bank.md`)
+
+Any staff member adds a lead from a photo and earns a referral when it is won and paid. These
+methods are in **`tbo_smart.api.hub_lead_bank`** (the referral settings are in `hub_commission`).
+They are called like the rest (§1) with one difference: **`acting_user` needs no sales role**. It
+must be an enabled System User and not an integration user; otherwise 403. The call does not run
+as that person (a designer has no CRM permissions); each method reads and writes only what the
+Lead Bank needs. The leads API itself stays closed to anyone without a sales role.
+
+| Method | Verb | Arguments | Returns |
+|---|---|---|---|
+| `get_options` | GET | `acting_user` | `{regions: [{region, prefix, country, rate, has_department}], cap, currency, is_manager, max_photos}` (regions `India`, `UAE`, `KSA`; `rate` in %; `cap` in the company currency, 0 none) |
+| `detect_region` | GET | `phones?` (a number or a list), `latitude?`, `longitude?`, `acting_user` | `{region: "India" \| "UAE" \| "KSA" \| null, by: "phone" \| "gps" \| null}` |
+| `check_duplicate` | GET | `email?`, `phone?`, `company?`, `acting_user` | `{duplicate, mine, message}`: nothing of the matching lead is returned |
+| `submit_lead` | POST | `data`, `photos`, `acting_user` | `{created, duplicate, mine, lead, region, department, in_pool, message}` |
+| `get_my_leads` | GET | `start` (0), `page_length` (50, at most 100), `acting_user` | `{rows: [{id, title, collected_on, region, status, earned, pending}], total, summary: {leads, won, earned, pending}, currency}` |
+| `get_dashboard` | GET | `month?` (any date in it; default this month), `acting_user` | managers: `{month, currency, collected, won, conversion, by_region: [{region, department, collected, won}], collectors: [{user, full_name, collected, won}], referral: {earned, paid, due, by_collector: [{user, full_name, due}]}, pool: {count, leads: [{lead, title, region, collected_on, collected_by_name}]}}` |
+| `reassign_credit` | POST | `lead`, `user`, `reason`, `acting_user` | managers: `{lead, collected_by, previous}` |
+| `hub_commission.get_referral_settings` | GET | `acting_user` | managers: `{regions: [{region, rate, department, effective_department}], cap, currency, departments}` |
+| `hub_commission.save_referral_settings` | POST | `values` `{regions: [{region, rate, department}], cap}`, `acting_user` | as `get_referral_settings` |
+
+- **`data`** (`submit_lead`): `company_name`, `contact_name`, `mobile_no`, `phone`, `email_id`,
+  `website`, `business_type`, `address`, `region` (blank: detected from the phones, then the GPS;
+  ValidationError "Pick the region" when neither says), `state`, `latitude`, `longitude`, `note`.
+  Anything else is refused (417). A name (company or contact) and a phone or an email are needed.
+- **`photos`**: `[{filename, content (base64)}]`, 1 to 5, PNG, JPEG or WebP, each under 10 MB. The
+  hub shrinks them first.
+- **The lead** is made by the system, not the collector: stage New Lead, source **Staff referral**,
+  `tbo_collected_by`, `tbo_collected_on`, `tbo_collected_region`, `tbo_business_type`, `tbo_address`,
+  country by region, a Google Maps link and the coordinates when the phone gave a fix, the photos as
+  lead photos (§2.11), the note as its first comment. Its department is the region's (§ `lead-bank.md`
+  2): a round robin department hands it to its next member, any other keeps it unowned for its heads;
+  a region with no department leaves it in the **pool** (`in_pool` true) and the managers get a
+  notification.
+- **Duplicates** use `find_duplicate_leads`' matching (email, phone, company), over every lead. A
+  business we have is not made again: `created` false, `duplicate` true (`mine` true when the
+  collector added it themselves), `lead` null, and the repeat is a comment on the existing lead. The
+  first collector keeps the credit.
+- **`status`** in `get_my_leads` is New, Being called, Meeting, Won or Not interested. `earned` is
+  referral in Approved or Paid statements; `pending` the rest of what the lead has earned so far
+  (drafts, and money not yet in a statement). Only the collector's own leads are returned.
+- **Referral in commission** (`commission.md` §7): `get_commission` rows and statements carry
+  `referral` (the part of `commission` that is referral); their `projects` lines have `kind`
+  (`Sales` or `Referral`) and, for a referral line, `lead` and `plan` ("UAE 3%"); `plans` lists
+  "Referral (Lead Bank)". `collected`, `target` and `achievement` stay the sales ones.
+- **Errors:** 403 when `acting_user` is not an enabled System User here or, for the dashboard,
+  `reassign_credit` and the settings, not a manager (Sales Manager, System Manager or TBO
+  Management); 417 for the refusals above.
+
 ## 3. Links back to the hub
 
 Teams messages, emails and the morning digest link to the lead page when TBO Smart Settings →
@@ -885,8 +934,15 @@ projects and earners, splits, own slabs, pooled and per-project basis, Unattribu
 in the next month, statements (draft, refresh, approve, freeze, paid), who sees whom, and plans and
 project set-ups saved by managers only.
 
+`tbo_smart/tests/test_lead_bank.py`: see `lead-bank.md` §9.
+
 ## Changelog
 
+- **v1.22 (2026-11-04):** the Lead Bank (§2.22): `hub_lead_bank.get_options`, `detect_region`,
+  `check_duplicate`, `submit_lead`, `get_my_leads`, `get_dashboard`, `reassign_credit`;
+  `hub_commission.get_referral_settings`, `save_referral_settings`; commission rows carry
+  `referral` and their `projects` lines `kind` and `lead`; the Lead's `tbo_collected_by`,
+  `tbo_collected_on`, `tbo_collected_region`, `tbo_business_type` and `tbo_address`.
 - **v1.21 (2026-11-04):** the BD's calling-for switch (§2.21): `set_calling_focus`, `get_my_calls`'
   `focus` and `focus_options`; the batch filler and the slot clock follow the focus; a
   department's campaign filter is now a limit a request cannot widen.

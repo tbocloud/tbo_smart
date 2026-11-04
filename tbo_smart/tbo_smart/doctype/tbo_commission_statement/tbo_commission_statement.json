@@ -16,6 +16,7 @@
   "target",
   "achievement",
   "commission",
+  "referral_commission",
   "section_approval",
   "approved_by",
   "approved_on",
@@ -95,6 +96,13 @@
    "fieldtype": "Currency",
    "in_list_view": 1,
    "label": "Commission",
+   "read_only": 1
+  },
+  {
+   "description": "The part of Commission that is referral (Lead Bank).",
+   "fieldname": "referral_commission",
+   "fieldtype": "Currency",
+   "label": "Referral commission",
    "read_only": 1
   },
   {

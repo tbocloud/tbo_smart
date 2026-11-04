@@ -1,6 +1,6 @@
 # Sales commission
 
-**Status:** built 2026-10-31. Contract: `hub-leads-api.md` §2.18. The hub shows it on Leads →
+**Status:** built 2026-10-31; referral added 2026-11-04 (§7). Contract: `hub-leads-api.md` §2.18, §2.22. The hub shows it on Leads →
 Commission, Settings → CRM → Commission plans and the project page.
 
 Commission is a percentage on **money collected**, worked out per **project** and per month, with a
@@ -103,3 +103,37 @@ numbering does not collide.
 2. Set `project` on Sales Orders and Sales Invoices, or link the hub project to the lead's
    documents. Money with no project is Unattributed under project-basis plans.
 3. On a project's page, set who earns and the split where it is not just the lead's owner.
+
+## 7. Referral (the Lead Bank)
+
+A staff member who collects a lead in the Lead Bank (`lead-bank.md`) earns a referral when it is
+Won and the client pays. It is a **kind of statement line**, so it shares the statement, the
+approval and the freeze with sales commission.
+
+- **Who:** the lead's `tbo_collected_by`. Managers can move the credit (with a reason, kept as a
+  note on the lead). A collector who is also the lead's owner or assigned to it, and holds a sales
+  role (Sales User, Sales Manager, System Manager, Sales Employee), earns no referral on it: they
+  have sales commission from the sale. A designer who collects a lead a salesperson then works
+  earns the referral; the salesperson earns sales commission as usual.
+- **How much:** the region the lead was collected in (India 2%, UAE 3%, KSA 3%, TBO Smart
+  Settings, set in the hub under Settings → CRM → Commission plans → Referral (Lead Bank)) times
+  the money collected on the lead, **capped per lead** (default 25,000 in the company currency,
+  whatever the region; 0 is no cap). One cap, in the company currency, because the receipts are
+  counted in it.
+- **Which money:** the same ledger as sales commission (§1: receipts, refunds, cancellations in
+  the month they happen), traced to the lead by the same tracer. Only a lead that is **Won** earns;
+  a lead that turns Won after its client paid earns on that money from then on.
+- **The month:** the money collected on the lead up to the end of the month, times the rate,
+  capped, **less the referral earlier months' statements already hold for the lead** (any
+  collector's, so moving credit does not reset the cap). The remainder, never below zero, is the
+  month's line. A refund or cancellation after the cap was reached does not claw back: a month's
+  line is never negative.
+- **On the statement:** `kind` Referral, `lead`, `plan` the region and rate ("UAE 3%"), `collected`
+  the money on the lead, `target` the cap, `commission` the referral. `referral_commission` is the
+  part of the statement's `commission`; `collected`, `target` and `achievement` stay the sales
+  ones, so a person with only referral shows 0 collected.
+- **Approved months are never rewritten:** `generate` skips Approved and Paid statements as before,
+  the record refuses a changed line count or `referral_commission`, and a new rate or cap applies
+  to the months still Draft and to later ones.
+- **Cost of the calculation:** the ledger is read from the beginning when the month has any
+  collected Won lead (once per `get_commission` or `generate`); nothing is read otherwise.

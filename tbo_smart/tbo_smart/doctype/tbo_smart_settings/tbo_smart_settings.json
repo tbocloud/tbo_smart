@@ -181,7 +181,16 @@
   "outreach_max_batch",
   "column_break_outreach",
   "outreach_window_start",
-  "outreach_window_end"
+  "outreach_window_end",
+  "lead_bank_section",
+  "referral_rate_india",
+  "referral_rate_uae",
+  "referral_rate_ksa",
+  "referral_cap",
+  "column_break_lead_bank",
+  "lead_bank_department_india",
+  "lead_bank_department_uae",
+  "lead_bank_department_ksa"
  ],
  "fields": [
   {
@@ -1336,6 +1345,62 @@
    "fieldtype": "Time",
    "label": "Send window ends",
    "default": "18:00:00"
+  },
+  {
+   "fieldname": "lead_bank_section",
+   "fieldtype": "Section Break",
+   "label": "Lead Bank",
+   "description": "Staff collect leads by photo and earn a referral on the money collected (docs/lead-bank.md). Rates and the cap are set under Settings → CRM → Commission plans in the hub."
+  },
+  {
+   "fieldname": "referral_rate_india",
+   "fieldtype": "Percent",
+   "label": "Referral rate: India",
+   "default": "2"
+  },
+  {
+   "fieldname": "referral_rate_uae",
+   "fieldtype": "Percent",
+   "label": "Referral rate: UAE",
+   "default": "3"
+  },
+  {
+   "fieldname": "referral_rate_ksa",
+   "fieldtype": "Percent",
+   "label": "Referral rate: KSA",
+   "default": "3"
+  },
+  {
+   "fieldname": "referral_cap",
+   "fieldtype": "Currency",
+   "label": "Referral cap per lead",
+   "default": "25000",
+   "description": "In the company currency, whatever the region. 0 means no cap."
+  },
+  {
+   "fieldname": "column_break_lead_bank",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "lead_bank_department_india",
+   "fieldtype": "Link",
+   "options": "TBO Lead Department",
+   "label": "Lead Bank: department for India",
+   "description": "Blank: the department called TBO, when there is one."
+  },
+  {
+   "fieldname": "lead_bank_department_uae",
+   "fieldtype": "Link",
+   "options": "TBO Lead Department",
+   "label": "Lead Bank: department for UAE",
+   "description": "Blank: leads wait in the unassigned pool and managers are told."
+  },
+  {
+   "fieldname": "lead_bank_department_ksa",
+   "fieldtype": "Link",
+   "options": "TBO Lead Department",
+   "label": "Lead Bank: department for KSA",
+   "description": "Blank: leads wait in the unassigned pool and managers are told."
   }
  ],
  "index_web_pages_for_search": 0,
