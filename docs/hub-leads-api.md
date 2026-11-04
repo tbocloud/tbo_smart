@@ -1,4 +1,4 @@
-# Hub leads API (`tbo_smart.api.hub_leads`), v1.20
+# Hub leads API (`tbo_smart.api.hub_leads`), v1.21
 
 **Status:** built 2026-10-16. The TBO Support hub's lead page (tbocloud/helpdesk) shows and edits
 tboindia's leads through these methods. The leads are ERPNext's own **Lead**
@@ -72,7 +72,8 @@ curl -s -X POST https://india.teambackoffice.com/api/method/tbo_smart.api.hub_le
 | `draft_lead_message` | POST | `name`, `channel` (`whatsapp` / `email`), `language` (`en` / `ml`, WhatsApp), `acting_user` | `{channel, subject, text, to?, url?}`: nothing is sent |
 | `log_message_sent` | POST | `name`, `channel`, `text`, `acting_user` | the new timeline `Item` (an activity by the acting user) |
 | `get_my_calls` | GET | `acting_user` | MyCalls (§2.13) |
-| `get_next_batch` | POST | `department?`, `industry?`, `state?`, `district?`, `acting_user` | `{created, reason, batch?, slot?, size?}` (§2.13) |
+| `set_calling_focus` | POST | `department?`, `product?`, `district?`, `acting_user` | `{focus, label, message, next_batch}` (§2.21) |
+| `get_next_batch` | POST | `department?`, `industry?`, `state?`, `district?`, `product?`, `acting_user` | `{created, reason, batch?, slot?, size?}` (§2.13) |
 | `record_call_outcome` | POST | `batch_item`, `outcome`, `note?`, `callback_at?`, `acting_user` | `{item, outcome, retry_at}` (§2.13) |
 | `get_call_batches_report` | GET | `date?` (default today), `acting_user` | `{date, people: [Person], totals}` (§2.13) |
 
@@ -817,6 +818,20 @@ Product = {product_name, is_active, intro_line (at most 140 characters), website
 
 Department campaign rules: `campaign_product` joins `campaign_industry/state/district`.
 
+### 2.21 Calling for: the BD's switch (`call-batches.md` §10)
+
+```
+Focus = {department, product | null, district | null}
+FocusOption = {department, products: [{product_name, intro_line}], districts: [text],
+  locked_product | null, locked_district | null}
+```
+
+| Where | Change |
+|---|---|
+| `get_my_calls` | `focus`: the person's valid choice or null; `focus_options`: `[FocusOption]`, one per department of theirs with call batches on (and `[]` when none: `enabled` is false). `locked_*` are the department's campaign product / district (a manager's limit): the only choice. |
+| `set_calling_focus` | `department` (blank clears the choice), `product?` (an active product of it, any case; ValidationError otherwise), `district?` (free text; the locked one when the department sets one). Returns `{focus, label, message, next_batch: {created, reason, size?, slot?}}`; `message` is plain words for the screen. It then tries to start the next batch for the focus under the usual rules (nothing pending, overdue within the limit, under the cap, a slot open), so `created` false with a `reason` is normal. ValidationError for a department the person is not a member of with batches on. |
+| `get_next_batch` | Without `department`, the focus department; the request's `product` / `district` fill what the focus and the department leave open. **The department's `campaign_*` now always wins** over a request (it is a limit). |
+
 ## 3. Links back to the hub
 
 Teams messages, emails and the morning digest link to the lead page when TBO Smart Settings →
@@ -871,6 +886,10 @@ in the next month, statements (draft, refresh, approve, freeze, paid), who sees 
 project set-ups saved by managers only.
 
 ## Changelog
+
+- **v1.21 (2026-11-04):** the BD's calling-for switch (§2.21): `set_calling_focus`, `get_my_calls`'
+  `focus` and `focus_options`; the batch filler and the slot clock follow the focus; a
+  department's campaign filter is now a limit a request cannot widen.
 
 - **v1.20 (2026-11-03):** products / brands under a department (§2.20): `get_options`'
   `departments[].products`; `products` and `campaign_product` on `get_lead_departments` /

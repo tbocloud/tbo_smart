@@ -3068,6 +3068,12 @@ def delete_call_batches(users: list[str] | tuple) -> None:
 	frappe.db.commit()  # nosemgrep
 
 
+def delete_bd_focus(users: list[str] | tuple) -> None:
+	"""Delete the calling-for choices (TBO BD Focus) of `users` and commit."""
+	frappe.db.delete("TBO BD Focus", {"user": ("in", list(users))})
+	frappe.db.commit()  # nosemgrep
+
+
 def get_batch_items(batch: str) -> list:
 	"""The items of a call batch, in list order."""
 	return frappe.get_doc("TBO Call Batch", batch).items

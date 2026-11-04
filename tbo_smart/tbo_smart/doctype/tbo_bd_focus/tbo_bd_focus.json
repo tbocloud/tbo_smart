@@ -1,0 +1,72 @@
+{
+ "actions": [],
+ "links": [],
+ "module": "Tbo Smart",
+ "owner": "Administrator",
+ "states": [],
+ "engine": "InnoDB",
+ "creation": "2026-11-04 10:00:00.000000",
+ "modified": "2026-11-04 10:00:00.000000",
+ "modified_by": "Administrator",
+ "doctype": "DocType",
+ "autoname": "field:user",
+ "naming_rule": "By fieldname",
+ "name": "TBO BD Focus",
+ "description": "What one salesperson is calling for right now: a department, optionally one product and one district (docs/call-batches.md).",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "field_order": [
+  "user",
+  "department",
+  "product",
+  "district"
+ ],
+ "fields": [
+  {
+   "fieldname": "user",
+   "fieldtype": "Link",
+   "options": "User",
+   "in_list_view": 1,
+   "label": "Salesperson",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "department",
+   "fieldtype": "Link",
+   "options": "TBO Lead Department",
+   "in_list_view": 1,
+   "label": "Department",
+   "reqd": 1
+  },
+  {
+   "fieldname": "product",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Product",
+   "description": "Blank: every product of the department."
+  },
+  {
+   "fieldname": "district",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "District",
+   "description": "Blank: every district."
+  }
+ ],
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "write": 1
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Sales Manager"
+  }
+ ]
+}

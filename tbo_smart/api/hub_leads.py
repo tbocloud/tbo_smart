@@ -1258,7 +1258,9 @@ def get_my_calls(acting_user: str | None = None) -> dict:
 	Call = {item, batch, slot, lead, priority, reason, is_repeat, retry_at, attempts,
 	batch_ends_at, product, intro_line, calling_for (the product, else the department's name),
 	summary: {name, lead_name, company_name, industry, district, phone, stage, temperature,
-	last_note, next_step, wrong_number}}; batch also carries campaign_product. Calls made another way since (MyOperator,
+	last_note, next_step, wrong_number}}; batch also carries campaign_product; `focus` is what
+	the person is calling for ({department, product, district} | null) and `focus_options` what
+	they may pick (docs/hub-leads-api.md §2.21). Calls made another way since (MyOperator,
 	Log call) are counted first."""
 	with acting_as(acting_user):
 		return call_reads.get_my_calls()
@@ -1279,6 +1281,22 @@ def get_next_batch(
 	`product` narrow the new leads of this batch (blank: the department's campaign filter)."""
 	with acting_as(acting_user):
 		return call_reads.get_next_batch(department or None, industry, state, district, product)
+
+
+@frappe.whitelist(methods=["POST"])
+def set_calling_focus(
+	department: str | None = None,
+	product: str | None = None,
+	district: str | None = None,
+	acting_user: str | None = None,
+) -> dict:
+	"""Save what the acting user is calling for (a department of theirs with daily calls, one of
+	its active products, a district; all but the department optional) and start the next batch for
+	it when the rules allow: {focus: {department, product, district} | null, label, message,
+	next_batch: {created, reason, size?, slot?}}. A blank department clears the choice. A
+	department's campaign product or district (a manager's limit) is the only choice."""
+	with acting_as(acting_user):
+		return call_reads.set_calling_focus(department or None, product or None, district or None)
 
 
 @frappe.whitelist(methods=["POST"])
