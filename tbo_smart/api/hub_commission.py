@@ -8,6 +8,7 @@ everyone's and the rest.
 import frappe
 
 from tbo_smart.api.hub_leads import acting_as
+from tbo_smart.lead_bank import reports as lead_bank
 from tbo_smart.lead_pipeline import commission
 from tbo_smart.sales import departments
 
@@ -81,3 +82,20 @@ def save_project_commission(values: dict | str, acting_user: str | None = None) 
 	plan or own slabs."""
 	with acting_as(acting_user):
 		return commission.save_project_setup(values)
+
+
+@frappe.whitelist()
+def get_referral_settings(acting_user: str | None = None) -> dict:
+	"""Managers only, the Lead Bank's referral (docs/lead-bank.md): {regions: [{region, rate, department,
+	effective_department}], cap, currency, departments}. `department` is what is set,
+	`effective_department` where leads really go (blank: the unassigned pool)."""
+	with acting_as(acting_user):
+		return lead_bank.referral_settings()
+
+
+@frappe.whitelist(methods=["POST"])
+def save_referral_settings(values: dict | str, acting_user: str | None = None) -> dict:
+	"""Managers only: `values` {regions: [{region, rate, department}], cap}; returns as
+	get_referral_settings."""
+	with acting_as(acting_user):
+		return lead_bank.save_referral_settings(values)

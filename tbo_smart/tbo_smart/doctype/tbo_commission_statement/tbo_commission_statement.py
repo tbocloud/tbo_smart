@@ -2,7 +2,7 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
-FROZEN = ("user", "month", "plans", "collected", "target", "achievement", "commission")
+FROZEN = ("user", "month", "plans", "collected", "target", "achievement", "commission", "referral_commission")
 
 
 class TBOCommissionStatement(Document):
@@ -25,7 +25,9 @@ class TBOCommissionStatement(Document):
 		before = self.get_doc_before_save()
 		if not before or before.status == "Draft":
 			return
-		if any(self.get(field) != before.get(field) for field in FROZEN) or len(self.payments) != len(
-			before.payments
+		if (
+			any(self.get(field) != before.get(field) for field in FROZEN)
+			or len(self.payments) != len(before.payments)
+			or len(self.lines) != len(before.lines)
 		):
 			frappe.throw(_("An approved statement is never rewritten."))

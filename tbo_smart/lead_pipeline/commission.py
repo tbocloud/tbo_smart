@@ -18,6 +18,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_months, cint, flt, getdate, now_datetime
 
+from tbo_smart.lead_bank import referral
 from tbo_smart.lead_pipeline.business import BusinessOverview, month_start
 from tbo_smart.lead_pipeline.dashboard import company_currency
 from tbo_smart.lead_pipeline.proposals import DOCTYPE as PROPOSAL
@@ -415,6 +416,8 @@ def person_figures(user: str, pieces: list[dict]) -> dict:
 		scheme, share = piece["scheme"], piece["share"] / 100
 		collected = flt(sum(line["amount"] for line in piece["lines"]), 2)
 		row = {
+			"kind": "Sales",
+			"lead": None,
 			"project": piece["project"],
 			"plan": scheme["name"] if scheme else None,
 			"collected": collected,
@@ -466,17 +469,55 @@ def person_figures(user: str, pieces: list[dict]) -> dict:
 		"achievement": flt(collected / target * 100, 1) if target > 0 else 0.0,
 		"reached": reached,
 		"commission": flt(sum(r["commission"] for r in lines), 2),
+		"referral": 0.0,
 		"projects": sorted(lines, key=lambda r: r["project"]),
 		"breakdown": breakdown,
 		"payments": sorted(payments, key=lambda p: (p["date"], p["payment_entry"])),
 	}
 
 
+def empty_figures(user: str) -> dict:
+	"""A person with nothing in the month: the shape of `person_figures`, all zero."""
+	return {
+		"user": user,
+		"plans": [],
+		"collected": 0,
+		"target": 0,
+		"achievement": 0,
+		"reached": None,
+		"commission": 0,
+		"referral": 0,
+		"projects": [],
+		"breakdown": [],
+		"payments": [],
+	}
+
+
+def add_referral(figures: dict, start, end) -> None:
+	"""Put the month's referral lines (docs/lead-bank.md) into `figures`: a line of kind Referral
+	per lead, added to the person's commission and shown as `referral`. The collected money, target
+	and achievement stay the sales ones. The ledger is read once, and only when some collected lead
+	is Won."""
+	if not referral.earning_leads():
+		return
+	for row in referral.month_rows(start, ledger_lines(referral.EPOCH, end)):
+		person = figures.setdefault(row["user"], empty_figures(row["user"]))
+		person["projects"].append({key: value for key, value in row.items() if key != "user"})
+		person["commission"] = flt(person["commission"] + row["commission"], 2)
+		person["referral"] = flt(person["referral"] + row["commission"], 2)
+		if referral.PLAN_LABEL not in person["plans"]:
+			person["plans"] = sorted([*person["plans"], referral.PLAN_LABEL])
+
+
 def month_figures(month) -> tuple[dict, list[dict]]:
-	"""({user: figures}, unattributed lines) for the month, live."""
+	"""({user: figures} with sales commission and referral, unattributed lines) for the month,
+	live."""
 	start = parse_month(month)
-	by_user, unattributed = attribute(ledger_lines(start, getdate(add_months(start, 1))))
-	return {user: person_figures(user, pieces) for user, pieces in by_user.items()}, unattributed
+	end = getdate(add_months(start, 1))
+	by_user, unattributed = attribute(ledger_lines(start, end))
+	figures = {user: person_figures(user, pieces) for user, pieces in by_user.items()}
+	add_referral(figures, start, end)
+	return figures, unattributed
 
 
 # ---------- statements ----------
@@ -495,6 +536,7 @@ def statement_figures(doc) -> dict:
 		"reached": last
 		and {"slab_no": last["slab_no"], "rate": last["rate"], "above_target": last["above_target"]},
 		"commission": flt(doc.commission, 2),
+		"referral": flt(doc.referral_commission, 2),
 		"projects": [row.as_dict() for row in doc.lines],
 		"breakdown": breakdown,
 		"payments": [
@@ -516,6 +558,7 @@ def fill_statement(doc, figures: dict) -> None:
 	doc.plans = ", ".join(figures["plans"])
 	doc.collected, doc.target = figures["collected"], figures["target"]
 	doc.achievement, doc.commission = figures["achievement"], figures["commission"]
+	doc.referral_commission = figures["referral"]
 	doc.set("lines", [])
 	doc.set("breakdown", [])
 	doc.set("payments", [])
@@ -533,7 +576,8 @@ def fill_statement(doc, figures: dict) -> None:
 					"target",
 					"commission",
 				)
-			},
+			}
+			| {"kind": row.get("kind") or "Sales", "lead": row.get("lead")},
 		)
 	for row in figures["breakdown"]:
 		doc.append(
@@ -585,19 +629,9 @@ def generate(month) -> list[dict]:
 	start = parse_month(month)
 	figures, _unattributed = month_figures(start)
 	existing = statements_of(start)
-	empty = {
-		"plans": [],
-		"collected": 0,
-		"target": 0,
-		"achievement": 0,
-		"commission": 0,
-		"projects": [],
-		"breakdown": [],
-		"payments": [],
-	}
 	for user, doc in existing.items():
 		if doc.status == DRAFT:
-			figures.setdefault(user, empty)
+			figures.setdefault(user, empty_figures(user))
 	result = []
 	for user, data in sorted(figures.items()):
 		doc = existing.get(user)

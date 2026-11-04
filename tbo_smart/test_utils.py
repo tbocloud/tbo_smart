@@ -3392,9 +3392,104 @@ def make_commission_receipt(
 	`project`), and a customer receipt for all of it. Returns (lead, receipt Payment Entry)."""
 	fields = {"tbo_department": department} if department else {}
 	lead = make_lead(owner, f"Commission {frappe.generate_hash(length=6)}", **fields)
+	return lead, make_lead_receipt(lead, amount, project, deal_owner=owner)
+
+
+def make_lead_receipt(
+	lead: str, amount: float, project: str | None = None, deal_owner: str = "Administrator"
+):
+	"""A deal for the existing `lead` with a submitted Sales Order of `amount` (naming `project`)
+	and a customer receipt for all of it: the receipt Payment Entry."""
 	customer = make_customer(f"TBO Commission {frappe.generate_hash(length=8)}")
-	deal = make_deal(owner, opportunity_from="Customer", party_name=customer, tbo_lead=lead)
+	deal = make_deal(deal_owner, opportunity_from="Customer", party_name=customer, tbo_lead=lead)
 	order = make_vat_order(deal, amount, vat=0)
 	if project:
 		frappe.db.set_value("Sales Order", order.name, "project", project, update_modified=False)
-	return lead, make_receipt("Sales Order", order.name, amount)
+	return make_receipt("Sales Order", order.name, amount)
+
+
+# ---------- Lead Bank (docs/lead-bank.md) ----------
+
+LEAD_BANK_EMAIL_DOMAIN = "leadbank.test"
+
+
+def make_system_user(email: str, roles: list[str] | tuple = ()) -> str:
+	"""A System User with `roles` (maybe none), like a hub agent synced to the ERP site: unlike
+	`make_user`, whose user is a Website User while its roles give no desk access."""
+	make_user(email, roles)
+	frappe.db.set_value("User", email, "user_type", "System User")
+	return email
+
+
+def make_lead_bank_photos(count: int = 1) -> list[dict]:
+	"""`count` small JPEG photos in the shape the Lead Bank takes them: [{filename, content}]."""
+	return [{"filename": f"board-{n}.jpg", "content": make_image_base64("JPEG")} for n in range(count)]
+
+
+def make_lead_bank_form(**fields) -> dict:
+	"""The Lead Bank form of a shop with a fresh phone and email (so a duplicate check never
+	matches an earlier test); `fields` replace or add to it."""
+	token = frappe.generate_hash(length=8)
+	phone = make_test_mobile()
+	return {
+		"company_name": f"Lead Bank Shop {token}",
+		"contact_name": "Ravi Kumar",
+		"mobile_no": f"+91{phone}",
+		"email_id": f"shop-{token}@{LEAD_BANK_EMAIL_DOMAIN}",
+		"business_type": "Hotels & Restaurants",
+		"address": "MG Road, Kottayam",
+		**fields,
+	}
+
+
+def make_collected_lead(collector: str, region: str = "India", owner: str | None = None, **fields) -> str:
+	"""A Lead the Lead Bank would have made for `collector` in `region`, owned by `owner` (nobody
+	by default), inserted as Administrator; `fields` are Lead fields (tbo_stage, ...)."""
+	token = frappe.generate_hash(length=8)
+	lead = make_lead(
+		owner,
+		f"Collected {token}",
+		email_id=f"collected-{token}@{LEAD_BANK_EMAIL_DOMAIN}",
+		tbo_collected_by=collector,
+		tbo_collected_region=region,
+		tbo_collected_on=now_datetime(),
+		**fields,
+	)
+	# Frappe gives a lead without an owner to whoever inserts it
+	frappe.db.set_value("Lead", lead, "lead_owner", owner, update_modified=False)
+	return lead
+
+
+def set_lead_stage_directly(lead: str, stage: str) -> None:
+	"""Write a lead's stage without the pipeline's hooks (no deal, no stage log), for tests that
+	only need the lead to be at a stage."""
+	frappe.db.set_value("Lead", lead, "tbo_stage", stage, update_modified=False)
+
+
+def set_referral_settings(**values) -> None:
+	"""Set TBO Smart Settings fields of the referral (referral_rate_india, referral_cap,
+	lead_bank_department_uae, ...)."""
+	for field, value in values.items():
+		frappe.db.set_single_value("TBO Smart Settings", field, value)
+
+
+def reset_referral_settings(department: str | None = None) -> None:
+	"""The Lead Bank defaults (India 2%, UAE and KSA 3%, a cap of 25,000); India's leads go to
+	`department` and the others to none."""
+	set_referral_settings(
+		referral_rate_india=2,
+		referral_rate_uae=3,
+		referral_rate_ksa=3,
+		referral_cap=25000,
+		lead_bank_department_india=department,
+		lead_bank_department_uae=None,
+		lead_bank_department_ksa=None,
+	)
+
+
+def delete_lead_bank_records() -> None:
+	"""Delete the leads the Lead Bank tests made (by their email domain), the notifications they
+	sent and every commission record, and commit."""
+	delete_leads_matching(email_id=("like", f"%@{LEAD_BANK_EMAIL_DOMAIN}"))
+	frappe.db.delete("Notification Log", {"subject": ("like", "A Lead Bank lead%")})
+	delete_commission_records()

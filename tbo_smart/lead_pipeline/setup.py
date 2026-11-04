@@ -5,6 +5,7 @@ docs/erpnext-lead-cutover.md §2.1). Nothing on a site without ERPNext."""
 import frappe
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
+from tbo_smart import lead_source
 from tbo_smart.lead_pipeline import lead_category
 from tbo_smart.lead_pipeline.statuses import AUTO_LOST_REASONS, LOST_STATUSES, NEW_LEAD, STATUS_NAMES
 from tbo_smart.outreach import REPLY_CLASSES
@@ -31,6 +32,8 @@ PRINT_FORMAT = "TBO Quotation"
 SEGMENTS = ("Retail", "Small", "Medium", "Large", "Premium")
 HUB_ROLE = "Hub Integration"
 MANAGEMENT_ROLE = "TBO Management"
+# the source of a lead a staff member added in the Lead Bank (docs/lead-bank.md)
+STAFF_REFERRAL = "Staff referral"
 
 
 def get_pipeline_fields() -> dict:
@@ -268,6 +271,50 @@ def get_pipeline_fields() -> dict:
 				"description": "e.g. 2nd floor, above SBI, parking behind.",
 			},
 			{
+				# the Lead Bank (docs/lead-bank.md): who found the lead, and where
+				"fieldname": "tbo_collected_by",
+				"fieldtype": "Link",
+				"options": "User",
+				"label": "Collected by",
+				"insert_after": "tbo_location_note",
+				"read_only": 1,
+				"no_copy": 1,
+				"search_index": 1,
+				"description": "The staff member who added this lead in the Lead Bank; they earn the referral commission. Managers move it from the hub.",
+			},
+			{
+				"fieldname": "tbo_collected_on",
+				"fieldtype": "Datetime",
+				"label": "Collected on",
+				"insert_after": "tbo_collected_by",
+				"read_only": 1,
+				"no_copy": 1,
+			},
+			{
+				"fieldname": "tbo_collected_region",
+				"fieldtype": "Select",
+				"options": "\nIndia\nUAE\nKSA",
+				"label": "Collected region",
+				"insert_after": "tbo_collected_on",
+				"read_only": 1,
+				"no_copy": 1,
+				"in_standard_filter": 1,
+				"description": "Decides the referral rate and the department.",
+			},
+			{
+				"fieldname": "tbo_business_type",
+				"fieldtype": "Data",
+				"label": "Business type",
+				"insert_after": "tbo_collected_region",
+				"description": "What the business does, as read from the photo.",
+			},
+			{
+				"fieldname": "tbo_address",
+				"fieldtype": "Small Text",
+				"label": "Address",
+				"insert_after": "tbo_business_type",
+			},
+			{
 				# where a prospect came from (docs/prospecting.md §4): the provider's id for the place,
 				# so the same business is never imported twice, and the run that found it
 				"fieldname": "tbo_source_ref",
@@ -503,6 +550,7 @@ def setup_lead_pipeline() -> None:
 	lead_category.seed_industries()
 	lead_category.ensure_blank_org_size()
 	ensure_management_role()
+	lead_source.ensure(STAFF_REFERRAL)
 	sync_print_format()
 	seed_proposal_templates()
 	seed_agreement_clauses()
