@@ -11,7 +11,7 @@ import json
 
 import frappe
 from frappe import _
-from frappe.query_builder.functions import Coalesce
+from frappe.query_builder.functions import Coalesce, Count
 from frappe.utils import cint
 
 from tbo_smart.sales import departments as lead_departments
@@ -90,6 +90,38 @@ def managed_departments() -> list:
 	return [department for department in departments if department.name in headed]
 
 
+def planned_department(department: str):
+	"""The department, when the session user plans it (`managed_departments`); else
+	PermissionError."""
+	if department not in {d.name for d in managed_departments()}:
+		frappe.throw(
+			_("You cannot assign leads in {0}: it is not one of your departments with daily calls.").format(
+				department
+			),
+			frappe.PermissionError,
+		)
+	return frappe.get_doc(lead_departments.DEPARTMENT, department)
+
+
+def owned_leads(department: str) -> dict[str, int]:
+	"""{user: open leads they own} in the department."""
+	from tbo_smart.sales import stale
+
+	Lead = frappe.qb.DocType("Lead")
+	rows = (
+		frappe.qb.from_(Lead)
+		.select(Lead.lead_owner, Count(Lead.name))
+		.where(
+			(Lead.tbo_department == department)
+			& Lead.tbo_stage.isin(list(stale.STALE_STAGES))
+			& Lead.lead_owner.isnotnull()
+			& (Lead.lead_owner != "")
+		)
+		.groupby(Lead.lead_owner)
+	).run()
+	return dict(rows)
+
+
 def handed_today(department: str, day) -> dict[str, dict]:
 	"""{user: {size, called}} of the department's batches on `day`, retries not counted."""
 	Batch, Item = frappe.qb.DocType(BATCH), frappe.qb.DocType(ITEM)
@@ -140,11 +172,13 @@ def unassigned_by_product(department: str) -> dict[str, int]:
 def serialize(department, day) -> dict:
 	"""{department, slots: [{label, start_time, end_time, size}], products: [{product_name,
 	intro_line}], campaign_product, pull_unassigned, unassigned: {product: leads}, members:
-	[{user, full_name, product, sizes: {slot: calls}, total, has_plan, today: {size, called}}]}."""
+	[{user, full_name, product, sizes: {slot: calls}, total, has_plan, today: {size, called},
+	leads (open leads they own)}]}."""
 	from tbo_smart.sales.call_batches.settings import serialize as rules
 
 	slots = rules(department)["call_slots"]
 	today = handed_today(department.name, day)
+	owned = owned_leads(department.name)
 	members = []
 	for row in department.members:
 		sizes = sizes_of(row)
@@ -157,6 +191,7 @@ def serialize(department, day) -> dict:
 				"total": sum(sizes.get(slot["label"], slot["size"]) for slot in slots),
 				"has_plan": has_plan(department, row.user),
 				"today": today.get(row.user, {"size": 0, "called": 0}),
+				"leads": owned.get(row.user, 0),
 			}
 		)
 	return {
@@ -184,15 +219,7 @@ def save_call_plan(department: str, users, product: str | None = None, sizes=Non
 	any of the department's) and `sizes` ({slot label: calls}). `clear` removes their plan.
 	Returns the department as get_call_plans lists it. Batches already handed out are kept; the
 	plan counts from the next slot (or the next batch asked for)."""
-	allowed = {d.name: d for d in managed_departments()}
-	if department not in allowed:
-		frappe.throw(
-			_("You cannot assign leads in {0}: it is not one of your departments with daily calls.").format(
-				department
-			),
-			frappe.PermissionError,
-		)
-	doc = frappe.get_doc(lead_departments.DEPARTMENT, department)
+	doc = planned_department(department)
 	users = list(dict.fromkeys(frappe.parse_json(users) if isinstance(users, str) else users or []))
 	if not users:
 		frappe.throw(_("Pick the people to assign leads to."))

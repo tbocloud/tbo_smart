@@ -145,10 +145,28 @@ instead plan each member (hub: Leads, **Assign leads**): the **product** they ar
   unassigned ones of the product). `get_call_plans` counts the unassigned open leads per product
   so the planner sees it before saving.
 
+## 12. Handing leads by hand (`sales/call_batches/handout.py`)
+
+On the same page a planner sees each member's open leads (and how many: `leads` in
+`get_call_plans`) and the department's unassigned ones, by product, and moves them:
+
+- **Assign:** picked leads go to a member (a lead someone else owned moves), or the next N
+  unassigned open leads with a phone, of one product if chosen, hot first, then newest. Those rows
+  are read `FOR UPDATE SKIP LOCKED`, as the batches pull them, so both never take the same lead.
+- **Unassign:** picked leads go back to the department's unassigned pool, where the batches
+  (`pull_unassigned`) or a planner hand them out again.
+- **What moves with the lead:** the owner, the ToDo assignment (the previous owner's open one
+  closes, the new owner gets one), and the previous owner's call of it in a running batch if it
+  was still waiting. Calls already made stay.
+- **Product:** the hub sets a lead's product with `bulk_set_lead_category` (`values.product`),
+  which a head may already do for their department.
+- **Who:** the planners (§11). At most 500 leads a call. Only leads of the department, and only to
+  its members.
+
 ## 7. Files
 
 `tbo_smart/sales/call_batches/` (`__init__` rules, `fill`, `outcomes`, `state`, `next_batch`,
-`reads`, `clock`, `settings`, `setup`, `focus`, `plans`); doctypes under `tbo_smart/tbo_smart/doctype/tbo_call_*` and `tbo_bd_focus`;
+`reads`, `clock`, `settings`, `setup`, `focus`, `plans`, `handout`); doctypes under `tbo_smart/tbo_smart/doctype/tbo_call_*` and `tbo_bd_focus`;
 endpoints in `api/hub_leads.py`; tests `tests/test_call_batches.py`, `test_bd_focus.py` and `test_call_plans.py`, helpers in `test_utils.py`.
 
 ## 8. Decisions

@@ -49,6 +49,7 @@ from tbo_smart.sales.activities import (
 )
 from tbo_smart.sales.activities import add_note as add_comment_note
 from tbo_smart.sales.assignment import is_round_robin
+from tbo_smart.sales.call_batches import handout as call_handout
 from tbo_smart.sales.call_batches import outcomes as call_outcomes
 from tbo_smart.sales.call_batches import plans as call_plans
 from tbo_smart.sales.call_batches import reads as call_reads
@@ -1344,6 +1345,48 @@ def save_call_plan(
 	get_call_plans lists it. The plan counts from the next slot or the next batch asked for."""
 	with acting_as(acting_user):
 		return call_plans.save_call_plan(department, users, product, sizes, cint(clear))
+
+
+@frappe.whitelist()
+def get_department_leads(
+	department: str,
+	owner: str | None = None,
+	product: str | None = None,
+	search: str | None = None,
+	start: int | str = 0,
+	page_length: int | str = 50,
+	acting_user: str | None = None,
+) -> dict:
+	"""A page of a department's open leads, for the people who plan it (get_call_plans): `owner`
+	a member's (blank: the unassigned ones), `product` ("-" for none), `search` on name, company
+	or phone. {rows: [{name, lead_name, company_name, product, stage, temperature, phone,
+	modified}], total, products: {product: leads}} (docs/call-batches.md §12)."""
+	with acting_as(acting_user):
+		return call_handout.department_leads(department, owner, product, search, start, page_length)
+
+
+@frappe.whitelist(methods=["POST"])
+def assign_leads(
+	department: str,
+	user: str,
+	leads: list | str | None = None,
+	count: int | str = 0,
+	product: str | None = None,
+	acting_user: str | None = None,
+) -> dict:
+	"""Give a member the `leads` named (moving them from whoever had them), or else the next
+	`count` unassigned open leads (of `product`). At most 500. {assigned, skipped: [{name,
+	reason}]}. Same people as get_call_plans."""
+	with acting_as(acting_user):
+		return call_handout.assign_leads(department, user, leads, count, product)
+
+
+@frappe.whitelist(methods=["POST"])
+def unassign_leads(department: str, leads: list | str, acting_user: str | None = None) -> dict:
+	"""Take the `leads` back to the department's unassigned pool: {unassigned, skipped}. Same
+	people as get_call_plans."""
+	with acting_as(acting_user):
+		return call_handout.unassign_leads(department, leads)
 
 
 @frappe.whitelist()

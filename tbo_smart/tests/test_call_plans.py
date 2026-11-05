@@ -6,7 +6,7 @@ from frappe.utils import now_datetime
 
 from tbo_smart.api import hub_leads as hub
 from tbo_smart.sales import departments
-from tbo_smart.sales.call_batches import clock, daily_cap, focus, plans
+from tbo_smart.sales.call_batches import clock, daily_cap, focus, handout, plans
 from tbo_smart.sales.call_batches.next_batch import create_next_batch
 from tbo_smart.sales.call_batches.state import CallQueue
 from tbo_smart.test_utils import (
@@ -16,6 +16,7 @@ from tbo_smart.test_utils import (
 	delete_sales_records,
 	disable_sales_hierarchy,
 	make_batch_department,
+	make_call_batch,
 	make_callable_lead,
 	make_user,
 )
@@ -228,3 +229,73 @@ class TestCallPlans(FrappeTestCase):
 		members = {row["user"]: row for row in department["members"]}
 		self.assertEqual(members[BD]["today"], {"size": 1, "called": 0})
 		self.assertEqual(members[OTHER_BD]["today"]["size"], 2)
+
+	# ---------- handing leads by hand (§12) ----------
+
+	def owner_of(self, lead: str) -> str | None:
+		return frappe.db.get_value("Lead", lead, "lead_owner")
+
+	def open_assignees(self, lead: str) -> list[str]:
+		return frappe.get_all(
+			"ToDo",
+			filters={"reference_type": "Lead", "reference_name": lead, "status": "Open"},
+			pluck="allocated_to",
+		)
+
+	def test_a_members_leads_and_the_pool_are_listed_with_product_counts(self):
+		mine = make_callable_lead(BD, "Plan Mine", GROWTHX, tbo_product="PhoebiX")
+		pool = self.unassigned(2, "BillaX")
+		page = handout.department_leads(GROWTHX, BD)
+		self.assertEqual([row["name"] for row in page["rows"]], [mine])
+		self.assertEqual(page["rows"][0]["product"], "PhoebiX")
+		free = handout.department_leads(GROWTHX, "")
+		self.assertCountEqual([row["name"] for row in free["rows"]], pool)
+		self.assertEqual(free["products"], {"BillaX": 2})
+		self.assertEqual(handout.department_leads(GROWTHX, "", product="PhoebiX")["total"], 0)
+		self.assertEqual(handout.department_leads(GROWTHX, "", search="BillaX 1")["total"], 1)
+		members = {row["user"]: row for row in plans.get_call_plans()["departments"][0]["members"]}
+		self.assertEqual(members[BD]["leads"], 1)
+
+	def test_picked_leads_move_to_the_member_with_their_assignment(self):
+		lead = make_callable_lead(OTHER_BD, "Plan Move", GROWTHX)
+		make_call_batch(OTHER_BD, GROWTHX, [lead])
+		result = handout.assign_leads(GROWTHX, BD, [lead, lead])
+		self.assertEqual(result["assigned"], 1)
+		self.assertEqual(self.owner_of(lead), BD)
+		self.assertIn(BD, self.open_assignees(lead))
+		self.assertNotIn(OTHER_BD, self.open_assignees(lead))
+		self.assertFalse(
+			frappe.db.exists("TBO Call Batch Item", {"lead": lead, "outcome": ("is", "not set")})
+		)
+		again = handout.assign_leads(GROWTHX, BD, [lead])
+		self.assertEqual(again["skipped"][0]["name"], lead)
+
+	def test_the_next_unassigned_leads_of_a_product_are_given_by_number(self):
+		solar = self.unassigned(3, "PhoebiX")
+		self.unassigned(2, "BillaX")
+		result = handout.assign_leads(GROWTHX, BD, count=2, product="phoebix")
+		self.assertEqual(result["assigned"], 2)
+		owned = [lead for lead in solar if self.owner_of(lead) == BD]
+		self.assertEqual(len(owned), 2)
+
+	def test_leads_go_back_to_the_pool(self):
+		lead = make_callable_lead(BD, "Plan Back", GROWTHX)
+		result = handout.unassign_leads(GROWTHX, [lead])
+		self.assertEqual(result["unassigned"], 1)
+		self.assertFalse(self.owner_of(lead))
+		self.assertNotIn(BD, self.open_assignees(lead))
+		self.assertEqual(handout.unassign_leads(GROWTHX, [lead])["skipped"][0]["name"], lead)
+
+	def test_handing_out_is_refused_outside_the_department_and_its_planners(self):
+		hotel = make_callable_lead(BD, "Plan Hotel Elsewhere", STAYVEX)
+		with self.assertRaises(frappe.ValidationError):
+			handout.assign_leads(GROWTHX, OUTSIDER, count=1)
+		self.assertEqual(handout.assign_leads(GROWTHX, OTHER_BD, [hotel])["assigned"], 0)
+		with self.assertRaises(frappe.ValidationError):
+			handout.assign_leads(GROWTHX, BD, count=1, product="Foamia")
+		frappe.set_user(HEAD)
+		with self.assertRaises(frappe.PermissionError):
+			handout.unassign_leads(STAYVEX, [hotel])
+		frappe.set_user(OUTSIDER)
+		with self.assertRaises(frappe.PermissionError):
+			handout.department_leads(GROWTHX)

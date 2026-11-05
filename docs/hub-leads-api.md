@@ -893,12 +893,15 @@ Department = {department, slots: [{label, start_time "HH:MM", end_time, size}],
   campaign_product | null, pull_unassigned (0/1),
   unassigned: {product ("" for none): leads},  # open, unassigned, with a phone: what batches can pull
   members: [{user, full_name, product | null, sizes: {slot label: calls}, total, has_plan,
-             today: {size, called}}]}         # sizes: the plan's, else the slot's size
+             today: {size, called}, leads}]}  # sizes: the plan's, else the slot's size; leads: open leads they own
 ```
 
 | Method | Verb | Arguments | Returns |
 |---|---|---|---|
 | `get_call_plans` | GET | `acting_user` | `Plans`: every department with batches on for a Sales Manager / System Manager, the ones they head for a head; 403 for anyone else |
+| `get_department_leads` | GET | `department`, `owner?` (a member; blank: the unassigned leads), `product?` (`-` for none), `search?` (name, company, phone), `start`, `page_length` (≤ 100), `acting_user` | `{rows: [{name, lead_name, company_name, product, stage, temperature, phone, modified}], total, products: {product: leads}}`: open leads only; the counts ignore `product` and `search` |
+| `assign_leads` | POST | `department`, `user` (a member), `leads?` (names; one owned by someone else moves), or `count` with `product?` (the next unassigned open leads with a phone, hot then newest), `acting_user` | `{assigned, skipped: [{name, reason}]}`; at most 500; 417 for a non-member or an unknown product |
+| `unassign_leads` | POST | `department`, `leads`, `acting_user` | `{unassigned, skipped}`: back to the department's unassigned pool |
 | `save_call_plan` | POST | `department`, `users` (members of it), `product?` (an active product of it; blank: any), `sizes?` (`{slot label: calls}`, 0 to 500, only the department's slots), `clear?` (1 removes their plan), `acting_user` | that `Department`; 403 for a department the person may not plan; 417 for a non-member, an unknown or switched-off product, a product other than the department's campaign product, an unknown slot or a number out of range |
 
 What a plan changes: the slot's batch holds the member's number of calls (0: no batch in that
@@ -907,6 +910,10 @@ request and the person's focus (`set_calling_focus` then offers only that produc
 is at least the plan's total, and the clock opens the department's batches for a planned member
 even when their focus is another department. Batches already handed out stay. Saving a
 department's members keeps each member's plan.
+
+Assigning or unassigning moves the owner and the ToDo assignment, and takes the lead out of the
+previous owner's running batch if they had not called it yet (`call-batches.md` §12). Same people
+as `get_call_plans` (403 otherwise).
 
 ## 3. Links back to the hub
 
@@ -965,7 +972,8 @@ project set-ups saved by managers only.
 
 ## Changelog
 
-- **v1.23 (2026-11-05):** call plans (§2.23): `get_call_plans`, `save_call_plan`; the member row's
+- **v1.23 (2026-11-05):** call plans (§2.23): `get_call_plans` (members carry `leads`), `save_call_plan`,
+  `get_department_leads`, `assign_leads`, `unassign_leads`; the member row's
   `call_product` and `slot_sizes`; the clock, the next batch, the cap and the focus follow them.
 - **v1.22 (2026-11-04):** the Lead Bank (§2.22): `hub_lead_bank.get_options`, `detect_region`,
   `check_duplicate`, `submit_lead`, `get_my_leads`, `get_dashboard`, `reassign_credit`;
