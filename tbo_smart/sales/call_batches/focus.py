@@ -55,8 +55,11 @@ def districts_of(department, user: str) -> list[str]:
 def option_of(department, user: str) -> dict:
 	"""{department, products: [{product_name, intro_line}], districts, locked_product,
 	locked_district}: what `user` may pick under `department`. A department's campaign product
-	or district is a limit set by a manager: it is the only choice and `locked_*` says so."""
-	locked_product = clean(department.campaign_product)
+	or district, or the product of the person's call plan (§11), is a limit set by a manager: it
+	is the only choice and `locked_*` says so."""
+	from tbo_smart.sales.call_batches.plans import plan_product
+
+	locked_product = clean(department.campaign_product) or plan_product(department, user)
 	locked_district = clean(department.campaign_district)
 	listed = [
 		{"product_name": row["product_name"], "intro_line": row["intro_line"]}

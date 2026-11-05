@@ -14,6 +14,7 @@ from tbo_smart.sales.call_batches import (
 )
 from tbo_smart.sales.call_batches.fill import build_batch, campaign_of, room_for
 from tbo_smart.sales.call_batches.focus import get_focus
+from tbo_smart.sales.call_batches.plans import slot_size
 from tbo_smart.sales.call_batches.state import CallQueue
 
 
@@ -79,7 +80,10 @@ def check_next_batch(user: str, queue: CallQueue, department_name: str | None = 
 				len(queue.overdue), limit
 			)
 		)
-	if room_for(department, user, now, slot.size) <= 0:
+	size = slot_size(department, user, slot)
+	if size <= 0:
+		return deny(_("Your plan has no calls in the {0} slot.").format(slot.label))
+	if room_for(department, user, now, size) <= 0:
 		return deny(_("You have reached today's limit of calls."))
 	return {"allowed": True, "reason": None, "department": department, "slot": slot, "next_slot": next_slot}
 
@@ -109,8 +113,8 @@ def create_next_batch(user: str, queue: CallQueue, department_name: str | None, 
 		label,
 		max(now, starts),
 		ends,
-		slot.size,
-		campaign_of(department, request, get_focus(user)),
+		slot_size(department, user, slot),
+		campaign_of(department, request, get_focus(user), user),
 		allow_empty=False,
 	)
 	if not batch:

@@ -7,7 +7,9 @@
  "field_order": [
   "user",
   "full_name",
-  "daily_call_cap"
+  "daily_call_cap",
+  "call_product",
+  "slot_sizes"
  ],
  "fields": [
   {
@@ -32,11 +34,23 @@
    "in_list_view": 1,
    "label": "Calls a day",
    "description": "Members only; blank uses the department's cap."
+  },
+  {
+   "fieldname": "call_product",
+   "fieldtype": "Data",
+   "label": "Calls for product",
+   "description": "Members only: the product this person is handed (set on the hub's Assign leads page). Blank: as the department."
+  },
+  {
+   "fieldname": "slot_sizes",
+   "fieldtype": "JSON",
+   "label": "Calls per slot",
+   "description": "Members only: {slot label: calls}, e.g. {\"Morning\": 50, \"Afternoon\": 50}. A slot left out uses the slot's size; 0 hands out nothing in it."
   }
  ],
  "istable": 1,
  "links": [],
- "modified": "2026-10-30 10:00:00.000000",
+ "modified": "2026-11-05 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Lead Department User",

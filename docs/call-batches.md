@@ -123,11 +123,33 @@ district. It is kept per person in a **TBO BD Focus** (named by the user: one ro
 Manager hint: turn on **daily call batches** for a department (Settings, CRM, Lead departments)
 so its members can call from Today's calls and see it in the switch.
 
+## 11. Call plans: assign leads per person (`sales/call_batches/plans.py`)
+
+The department's slots hand every member the same number. A manager or a department head can
+instead plan each member (hub: Leads, **Assign leads**): the **product** they are handed and the
+**calls per slot** (for example PhoebiX, Morning 50, Afternoon 50). It is kept on the member's row
+(`call_product`, `slot_sizes`: `{"Morning": 50, "Afternoon": 50}`).
+
+- **The batches:** the clock and the next batch use the member's number for the slot (a slot
+  left out uses its size; 0 hands out nothing in it). The day's cap is at least the plan's total.
+- **The product:** new leads (steps 3 to 5) are only the plan's product. The department's
+  campaign product still wins (a plan cannot name another one). The person's focus offers only
+  the plan's product in that department, and the clock opens the department's batches for a
+  planned member even when they focus on another department.
+- **Who:** Sales Managers and System Managers for every department with batches on, heads for
+  theirs. Only members can be planned. `save_call_plan` saves the department as the planner
+  without needing write access to it.
+- **When:** from the next slot or the next batch asked for; batches already handed out stay.
+  Clearing a plan hands the department's sizes again.
+- **Not enough leads:** a batch takes what there is (the person's own leads first, then
+  unassigned ones of the product). `get_call_plans` counts the unassigned open leads per product
+  so the planner sees it before saving.
+
 ## 7. Files
 
 `tbo_smart/sales/call_batches/` (`__init__` rules, `fill`, `outcomes`, `state`, `next_batch`,
-`reads`, `clock`, `settings`, `setup`, `focus`); doctypes under `tbo_smart/tbo_smart/doctype/tbo_call_*` and `tbo_bd_focus`;
-endpoints in `api/hub_leads.py`; tests `tests/test_call_batches.py`, helpers in `test_utils.py`.
+`reads`, `clock`, `settings`, `setup`, `focus`, `plans`); doctypes under `tbo_smart/tbo_smart/doctype/tbo_call_*` and `tbo_bd_focus`;
+endpoints in `api/hub_leads.py`; tests `tests/test_call_batches.py`, `test_bd_focus.py` and `test_call_plans.py`, helpers in `test_utils.py`.
 
 ## 8. Decisions
 

@@ -1,4 +1,4 @@
-# Hub leads API (`tbo_smart.api.hub_leads`), v1.22
+# Hub leads API (`tbo_smart.api.hub_leads`), v1.23
 
 **Status:** built 2026-10-16. The TBO Support hub's lead page (tbocloud/helpdesk) shows and edits
 tboindia's leads through these methods. The leads are ERPNext's own **Lead**
@@ -881,6 +881,33 @@ Lead Bank needs. The leads API itself stays closed to anyone without a sales rol
   `reassign_credit` and the settings, not a manager (Sales Manager, System Manager or TBO
   Management); 417 for the refusals above.
 
+### 2.23 Call plans: assign leads per person (`call-batches.md` §11)
+
+A manager or department head sets, per member of a department with call batches on, the product
+they are handed and the calls of each slot (Morning 50, Afternoon 50).
+
+```
+Plans = {date, departments: [Department]}
+Department = {department, slots: [{label, start_time "HH:MM", end_time, size}],
+  products: [{product_name, intro_line}],      # the active ones
+  campaign_product | null, pull_unassigned (0/1),
+  unassigned: {product ("" for none): leads},  # open, unassigned, with a phone: what batches can pull
+  members: [{user, full_name, product | null, sizes: {slot label: calls}, total, has_plan,
+             today: {size, called}}]}         # sizes: the plan's, else the slot's size
+```
+
+| Method | Verb | Arguments | Returns |
+|---|---|---|---|
+| `get_call_plans` | GET | `acting_user` | `Plans`: every department with batches on for a Sales Manager / System Manager, the ones they head for a head; 403 for anyone else |
+| `save_call_plan` | POST | `department`, `users` (members of it), `product?` (an active product of it; blank: any), `sizes?` (`{slot label: calls}`, 0 to 500, only the department's slots), `clear?` (1 removes their plan), `acting_user` | that `Department`; 403 for a department the person may not plan; 417 for a non-member, an unknown or switched-off product, a product other than the department's campaign product, an unknown slot or a number out of range |
+
+What a plan changes: the slot's batch holds the member's number of calls (0: no batch in that
+slot), the plan's product narrows new leads after the department's campaign and before the
+request and the person's focus (`set_calling_focus` then offers only that product), the day's cap
+is at least the plan's total, and the clock opens the department's batches for a planned member
+even when their focus is another department. Batches already handed out stay. Saving a
+department's members keeps each member's plan.
+
 ## 3. Links back to the hub
 
 Teams messages, emails and the morning digest link to the lead page when TBO Smart Settings →
@@ -938,6 +965,8 @@ project set-ups saved by managers only.
 
 ## Changelog
 
+- **v1.23 (2026-11-05):** call plans (§2.23): `get_call_plans`, `save_call_plan`; the member row's
+  `call_product` and `slot_sizes`; the clock, the next batch, the cap and the focus follow them.
 - **v1.22 (2026-11-04):** the Lead Bank (§2.22): `hub_lead_bank.get_options`, `detect_region`,
   `check_duplicate`, `submit_lead`, `get_my_leads`, `get_dashboard`, `reassign_credit`;
   `hub_commission.get_referral_settings`, `save_referral_settings`; commission rows carry

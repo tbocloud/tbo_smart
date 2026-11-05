@@ -71,11 +71,15 @@ def slot_window(slot, day) -> tuple[datetime, datetime]:
 
 
 def daily_cap(department, user: str) -> int:
-	"""A member's own cap when set, else the department's."""
+	"""A member's own cap when set, else the department's; never below what their call plan hands
+	them in a day (§11)."""
+	from tbo_smart.sales.call_batches.plans import plan_total
+
+	cap = cint(department.daily_call_cap) or DEFAULT_CAP
 	for row in department.get("members") or []:
 		if row.user == user and cint(row.get("daily_call_cap")):
-			return cint(row.daily_call_cap)
-	return cint(department.daily_call_cap) or DEFAULT_CAP
+			cap = cint(row.daily_call_cap)
+	return max(cap, plan_total(department, user))
 
 
 def overdue_limit(department) -> int:

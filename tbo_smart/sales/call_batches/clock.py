@@ -21,6 +21,7 @@ from tbo_smart.sales.call_batches import (
 from tbo_smart.sales.call_batches.fill import build_batch, campaign_of
 from tbo_smart.sales.call_batches.focus import get_focus
 from tbo_smart.sales.call_batches.outcomes import sync_calls
+from tbo_smart.sales.call_batches.plans import has_plan, slot_size
 from tbo_smart.sales.call_batches.state import CallQueue
 
 
@@ -90,11 +91,14 @@ def open_batch(department, user: str, slot, starts, ends, today) -> None:
 	try:
 		if is_off_today(user, today):
 			return
+		size = slot_size(department, user, slot)
+		if size <= 0:
+			return  # their call plan hands out nothing in this slot
 		focus = get_focus(user)
-		if focus and focus["department"] != department.name:
-			return  # they chose to call for another of their departments
+		if focus and focus["department"] != department.name and not has_plan(department, user):
+			return  # they chose to call for another of their departments (a manager's plan wins)
 		build_batch(
-			department, user, slot.label, starts, ends, slot.size, campaign_of(department, None, focus)
+			department, user, slot.label, starts, ends, size, campaign_of(department, None, focus, user)
 		)
 		frappe.db.commit()  # nosemgrep
 	except Exception:
