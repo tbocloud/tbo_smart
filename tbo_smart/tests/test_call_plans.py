@@ -255,7 +255,8 @@ class TestCallPlans(FrappeTestCase):
 		self.assertEqual(free["products"], {"BillaX": 2})
 		self.assertEqual(handout.department_leads(GROWTHX, "", product="PhoebiX")["total"], 0)
 		self.assertEqual(handout.department_leads(GROWTHX, "", search="BillaX 1")["total"], 1)
-		members = {row["user"]: row for row in plans.get_call_plans()["departments"][0]["members"]}
+		listed = {d["department"]: d for d in plans.get_call_plans()["departments"]}
+		members = {row["user"]: row for row in listed[GROWTHX]["members"]}
 		self.assertEqual(members[BD]["leads"], 1)
 
 	def test_picked_leads_move_to_the_member_with_their_assignment(self):
