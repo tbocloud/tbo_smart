@@ -16,7 +16,7 @@ from frappe.query_builder.functions import Coalesce, Count
 from frappe.utils import cint
 
 from tbo_smart.sales import products, stale
-from tbo_smart.sales.call_batches import ACTIVE, BATCH, ITEM
+from tbo_smart.sales.call_batches import BATCH, ITEM
 from tbo_smart.sales.call_batches.plans import planned_department
 
 MAX_LEADS = 500
@@ -249,19 +249,16 @@ def close_assignments(lead: str, user: str) -> None:
 
 
 def drop_from_batches(lead: str, user: str) -> None:
-	"""`user`'s calls of `lead` that are still waiting in a running batch go."""
+	"""`user`'s calls of `lead` that were never made go: those waiting in a running batch and the
+	overdue ones of ended batches, so the lead leaves their Today's calls and Overdue lists. Calls
+	already made stay (the day's report counts them)."""
 	Batch, Item = frappe.qb.DocType(BATCH), frappe.qb.DocType(ITEM)
 	items = (
 		frappe.qb.from_(Item)
 		.join(Batch)
 		.on(Batch.name == Item.parent)
 		.select(Item.name)
-		.where(
-			(Batch.user == user)
-			& (Batch.status == ACTIVE)
-			& (Item.lead == lead)
-			& (Coalesce(Item.outcome, "") == "")
-		)
+		.where((Batch.user == user) & (Item.lead == lead) & (Coalesce(Item.outcome, "") == ""))
 	).run(pluck=True)
 	if items:
 		frappe.db.delete(ITEM, {"name": ("in", items)})

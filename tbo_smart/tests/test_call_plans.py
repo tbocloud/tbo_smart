@@ -273,6 +273,16 @@ class TestCallPlans(FrappeTestCase):
 		again = handout.assign_leads(GROWTHX, BD, [lead])
 		self.assertEqual(again["skipped"][0]["name"], lead)
 
+	def test_unassigning_clears_the_old_owners_overdue_calls_too(self):
+		lead = make_callable_lead(BD, "Plan Overdue", GROWTHX)
+		done = make_callable_lead(BD, "Plan Called", GROWTHX)
+		make_call_batch(BD, GROWTHX, [lead, done], days_ago=1, status="Closed", outcomes={done: "Connected"})
+		make_call_batch(BD, GROWTHX, [lead])
+		handout.unassign_leads(GROWTHX, [lead])
+		self.assertFalse(frappe.db.exists("TBO Call Batch Item", {"lead": lead}))
+		self.assertTrue(frappe.db.exists("TBO Call Batch Item", {"lead": done, "outcome": "Connected"}))
+		self.assertNotIn(lead, [row.lead for row in CallQueue(BD, now_datetime()).overdue])
+
 	def test_the_next_unassigned_leads_of_a_product_are_given_by_number(self):
 		solar = self.unassigned(3, "PhoebiX")
 		self.unassigned(2, "BillaX")

@@ -156,8 +156,8 @@ On the same page a planner sees each member's open leads (and how many: `leads` 
 - **Unassign:** picked leads go back to the department's unassigned pool, where the batches
   (`pull_unassigned`) or a planner hand them out again.
 - **What moves with the lead:** the owner, the ToDo assignment (the previous owner's open one
-  closes, the new owner gets one), and the previous owner's call of it in a running batch if it
-  was still waiting. Calls already made stay.
+  closes, the new owner gets one), and the previous owner's calls of it that were never made
+  (waiting in a running batch, or overdue from an ended one). Calls already made stay.
 - **Product:** the hub sets a lead's product with `bulk_set_lead_category` (`values.product`),
   which a head may already do for their department.
 - **Who:** the planners (§11). At most 500 leads a call. Only leads of the department, and only to
