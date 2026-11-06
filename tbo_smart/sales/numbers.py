@@ -16,7 +16,7 @@ on_update hook (`write_log`) writes the notes.
 
 import frappe
 from frappe import _
-from frappe.query_builder.functions import Right
+from frappe.query_builder import CustomFunction
 from frappe.utils import cint, get_fullname, now_datetime
 
 from tbo_smart.smart_leads.utils import normalise_phone, tel_link, whatsapp_link
@@ -24,6 +24,7 @@ from tbo_smart.smart_leads.utils import normalise_phone, tel_link, whatsapp_link
 NUMBER = "TBO Lead Number"
 FIELD = "tbo_numbers"
 MATCH_DIGITS = 10
+Right = CustomFunction("RIGHT", ["value", "length"])
 
 LABELS = ("Mobile", "Office", "WhatsApp", "Decision-maker", "Other")
 ACTIVE, NOT_REACHABLE, WRONG_NUMBER, OLD = "Active", "Not reachable", "Wrong number", "Old"
