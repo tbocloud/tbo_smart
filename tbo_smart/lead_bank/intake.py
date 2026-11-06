@@ -202,6 +202,7 @@ def submit(user: str, data, photos) -> dict:
 	lead.flags.round_robin = is_round_robin(department)
 	lead.flags.unassigned_pool = not lead.flags.round_robin
 	lead.flags.ownerless = True
+	lead.flags.number_source = "Lead Bank"
 	lead.insert(ignore_permissions=True)
 	for filename, content in files:
 		lead_place.add_photo(lead.name, filename, content)

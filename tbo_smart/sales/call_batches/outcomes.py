@@ -3,7 +3,7 @@
 `record` is the person's answer; `sync_calls` counts a call logged any other way (MyOperator,
 the Log call dialog) for the item it belongs to. Both end in `apply`, which is the one place an
 item gets its outcome: it clears the item from the queue, then schedules what follows (a retry
-in two hours, a call back, a follow-up, the wrong-number flag).
+in two hours, a call back, a follow-up, the wrong-number flag once no usable number is left).
 """
 
 import frappe
@@ -11,6 +11,7 @@ from frappe import _
 from frappe.utils import add_to_date, get_datetime, getdate, now_datetime
 
 from tbo_smart.lead_pipeline.call_outcomes import apply_call_outcome, schedule_call_back
+from tbo_smart.sales import numbers
 from tbo_smart.sales.activities import OPEN, add_note
 from tbo_smart.sales.call_batches import (
 	ACTIVE,
@@ -42,9 +43,12 @@ LOGGED_AS = {
 SAME_DAY_ATTEMPTS = 2
 
 
-def record(batch_item: str, outcome: str, note: str | None = None, callback_at=None) -> dict:
+def record(
+	batch_item: str, outcome: str, note: str | None = None, callback_at=None, number: str | None = None
+) -> dict:
 	"""The session user's answer for one item. Logs the call (a TBO Call by them, its Event on
-	the lead) and applies the outcome. Returns {item, outcome, retry_at}."""
+	the lead) and applies the outcome. `number` is the lead's number that was called (default: its
+	main number); a wrong number is marked on it. Returns {item, outcome, retry_at}."""
 	if outcome not in OUTCOMES:
 		frappe.throw(_("outcome must be one of {0}.").format(", ".join(OUTCOMES)))
 	parent = frappe.db.get_value(ITEM, batch_item, "parent")
@@ -69,12 +73,13 @@ def record(batch_item: str, outcome: str, note: str | None = None, callback_at=N
 		)
 		if part
 	)
-	log_manual_call(row.lead, LOGGED_AS[outcome], text or None)
-	retry_at = apply(batch, row, outcome, (note or "").strip(), callback, now_datetime())
+	number = numbers.resolve(row.lead, number)
+	log_manual_call(row.lead, LOGGED_AS[outcome], text or None, number)
+	retry_at = apply(batch, row, outcome, (note or "").strip(), callback, now_datetime(), number)
 	return {"item": row.name, "outcome": outcome, "retry_at": retry_at}
 
 
-def apply(batch, row, outcome: str, note: str, callback, called_at):
+def apply(batch, row, outcome: str, note: str, callback, called_at, number: str | None = None):
 	"""Give `row` its outcome and schedule what follows; saves the batch once. Returns when the
 	lead comes back to this batch's queue (a retry or a call back), else None."""
 	row.outcome, row.called_at, row.note = outcome, called_at, note or None
@@ -89,10 +94,10 @@ def apply(batch, row, outcome: str, note: str, callback, called_at):
 		comes_back = set_callback(batch, row, callback, repeat=outcome == CALL_BACK)
 	else:
 		frappe.db.set_value("Lead", lead, "tbo_callback_at", None, update_modified=False)
-	if outcome == WRONG_NUMBER:
+	apply_call_outcome(lead, outcome, called_at, number=number)
+	if outcome == WRONG_NUMBER and not numbers.has_usable(lead):
 		frappe.db.set_value("Lead", lead, "tbo_wrong_number", 1, update_modified=False)
 		add_note("Lead", lead, _("Wrong number, reported from the daily calls."))
-	apply_call_outcome(lead, outcome, called_at)
 	batch.save(ignore_permissions=True)
 	return comes_back
 

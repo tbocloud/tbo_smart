@@ -6,7 +6,7 @@ from frappe import _
 from frappe.utils import cint, get_datetime, getdate, now_datetime
 
 from tbo_smart.sales import departments as lead_departments
-from tbo_smart.sales import products
+from tbo_smart.sales import numbers, products
 from tbo_smart.sales.activities import notes_of, plain_text
 from tbo_smart.sales.call_batches import (
 	ACTIVE,
@@ -26,6 +26,14 @@ from tbo_smart.sales.call_batches.state import CallQueue, item_rows
 from tbo_smart.telephony.calls import can_call
 
 NOTE_CHARS = 240
+
+
+def main_number(lead, usable: list | None) -> str | None:
+	"""The number to call: the main number, else the first usable one, else what the lead's own
+	fields hold."""
+	if usable:
+		return usable[0]["number"]
+	return lead.mobile_no or lead.phone or lead.whatsapp_no
 
 
 def lead_summaries(names: list[str]) -> dict[str, dict]:
@@ -50,6 +58,7 @@ def lead_summaries(names: list[str]) -> dict[str, dict]:
 	]
 	leads = {row.name: row for row in frappe.get_all("Lead", filters={"name": ("in", names)}, fields=fields)}
 	notes = notes_of("Lead", list(leads))
+	usable = numbers.usable_by_lead(list(leads))
 	summaries = {}
 	for name, lead in leads.items():
 		last = (notes.get(name) or [None])[0]
@@ -59,7 +68,8 @@ def lead_summaries(names: list[str]) -> dict[str, dict]:
 			"company_name": lead.company_name,
 			"industry": lead.industry,
 			"district": lead.get(district) if district else None,
-			"phone": lead.mobile_no or lead.phone or lead.whatsapp_no,
+			"phone": main_number(lead, usable.get(name)),
+			"other_numbers": [row for row in usable.get(name) or [] if not row["is_primary"]],
 			"stage": lead.tbo_stage,
 			"temperature": lead.tbo_temperature,
 			"last_note": plain_text(last.content)[:NOTE_CHARS] if last else None,

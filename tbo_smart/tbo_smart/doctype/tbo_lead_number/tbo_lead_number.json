@@ -1,0 +1,109 @@
+{
+ "actions": [],
+ "creation": "2026-11-06 10:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "number",
+  "label",
+  "person",
+  "designation",
+  "is_primary",
+  "status",
+  "note",
+  "digits",
+  "source",
+  "added_by",
+  "added_on"
+ ],
+ "fields": [
+  {
+   "fieldname": "number",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Number",
+   "length": 40,
+   "reqd": 1
+  },
+  {
+   "default": "Mobile",
+   "fieldname": "label",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Label",
+   "options": "Mobile\nOffice\nWhatsApp\nDecision-maker\nOther"
+  },
+  {
+   "fieldname": "person",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Contact person"
+  },
+  {
+   "fieldname": "designation",
+   "fieldtype": "Data",
+   "label": "Designation"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_primary",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Main number"
+  },
+  {
+   "default": "Active",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Active\nNot reachable\nWrong number\nOld"
+  },
+  {
+   "fieldname": "note",
+   "fieldtype": "Small Text",
+   "label": "Note"
+  },
+  {
+   "description": "International digits, filled in from the number; the duplicate check and call matching read this.",
+   "fieldname": "digits",
+   "fieldtype": "Data",
+   "label": "Digits",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "default": "Manual",
+   "fieldname": "source",
+   "fieldtype": "Select",
+   "label": "Source",
+   "options": "Import\nLead Bank\nAdded on a call\nManual",
+   "read_only": 1
+  },
+  {
+   "fieldname": "added_by",
+   "fieldtype": "Link",
+   "label": "Added by",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "added_on",
+   "fieldtype": "Datetime",
+   "label": "Added on",
+   "read_only": 1
+  }
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-11-06 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tbo Smart",
+ "name": "TBO Lead Number",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

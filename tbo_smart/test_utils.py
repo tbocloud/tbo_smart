@@ -433,6 +433,31 @@ def make_lead(owner: str, first_name: str = "Test Lead", **fields) -> str:
 	return lead.name
 
 
+def get_lead_numbers(lead: str) -> list[tuple]:
+	"""[(number, status, is_primary)] of the lead's numbers, main number first, then in use, then Old and Wrong."""
+	from tbo_smart.sales import numbers
+
+	return [(row["number"], row["status"], row["is_primary"]) for row in numbers.numbers_of(lead)]
+
+
+def make_lead_without_number_rows(owner: str, first_name: str = "Legacy Lead", **fields) -> str:
+	"""A Lead as it was before the number table: its mobile, phone and WhatsApp fields set and no
+	number rows."""
+	lead = make_lead(owner, first_name, **fields)
+	frappe.db.delete("TBO Lead Number", {"parent": lead})
+	return lead
+
+
+def get_lead_notes(lead: str) -> list[str]:
+	"""The text of the lead's notes (Comments), oldest first."""
+	return frappe.get_all(
+		"Comment",
+		filters={"reference_doctype": "Lead", "reference_name": lead, "comment_type": "Comment"},
+		pluck="content",
+		order_by="creation asc",
+	)
+
+
 def make_content_lead(owner: str, first_name: str = "Test Content Lead", **fields) -> str:
 	"""A Lead of the Content / Digital Marketing type (so its documents follow the strategy chain)."""
 	return make_lead(owner, first_name, tbo_lead_type="Content / Digital Marketing", **fields)
@@ -837,6 +862,10 @@ def delete_sales_records(owners: list[str] | tuple) -> None:
 	"""Delete the deals, leads, notes, calls and tasks of `owners` and commit (some tests commit,
 	e.g. through an email sent at once, so fixtures can outlive the test's rollback)."""
 	owners = list(owners)
+	frappe.db.delete(
+		"TBO Lead Number",
+		{"parent": ("in", frappe.get_all("Lead", filters={"lead_owner": ("in", owners)}, pluck="name"))},
+	)
 	for doctype, owner_field in (
 		("Opportunity", "opportunity_owner"),
 		("Lead", "lead_owner"),

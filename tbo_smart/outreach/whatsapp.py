@@ -271,7 +271,8 @@ def file_outgoing(lead: str, text: str, message_id=None, who: str | None = None)
 
 def find_lead(phone: str | None, conversation_id=None) -> str | None:
 	"""The lead a chat belongs to: the one that holds the conversation, else the most recently
-	changed lead whose mobile, WhatsApp or phone number ends in the same ten digits."""
+	changed lead with a number (any of its rows, or its mobile, WhatsApp or phone field) that ends
+	in the same ten digits."""
 	if conversation_id and (
 		lead := frappe.db.get_value("Lead", {"tbo_chat_conversation_id": str(conversation_id)}, "name")
 	):
@@ -285,6 +286,10 @@ def find_lead(phone: str | None, conversation_id=None) -> str | None:
 		where right(regexp_replace(ifnull(mobile_no, ''), '[^0-9]', ''), %(n)s) = %(tail)s
 			or right(regexp_replace(ifnull(whatsapp_no, ''), '[^0-9]', ''), %(n)s) = %(tail)s
 			or right(regexp_replace(ifnull(phone, ''), '[^0-9]', ''), %(n)s) = %(tail)s
+			or name in (
+				select parent from `tabTBO Lead Number`
+				where parenttype = 'Lead' and right(digits, %(n)s) = %(tail)s
+			)
 		order by modified desc limit 1""",
 		{"n": MATCH_DIGITS, "tail": tail},
 	)

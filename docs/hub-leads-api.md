@@ -915,6 +915,46 @@ Assigning or unassigning moves the owner and the ToDo assignment, and takes the 
 previous owner's running batch if they had not called it yet (`call-batches.md` §12). Same people
 as `get_call_plans` (403 otherwise).
 
+### 2.24 Contact numbers (`lead-numbers.md`)
+
+A lead keeps every number it was given. `get_lead` returns them as `lead.numbers`, the main
+number first, then the ones in use, then Old and Wrong numbers.
+
+```
+Number = {id, number (as typed), e164 ("+919847012345"), label, person, designation,
+  is_primary (0/1), status, note, source, added_by, added_by_name, added_on, tel, whatsapp}
+label  = Mobile | Office | WhatsApp | Decision-maker | Other
+status = Active | Not reachable | Wrong number | Old
+source = Import | Lead Bank | Added on a call | Manual
+```
+
+`get_lead`'s lead also has `can_remove_numbers` (a manager). The lead's `mobile_no` is always its
+main number.
+
+| Method | Verb | Arguments | Returns |
+|---|---|---|---|
+| `add_lead_number` | POST | `lead`, `number`, `label?` (Mobile), `person?`, `designation?`, `make_primary?` (0/1: the old main number stays, marked Old), `note?`, `on_call?` (0/1: source "Added on a call"), `acting_user` | `{numbers: [Number], duplicates: [match]}`; `duplicates` as `find_duplicate_leads` (other leads with the number: a warning, never a refusal); 417 for something that isn't a phone number or a number the lead uses already; 403 without write on the lead |
+| `update_lead_number` | POST | `lead`, `number_id` (`Number.id`), `status?`, `label?`, `person?`, `designation?`, `note?`, `make_primary?`, `acting_user` | `{numbers}`; a main number that stops being usable (Wrong number, Old) hands over to the next Active or Not reachable one |
+| `remove_lead_number` | POST | `lead`, `number_id`, `acting_user` | `{numbers}`; System Manager and Sales Manager only (403 otherwise: a salesperson marks it Old or Wrong number) |
+
+Changed methods:
+
+- `find_duplicate_leads` (and the refusal in `create_lead`) match the phone against every number
+  row of every lead, whatever its status, and the lead's mobile, phone and WhatsApp fields.
+- `log_call` and `record_call_outcome` take `number?`: the lead's number that was called, as
+  typed or in any format (default: its main number). It is recorded on the call
+  (`customer_number`, "Call to <number>"). A **Wrong number** outcome marks that number Wrong
+  number, and the lead becomes the Wrong Number stage only when no Active or Not reachable number
+  is left; with another number to try the stage stays and the response's `stage` is null.
+  417 for a number the lead doesn't have.
+- `get_my_calls` summaries: `phone` is the main number (the first usable one if the main is not),
+  `other_numbers` the other usable ones `[{id, number, label, person, is_primary}]`.
+- `click_to_call` (`telephony-myoperator.md`) takes any of the lead's numbers.
+- MyOperator, WhatsApp and Lead Bank lookups by number match any number of a lead.
+
+Every change leaves a note on the lead's timeline: "Number added: X by <user>", "Primary changed
+from X to Y by <user>", "X marked Wrong number by <user>", "Number removed: X by <user>".
+
 ## 3. Links back to the hub
 
 Teams messages, emails and the morning digest link to the lead page when TBO Smart Settings →
@@ -972,6 +1012,10 @@ project set-ups saved by managers only.
 
 ## Changelog
 
+- **v1.24 (2026-11-06):** contact numbers (§2.24): `lead.numbers` and `can_remove_numbers` on
+  `get_lead`; `add_lead_number`, `update_lead_number`, `remove_lead_number`; `number` on `log_call`
+  and `record_call_outcome`; `other_numbers` in `get_my_calls`; the duplicate check and number
+  lookups cover every number.
 - **v1.23 (2026-11-05):** call plans (§2.23): `get_call_plans` (members carry `leads`), `save_call_plan`,
   `get_department_leads`, `assign_leads`, `unassign_leads`; the member row's
   `call_product` and `slot_sizes`; the clock, the next batch, the cap and the focus follow them.
