@@ -49,7 +49,9 @@ from tbo_smart.sales.activities import (
 )
 from tbo_smart.sales.activities import add_note as add_comment_note
 from tbo_smart.sales.assignment import is_round_robin
+from tbo_smart.sales.call_batches import handout as call_handout
 from tbo_smart.sales.call_batches import outcomes as call_outcomes
+from tbo_smart.sales.call_batches import plans as call_plans
 from tbo_smart.sales.call_batches import reads as call_reads
 from tbo_smart.sales.opportunity import lead_opportunity
 from tbo_smart.sales.stages import set_lead_stage
@@ -1314,6 +1316,77 @@ def record_call_outcome(
 	follow-up. Returns {item, outcome, retry_at}."""
 	with acting_as(acting_user):
 		return call_outcomes.record(batch_item, outcome, note, callback_at)
+
+
+@frappe.whitelist()
+def get_call_plans(acting_user: str | None = None) -> dict:
+	"""Managers and department heads: who is handed which product and how many calls per slot
+	(docs/call-batches.md §11): {date, departments: [{department, slots: [{label, start_time,
+	end_time, size}], products: [{product_name, intro_line}], campaign_product, pull_unassigned,
+	unassigned: {product: leads}, members: [{user, full_name, product, sizes: {slot: calls},
+	total, has_plan, today: {size, called}}]}]}. A Sales Manager sees every department with
+	batches on, a head theirs; anyone else gets PermissionError."""
+	with acting_as(acting_user):
+		return call_plans.get_call_plans()
+
+
+@frappe.whitelist(methods=["POST"])
+def save_call_plan(
+	department: str,
+	users: list | str,
+	product: str | None = None,
+	sizes: dict | str | None = None,
+	clear: int | str | bool = 0,
+	acting_user: str | None = None,
+) -> dict:
+	"""Set the call plan of `users` (members of `department`): the `product` they are handed
+	(blank: any) and `sizes` ({slot label: calls, 0 to 500}); `clear` removes it. Same people as
+	get_call_plans (a head only for their departments). Returns that department as
+	get_call_plans lists it. The plan counts from the next slot or the next batch asked for."""
+	with acting_as(acting_user):
+		return call_plans.save_call_plan(department, users, product, sizes, cint(clear))
+
+
+@frappe.whitelist()
+def get_department_leads(
+	department: str,
+	owner: str | None = None,
+	product: str | None = None,
+	search: str | None = None,
+	start: int | str = 0,
+	page_length: int | str = 50,
+	acting_user: str | None = None,
+) -> dict:
+	"""A page of a department's open leads, for the people who plan it (get_call_plans): `owner`
+	a member's (blank: the unassigned ones), `product` ("-" for none), `search` on name, company
+	or phone. {rows: [{name, lead_name, company_name, product, stage, temperature, phone,
+	modified}], total, products: {product: leads}} (docs/call-batches.md §12)."""
+	with acting_as(acting_user):
+		return call_handout.department_leads(department, owner, product, search, start, page_length)
+
+
+@frappe.whitelist(methods=["POST"])
+def assign_leads(
+	department: str,
+	user: str,
+	leads: list | str | None = None,
+	count: int | str = 0,
+	product: str | None = None,
+	acting_user: str | None = None,
+) -> dict:
+	"""Give a member the `leads` named (moving them from whoever had them), or else the next
+	`count` unassigned open leads (of `product`). At most 500. {assigned, skipped: [{name,
+	reason}]}. Same people as get_call_plans."""
+	with acting_as(acting_user):
+		return call_handout.assign_leads(department, user, leads, count, product)
+
+
+@frappe.whitelist(methods=["POST"])
+def unassign_leads(department: str, leads: list | str, acting_user: str | None = None) -> dict:
+	"""Take the `leads` back to the department's unassigned pool: {unassigned, skipped}. Same
+	people as get_call_plans."""
+	with acting_as(acting_user):
+		return call_handout.unassign_leads(department, leads)
 
 
 @frappe.whitelist()

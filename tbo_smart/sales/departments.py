@@ -17,6 +17,8 @@ DEPARTMENT_USER = "TBO Lead Department User"
 LEAD_TYPES = ("ERP / Software", "Content / Digital Marketing")
 MANAGER_ROLES = {"System Manager", "Sales Manager"}
 ASSIGNMENTS = ("Manual", "Round robin")
+# what a member row keeps besides the user: their own cap and call plan
+MEMBER_FIELDS = ("daily_call_cap", "call_product", "slot_sizes")
 SAVE_FIELDS = {
 	"department_name",
 	"lead_type",
@@ -187,12 +189,11 @@ def save_department(values: dict, name: str | None = None) -> dict:
 	for table in ("heads", "members"):
 		if table in values:
 			users = list(dict.fromkeys(values[table] or []))
-			caps = {row.user: row.get("daily_call_cap") for row in doc.get(table)}
+			# a member's cap and call plan stay when the list is saved again
+			kept = {row.user: {field: row.get(field) for field in MEMBER_FIELDS} for row in doc.get(table)}
 			doc.set(table, [])
 			for user in users:
-				doc.append(
-					table, {"user": user, "daily_call_cap": caps.get(user) if table == "members" else None}
-				)
+				doc.append(table, {"user": user, **(kept.get(user, {}) if table == "members" else {})})
 	renames = products.apply(doc, values["products"] or []) if "products" in values else []
 	call_settings.apply(doc, values)
 	doc.save()

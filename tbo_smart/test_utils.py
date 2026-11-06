@@ -3008,13 +3008,19 @@ def make_batch_department(
 
 def make_callable_lead(owner: str | None, first_name: str, department: str, **fields) -> str:
 	"""An open lead of `department` with a phone number, owned by `owner` (None: unassigned, put
-	in the department afterwards because a department with people refuses an outside owner)."""
+	in the department afterwards because a department with people refuses an outside owner, and
+	so is its `tbo_product`: a product needs its department, which an unassigned lead lacks at
+	insert)."""
 	mobile = fields.pop("mobile_no", "9847012345")
 	if owner:
 		return make_lead(owner, first_name, tbo_department=department, mobile_no=mobile, **fields)
+	product = fields.pop("tbo_product", None)
 	lead = make_lead("Administrator", first_name, mobile_no=mobile, **fields)
 	frappe.db.set_value(
-		"Lead", lead, {"tbo_department": department, "lead_owner": None}, update_modified=False
+		"Lead",
+		lead,
+		{"tbo_department": department, "tbo_product": product, "lead_owner": None},
+		update_modified=False,
 	)
 	return lead
 
