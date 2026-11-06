@@ -152,9 +152,11 @@ class TestCallPlans(FrappeTestCase):
 		)
 
 	def test_the_hub_endpoints_take_json(self):
-		result = hub.save_call_plan(GROWTHX, frappe.as_json([BD]), "BillaX", frappe.as_json({"Day": 3}))
+		result = hub.save_call_plan(
+			GROWTHX, frappe.as_json([BD]), "BillaX", frappe.as_json({"Day": 3}), acting_user=MANAGER
+		)
 		self.assertEqual({row["user"]: row["product"] for row in result["members"]}[BD], "BillaX")
-		listed = {d["department"]: d for d in hub.get_call_plans()["departments"]}
+		listed = {d["department"]: d for d in hub.get_call_plans(acting_user=MANAGER)["departments"]}
 		self.assertIn(GROWTHX, listed)
 
 	# ---------- what the batches do ----------
