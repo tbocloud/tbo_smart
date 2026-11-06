@@ -37,7 +37,7 @@ from tbo_smart.outreach import replies, whatsapp
 from tbo_smart.prospecting import runs as prospect_runs
 from tbo_smart.prospecting import signals as prospect_signals
 from tbo_smart.query import aggregate
-from tbo_smart.sales import departments, duplicates, erpnext_installed, products, stale
+from tbo_smart.sales import departments, duplicates, erpnext_installed, numbers, products, stale
 from tbo_smart.sales.activities import (
 	OPEN,
 	add_follow_up_task,
@@ -591,6 +591,7 @@ def log_call(
 	outcome: str,
 	note: str | None = None,
 	callback_at: str | None = None,
+	number: str | None = None,
 	acting_user: str | None = None,
 ) -> dict:
 	"""Log a call the acting user made outside MyOperator on `lead`: `outcome` is Connected, Not
@@ -598,13 +599,17 @@ def log_call(
 	and Voicemail also read as Not answered). It is stored as an outgoing TBO Call by them, the
 	single source of calls, and shows on the lead's timeline. It also sets the lead's last call
 	result and moves its stage (docs/lead-pipeline.md §2.3). Needs write permission on the
-	lead. Returns {name, status, outcomes, stage}: `stage` the one it moved the lead to, else
-	null."""
+	lead. `number` is the lead's number that was called (default: its main number); a Wrong number
+	outcome marks that number Wrong number, and the lead becomes the Wrong Number stage only when
+	no usable number is left (docs/lead-numbers.md). Returns {name, status, outcomes, stage}:
+	`stage` the one it moved the lead to, else null."""
 	with acting_as(acting_user):
 		if outcome == "Call back" and not callback_at:
 			frappe.throw(_("Say when to call back."))
-		call = log_manual_call(lead, outcome, note)
-		stage = lead_calls.apply_call_outcome(lead, outcome, call.started_at, callback_at)
+		call = log_manual_call(lead, outcome, note, number)
+		stage = lead_calls.apply_call_outcome(
+			lead, outcome, call.started_at, callback_at, number=call.customer_number
+		)
 		return {
 			"name": call.name,
 			"status": call.status,
@@ -707,6 +712,8 @@ def lead_payload(name: str) -> dict:
 	lead.whatsapp = whatsapp.lead_state(name)
 	lead.can_write = bool(frappe.has_permission("Lead", "write", name))  # a flag for the screen - nosemgrep
 	lead.can_call = can_call()
+	lead.numbers = numbers.numbers_of(name)
+	lead.can_remove_numbers = numbers.can_remove()
 	quotations = lead_quotations(name, QUOTATION_FIELDS)
 	proposals = lead_proposals(name) if proposals_enabled() else []
 	return {
@@ -1102,6 +1109,58 @@ def set_stage(name: str, stage: str, note: str | None = None, acting_user: str |
 
 
 @frappe.whitelist(methods=["POST"])
+def add_lead_number(
+	lead: str,
+	number: str,
+	label: str | None = None,
+	person: str | None = None,
+	designation: str | None = None,
+	make_primary: int | str | bool = 0,
+	note: str | None = None,
+	on_call: int | str | bool = 0,
+	acting_user: str | None = None,
+) -> dict:
+	"""Add a contact number to a lead the acting user may write (docs/lead-numbers.md). `label` is
+	Mobile (default), Office, WhatsApp, Decision-maker or Other; `make_primary` 1 makes it the
+	main number (the old one stays, marked Old); `on_call` 1 records it as added on a call. A
+	number the lead already uses is refused. Returns {numbers, duplicates}: `duplicates` are the
+	other leads that have the number, a warning and not a refusal."""
+	with acting_as(acting_user):
+		return numbers.add_lead_number(
+			lead, number, label, person, designation, bool(cint(make_primary)), note, bool(cint(on_call))
+		)
+
+
+@frappe.whitelist(methods=["POST"])
+def update_lead_number(
+	lead: str,
+	number_id: str,
+	status: str | None = None,
+	label: str | None = None,
+	person: str | None = None,
+	designation: str | None = None,
+	make_primary: int | str | bool = 0,
+	note: str | None = None,
+	acting_user: str | None = None,
+) -> dict:
+	"""Change a number's `status` (Active, Not reachable, Wrong number, Old), `label`, `person`,
+	`designation` or `note`, or `make_primary` 1. A main number that stops being usable hands
+	over to the next usable one. Needs write on the lead. Returns {numbers}."""
+	with acting_as(acting_user):
+		return numbers.update_lead_number(
+			lead, number_id, status, label, person, designation, bool(cint(make_primary)), note
+		)
+
+
+@frappe.whitelist(methods=["POST"])
+def remove_lead_number(lead: str, number_id: str, acting_user: str | None = None) -> dict:
+	"""Take a number off the lead for good: System Manager and Sales Manager only (403 for anyone
+	else, who marks it Old or Wrong number instead). Returns {numbers}."""
+	with acting_as(acting_user):
+		return numbers.remove_lead_number(lead, number_id)
+
+
+@frappe.whitelist(methods=["POST"])
 def add_note(name: str, note: str, acting_user: str | None = None) -> dict:
 	"""A note on the lead by the acting user (who may read it). Returns the timeline entry."""
 	with acting_as(acting_user) as user:
@@ -1307,15 +1366,17 @@ def record_call_outcome(
 	outcome: str,
 	note: str | None = None,
 	callback_at: str | None = None,
+	number: str | None = None,
 	acting_user: str | None = None,
 ) -> dict:
 	"""Record the call for one queue item (its `item`): `outcome` is Connected, Not answered, Busy,
 	Call back (`callback_at` required), Not interested or Wrong number. The call is logged as
 	log_call does; the item leaves the queue. Not answered and Busy come back once, two hours
 	later, if the batch is still running; `callback_at` on Connected sets the lead's next
-	follow-up. Returns {item, outcome, retry_at}."""
+	follow-up. `number` is the lead's number that was called (default: its main number), the one a
+	Wrong number marks. Returns {item, outcome, retry_at}."""
 	with acting_as(acting_user):
-		return call_outcomes.record(batch_item, outcome, note, callback_at)
+		return call_outcomes.record(batch_item, outcome, note, callback_at, number)
 
 
 @frappe.whitelist()

@@ -209,6 +209,7 @@ doc_events = {
 			"tbo_smart.sales.products.validate_lead_product",
 			"tbo_smart.sales.duplicates.skip_import_duplicates",
 			"tbo_smart.lead_pipeline.lead_place.validate_place",
+			"tbo_smart.sales.numbers.sync",
 		],
 		"before_insert": "tbo_smart.sales.assignment.claim_owner",
 		"after_insert": [
@@ -216,6 +217,7 @@ doc_events = {
 			"tbo_smart.smart_leads.autopilot.lead_changed",
 		],
 		"on_update": [
+			"tbo_smart.sales.numbers.write_log",
 			"tbo_smart.smart_leads.scoring.lead_changed",
 			"tbo_smart.lead_pipeline.won.lead_updated",
 			"tbo_smart.smart_leads.autopilot.lead_changed",

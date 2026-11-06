@@ -289,3 +289,6 @@ The TBO Call, the Event and the summary stay.
 
 - **v1.0 (2026-10-19):** first version: webhook, click-to-call, recordings, AI call summary,
   timeline fields, scoreboard figures, settings API.
+
+A caller is matched to a lead by any number of the lead (`lead-numbers.md`), and click-to-call takes any
+of them.

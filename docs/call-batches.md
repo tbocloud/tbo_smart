@@ -180,3 +180,10 @@ endpoints in `api/hub_leads.py`; tests `tests/test_call_batches.py`, `test_bd_fo
 
 Every outcome also sets the lead's last call result and may move its stage
 (`lead-pipeline.md` §2.3), through `apply_call_outcome`.
+
+## 13. A lead with more than one number (`lead-numbers.md`)
+
+An item shows the lead's main number (`summary.phone`) and its other usable numbers
+(`summary.other_numbers`). `record_call_outcome` takes the `number` that was called; a Wrong number
+marks that number, and only when none is usable the lead gets the `tbo_wrong_number` flag and the
+Wrong Number stage.

@@ -1,8 +1,8 @@
 """Duplicate leads (docs/lead-departments.md §6): stop two people working the same enquiry.
 
-A lead matches on email (case-insensitive), phone (the last 10 digits, across the lead's mobile,
-phone and WhatsApp numbers) or company (case-insensitive, exact). The search covers every lead,
-whoever may see it, and returns only the fields that say whose work it is: the point is that a
+A lead matches on email (case-insensitive), phone (the last 10 digits, across every number the
+lead has: its number rows, whatever their status, and its mobile, phone and WhatsApp fields) or
+company (case-insensitive, exact). The search covers every lead, whoever may see it, and returns only the fields that say whose work it is: the point is that a
 salesperson learns the lead exists and who owns it, not that they may open it.
 
 Email and phone matches block a new lead; a company match alone is only shown.
@@ -17,6 +17,7 @@ from frappe.query_builder.functions import Lower, Trim
 
 from tbo_smart.api.mobile.crm import any_of, phone_criterion, text_criterion
 from tbo_smart.api.mobile.utils import get_full_names
+from tbo_smart.sales import numbers
 
 MAX_MATCHES = 5
 PHONE_DIGITS = 10
@@ -51,7 +52,9 @@ def find_duplicates(
 	if keys.email:
 		checks["email"] = text_criterion([Lead.email_id], keys.email)
 	if keys.phone:
-		checks["phone"] = phone_criterion([Lead[field] for field in PHONE_FIELDS], keys.phone)
+		checks["phone"] = phone_criterion(
+			[Lead[field] for field in PHONE_FIELDS], keys.phone
+		) | numbers.number_criterion(Lead, keys.phone)
 	if keys.company:
 		checks["company"] = Lower(Trim(Lead.company_name)) == keys.company
 	if not checks:

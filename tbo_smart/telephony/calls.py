@@ -21,6 +21,7 @@ from frappe.utils import add_days, cint, getdate, now_datetime, today
 from tbo_smart import lead_source
 from tbo_smart.lead_pipeline.call_outcomes import apply_call_outcome
 from tbo_smart.lead_pipeline.statuses import OPEN_STATUSES
+from tbo_smart.sales import numbers
 from tbo_smart.sales.activities import CALL, CANCELLED, OPEN, add_event, add_follow_up_task
 from tbo_smart.sales.stages import system_save
 from tbo_smart.smart_leads import FOLLOW_UP_TYPE
@@ -106,13 +107,15 @@ def receive(event: dict) -> dict:
 	return {"ok": True}
 
 
-def log_manual_call(lead: str, outcome: str, note: str | None = None):
+def log_manual_call(lead: str, outcome: str, note: str | None = None, number: str | None = None):
 	"""A call the session user made outside MyOperator, logged by hand: an outgoing TBO Call by
 	them now (answered, missed or voicemail by `outcome`) and its call Event on the lead, as a
-	MyOperator call would leave. Needs write permission on the lead; no telephony setting."""
+	MyOperator call would leave. `number` is the lead's number that was called (default: its main
+	number). Needs write permission on the lead; no telephony setting."""
 	if outcome not in MANUAL_OUTCOMES:
 		frappe.throw(_("outcome must be one of {0}.").format(", ".join(MANUAL_OUTCOMES)))
 	frappe.has_permission("Lead", "write", lead, throw=True)
+	called = numbers.resolve(lead, number) or frappe.db.get_value("Lead", lead, "mobile_no")
 	now = now_datetime()
 	doc = frappe.get_doc(
 		{
@@ -122,7 +125,7 @@ def log_manual_call(lead: str, outcome: str, note: str | None = None):
 			"status": MANUAL_OUTCOMES[outcome],
 			"lead": lead,
 			"agent": frappe.session.user,
-			"customer_number": frappe.db.get_value("Lead", lead, "mobile_no"),
+			"customer_number": called,
 			"started_at": now,
 			"ended_at": now,
 			"duration": 0,
@@ -318,6 +321,7 @@ def new_caller_lead(number: str | None, owner: str | None) -> str | None:
 			"lead_owner": owner,
 		}
 	)
+	lead.flags.number_source = "Added on a call"
 	with run_as(owner or "Administrator"):
 		# a caller's lead has only their number: Source may be required on the site, but the
 		# call can't wait for it
@@ -329,8 +333,8 @@ def new_caller_lead(number: str | None, owner: str | None) -> str | None:
 
 
 def find_lead(number: str | None) -> str | None:
-	"""The lead with this mobile, phone or WhatsApp number (spaces, dashes, +91 and a trunk 0
-	don't matter): an open one first, then the newest."""
+	"""The lead with this number among its number rows, or in its mobile, phone or WhatsApp field
+	(spaces, dashes, +91 and a trunk 0 don't matter): an open one first, then the newest."""
 	digits = normalise_phone(number)
 	if not digits:
 		return None
@@ -343,10 +347,9 @@ def find_lead(number: str | None) -> str | None:
 			value = Replace(value, char, "")
 		return value
 
-	criterion = None
+	criterion = numbers.number_criterion(Lead, tail)
 	for fieldname in PHONE_FIELDS:
-		match = bare(Lead[fieldname]).like(f"%{tail}")
-		criterion = match if criterion is None else criterion | match
+		criterion = criterion | bare(Lead[fieldname]).like(f"%{tail}")
 	rows = (
 		frappe.qb.from_(Lead)
 		.select(Lead.name, Lead.tbo_stage, Lead.mobile_no, Lead.phone, Lead.whatsapp_no)
@@ -354,7 +357,12 @@ def find_lead(number: str | None) -> str | None:
 		.orderby(Lead.modified, order=frappe.qb.desc)
 		.limit(20)
 	).run(as_dict=True)
-	same = [row for row in rows if any(same_number(row[field], digits) for field in PHONE_FIELDS)]
+	by_row = set(numbers.leads_with(number))
+	same = [
+		row
+		for row in rows
+		if row.name in by_row or any(same_number(row[field], digits) for field in PHONE_FIELDS)
+	]
 	same.sort(key=lambda row: row.tbo_stage not in OPEN_STATUSES)
 	return same[0].name if same else None
 
@@ -540,8 +548,7 @@ def click_to_call(lead: str, number: str | None = None) -> dict:
 
 
 def lead_number(lead: str, number: str | None) -> str:
-	numbers = frappe.db.get_value("Lead", lead, list(PHONE_FIELDS), as_dict=True) or {}
-	own = [myoperator.e164(numbers.get(field)) for field in PHONE_FIELDS]
+	own = [myoperator.e164(value) for value in numbers.typed_numbers(lead)]
 	own = [value for value in own if value]
 	if number:
 		wanted = myoperator.e164(number)

@@ -23,6 +23,7 @@ from tbo_smart.lead_pipeline.statuses import (
 )
 from tbo_smart.lead_pipeline.transitions import set_lead_status
 from tbo_smart.query import aggregate
+from tbo_smart.sales import numbers
 from tbo_smart.sales.activities import add_follow_up_task, next_follow_ups
 from tbo_smart.sales.call_batches import (
 	BUSY,
@@ -78,11 +79,14 @@ def target_stage(current: str | None, result: str) -> str | None:
 	return target if current in sources else None
 
 
-def apply_call_outcome(lead: str, outcome: str, called_at=None, callback_at=None) -> str | None:
+def apply_call_outcome(
+	lead: str, outcome: str, called_at=None, callback_at=None, number: str | None = None
+) -> str | None:
 	"""Record `outcome` (anything `result_of` knows) as the lead's last call and move its stage.
 	A call older than the lead's last call changes nothing, so a call counted twice (logged by
 	hand, then synced) or arriving late cannot undo a newer one. Returns the stage it moved
-	the lead to, else None."""
+	the lead to, else None. A wrong number marks `number` (default: the main one) Wrong number; the
+	lead itself becomes the Wrong Number stage only when no usable number is left."""
 	result = result_of(outcome)
 	if not result or not frappe.db.exists("Lead", lead):
 		return None
@@ -93,7 +97,8 @@ def apply_call_outcome(lead: str, outcome: str, called_at=None, callback_at=None
 	frappe.db.set_value(
 		"Lead", lead, {"tbo_last_call_result": result, "tbo_last_call_on": called_at}, update_modified=False
 	)
-	target = target_stage(current, result) if pipeline_enabled() else None
+	whole_lead = numbers.report_wrong_number(lead, number) if result == INVALID else True
+	target = target_stage(current, result) if pipeline_enabled() and whole_lead else None
 	if result == CALL_BACK and callback_at:
 		schedule_call_back(lead, callback_at)
 	if not target:

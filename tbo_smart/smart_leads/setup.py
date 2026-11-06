@@ -154,6 +154,21 @@ def get_lead_fields() -> dict:
 				"insert_after": "tbo_ai_stage",
 				**hidden,
 			},
+			{
+				"fieldname": "tbo_numbers_section",
+				"fieldtype": "Section Break",
+				"label": "Contact numbers",
+				"insert_after": "tbo_ai_nudged_on",
+			},
+			{
+				"fieldname": "tbo_numbers",
+				"fieldtype": "Table",
+				"options": "TBO Lead Number",
+				"label": "Numbers",
+				"insert_after": "tbo_numbers_section",
+				"no_copy": 1,
+				"description": "Every number of the lead; the main one is copied to Mobile No.",
+			},
 		]
 	}
 
