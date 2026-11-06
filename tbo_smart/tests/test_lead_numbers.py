@@ -125,6 +125,16 @@ class TestLeadNumbers(FrappeTestCase):
 		self.assertIsNone(calls.find_lead("98000 00000"))
 		self.assertEqual(numbers.leads_with("9895011111"), [self.lead])
 
+	def test_the_leads_search_finds_a_lead_by_any_of_its_numbers(self):
+		self.add(THIRD)
+		hub.update_lead_number(self.lead, numbers.rows_of(self.lead)[1].name, status="Old", acting_user=BD)
+		for search in ("98950 11111", "+91 9895011111", "98950", "098950 11111"):
+			found = [row["name"] for row in hub.list_leads(search=search, acting_user=BD)["rows"]]
+			self.assertEqual(found, [self.lead], search)
+			self.assertEqual(hub.list_leads(search=search, acting_user=BD)["total"], 1, search)
+		self.assertEqual(numbers.leads_with_digits("9895"), [])  # too few digits
+		self.assertEqual(numbers.leads_with_digits("Room 98950"), [])  # not a number
+
 	def test_click_to_call_accepts_any_number_of_the_lead(self):
 		self.add(THIRD)
 		self.assertEqual(calls.lead_number(self.lead, None), "+919847012345")

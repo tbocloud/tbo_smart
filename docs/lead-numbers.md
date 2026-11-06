@@ -38,6 +38,11 @@ reports and older code keep working. `phone` and `whatsapp_no` keep what they ho
 into either (or into `mobile_no`) becomes a row on the next save. Typing a different `mobile_no`
 into a lead that has rows makes it the main number and keeps the old one as Old.
 
+The leads search (`list_leads(search=…)`) also finds a lead by any of its rows, whatever the
+status: when the search reads as a phone number (digits with spaces, `+`, `-` or brackets, at least
+5 digits), it matches rows whose `digits` hold those digits, with a leading trunk 0 dropped
+(`numbers.leads_with_digits`, at most 500 leads).
+
 Code: `tbo_smart/sales/numbers.py`. Lead `validate` runs `numbers.sync`, `on_update` runs
 `numbers.write_log` (the timeline notes).
 

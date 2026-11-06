@@ -14,6 +14,8 @@ memory and queue timeline notes in `doc.flags.number_log`; the caller saves once
 on_update hook (`write_log`) writes the notes.
 """
 
+import re
+
 import frappe
 from frappe import _
 from frappe.query_builder import CustomFunction
@@ -24,6 +26,9 @@ from tbo_smart.smart_leads.utils import normalise_phone, tel_link, whatsapp_link
 NUMBER = "TBO Lead Number"
 FIELD = "tbo_numbers"
 MATCH_DIGITS = 10
+MIN_SEARCH_DIGITS = 5
+MAX_SEARCH_LEADS = 500
+PHONE_TEXT = re.compile(r"[\d\s+\-()]+")
 Right = CustomFunction("RIGHT", ["value", "length"])
 
 LABELS = ("Mobile", "Office", "WhatsApp", "Decision-maker", "Other")
@@ -190,6 +195,26 @@ def leads_with(number: str | None) -> list[str]:
 		.select(Row.parent)
 		.distinct()
 		.where((Row.parenttype == "Lead") & (Right(Row.digits, len(key)) == key))
+	).run(pluck=True)
+
+
+def leads_with_digits(text: str | None, limit: int = MAX_SEARCH_LEADS) -> list[str]:
+	"""The leads with a number (any status) holding the digits typed, for the leads search.
+	Only text that reads as a phone number counts: digits with spaces, +, - or brackets, at
+	least MIN_SEARCH_DIGITS of them. A leading trunk 0 is dropped, as the rows keep none."""
+	text = (text or "").strip()
+	if not text or not PHONE_TEXT.fullmatch(text):
+		return []
+	digits = re.sub(r"\D", "", text).lstrip("0")
+	if len(digits) < MIN_SEARCH_DIGITS:
+		return []
+	Row = frappe.qb.DocType(NUMBER)
+	return (
+		frappe.qb.from_(Row)
+		.select(Row.parent)
+		.distinct()
+		.where((Row.parenttype == "Lead") & Row.digits.like(f"%{digits}%"))
+		.limit(limit)
 	).run(pluck=True)
 
 

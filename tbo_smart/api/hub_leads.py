@@ -385,9 +385,14 @@ def search_filters(search: str | None) -> dict | None:
 	search = (search or "").strip()
 	if not search:
 		return None
-	return {
+	or_filters = {
 		field: ("like", f"%{search}%") for field in ("lead_name", "company_name", "email_id", "mobile_no")
 	}
+	# a lead's other numbers live in its number rows, not on the Lead
+	by_number = numbers.leads_with_digits(search)
+	if by_number:
+		or_filters["name"] = ("in", by_number)
+	return or_filters
 
 
 def count_leads(filters: dict, or_filters: dict | None) -> int:
