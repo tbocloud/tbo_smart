@@ -34,7 +34,7 @@ reviews:
   path_instructions:
     - path: "tbo_smart/api/**"
       instructions: |
-        This is the tboindia.tbocloud.in (ERPNext + HRMS + Frappe CRM) backend of the TBO Smart mobile app.
+        This is the india.teambackoffice.com (formerly tboindia.tbocloud.in; ERPNext + HRMS + Frappe CRM) backend of the TBO Smart mobile app.
         Every whitelisted method must be typed, act as the session user, check permissions explicitly
         (own data only for ESS; capabilities from tbo_smart/api/mobile/capabilities.py), use POST for writes,
         and reuse HRMS/CRM functions instead of copying their logic. Flag N+1 queries and any endpoint that

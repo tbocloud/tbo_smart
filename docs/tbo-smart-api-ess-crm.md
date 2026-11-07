@@ -1,6 +1,6 @@
 # TBO Smart API: ESS, CRM and manager (tboindia side), v1.11
 
-This is the contract for the TBO Smart mobile app's **tboindia.tbocloud.in** half: HR
+This is the contract for the TBO Smart mobile app's **india.teambackoffice.com** half (formerly tboindia.tbocloud.in): HR
 self-service (HRMS), CRM (ERPNext's Lead, Opportunity and Prospect since v1.9; Frappe CRM
 before) and the manager views. The hub (TBO Support) has its
 own contract in `tbocloud/helpdesk`.
@@ -18,7 +18,8 @@ own contract in `tbocloud/helpdesk`.
 
 | Item | Rule |
 | --- | --- |
-| Base URL | `https://tboindia.tbocloud.in/api/method/tbo_smart.api.mobile.<module>.<method>` |
+| Base URL | `https://india.teambackoffice.com/api/method/tbo_smart.api.mobile.<module>.<method>` |
+| Host | Call `india.teambackoffice.com` directly. `tboindia.tbocloud.in` 308-redirects there, and clients drop the `Authorization` header on a cross-host redirect, so calls arrive as Guest and fail with 403 PermissionError. |
 | Auth | `Authorization: Bearer <access_token>` (OAuth, see §2). There are no API keys or passwords in the app. |
 | Identity | Always the session user. No method accepts a user or employee id to act as. |
 | Reads | `GET` with query parameters (POST also works). |
@@ -99,12 +100,12 @@ These findings come from reading `frappe/oauth.py` in Frappe 15.121.
 ```bash
 # 1. Open the authorize URL in a browser signed in as a staff user; copy `code` from the redirect.
 # 2. Exchange it:
-curl -X POST https://tboindia.tbocloud.in/api/method/frappe.integrations.oauth2.get_token \
+curl -X POST https://india.teambackoffice.com/api/method/frappe.integrations.oauth2.get_token \
   -d grant_type=authorization_code -d code=$CODE -d client_id=$CLIENT_ID \
   -d redirect_uri=tbosmart://oauth/callback -d code_verifier=$VERIFIER
 # 3. Call the API:
 curl -H "Authorization: Bearer $ACCESS" \
-  https://tboindia.tbocloud.in/api/method/tbo_smart.api.mobile.ess.get_me
+  https://india.teambackoffice.com/api/method/tbo_smart.api.mobile.ess.get_me
 ```
 
 ### 2.5 Single sign-in with Microsoft: `tbo_smart.api.mobile.auth`
