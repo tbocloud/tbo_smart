@@ -1,5 +1,5 @@
 """Call plans (docs/call-batches.md §11): a manager or a department head decides, per member, which
-product they are handed and how many calls each slot (Morning 50, Afternoon 50).
+product they are handed and how many calls each slot (Morning 40, Afternoon 30, Evening 30).
 
 The plan sits on the member's row of the department (`call_product`, `slot_sizes`). The clock
 and the next batch read it: a slot's size becomes the member's own, the product narrows the new

@@ -536,7 +536,7 @@ counts answered calls (Connected, Call back, Not interested). The batch rules ar
 `save_lead_department` `values` also take: `call_batches_enabled`, `daily_call_cap`,
 `pull_unassigned`, `overdue_block_limit`, `campaign_industry`, `campaign_state`,
 `campaign_district`, `call_slots` (`[{label, start_time "HH:MM", end_time, size}]`, no overlaps;
-empty: Morning 10:00-13:00 and Afternoon 14:00-18:00, 50 each) and `member_caps` (`{user: cap}`).
+empty: Morning 10:00-13:00 (40), Afternoon 14:00-16:00 (30) and Evening 16:00-18:00 (30)) and `member_caps` (`{user: cap}`).
 `get_lead_departments` returns the same keys.
 
 ### 2.14 Categories: industry, state, district, organisation size
@@ -884,7 +884,7 @@ Lead Bank needs. The leads API itself stays closed to anyone without a sales rol
 ### 2.23 Call plans: assign leads per person (`call-batches.md` §11)
 
 A manager or department head sets, per member of a department with call batches on, the product
-they are handed and the calls of each slot (Morning 50, Afternoon 50).
+they are handed and the calls of each slot (Morning 40, Afternoon 30, Evening 30).
 
 ```
 Plans = {date, departments: [Department]}

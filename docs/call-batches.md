@@ -11,7 +11,7 @@ Set on the department (hub: Settings, CRM, Lead departments):
 | Field | Default | Meaning |
 | --- | --- | --- |
 | `call_batches_enabled` | off | Hand out batches. Off until the owner switches a department on. |
-| `call_slots` | Morning 10:00-13:00 (50), Afternoon 14:00-18:00 (50) | Rows of label, start, end, size. Blank table: these two. No overlaps. |
+| `call_slots` | Morning 10:00-13:00 (40), Afternoon 14:00-16:00 (30), Evening 16:00-18:00 (30) | Rows of label, start, end, size. Blank table: these three (100 a day, the daily cap). No overlaps. |
 | `daily_call_cap` | 100 | Leads handed to one person in a day, retries not counted. A member's own `daily_call_cap` (Members table) replaces it. |
 | `pull_unassigned` | on | When the batch has room, pull the department's unassigned open leads. |
 | `overdue_block_limit` | 10 | Overdue calls above this block the next batch and, at slot end, tell the heads. |
@@ -138,8 +138,8 @@ so its members can call from Today's calls and see it in the switch.
 
 The department's slots hand every member the same number. A manager or a department head can
 instead plan each member (hub: Leads, **Assign leads**): the **product** they are handed and the
-**calls per slot** (for example PhoebiX, Morning 50, Afternoon 50). It is kept on the member's row
-(`call_product`, `slot_sizes`: `{"Morning": 50, "Afternoon": 50}`).
+**calls per slot** (for example PhoebiX, Morning 40, Afternoon 30, Evening 30). It is kept on the member's row
+(`call_product`, `slot_sizes`: `{"Morning": 40, "Afternoon": 30, "Evening": 30}`).
 
 - **The batches:** the clock and the next batch use the member's number for the slot (a slot
   left out uses its size; 0 hands out nothing in it). The day's cap is at least the plan's total.
