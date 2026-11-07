@@ -10,13 +10,12 @@ lead leaves their running batch if they had not called it yet.
 
 import frappe
 from frappe import _
-from frappe.desk.form.assign_to import _add as add_assignment
 from frappe.query_builder import Case
 from frappe.query_builder.functions import Coalesce, Count
 from frappe.utils import cint
 
 from tbo_smart.sales import products, stale
-from tbo_smart.sales.call_batches import BATCH, ITEM
+from tbo_smart.sales.call_batches import BATCH, ITEM, assign_undated
 from tbo_smart.sales.call_batches.plans import planned_department
 
 MAX_LEADS = 500
@@ -223,18 +222,7 @@ def hand(lead: str, user: str | None) -> None:
 		close_assignments(lead, previous)
 		drop_from_batches(lead, previous)
 	if user:
-		add_assignment(
-			{
-				"assign_to": [user],
-				"doctype": "Lead",
-				"name": lead,
-				"assigned_by": frappe.session.user,
-				"description": _(HANDED_NOTE),
-				# undated, as the batches' own (fill.BatchFiller.give): not a follow-up due
-				"date": None,
-			},
-			ignore_permissions=True,
-		)
+		assign_undated(lead, user, HANDED_NOTE)
 
 
 def close_assignments(lead: str, user: str) -> None:

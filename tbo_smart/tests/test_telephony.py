@@ -469,7 +469,7 @@ class TestCallSummary(TelephonyTestCase):
 			"interest": "Billing software",
 			"sentiment": "Positive",
 			"intent": "High",
-			"objections": ["Price for 7 users"],
+			"objections": ["Price for 45 users"],
 			"next_step": {"what": "Send the quotation", "channel": "email", "due": str(add_days(today(), 2))},
 		}
 		with (
@@ -496,7 +496,7 @@ class TestCallSummary(TelephonyTestCase):
 		call = self.call_of("C-AI")
 		summary = json.loads(call.summary)
 		self.assertEqual((call.ai_status, summary["intent"], summary["by"]), ("Done", "High", "TBO AI"))
-		# "7 users" was never said: the guard drops that objection
+		# "45 users" was never said (and no date holds 45, unlike 7 on the 7th): the guard drops that objection
 		self.assertEqual(summary["objections"], [])
 		self.assertIn("billing software", frappe.db.get_value("Event", call.event, "description"))
 		self.assertEqual(frappe.db.get_value("Lead", self.lead, "tbo_ai_next_action"), "Send the quotation")
