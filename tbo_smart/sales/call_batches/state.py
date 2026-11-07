@@ -49,8 +49,8 @@ def item_rows(batch_filters: dict) -> list[frappe._dict]:
 
 class CallQueue:
 	"""`pending` are due now, `scheduled` come back later in a running batch, `overdue` belong to a
-	batch whose slot is over. Overdue lasts OVERDUE_DAYS days; a lead that is in the queue again
-	is not listed overdue."""
+	batch whose slot is over. Overdue lasts OVERDUE_DAYS days and lists a lead once (its latest
+	missed call); a lead that is in the queue again, or was called since, is not listed overdue."""
 
 	def __init__(self, user: str, now=None):
 		self.user, self.now = user, get_datetime(now) if now else now_datetime()
@@ -60,11 +60,26 @@ class CallQueue:
 		self.pending = self.due_now()
 		self.scheduled = self.coming_back()
 		queued = {row.lead for row in self.pending + self.scheduled}
-		self.overdue = [
-			row
-			for row in self.rows
-			if not row.outcome and not self.is_running(row) and row.lead not in queued
-		]
+		self.overdue = self.missed(queued)
+
+	def missed(self, queued: set) -> list:
+		"""The calls of ended slots nobody made, the latest one per lead (a lead missed on five days
+		is one call to make, not five)."""
+		called = {}
+		for row in self.rows:
+			if row.outcome:
+				called[row.lead] = max(
+					getdate(row.batch_date), called.get(row.lead) or getdate(row.batch_date)
+				)
+		latest = {}
+		for row in self.rows:  # by batch start, so the last row of a lead is its latest
+			if row.outcome or self.is_running(row) or row.lead in queued:
+				continue
+			if row.lead in called and called[row.lead] >= getdate(row.batch_date):
+				continue
+			latest[row.lead] = row
+		keep = {row.name for row in latest.values()}
+		return [row for row in self.rows if row.name in keep]
 
 	def due_now(self) -> list:
 		rows = [row for row in self.running if not row.outcome and not self.waits(row)]

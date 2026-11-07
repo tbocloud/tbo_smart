@@ -20,6 +20,7 @@ from tbo_smart.sales.call_batches import BATCH, ITEM
 from tbo_smart.sales.call_batches.plans import planned_department
 
 MAX_LEADS = 500
+HANDED_NOTE = "Assigned to you on Assign leads"
 MAX_PAGE = 100
 
 
@@ -228,7 +229,9 @@ def hand(lead: str, user: str | None) -> None:
 				"doctype": "Lead",
 				"name": lead,
 				"assigned_by": frappe.session.user,
-				"description": _("Assigned to you on Assign leads"),
+				"description": _(HANDED_NOTE),
+				# undated, as the batches' own (fill.BatchFiller.give): not a follow-up due
+				"date": None,
 			},
 			ignore_permissions=True,
 		)
