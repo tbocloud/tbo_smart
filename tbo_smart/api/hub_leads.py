@@ -21,6 +21,7 @@ from tbo_smart.api.mobile.crm import check_assignee, get_crm_users
 from tbo_smart.api.mobile.utils import get_full_names
 from tbo_smart.lead_pipeline import call_outcomes as lead_calls
 from tbo_smart.lead_pipeline import lead_category, lead_place, rate_card, require_quotations, setting
+from tbo_smart.lead_pipeline.analysis import LeadAnalysis
 from tbo_smart.lead_pipeline.business import build_business, can_view_business
 from tbo_smart.lead_pipeline.client_documents import chain as document_chain
 from tbo_smart.lead_pipeline.daily_report import DailyReport, week_start
@@ -516,6 +517,23 @@ def get_overview(
 		# the AI's part: the plan of the person picked (else the acting user's own)
 		result["ai"] = autopilot.overview_ai(owners_of(owner, allowed), owner or frappe.session.user)
 		return result
+
+
+@frappe.whitelist()
+def get_lead_analysis(
+	period: str | None = None,
+	from_date: str | None = None,
+	to_date: str | None = None,
+	owner: str | None = None,
+	acting_user: str | None = None,
+) -> dict:
+	"""The overview's Calling performance (per person) and Lead quality (per source, industry,
+	district, department and product) for the acting user's sales scope (docs/hub-leads-api.md
+	§2.25). `period` as get_overview."""
+	with acting_as(acting_user):
+		period = resolve_period(period, from_date, to_date)
+		board, _allowed = overview_board(period, from_date, to_date, owner, LeadAnalysis)
+		return board.build_analysis()
 
 
 @frappe.whitelist()
