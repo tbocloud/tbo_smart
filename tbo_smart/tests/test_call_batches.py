@@ -474,5 +474,9 @@ class TestCallBatches(FrappeTestCase):
 		slots = next(row for row in slots if row["name"] == DEPARTMENT)["call_slots"]
 		self.assertEqual(
 			[(slot["label"], slot["start_time"], slot["end_time"], slot["size"]) for slot in slots],
-			[("Morning", "10:00", "13:00", 50), ("Afternoon", "14:00", "18:00", 50)],
+			[
+				("Morning", "10:00", "13:00", 40),
+				("Afternoon", "14:00", "16:00", 30),
+				("Evening", "16:00", "18:00", 30),
+			],
 		)

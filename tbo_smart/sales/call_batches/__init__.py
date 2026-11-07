@@ -37,8 +37,9 @@ OVERDUE_DAYS = 7
 DEFAULT_CAP = 100
 DEFAULT_OVERDUE_LIMIT = 10
 DEFAULT_SLOTS = (
-	{"label": "Morning", "start_time": time(10), "end_time": time(13), "size": 50},
-	{"label": "Afternoon", "start_time": time(14), "end_time": time(18), "size": 50},
+	{"label": "Morning", "start_time": time(10), "end_time": time(13), "size": 40},
+	{"label": "Afternoon", "start_time": time(14), "end_time": time(16), "size": 30},
+	{"label": "Evening", "start_time": time(16), "end_time": time(18), "size": 30},
 )
 # the department's campaign filter and the Lead column each narrows (lead-categories adds the
 # last one; a column that is not there yet is skipped)
@@ -52,7 +53,7 @@ CAMPAIGN_COLUMNS = {
 
 def slots_of(department) -> list[frappe._dict]:
 	"""The department's slots by start time: {label, start (time), end (time), size}; the default
-	two when it has none."""
+	three when it has none."""
 	rows = [
 		frappe._dict(
 			label=row.label, start=get_time(row.start_time), end=get_time(row.end_time), size=cint(row.size)
