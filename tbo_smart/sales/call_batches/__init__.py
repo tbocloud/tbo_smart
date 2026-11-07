@@ -9,6 +9,8 @@ This module holds what they share: names, the department's rules and who works t
 from datetime import datetime, time, timedelta
 
 import frappe
+from frappe import _
+from frappe.desk.form.assign_to import _add as add_assignment
 from frappe.utils import cint, get_datetime, get_time, getdate
 
 BATCH = "TBO Call Batch"
@@ -130,3 +132,32 @@ def is_off_today(user: str, day) -> str | None:
 
 def when(value) -> datetime | None:
 	return get_datetime(value) if value else None
+
+
+def assign_undated(lead: str, user: str, note: str) -> None:
+	"""Assign `lead` to `user` with an undated ToDo. A dated open ToDo reads as a follow-up due
+	(follow_ups_due), so a handed lead would jump every later batch. Passing no date is not
+	enough: the ToDo's `date` defaults to Today on insert, so it is cleared after."""
+	add_assignment(
+		{
+			"assign_to": [user],
+			"doctype": "Lead",
+			"name": lead,
+			"assigned_by": frappe.session.user,
+			"description": _(note),
+		},
+		ignore_permissions=True,
+	)
+	frappe.db.set_value(
+		"ToDo",
+		{
+			"reference_type": "Lead",
+			"reference_name": lead,
+			"allocated_to": user,
+			"status": "Open",
+			"description": ("like", f"%{_(note)}%"),
+		},
+		"date",
+		None,
+		update_modified=False,
+	)

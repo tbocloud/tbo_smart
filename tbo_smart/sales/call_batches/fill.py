@@ -9,7 +9,6 @@ Steps 3 to 5 follow the campaign filter. A lead is never in two active batches n
 
 import frappe
 from frappe import _
-from frappe.desk.form.assign_to import _add as add_assignment
 from frappe.query_builder import Case
 from frappe.query_builder.functions import Coalesce, Lower, Max
 from frappe.utils import cint, get_datetime, getdate, now_datetime
@@ -28,6 +27,7 @@ from tbo_smart.sales.call_batches import (
 	REASONS,
 	RETRY_YESTERDAY,
 	UNREACHED,
+	assign_undated,
 	daily_cap,
 )
 
@@ -287,19 +287,7 @@ class BatchFiller:
 		doc = frappe.get_doc("Lead", lead)
 		doc.lead_owner = self.user
 		doc.save(ignore_permissions=True)
-		add_assignment(
-			{
-				"assign_to": [self.user],
-				"doctype": "Lead",
-				"name": lead,
-				"assigned_by": frappe.session.user,
-				"description": _(PULLED_NOTE),
-				# Frappe dates an assignment today by default, and a dated open ToDo reads as a
-				# follow-up due (follow_ups_due): the lead would jump every later batch
-				"date": None,
-			},
-			ignore_permissions=True,
-		)
+		assign_undated(lead, self.user, PULLED_NOTE)
 
 
 def build_batch(
