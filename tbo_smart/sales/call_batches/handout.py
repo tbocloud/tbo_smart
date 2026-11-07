@@ -11,13 +11,12 @@ lead leaves their running batch if they had not called it yet.
 import frappe
 from frappe import _
 from frappe.desk.form.assign_to import _add as add_assignment
-from frappe.desk.form.assign_to import remove as remove_assignment
 from frappe.query_builder import Case
 from frappe.query_builder.functions import Coalesce, Count
 from frappe.utils import cint
 
 from tbo_smart.sales import products, stale
-from tbo_smart.sales.call_batches import ACTIVE, BATCH, ITEM
+from tbo_smart.sales.call_batches import BATCH, ITEM
 from tbo_smart.sales.call_batches.plans import planned_department
 
 MAX_LEADS = 500
@@ -220,11 +219,7 @@ def hand(lead: str, user: str | None) -> None:
 	doc.lead_owner = user
 	doc.save(ignore_permissions=True)
 	if previous and previous != user:
-		if frappe.db.exists(
-			"ToDo",
-			{"reference_type": "Lead", "reference_name": lead, "allocated_to": previous, "status": "Open"},
-		):
-			remove_assignment("Lead", lead, previous, ignore_permissions=True)
+		close_assignments(lead, previous)
 		drop_from_batches(lead, previous)
 	if user:
 		add_assignment(
@@ -239,20 +234,31 @@ def hand(lead: str, user: str | None) -> None:
 		)
 
 
+def close_assignments(lead: str, user: str) -> None:
+	"""`user`'s open ToDos on `lead` are cancelled. Saving each ToDo also takes `user` off the
+	lead's assigned list. Not `assign_to.remove`: its arguments differ between Frappe versions
+	(the live site's has no `ignore_permissions`)."""
+	for name in frappe.get_all(
+		"ToDo",
+		filters={"reference_type": "Lead", "reference_name": lead, "allocated_to": user, "status": "Open"},
+		pluck="name",
+	):
+		todo = frappe.get_doc("ToDo", name)
+		todo.status = "Cancelled"
+		todo.save(ignore_permissions=True)
+
+
 def drop_from_batches(lead: str, user: str) -> None:
-	"""`user`'s calls of `lead` that are still waiting in a running batch go."""
+	"""`user`'s calls of `lead` that were never made go: those waiting in a running batch and the
+	overdue ones of ended batches, so the lead leaves their Today's calls and Overdue lists. Calls
+	already made stay (the day's report counts them)."""
 	Batch, Item = frappe.qb.DocType(BATCH), frappe.qb.DocType(ITEM)
 	items = (
 		frappe.qb.from_(Item)
 		.join(Batch)
 		.on(Batch.name == Item.parent)
 		.select(Item.name)
-		.where(
-			(Batch.user == user)
-			& (Batch.status == ACTIVE)
-			& (Item.lead == lead)
-			& (Coalesce(Item.outcome, "") == "")
-		)
+		.where((Batch.user == user) & (Item.lead == lead) & (Coalesce(Item.outcome, "") == ""))
 	).run(pluck=True)
 	if items:
 		frappe.db.delete(ITEM, {"name": ("in", items)})
