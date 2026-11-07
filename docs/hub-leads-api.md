@@ -1,4 +1,4 @@
-# Hub leads API (`tbo_smart.api.hub_leads`), v1.23
+# Hub leads API (`tbo_smart.api.hub_leads`), v1.25
 
 **Status:** built 2026-10-16. The TBO Support hub's lead page (tbocloud/helpdesk) shows and edits
 tboindia's leads through these methods. The leads are ERPNext's own **Lead**
@@ -955,6 +955,40 @@ Changed methods:
 Every change leaves a note on the lead's timeline: "Number added: X by <user>", "Primary changed
 from X to Y by <user>", "X marked Wrong number by <user>", "Number removed: X by <user>".
 
+### 2.25 Calling performance and Lead quality (the overview's analysis)
+
+`get_lead_analysis` (GET; `period?`, `from_date?`, `to_date?`, `owner?`, `acting_user`; `period` and
+the sales scope exactly as `get_overview`: a salesperson sees their own, a head their team, a
+manager everyone; 403 for an `owner` outside it). One response holds every grouping, so the hub's
+switch needs no second request.
+
+```
+{from_date, to_date, min_called,
+ calling: [{user, full_name, given, called, completion, reached, reach_rate, overdue,
+            calls, missed, talk_seconds}],
+ quality: {source|industry|district|department|product:
+           {rows: [{value (null: not set), leads, called, called_rate, reached, reach_rate,
+                    wrong_rate, not_interested_rate, moved_on, moved_rate, won}],
+            best, worst}}}
+```
+
+- **calling**, per person with batches or calls in the range, most `called` first. `given`,
+  `called`, `reached` count the batch items (`is_repeat` = 0) of batches with `batch_date` in the
+  range; `called` has an outcome, `reached` an outcome that is Connected, Call back or Not
+  interested (`ANSWERED`); `completion` is called of given and `reach_rate` reached of called, in
+  %. `overdue` is the items still without an outcome in a batch that has ended (as the managers'
+  report counts them). `calls`, `missed` and `talk_seconds` come from the TBO Call log (`agent`,
+  `started_at` in the range): all calls, those with status Missed, and the sum of `talk_seconds`.
+- **quality** takes the leads **created** in the range (and in scope), grouped by the Lead's
+  source, `industry`, `tbo_district`, `tbo_department` or `tbo_product`; a grouping whose field
+  the site does not have is left out. `called` is leads that have a batch item with an outcome,
+  `reached` those whose item was answered (so `reach_rate` is of the called). `wrong_rate` (stage
+  Wrong Number or `tbo_wrong_number`) and `not_interested_rate` (stage Not Interested) are % of
+  the leads. `moved_on` is leads whose stage log reached First Meeting Completed or later (the
+  funnel's meeting step), `won` those now Closed - Won. Rows are the 50 largest groups.
+  `best` and `worst` name the groups with the highest and lowest `reach_rate` among those with
+  at least `min_called` (10) leads called, else null (also null with fewer than two such groups).
+
 ## 3. Links back to the hub
 
 Teams messages, emails and the morning digest link to the lead page when TBO Smart Settings →
@@ -1012,6 +1046,8 @@ project set-ups saved by managers only.
 
 ## Changelog
 
+- **v1.25 (2026-11-07):** `get_lead_analysis` (§2.25): calling performance per person and lead
+  quality per source, industry, district, department and product, for the overview.
 - **v1.24 (2026-11-06):** contact numbers (§2.24): `lead.numbers` and `can_remove_numbers` on
   `get_lead`; `add_lead_number`, `update_lead_number`, `remove_lead_number`; `number` on `log_call`
   and `record_call_outcome`; `other_numbers` in `get_my_calls`; the duplicate check and number
