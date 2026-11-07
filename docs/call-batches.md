@@ -47,6 +47,9 @@ assignment today by default, and step 1 reads any dated open ToDo as a follow-up
 handed lead would have jumped all later batches from the next day on, ahead of the campaign
 filter. The patch `undated_lead_assignments` cleared the date on the open assignments made before
 ("Pulled into your daily calls", "Assigned to you on Assign leads"); real follow-ups keep theirs.
+Passing no date to the assignment is not enough (the ToDo's `date` defaults to Today on insert), so
+`assign_undated` (`call_batches/__init__.py`) clears it right after; the patch runs again for the
+ToDos dated before that fix.
 
 Steps 3 to 5 need a phone number and follow the campaign filter (the department's campaign, a limit that
 always wins, then the person's focus, §10). A lead is never in two active
