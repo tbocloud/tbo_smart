@@ -6,6 +6,7 @@ from frappe.utils import add_days, add_to_date, get_datetime, getdate, now_datet
 
 from tbo_smart.api import hub_leads as hub
 from tbo_smart.lead_pipeline.statuses import CLOSED_LOST, ON_HOLD
+from tbo_smart.sales.activities import next_follow_ups
 from tbo_smart.sales.call_batches import clock
 from tbo_smart.sales.call_batches.fill import build_batch, campaign_of
 from tbo_smart.sales.call_batches.outcomes import sync_calls
@@ -166,6 +167,11 @@ class TestCallBatches(FrappeTestCase):
 			frappe.db.exists("ToDo", {"reference_type": "Lead", "reference_name": free, "allocated_to": BD})
 		)
 
+	def test_a_pulled_lead_is_not_a_follow_up_due_the_next_day(self):
+		free = self.lead("Calls Pulled", owner=None)
+		self.build()
+		self.assertEqual(next_follow_ups("Lead", [free]), {})
+
 	def test_two_people_never_pull_the_same_lead(self):
 		self.lead("Calls Only One", owner=None)
 		self.assertEqual(len(self.build(BD).items), 1)
@@ -298,6 +304,20 @@ class TestCallBatches(FrappeTestCase):
 		self.record(items[0], "Connected")
 		frappe.set_user(BD)
 		self.assertEqual(get_my_calls()["counts"]["overdue"], 1)
+
+	def test_a_lead_missed_on_several_days_is_overdue_once(self):
+		lead = self.lead("Calls Missed Twice")
+		make_call_batch(BD, DEPARTMENT, [lead], days_ago=2, status="Closed", ends_in_hours=-1)
+		latest = make_call_batch(BD, DEPARTMENT, [lead], days_ago=1, status="Closed", ends_in_hours=-1)
+		frappe.set_user(BD)
+		calls = get_my_calls()
+		self.assertEqual(calls["counts"]["overdue"], 1)
+		self.assertEqual(calls["overdue"][0]["batch"], latest)
+		frappe.set_user("Administrator")
+		self.record(get_batch_items(latest)[0], "Connected")
+		frappe.set_user(BD)
+		# called on its latest day, so the older missed call is not overdue either
+		self.assertEqual(get_my_calls()["counts"]["overdue"], 0)
 
 	def test_the_next_batch_waits_for_pending_calls(self):
 		self.batch_of(2)

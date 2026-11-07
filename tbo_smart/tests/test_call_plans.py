@@ -2,10 +2,11 @@ from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import now_datetime
+from frappe.utils import add_days, getdate, now_datetime
 
 from tbo_smart.api import hub_leads as hub
 from tbo_smart.sales import departments
+from tbo_smart.sales.activities import next_follow_ups
 from tbo_smart.sales.call_batches import clock, daily_cap, focus, handout, plans
 from tbo_smart.sales.call_batches.next_batch import create_next_batch
 from tbo_smart.sales.call_batches.state import CallQueue
@@ -18,6 +19,7 @@ from tbo_smart.test_utils import (
 	make_batch_department,
 	make_call_batch,
 	make_callable_lead,
+	make_lead_task,
 	make_user,
 )
 
@@ -272,6 +274,34 @@ class TestCallPlans(FrappeTestCase):
 		)
 		again = handout.assign_leads(GROWTHX, BD, [lead])
 		self.assertEqual(again["skipped"][0]["name"], lead)
+
+	def test_a_handed_lead_is_not_a_follow_up_due_the_next_day(self):
+		# Frappe dates an assignment today; dated, the lead jumped every later batch as a
+		# follow-up due, whatever the product
+		lead = make_callable_lead(None, "Plan Undated", GROWTHX)
+		handout.assign_leads(GROWTHX, BD, [lead])
+		self.assertIn(BD, self.open_assignees(lead))
+		self.assertEqual(next_follow_ups("Lead", [lead]), {})
+
+	def test_old_dated_assignments_lose_the_date_and_real_follow_ups_keep_it(self):
+		from tbo_smart.patches.v1.undated_lead_assignments import execute
+
+		handed = make_callable_lead(BD, "Plan Old Handed", GROWTHX)
+		followed = make_callable_lead(BD, "Plan Followed Up", GROWTHX)
+		frappe.get_doc(
+			{
+				"doctype": "ToDo",
+				"status": "Open",
+				"allocated_to": BD,
+				"date": add_days(getdate(), -2),
+				"description": handout.HANDED_NOTE,
+				"reference_type": "Lead",
+				"reference_name": handed,
+			}
+		).insert(ignore_permissions=True)
+		make_lead_task(followed, add_days(getdate(), -1), BD)
+		execute()
+		self.assertEqual(next_follow_ups("Lead", [handed, followed]), {followed: add_days(getdate(), -1)})
 
 	def test_unassigning_clears_the_old_owners_overdue_calls_too(self):
 		lead = make_callable_lead(BD, "Plan Overdue", GROWTHX)

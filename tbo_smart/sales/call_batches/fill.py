@@ -32,6 +32,7 @@ from tbo_smart.sales.call_batches import (
 )
 
 PHONE_FIELDS = ("mobile_no", "phone", "whatsapp_no")
+PULLED_NOTE = "Pulled into your daily calls"
 TEMPERATURE_RANK = {"Hot": 0, "Warm": 1}
 
 
@@ -292,7 +293,10 @@ class BatchFiller:
 				"doctype": "Lead",
 				"name": lead,
 				"assigned_by": frappe.session.user,
-				"description": _("Pulled into your daily calls"),
+				"description": _(PULLED_NOTE),
+				# Frappe dates an assignment today by default, and a dated open ToDo reads as a
+				# follow-up due (follow_ups_due): the lead would jump every later batch
+				"date": None,
 			},
 			ignore_permissions=True,
 		)

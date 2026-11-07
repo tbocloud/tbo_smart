@@ -42,6 +42,12 @@ not On Hold) of the department:
    the person (owner and a ToDo assignment). The rows are read `FOR UPDATE SKIP LOCKED`, so two
    people being handed batches at once never get the same lead.
 
+The ToDo assignment a pulled or handed-out lead gets (§12) has **no date**. Frappe dates an
+assignment today by default, and step 1 reads any dated open ToDo as a follow-up due: every
+handed lead would have jumped all later batches from the next day on, ahead of the campaign
+filter. The patch `undated_lead_assignments` cleared the date on the open assignments made before
+("Pulled into your daily calls", "Assigned to you on Assign leads"); real follow-ups keep theirs.
+
 Steps 3 to 5 need a phone number and follow the campaign filter (the department's campaign, a limit that
 always wins, then the person's focus, §10). A lead is never in two active
 batches and never twice on one day. A lead owned by the person but outside any department is not
@@ -80,7 +86,9 @@ for.
 `get_my_calls`: the running batches' counts, the pending, scheduled and overdue calls with a lead
 summary, time left and whether the next batch is allowed. Every call also carries the lead's
 `product`, its `intro_line` and `calling_for` (the product, else the department): "Calling for: PhoebiX". Overdue calls stay for 7 days and are
-never removed; a lead that is back in a running batch is not listed overdue twice.
+never removed; a lead is listed overdue once (its latest missed call), and not at all while it is
+back in a running batch or once it was called on that day or later. The overdue count and the
+`overdue_block_limit` count leads, not missed days.
 
 `get_next_batch` hands out another batch of the current slot (labelled `<slot> +2`, ...) or, between
 slots, the next slot early, only when: no call is pending (retries and call backs that are not yet
