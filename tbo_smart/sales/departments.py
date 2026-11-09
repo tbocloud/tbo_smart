@@ -156,6 +156,22 @@ def can_manage() -> bool:
 	return bool(set(frappe.get_roles()) & MANAGER_ROLES)
 
 
+def is_head(department: str | None) -> bool:
+	"""The session user heads `department`."""
+	return bool(
+		department
+		and frappe.db.exists(
+			DEPARTMENT_USER,
+			{
+				"parent": department,
+				"parenttype": DEPARTMENT,
+				"parentfield": "heads",
+				"user": frappe.session.user,
+			},
+		)
+	)
+
+
 def save_department(values: dict, name: str | None = None) -> dict:
 	"""Create (no `name`) or update a department from `values` (department_name, lead_type,
 	is_active, assignment, stale_after_days, heads and members as lists of users, products as a

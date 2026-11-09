@@ -2,6 +2,7 @@
 
 Leads arrive with one number. On a call the person often gives another (the decision-maker's, the
 office's). A lead keeps all of them; nothing is overwritten. API: `hub-leads-api.md` §2.24.
+Merging two duplicate leads copies the merged lead's numbers onto the kept one (§2.26).
 
 ## How to use (for telecallers and BDs)
 

@@ -114,20 +114,7 @@ def validate_products(department) -> None:
 
 def can_change(department: str | None) -> bool:
 	"""System Manager, Sales Manager, or a head of the department."""
-	if departments.can_manage():
-		return True
-	return bool(
-		department
-		and frappe.db.exists(
-			departments.DEPARTMENT_USER,
-			{
-				"parent": department,
-				"parenttype": departments.DEPARTMENT,
-				"parentfield": "heads",
-				"user": frappe.session.user,
-			},
-		)
-	)
+	return departments.can_manage() or departments.is_head(department)
 
 
 def require_can_change(department: str | None) -> None:
