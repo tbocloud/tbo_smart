@@ -39,6 +39,7 @@ from tbo_smart.prospecting import runs as prospect_runs
 from tbo_smart.prospecting import signals as prospect_signals
 from tbo_smart.query import aggregate
 from tbo_smart.sales import departments, duplicates, erpnext_installed, numbers, products, stale
+from tbo_smart.sales import merge as lead_merge
 from tbo_smart.sales.activities import (
 	OPEN,
 	add_follow_up_task,
@@ -737,6 +738,7 @@ def lead_payload(name: str) -> dict:
 	lead.can_call = can_call()
 	lead.numbers = numbers.numbers_of(name)
 	lead.can_remove_numbers = numbers.can_remove()
+	lead.can_merge = lead_merge.can_merge(lead.tbo_department)
 	quotations = lead_quotations(name, QUOTATION_FIELDS)
 	proposals = lead_proposals(name) if proposals_enabled() else []
 	return {
@@ -1252,6 +1254,24 @@ def find_duplicate_leads(
 	an enquiry a colleague already has."""
 	with acting_as(acting_user):
 		return duplicates.find_duplicates(email, phone, company, exclude)
+
+
+@frappe.whitelist()
+def get_merge_preview(first: str, second: str, acting_user: str | None = None) -> dict:
+	"""{leads: [Summary, Summary]} for the merge dialog (docs/hub-leads-api.md §2.26): each lead's name,
+	company, email, main number, stage, owner, creation, numbers, `new_numbers` (how many of them the
+	other lead lacks) and `counts` of what sits on it. Same people as `merge_leads`."""
+	with acting_as(acting_user):
+		return lead_merge.preview(first, second)
+
+
+@frappe.whitelist(methods=["POST"])
+def merge_leads(keep: str, merge: str, acting_user: str | None = None) -> dict:
+	"""Merge lead `merge` into `keep`: its numbers, empty fields and everything linked move to
+	`keep`, and `merge` is deleted. A manager, or the head of the leads' department. Returns the
+	kept lead as get_lead does."""
+	with acting_as(acting_user):
+		return lead_payload(lead_merge.merge_leads(keep, merge))
 
 
 @frappe.whitelist()

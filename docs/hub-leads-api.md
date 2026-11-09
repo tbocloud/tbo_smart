@@ -1,4 +1,4 @@
-# Hub leads API (`tbo_smart.api.hub_leads`), v1.25
+# Hub leads API (`tbo_smart.api.hub_leads`), v1.26
 
 **Status:** built 2026-10-16. The TBO Support hub's lead page (tbocloud/helpdesk) shows and edits
 tboindia's leads through these methods. The leads are ERPNext's own **Lead**
@@ -53,6 +53,8 @@ curl -s -X POST https://india.teambackoffice.com/api/method/tbo_smart.api.hub_le
 | `get_category_counts` | GET | `acting_user` | `{industry, state, district, org_size, last_call_result}`, each `{value: leads}` (§2.14, §2.16) |
 | `add_industry` | POST | `name`, `acting_user` | `{name, created}` (§2.14) |
 | `bulk_set_lead_category` | POST | `leads` (list of names), `values`, `acting_user` | `{updated, skipped: [{name, reason}]}` (§2.14) |
+| `get_merge_preview` | GET | `first`, `second` (lead names), `acting_user` | `{leads: [Summary, Summary]}` (§2.26) |
+| `merge_leads` | POST | `keep`, `merge` (lead names), `acting_user` | as `get_lead`, for `keep` (§2.26) |
 | `get_stale_leads` | GET | `days` (3), `acting_user` | `[Stale]` (§2.10) |
 | `update_lead` | POST | `name`, `data`, `acting_user` | as `get_lead` |
 | `get_lead_photos` | GET | `lead`, `acting_user` | `[Photo]` (§2.11), newest first |
@@ -989,6 +991,39 @@ switch needs no second request.
   `best` and `worst` name the groups with the highest and lowest `reach_rate` among those with
   at least `min_called` (10) leads called, else null (also null with fewer than two such groups).
 
+### 2.26 Merging duplicate leads
+
+Two leads that are the same enquiry become one. `get_lead`'s lead has `can_merge` (1 for a Sales
+Manager, System Manager or a head of the lead's department): the hub shows **Merge** only then.
+
+```
+Summary = {name, lead_name, company_name, email_id, mobile_no, tbo_stage, lead_owner, owner_name,
+  creation, numbers: [Number] (§2.24), new_numbers (numbers the other lead lacks),
+  counts: {notes, calls, follow_ups, meetings, proposals, quotations, deals, files}}
+```
+
+- `get_merge_preview(first, second)` returns both summaries, for the dialog. `merge_leads(keep,
+  merge)` merges `merge` into `keep` and returns `keep` as `get_lead` does. Both need write on both
+  leads. 417 for the same lead twice; 403 when the acting user is not a manager nor the head of
+  `keep`'s department, or when the leads are in different departments (a manager may; `keep`'s
+  department stays).
+- **Moves to `keep`:** the merged lead's numbers `keep` lacks (by digits; not primary, with their
+  status, label, person and who added them), its values for fields `keep` has empty (company,
+  email, phone, WhatsApp, job title, website, territory, industry, city, state, country,
+  customer, organisation size, revenue, district, segment, place fields, source), unsubscribed
+  (carried: an opt-out is never lost) and its later last call and last reply. Never overwritten:
+  anything `keep` already has; its owner, department, product and stage.
+- **Re-pointed by Frappe's merge-rename:** every Link and Dynamic Link to the lead, in child tables
+  too (call batch items, event participants, deal and quotation parties, `tbo_lead`), notes,
+  communications, files, follow-ups (ToDos), assignments, versions and TBO calls, meetings,
+  proposals, outreach messages, commission records. The copied lead name on meetings, proposals,
+  outreach messages and triage rows is refreshed.
+- **Does not move:** the merged lead's stage history (its own timeline of stage changes) and its
+  chat ids; a call batch holding both leads keeps two items. A deal on each lead leaves two
+  deals on `keep`.
+- `keep`'s timeline gets "Merged LD-… (Ashraf, Amana UAE) into this lead by <user>. 12 notes,
+  4 calls, …". All in one transaction.
+
 ## 3. Links back to the hub
 
 Teams messages, emails and the morning digest link to the lead page when TBO Smart Settings →
@@ -1046,6 +1081,8 @@ project set-ups saved by managers only.
 
 ## Changelog
 
+- **v1.26 (2026-11-09):** merging duplicate leads (§2.26): `get_merge_preview`, `merge_leads`;
+  `can_merge` on `get_lead`'s lead.
 - **v1.25 (2026-11-07):** `get_lead_analysis` (§2.25): calling performance per person and lead
   quality per source, industry, district, department and product, for the overview.
 - **v1.24 (2026-11-06):** contact numbers (§2.24): `lead.numbers` and `can_remove_numbers` on

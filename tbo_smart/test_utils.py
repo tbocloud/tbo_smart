@@ -1086,6 +1086,23 @@ def make_lead_email(lead: str, subject: str, content: str, received: bool = True
 	return email.name
 
 
+def make_lead_quotation(lead: str) -> str:
+	"""A draft Quotation made out to a lead (`quotation_to` Lead), inserted as Administrator."""
+	quotation = frappe.get_doc(
+		{
+			"doctype": "Quotation",
+			"quotation_to": "Lead",
+			"party_name": lead,
+			"company": erpnext.get_default_company(),
+			"transaction_date": nowdate(),
+			"valid_till": add_days(nowdate(), 30),
+			"items": [{"item_code": make_quotation_item(), "qty": 1, "rate": 1000}],
+		}
+	)
+	quotation.insert(ignore_permissions=True)
+	return quotation.name
+
+
 def make_migration_note(lead: str, old_id: str = "CRM-LEAD-2025-00001", **fields) -> str:
 	"""The note the 2026-10-14 migration left on a lead, as the cutover copies it (a Comment
 	starting with its title): "Label: value" lines for status, source, owner, created, remarks,
