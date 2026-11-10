@@ -202,10 +202,10 @@ class TestLeadMirrorFeed(FrappeTestCase):
 		first = self.feed(limit=1)
 		self.assertEqual([row["lead"] for row in first["changes"]], [self.mine])
 		self.assertTrue(first["more"])
-		second = self.feed(since=first["next_since"], limit=1)
+		second = self.feed(since=str(first["next_since"]), limit=1)
 		self.assertEqual([row["lead"] for row in second["changes"]], [self.theirs])
 		self.assertFalse(second["more"])
-		self.assertEqual(self.feed(since=second["next_since"])["changes"], [])
+		self.assertEqual(self.feed(since=str(second["next_since"]))["changes"], [])
 
 	def test_only_the_integration_user_may_read_the_mirror_methods(self):
 		calls = (
