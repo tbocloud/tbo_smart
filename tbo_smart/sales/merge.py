@@ -184,6 +184,9 @@ def fill_empty_fields(kept, merged) -> None:
 	for field in (*FILL_FIELDS, lead_source.field()):
 		if not kept.get(field) and merged.get(field):
 			kept.set(field, merged.get(field))
+	if kept.email_id == merged.email_id:
+		# ERPNext refuses an email another lead has; the merged lead is deleted anyway
+		frappe.db.set_value(LEAD, merged.name, "email_id", None, update_modified=False)
 	if cint(merged.unsubscribed):
 		kept.unsubscribed = 1
 	for when, what in LATEST_PAIRS:
