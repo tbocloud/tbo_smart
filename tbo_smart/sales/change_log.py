@@ -9,6 +9,7 @@ Rows older than 30 days are deleted daily; the feed is only for catching up.
 """
 
 import frappe
+from frappe.query_builder.functions import Max
 from frappe.utils import add_days, now_datetime
 
 from tbo_smart.sales import LEAD
@@ -133,7 +134,7 @@ def changes_since(since: str | None, limit: int) -> dict:
 	`deleted` is a hint (the lead's own delete was its last change); the bulk read is what
 	says a lead is gone."""
 	Change = frappe.qb.DocType(DOCTYPE)
-	latest = Change.at.max()
+	latest = Max(Change.at)
 	rows = (
 		frappe.qb.from_(Change)
 		.select(Change.lead, latest.as_("at"))
@@ -149,7 +150,7 @@ def changes_since(since: str | None, limit: int) -> dict:
 		removed = dict(
 			(
 				frappe.qb.from_(Change)
-				.select(Change.lead, Change.at.max())
+				.select(Change.lead, Max(Change.at))
 				.where((Change.change_type == "Deleted") & Change.lead.isin([row.lead for row in rows]))
 				.groupby(Change.lead)
 			).run()
