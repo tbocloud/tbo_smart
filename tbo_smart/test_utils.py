@@ -3556,3 +3556,37 @@ def delete_lead_bank_records() -> None:
 	delete_leads_matching(email_id=("like", f"%@{LEAD_BANK_EMAIL_DOMAIN}"))
 	frappe.db.delete("Notification Log", {"subject": ("like", "A Lead Bank lead%")})
 	delete_commission_records()
+
+
+# ---------- The hub's lead mirror (docs/hub-leads-api.md §2.32) ----------
+
+
+def commit_lead_changes() -> None:
+	"""Commit, which is when the change feed writes its rows (Frappe runs after-commit callbacks
+	only on a real commit)."""
+	frappe.db.commit()  # nosemgrep
+
+
+def reset_lead_changes() -> None:
+	"""Commit what is pending, then empty the change feed and commit, so a test starts from none."""
+	commit_lead_changes()
+	frappe.db.delete("TBO Lead Change")
+	commit_lead_changes()
+
+
+def get_lead_change_types(lead: str) -> list[str]:
+	"""The change types logged for `lead`, oldest first."""
+	return frappe.get_all("TBO Lead Change", filters={"lead": lead}, pluck="change_type", order_by="at asc")
+
+
+def lead_visible_in_scope(scope: dict, entry: dict) -> bool:
+	"""The hub's rule for showing a `get_leads_bulk` entry to a person with their
+	`get_mirror_scopes` scope: everything, or the owner or an assignee in their team, or the
+	lead's department among those they head."""
+	team = set(scope["team"])
+	return bool(
+		scope["all"]
+		or entry["owner"] in team
+		or team & set(entry["assignees"])
+		or (entry["department"] and entry["department"] in scope["departments"])
+	)
