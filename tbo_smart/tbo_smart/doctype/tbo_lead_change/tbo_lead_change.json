@@ -1,0 +1,60 @@
+{
+ "actions": [],
+ "autoname": "hash",
+ "creation": "2026-11-10 12:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "lead",
+  "change_type",
+  "at"
+ ],
+ "fields": [
+  {
+   "fieldname": "lead",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Lead",
+   "read_only": 1,
+   "search_index": 1,
+   "description": "The lead's name as it was when it changed; a deleted or merged lead is no longer a Lead."
+  },
+  {
+   "fieldname": "change_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Change",
+   "options": "Lead\nNote\nCall\nEvent\nFollow-up\nFile\nBatch\nQuotation\nProposal\nMeeting\nDeal\nDeleted",
+   "read_only": 1
+  },
+  {
+   "fieldname": "at",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "At",
+   "read_only": 1,
+   "search_index": 1,
+   "description": "When the change was committed. The hub reads the feed in this order (docs/hub-leads-api.md §2.32)."
+  }
+ ],
+ "in_create": 1,
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-11-10 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tbo Smart",
+ "name": "TBO Lead Change",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "delete": 1,
+   "read": 1,
+   "role": "System Manager"
+  }
+ ],
+ "sort_field": "at",
+ "sort_order": "DESC",
+ "states": []
+}

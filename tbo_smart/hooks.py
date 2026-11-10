@@ -159,20 +159,24 @@ doc_events = {
 			"tbo_smart.quotation_control.on_update",
 			"tbo_smart.finance.stage.stage_changed",
 			"tbo_smart.lead_pipeline.quotations.quotation_changed",
+			"tbo_smart.sales.change_log.activity_changed",
 		],
 		"on_submit": [
 			"tbo_smart.quotation_control.on_submit",
 			"tbo_smart.finance.stage.stage_changed",
 			"tbo_smart.lead_pipeline.quotations.quotation_changed",
+			"tbo_smart.sales.change_log.activity_changed",
 		],
-		"on_cancel": "tbo_smart.finance.stage.stage_changed",
-		"on_trash": "tbo_smart.finance.stage.stage_changed",
+		"on_cancel": ["tbo_smart.finance.stage.stage_changed", "tbo_smart.sales.change_log.activity_changed"],
+		"on_trash": ["tbo_smart.finance.stage.stage_changed", "tbo_smart.sales.change_log.activity_changed"],
 	},
 	# Finance workflow Phase 1 (docs/crm-finance-workflow.md); every hook no-ops while it is off
 	# The deal: its stage history, won/lost day and ERPNext's Lost status (docs/erpnext-lead-cutover.md)
 	"Opportunity": {
 		"before_insert": "tbo_smart.finance.stage.default_company",
 		"validate": ["tbo_smart.sales.remember_lead", "tbo_smart.sales.opportunity.validate_opportunity"],
+		"on_update": "tbo_smart.sales.change_log.activity_changed",
+		"on_trash": "tbo_smart.sales.change_log.activity_changed",
 	},
 	"Sales Order": {
 		"validate": "tbo_smart.finance.documents.validate",
@@ -221,19 +225,47 @@ doc_events = {
 			"tbo_smart.smart_leads.scoring.lead_changed",
 			"tbo_smart.lead_pipeline.won.lead_updated",
 			"tbo_smart.smart_leads.autopilot.lead_changed",
+			"tbo_smart.sales.change_log.lead_saved",
 		],
+		# the hub's local copy follows every change, delete and merge (docs/lead-mirror.md)
+		"on_trash": "tbo_smart.sales.change_log.lead_deleted",
+		"after_rename": "tbo_smart.sales.change_log.lead_renamed",
 	},
 	"Comment": {
 		"after_insert": [
 			"tbo_smart.smart_leads.scoring.activity_changed",
 			"tbo_smart.smart_leads.autopilot.activity_changed",
-		]
+		],
+		"on_update": "tbo_smart.sales.change_log.activity_changed",
+		"on_trash": "tbo_smart.sales.change_log.activity_changed",
 	},
 	"Event": {
 		"after_insert": [
 			"tbo_smart.smart_leads.scoring.activity_changed",
 			"tbo_smart.smart_leads.autopilot.activity_changed",
-		]
+		],
+		"on_update": "tbo_smart.sales.change_log.activity_changed",
+		"on_trash": "tbo_smart.sales.change_log.activity_changed",
+	},
+	"File": {
+		"on_update": "tbo_smart.sales.change_log.activity_changed",
+		"on_trash": "tbo_smart.sales.change_log.activity_changed",
+	},
+	"TBO Call": {
+		"on_update": "tbo_smart.sales.change_log.activity_changed",
+		"on_trash": "tbo_smart.sales.change_log.activity_changed",
+	},
+	"TBO Call Batch": {
+		"on_update": "tbo_smart.sales.change_log.activity_changed",
+		"on_trash": "tbo_smart.sales.change_log.activity_changed",
+	},
+	"TBO Proposal": {
+		"on_update": "tbo_smart.sales.change_log.activity_changed",
+		"on_trash": "tbo_smart.sales.change_log.activity_changed",
+	},
+	"TBO Lead Meeting": {
+		"on_update": "tbo_smart.sales.change_log.activity_changed",
+		"on_trash": "tbo_smart.sales.change_log.activity_changed",
 	},
 	# BCC logging puts the mail on its lead first, so the AI autopilot reads the lead's email
 	"Communication": {
@@ -244,7 +276,13 @@ doc_events = {
 			"tbo_smart.outreach.replies.on_communication",
 		]
 	},
-	"ToDo": {"on_update": "tbo_smart.smart_leads.scoring.activity_changed"},
+	"ToDo": {
+		"on_update": [
+			"tbo_smart.smart_leads.scoring.activity_changed",
+			"tbo_smart.sales.change_log.activity_changed",
+		],
+		"on_trash": "tbo_smart.sales.change_log.activity_changed",
+	},
 	# Lead quotations: an approval request or decision changes the quotation's draft state
 	"TBO Quotation Adjustment": {"on_update": "tbo_smart.lead_pipeline.quotations.adjustment_changed"},
 	"Bank Transaction": {
@@ -274,6 +312,8 @@ scheduler_events = {
 		"tbo_smart.lead_pipeline.proposals.expire_proposals",
 		# Telephony: recordings and transcripts past their retention (docs/telephony-myoperator.md)
 		"tbo_smart.telephony.calls.purge_old_recordings",
+		# the hub's lead change feed keeps 30 days (docs/hub-leads-api.md §2.32)
+		"tbo_smart.sales.change_log.prune",
 	],
 	"cron": {
 		# Phase 2 (receivables): digest at 08:00, reminders at 09:00, site time

@@ -1,4 +1,4 @@
-# Hub leads API (`tbo_smart.api.hub_leads`), v1.26
+# Hub leads API (`tbo_smart.api.hub_leads`), v1.27
 
 **Status:** built 2026-10-16. The TBO Support hub's lead page (tbocloud/helpdesk) shows and edits
 tboindia's leads through these methods. The leads are ERPNext's own **Lead**
@@ -1024,6 +1024,49 @@ Summary = {name, lead_name, company_name, email_id, mobile_no, tbo_stage, lead_o
 - `keep`'s timeline gets "Merged LD-… (Ashraf, Amana UAE) into this lead by <user>. 12 notes,
   4 calls, …". All in one transaction.
 
+### 2.32 The change feed and bulk read for the hub's lead mirror (`tbo_smart.api.hub_lead_mirror`)
+
+The ERP stays the master of every lead. The hub keeps a read-only copy (hub `docs/lead-mirror.md`)
+and keeps it current from these four methods. **Only the integration user** may call them (403
+for anyone else, a Sales Manager and System Manager included); they take no `acting_user`,
+read and write nothing, and answer for every lead whatever the caller's own scope, because the
+hub filters its copy per person afterwards (below).
+
+**The change log.** `TBO Lead Change` (lead, change_type, at) gets one row, written **after the
+transaction commits** (a rolled-back save leaves none; a failure to write is logged and never
+breaks the save), whenever something the hub shows of a lead changes: `Lead` (its fields,
+numbers and stage log, on insert and update), `Note` (a Comment of type Comment), `Call` (a TBO
+Call, or a call Event), `Event` (other Events with the lead as participant), `Follow-up` (a ToDo,
+which is also an assignment), `File`, `Batch` (a TBO Call Batch holding the lead), `Quotation`,
+`Proposal`, `Meeting`, `Deal` (the Opportunity's `tbo_lead`) and `Deleted` (the lead was deleted;
+a rename or merge logs the old name as `Deleted` and the new name as `Lead`). Rows older than 30
+days are deleted daily. Not logged: emails (Communication) and WhatsApp messages: the hub's
+nightly comparison and opening a lead pick those up.
+
+| Method | HTTP | Arguments → answer |
+| --- | --- | --- |
+| `get_lead_changes` | GET | `since?` (a datetime, the `next_since` of the page before; none: from the start), `limit?` (default 500, at most 1000) → `{changes: [{lead, at, deleted}], next_since, more, now}`: each lead changed after `since` **once**, with the time of its latest change, oldest first. Ask again from `next_since` while `more`. `deleted` is a hint (the lead's own delete was its last change); a lead that is not found by `get_leads_bulk` is gone whatever `deleted` says. `at` is the ERP's clock; keep the hub's `since` a little (a minute) behind the last `next_since` so a change committed out of order is still read; reading a lead twice is harmless |
+| `get_lead_index` | GET | `after?` (the last name of the page before), `limit?` (default 1000, at most 2000) → `{leads: [{name, modified}], next_after, more, total, now}`: every lead by name; `total` (the count of all leads) on the first page only. For the hub's first copy and its nightly comparison |
+| `get_leads_bulk` | GET/POST | `names` (a list, or a JSON list; at most 100, else 417) → `{leads: [{name, row, payload, owner, assignees, department, modified}], missing: [name], errors: {name: why}}`. `row` is the list row (`list_leads`), `payload` is `get_lead`'s answer without what is about the person asking (`lead.can_write`, `can_call`, `can_remove_numbers`, `can_merge` and `allowed_stages`: the hub works those out for the person), `owner` is the lead owner, `assignees` the users of its ToDos that are not cancelled (open or closed), `department` its lead department. `missing`: not leads (deleted or merged away). `errors`: leads that could not be read; the rest still come back |
+| `get_mirror_scopes` | GET | → `{scopes: {user: {all, team, departments}}, now}` for every enabled System User with a sales role who is not an integration user (the people the hub may name): `all` when they see every lead (System Manager, Administrator, a Sales Manager outside the sales hierarchy); else `team` (themselves, and everyone below them while they are in the sales hierarchy) and `departments` (the active lead departments they head) |
+
+**Who sees a lead.** Whether a person sees a lead is TBO's rule in `tbo_smart.sales.permissions`
+(owner or assignee in the person's team, or a head of the lead's department, or everything).
+A list of users per lead would go stale whenever a team or a department head changes, because the
+lead itself did not change, so the lead carries its own facts (`owner`, `assignees`, `department`)
+and the people's scopes travel apart (`get_mirror_scopes`); the hub's rule is exactly:
+
+```
+visible = scope.all
+       or lead.owner in scope.team
+       or any(a in scope.team for a in lead.assignees)
+       or (lead.department and lead.department in scope.departments)
+```
+
+`tests/test_lead_mirror_feed.py` checks this against `frappe.has_permission("Lead", "read",
+lead, user=…)` for a salesperson, one in the hierarchy, a team leader, a department head and a
+Sales Manager, over owned, assigned and department leads.
+
 ## 3. Links back to the hub
 
 Teams messages, emails and the morning digest link to the lead page when TBO Smart Settings →
@@ -1056,6 +1099,12 @@ delete.
 filters (single, several, JSON), rows and `get_lead`, cleaning on create and update, refusals,
 `add_industry` (idempotent, managers only), `bulk_set_lead_category` and the counts.
 
+`tbo_smart/tests/test_lead_mirror_feed.py`: a change row for each kind of change, none for a
+rolled-back save or an unrelated record, a failed write never breaking the save, deletes and
+merges, the 30-day prune; the feed (each lead once, in order, paging); the index; the bulk read
+(row, payload, owner, assignees, department, missing, the 100-name limit); the scopes against the
+ERP's own permission; integration user only.
+
 `tbo_smart/tests/test_lead_wave1.py`: see `lead-departments.md` §9.
 
 `tbo_smart/tests/test_prospecting.py`: see `prospecting.md` §9.
@@ -1081,6 +1130,8 @@ project set-ups saved by managers only.
 
 ## Changelog
 
+- **v1.27 (2026-11-10):** the lead mirror's change feed (§2.32): `TBO Lead Change`,
+  `get_lead_changes`, `get_lead_index`, `get_leads_bulk`, `get_mirror_scopes` (integration user only).
 - **v1.26 (2026-11-09):** merging duplicate leads (§2.26): `get_merge_preview`, `merge_leads`;
   `can_merge` on `get_lead`'s lead.
 - **v1.25 (2026-11-07):** `get_lead_analysis` (§2.25): calling performance per person and lead

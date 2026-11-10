@@ -192,6 +192,21 @@ def integration_role() -> str:
 	return setting("hub_integration_role") or HUB_ROLE
 
 
+def hub_user_problem(user: str) -> str | None:
+	"""Why `user` may not be acted for (not an enabled System User with a sales role, or an
+	integration user), or None when they are a person the hub may name."""
+	row = frappe.db.get_value("User", user, ["name", "enabled", "user_type"], as_dict=True)
+	if not row or not row.enabled or row.user_type != "System User":
+		return _("{0} is not an enabled user here.").format(user)
+	roles = set(frappe.get_roles(row.name))
+	if not roles & (CRM_ROLES | {MANAGEMENT_ROLE}):
+		return _("{0} has no sales role here.").format(user)
+	if integration_role() in roles:
+		# a call must be a person's, never the integration user's own wider view
+		return _("{0} is an integration user, not a person.").format(user)
+	return None
+
+
 def resolve_acting_user(acting_user: str | None) -> str:
 	"""The user the call runs as. The integration user must name a hub user; anyone else acts as
 	themselves (naming yourself is allowed)."""
@@ -206,18 +221,9 @@ def resolve_acting_user(acting_user: str | None) -> str:
 		return caller
 	if not acting_user:
 		frappe.throw(_("Name the hub user this call is for (acting_user)."), frappe.PermissionError)
-	user = frappe.db.get_value("User", acting_user, ["name", "enabled", "user_type"], as_dict=True)
-	if not user or not user.enabled or user.user_type != "System User":
-		frappe.throw(_("{0} is not an enabled user here.").format(acting_user), frappe.PermissionError)
-	roles = set(frappe.get_roles(user.name))
-	if not roles & (CRM_ROLES | {MANAGEMENT_ROLE}):
-		frappe.throw(_("{0} has no sales role here.").format(acting_user), frappe.PermissionError)
-	if integration_role() in roles:
-		# a call must be a person's, never the integration user's own wider view
-		frappe.throw(
-			_("{0} is an integration user, not a person.").format(acting_user), frappe.PermissionError
-		)
-	return user.name
+	if problem := hub_user_problem(acting_user):
+		frappe.throw(problem, frappe.PermissionError)
+	return frappe.db.get_value("User", acting_user, "name")
 
 
 @contextmanager
