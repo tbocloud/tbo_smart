@@ -591,7 +591,7 @@ Writes are normal inserts and saves under the session user.
 | Method | Verb | Params | Returns |
 | --- | --- | --- | --- |
 | `get_options` | GET | – | `{lead_sources[], lead_statuses[{name,type}], deal_stages[{name,type,probability}], lost_reasons[]}` |
-| `get_leads` | GET | `status?`, `scope?` (§4.1), `search?`, `include_converted?` (default false), `source?`, `temperature?` (Hot / Warm / Cold), `metric?` with `period?` and `owner?` (§6.5), `page`, `page_length` | page of Lead |
+| `get_leads` | GET | `status?`, `scope?` (§4.1; `mine` is the leads I own or created), `search?`, `include_converted?` (default false), `source?`, `temperature?` (Hot / Warm / Cold), `metric?` with `period?` and `owner?` (§6.5), `created_by_me?` (only the leads I created, owned by anyone: I read them, never change them), `called?` (called at least once, last called first) with `called_from?` / `called_to?` (last called in those days), `page`, `page_length` | page of Lead |
 | `get_lead` | GET | `name` | Lead plus `notes[]`, `tasks[]`, `activities[]` |
 | `create_lead` | POST | `lead_name`, `organization?`, `email?`, `mobile_no?`, `source?`, `note?`, and for lead capture (§6.2) `follow_up_on?`, `follow_up_note?`, `assign_to?`, `source_channel?`, `card_image?`, `force?` | the new Lead (owner = me), as `get_lead`. Possible duplicates without `force`: 409 `DuplicateLead` |
 | `check_duplicates` | GET | `phone?`, `email?`, `organization?` | `{data: {matches: [Match]}}` (§6.2) |
@@ -612,7 +612,8 @@ Writes are normal inserts and saves under the session user.
 
 - **Lead** rows carry `score` (0-100, 0 when never scored) and `temperature` (`Hot` / `Warm` /
   `Cold`, or an empty string when never scored) since v1.10, from smart leads' scoring
-  (`smart-leads.md`).
+  (`smart-leads.md`), and `call_count` (calls the lead has had) and `created_by_me` (I created it
+  and someone else owns it now: read only for me).
 - **Records behind the methods (v1.9):**
   - `convert_lead` makes the deal with ERPNext's own Lead → Opportunity mapper
     (`lead_pipeline.won.convert_lead`), after a write-permission check; a lead with a deal
