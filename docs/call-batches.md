@@ -101,7 +101,7 @@ queue is read or a batch asked for.
 **Counts** (Today's calls and the report): `size` and `called` are the batch's own items (retries,
 call backs and called-back items are not counted again); a lead is `connected` when **any** call of
 it in the batch was answered, so Not answered followed by a Connected retry, call back or the
-customer calling back counts connected (`state.reached_leads`).
+customer calling back counts connected (`state.reached_leads`). The same goes for the day's total on Today's calls (*Today: 99 of 100 called, 50 contacted*): it is counted over the day's items with their retries and call backs (`CallQueue.today(repeats=True)`), as the report is.
 
 ## 6. Reading and the next batch
 

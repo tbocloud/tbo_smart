@@ -149,7 +149,8 @@ def get_my_calls() -> dict:
 		if newest
 		else None,
 		"counts": counts,
-		"today": queue.totals(queue.today()),
+		# the retries too: a lead not answered first and reached on its retry counts contacted
+		"today": queue.totals(queue.today(repeats=True)),
 		"pending": [serialize_row(row, summaries, calling) for row in queue.pending],
 		"scheduled": [serialize_row(row, summaries, calling) for row in queue.scheduled],
 		"overdue": [serialize_row(row, summaries, calling) for row in queue.overdue],
