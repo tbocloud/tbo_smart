@@ -40,14 +40,18 @@ def campaign_of(
 	department, request: dict | None = None, focus: dict | None = None, user: str | None = None
 ) -> dict:
 	"""{industry, state, district, product} to narrow new leads to. The department's own campaign
-	is a limit set by a manager and always wins; then the product of `user`'s call plan (also a
-	manager's, §11); where they leave a key open the request's value is used, else the person's
+	is a limit set by a manager and always wins; then the product and industry of `user`'s call
+	plan (also a manager's, §11); where they leave a key open the request's value is used, else the person's
 	focus (when it is for this department)."""
-	from tbo_smart.sales.call_batches.plans import plan_product
+	from tbo_smart.sales.call_batches.plans import plan_industry, plan_product
 
 	request = request or {}
 	chosen = (focus or {}) if (focus or {}).get("department") == department.name else {}
-	planned = {"product": plan_product(department, user)} if user else {}
+	planned = (
+		{"product": plan_product(department, user), "industry": plan_industry(department, user)}
+		if user
+		else {}
+	)
 	return {
 		key: (
 			department.get(f"campaign_{key}") or planned.get(key) or request.get(key) or chosen.get(key) or ""

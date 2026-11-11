@@ -40,7 +40,14 @@ def sizes_of(row) -> dict[str, int]:
 
 def has_plan(department, user: str) -> bool:
 	row = member_row(department, user)
-	return bool(row and (sizes_of(row) or (row.get("call_product") or "").strip()))
+	return bool(
+		row
+		and (
+			sizes_of(row)
+			or (row.get("call_product") or "").strip()
+			or (row.get("call_industry") or "").strip()
+		)
+	)
 
 
 def slot_size(department, user: str, slot) -> int:
@@ -63,6 +70,13 @@ def plan_product(department, user: str) -> str:
 	row = member_row(department, user)
 	wanted = (row.get("call_product") or "").strip() if row else ""
 	return products.find(department.name, wanted) or ""
+
+
+def plan_industry(department, user: str) -> str:
+	"""The industry the member's plan calls for (a department without products plans by
+	industry); "" for any."""
+	row = member_row(department, user)
+	return (row.get("call_industry") or "").strip() if row else ""
 
 
 # ---------- the managers' page ----------
@@ -140,6 +154,52 @@ def handed_today(department: str, day) -> dict[str, dict]:
 	return counts
 
 
+def department_industries(department: str) -> list[str]:
+	"""The industries the department's open leads are in, by name."""
+	from tbo_smart.sales import stale
+
+	Lead = frappe.qb.DocType("Lead")
+	return [
+		industry
+		for (industry,) in (
+			frappe.qb.from_(Lead)
+			.select(Lead.industry)
+			.distinct()
+			.where(
+				(Lead.tbo_department == department)
+				& Lead.tbo_stage.isin(list(stale.STALE_STAGES))
+				& (Coalesce(Lead.industry, "") != "")
+			)
+			.orderby(Lead.industry)
+		).run()
+	]
+
+
+def unassigned_by_industry(department: str) -> dict[str, int]:
+	"""{industry ("" for none): open unassigned leads with a phone} in the department."""
+	from tbo_smart.sales import stale
+
+	Lead = frappe.qb.DocType("Lead")
+	counts: dict[str, int] = {}
+	for (industry,) in (
+		frappe.qb.from_(Lead)
+		.select(Lead.industry)
+		.where(
+			(Lead.tbo_department == department)
+			& (Lead.lead_owner.isnull() | (Lead.lead_owner == ""))
+			& Lead.tbo_stage.isin(list(stale.STALE_STAGES))
+			& (
+				(Coalesce(Lead.mobile_no, "") != "")
+				| (Coalesce(Lead.phone, "") != "")
+				| (Coalesce(Lead.whatsapp_no, "") != "")
+			)
+		)
+	).run():
+		key = (industry or "").strip()
+		counts[key] = counts.get(key, 0) + 1
+	return counts
+
+
 def unassigned_by_product(department: str) -> dict[str, int]:
 	"""{product ("" for none): open unassigned leads with a phone} in the department: what the
 	batches can still pull."""
@@ -189,6 +249,7 @@ def serialize(department, day) -> dict:
 				"user": row.user,
 				"full_name": row.full_name or frappe.utils.get_fullname(row.user),
 				"product": plan_product(department, row.user) or None,
+				"industry": plan_industry(department, row.user) or None,
 				"sizes": {slot["label"]: sizes.get(slot["label"], slot["size"]) for slot in slots},
 				"total": sum(sizes.get(slot["label"], slot["size"]) for slot in slots),
 				"has_plan": has_plan(department, row.user),
@@ -206,6 +267,9 @@ def serialize(department, day) -> dict:
 		"campaign_product": department.campaign_product or None,
 		"pull_unassigned": cint(department.pull_unassigned),
 		"unassigned": unassigned_by_product(department.name),
+		# a department without products plans by industry: what it has, and what waits
+		"industries": department_industries(department.name),
+		"unassigned_industries": unassigned_by_industry(department.name),
 		"members": members,
 		# when the members nobody handed leads to are topped up automatically (§14)
 		"auto_assign": auto_assign_rules(department),
@@ -218,9 +282,12 @@ def get_call_plans() -> dict:
 	return {"date": str(day), "departments": [serialize(d, day) for d in managed_departments()]}
 
 
-def save_call_plan(department: str, users, product: str | None = None, sizes=None, clear=False) -> dict:
+def save_call_plan(
+	department: str, users, product: str | None = None, sizes=None, clear=False, industry: str | None = None
+) -> dict:
 	"""Set the plan of `users` (members of `department`): the `product` they are handed (blank:
-	any of the department's) and `sizes` ({slot label: calls}). `clear` removes their plan.
+	any of the department's), the `industry` (for a department without products; blank: any) and
+	`sizes` ({slot label: calls}). `clear` removes their plan.
 	Returns the department as get_call_plans lists it. Batches already handed out are kept; the
 	plan counts from the next slot (or the next batch asked for)."""
 	doc = planned_department(department)
@@ -238,15 +305,28 @@ def save_call_plan(department: str, users, product: str | None = None, sizes=Non
 	if cint(clear):
 		for user in users:
 			rows[user].call_product = None
+			rows[user].call_industry = None
 			rows[user].slot_sizes = None
 	else:
 		chosen = clean_product(doc, product)
+		trade = clean_industry(industry)
 		planned = clean_sizes(doc, sizes)
 		for user in users:
 			rows[user].call_product = chosen or None
+			rows[user].call_industry = trade or None
 			rows[user].slot_sizes = json.dumps(planned) if planned else None
 	doc.save(ignore_permissions=True)  # a head plans their department without editing it
 	return serialize(doc, frappe.utils.getdate())
+
+
+def clean_industry(industry: str | None) -> str:
+	"""An industry as leads carry it (ERPNext's Industry Type), or an error in words."""
+	wanted = " ".join(str(industry or "").split())
+	if not wanted:
+		return ""
+	if not frappe.db.exists("Industry Type", wanted):
+		frappe.throw(_("{0} is not an industry.").format(wanted))
+	return wanted
 
 
 def clean_product(department, product: str | None) -> str:
