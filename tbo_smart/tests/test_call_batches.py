@@ -150,6 +150,13 @@ class TestCallBatches(FrappeTestCase):
 		self.assertIn(ok, listed)
 		self.assertTrue({lost, hold, nophone, theirs}.isdisjoint(listed))
 
+	def test_a_batch_made_by_another_request_meanwhile_stops_a_second_one(self):
+		# two requests at once: the other one's batch is committed after this one started reading
+		self.lead("Calls Raced")
+		with patch("tbo_smart.sales.call_batches.fill.frappe.db.count", return_value=-1):
+			self.assertIsNone(self.build())
+		self.assertTrue(self.build())
+
 	def test_a_lead_is_never_in_two_batches(self):
 		self.lead("Calls Once")
 		first = self.build()
@@ -348,6 +355,19 @@ class TestCallBatches(FrappeTestCase):
 		# counted once
 		self.assertEqual(sync_calls(BD), 0)
 
+	def test_a_stage_move_counts_contacted_but_is_not_a_call(self):
+		# moved by hand to Contacted from the lead page, no call made
+		leads, batch, _items = self.batch_of(1)
+		frappe.set_user(BD)
+		set_lead_stage(leads[0], CONTACTED)
+		get_my_calls()
+		frappe.set_user("Administrator")
+		self.assertEqual(get_batch_items(batch)[0].outcome, "Connected")
+		result, called_on = frappe.db.get_value(
+			"Lead", leads[0], ["tbo_last_call_result", "tbo_last_call_on"]
+		)
+		self.assertFalse(result or called_on, "a stage move is not a call")
+
 	def test_a_logged_answered_call_and_its_own_stage_move_count_once(self):
 		leads, batch, items = self.batch_of(1)
 		self.record(items[0], "Not answered")
@@ -493,6 +513,26 @@ class TestCallBatches(FrappeTestCase):
 		self.assertEqual(len(get_call_batches_report()["people"]), 2)
 		frappe.set_user(BD)
 		self.assertRaises(frappe.PermissionError, get_call_batches_report)
+
+	def test_the_report_counts_overdue_as_the_queue_does(self):
+		missed_twice = self.lead("Calls Report Missed")
+		called_later = self.lead("Calls Report Called")
+		make_call_batch(BD, DEPARTMENT, [missed_twice, called_later], status="Closed", ends_in_hours=-1)
+		make_call_batch(
+			BD,
+			DEPARTMENT,
+			[missed_twice, called_later],
+			slot="Afternoon",
+			status="Closed",
+			ends_in_hours=-0.5,
+			outcomes={called_later: "Connected"},
+		)
+		frappe.set_user(MANAGER)
+		by_user = {row["user"]: row for row in get_call_batches_report()["people"]}
+		# a lead missed in two slots is one overdue call; one reached later that day is none
+		self.assertEqual(by_user[BD]["overdue"], 1)
+		frappe.set_user(BD)
+		self.assertEqual(get_my_calls()["counts"]["overdue"], 1)
 
 	def test_the_department_settings_round_trip_through_the_hub(self):
 		frappe.set_user(HUB)

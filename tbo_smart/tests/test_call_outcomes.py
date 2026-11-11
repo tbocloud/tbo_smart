@@ -27,6 +27,7 @@ from tbo_smart.test_utils import (
 	disable_sales_hierarchy,
 	enable_lead_pipeline,
 	make_lead,
+	make_lead_task,
 	make_user,
 )
 
@@ -155,6 +156,18 @@ class TestApplyCallOutcome(FrappeTestCase):
 				"ToDo", {"reference_type": "Lead", "reference_name": self.lead, "status": "Open"}
 			)
 		)
+
+	def test_an_ai_follow_up_that_day_does_not_take_the_call_backs_place(self):
+		at = add_to_date(now_datetime(), days=1)
+		make_lead_task(self.lead, at, BD, description="AI: call again")
+		apply_call_outcome(self.lead, "Call back", callback_at=at)
+		people = frappe.get_all(
+			"ToDo",
+			filters={"reference_type": "Lead", "reference_name": self.lead, "status": "Open"},
+			pluck="description",
+		)
+		self.assertEqual(len(people), 2)
+		self.assertTrue(any(not text.startswith("AI: ") for text in people))
 
 	def test_the_stage_stays_when_the_pipeline_is_off(self):
 		disable_lead_pipeline()

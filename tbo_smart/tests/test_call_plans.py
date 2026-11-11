@@ -412,6 +412,14 @@ class TestCallPlans(FrappeTestCase):
 		done = auto_assign.assign_department(frappe.get_doc("TBO Lead Department", GROWTHX), getdate())
 		self.assertEqual(done, {OTHER_BD: 2})
 
+	def test_auto_assign_leaves_out_a_disabled_member(self):
+		self.plan([BD, OTHER_BD], "PhoebiX", {"Day": 2})
+		self.unassigned(4, "PhoebiX")
+		frappe.db.set_value("User", OTHER_BD, "enabled", 0)
+		self.addCleanup(frappe.db.set_value, "User", OTHER_BD, "enabled", 1)
+		done = auto_assign.assign_department(frappe.get_doc("TBO Lead Department", GROWTHX), getdate())
+		self.assertEqual(done, {BD: 2})
+
 	def test_auto_assign_skips_sundays_and_the_saturdays_set(self):
 		department = frappe.get_doc("TBO Lead Department", GROWTHX)
 		sunday, first_saturday, second_saturday = "2026-11-15", "2026-11-07", "2026-11-14"

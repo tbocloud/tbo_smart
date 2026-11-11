@@ -12,7 +12,7 @@ from tbo_smart.sales.call_batches import (
 	slot_window,
 	slots_of,
 )
-from tbo_smart.sales.call_batches.fill import build_batch, campaign_of, room_for
+from tbo_smart.sales.call_batches.fill import build_batch, campaign_of, lock_batches, room_for
 from tbo_smart.sales.call_batches.focus import get_focus
 from tbo_smart.sales.call_batches.plans import slot_size
 from tbo_smart.sales.call_batches.state import CallQueue
@@ -93,6 +93,8 @@ def create_next_batch(user: str, queue: CallQueue, department_name: str | None, 
 	if not decision["allowed"]:
 		return {"created": False, "reason": decision["reason"]}
 	department, slot, now = decision["department"], decision["slot"], queue.now
+	if not lock_batches(user, now):
+		return {"created": False, "reason": _("A batch was just handed out to you. Refresh to see it.")}
 	starts, ends = slot_window(slot, now)
 	label = slot.label
 	taken = frappe.get_all(
