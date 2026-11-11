@@ -5,12 +5,13 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, add_to_date, get_datetime, getdate, now_datetime
 
 from tbo_smart.api import hub_leads as hub
-from tbo_smart.lead_pipeline.statuses import CLOSED_LOST, ON_HOLD
+from tbo_smart.lead_pipeline.statuses import CLOSED_LOST, CONTACTED, ON_HOLD
 from tbo_smart.sales.activities import next_follow_ups
 from tbo_smart.sales.call_batches import clock
 from tbo_smart.sales.call_batches.fill import build_batch, campaign_of
 from tbo_smart.sales.call_batches.outcomes import sync_calls
 from tbo_smart.sales.call_batches.reads import get_call_batches_report, get_my_calls
+from tbo_smart.sales.stages import set_lead_stage
 from tbo_smart.telephony.calls import log_manual_call
 from tbo_smart.test_utils import (
 	age_lead_activity,
@@ -330,6 +331,29 @@ class TestCallBatches(FrappeTestCase):
 		self.assertEqual((counts["size"], counts["called"], counts["connected"]), (1, 1, 1))
 		# counted once
 		self.assertEqual(sync_calls(BD), 0)
+
+	def test_moving_a_lead_to_contacted_after_not_answered_counts_it_contacted(self):
+		# Not answered, then on the lead page Move stage to Contacted (no call logged)
+		leads, batch, items = self.batch_of(1, ends_in_hours=1)
+		self.record(items[0], "Not answered")
+		frappe.set_user(BD)
+		set_lead_stage(leads[0], CONTACTED)
+		counts = get_my_calls()["counts"]
+		self.assertEqual((counts["size"], counts["called"], counts["connected"]), (1, 1, 1))
+		frappe.set_user("Administrator")
+		self.assertEqual(get_batch_items(batch)[-1].priority_reason, "Called back")
+		# counted once
+		self.assertEqual(sync_calls(BD), 0)
+
+	def test_a_logged_answered_call_and_its_own_stage_move_count_once(self):
+		leads, batch, items = self.batch_of(1)
+		self.record(items[0], "Not answered")
+		frappe.set_user(BD)
+		hub.log_call(leads[0], "Connected")
+		get_my_calls()
+		frappe.set_user("Administrator")
+		reached = [row for row in get_batch_items(batch) if row.outcome == "Connected"]
+		self.assertEqual(len(reached), 1)
 
 	# ---------- the queue and the next batch ----------
 
