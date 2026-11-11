@@ -44,8 +44,8 @@ def department_leads(
 	optionally one `product` or `industry` ("-": none) and a `search` on the name, company or
 	phone. {rows: [{name, lead_name, company_name, product, industry, stage, temperature, phone,
 	modified}], total, products: {product ("" for none): leads}, industries: {industry: leads}}
-	(the counts ignore the product, industry and search)."""
-	doc = planned_department(department)
+	(the counts ignore the product, industry and search). A viewer may read it too."""
+	doc = planned_department(department, view=True)
 	owner = (owner or "").strip()
 	if owner and owner not in {row.user for row in doc.members}:
 		frappe.throw(_("{0} is not a member of {1}.").format(owner, department))

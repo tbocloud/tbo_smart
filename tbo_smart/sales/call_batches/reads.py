@@ -214,17 +214,18 @@ def get_next_batch(
 
 def report_departments() -> list | None:
 	"""Departments whose batches the session user may report on: None = all (Sales Manager or
-	System Manager), else those they head."""
+	System Manager), else those they head or view."""
 	if lead_departments.can_manage():
 		return None
 	headed = frappe.get_all(
 		lead_departments.DEPARTMENT_USER,
 		filters={
 			"user": frappe.session.user,
-			"parentfield": "heads",
+			"parentfield": ("in", ("heads", "viewers")),
 			"parenttype": lead_departments.DEPARTMENT,
 		},
 		pluck="parent",
+		distinct=True,
 	)
 	if not headed:
 		frappe.throw(

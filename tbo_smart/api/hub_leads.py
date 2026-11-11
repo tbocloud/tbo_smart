@@ -1421,7 +1421,7 @@ def set_segment_rate(
 @frappe.whitelist()
 def get_lead_departments(acting_user: str | None = None) -> list[dict]:
 	"""Every lead department, inactive ones too, to any lead user: [{name, department_name,
-	lead_type, is_active, heads, members, products}] (heads and members: [{user, full_name}];
+	lead_type, is_active, heads, viewers, members, products}] (heads, viewers and members: [{user, full_name}];
 	products: [{product_name, is_active, intro_line, website}], switched-off ones too)."""
 	with acting_as(acting_user):
 		return departments.get_departments()
@@ -1430,7 +1430,7 @@ def get_lead_departments(acting_user: str | None = None) -> list[dict]:
 @frappe.whitelist(methods=["POST"])
 def save_lead_department(values: dict | str, name: str | None = None, acting_user: str | None = None) -> dict:
 	"""Create (no `name`) or update a lead department. `values`: department_name (new only),
-	lead_type, is_active, heads and members (lists of user emails; a list given replaces the
+	lead_type, is_active, heads, viewers and members (lists of user emails; a list given replaces the
 	old one), products (a list of {product_name, is_active, intro_line, website}; it replaces the
 	old list, a name is unique within the department) and the call-batch rules. Sales Manager or System Manager only (PermissionError otherwise). Returns the
 	department as get_lead_departments lists it."""
@@ -1524,8 +1524,9 @@ def get_call_plans(acting_user: str | None = None) -> dict:
 	(docs/call-batches.md §11): {date, departments: [{department, slots: [{label, start_time,
 	end_time, size}], products: [{product_name, intro_line}], campaign_product, pull_unassigned,
 	unassigned: {product: leads}, members: [{user, full_name, product, sizes: {slot: calls},
-	total, has_plan, today: {size, called}}]}]}. A Sales Manager sees every department with
-	batches on, a head theirs; anyone else gets PermissionError."""
+	total, has_plan, today: {size, called}}], can_edit}]}. A Sales Manager sees every department
+	with batches on, a head theirs, a viewer theirs with can_edit false (read-only); anyone else
+	gets PermissionError."""
 	with acting_as(acting_user):
 		return call_plans.get_call_plans()
 
