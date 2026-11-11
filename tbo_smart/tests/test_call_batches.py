@@ -307,8 +307,11 @@ class TestCallBatches(FrappeTestCase):
 		self.record(items[0], "Not answered")
 		frappe.set_user(BD)
 		hub.log_call(leads[0], "Connected")
-		counts = get_my_calls()["counts"]
+		calls = get_my_calls()
+		counts = calls["counts"]
 		self.assertEqual((counts["called"], counts["connected"], counts["pending"]), (1, 1, 0))
+		# the day's total too, not only the running batch (it left the retry out)
+		self.assertEqual(calls["today"], {"size": 1, "called": 1, "connected": 1})
 		frappe.set_user("Administrator")
 		[person] = [p for p in get_call_batches_report()["people"] if p["user"] == BD]
 		self.assertEqual((person["called"], person["connected"]), (1, 1))

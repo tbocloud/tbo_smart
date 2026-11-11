@@ -112,9 +112,13 @@ class CallQueue:
 	def running_batches(self) -> list[str]:
 		return list(dict.fromkeys(row.batch for row in self.running))
 
-	def today(self) -> list[frappe._dict]:
+	def today(self, repeats: bool = False) -> list[frappe._dict]:
+		"""The day's own calls; with `repeats` its retries, call backs and called-back items too,
+		which `totals` needs to see a lead reached on a later call."""
 		today = getdate(self.now)
-		return [row for row in self.rows if getdate(row.batch_date) == today and not row.is_repeat]
+		return [
+			row for row in self.rows if getdate(row.batch_date) == today and (repeats or not row.is_repeat)
+		]
 
 	def totals(self, rows: list) -> dict:
 		"""{size, called, connected} of the non-retry rows; a lead is connected when any call of it in
