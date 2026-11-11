@@ -171,9 +171,11 @@ def unassigned_by_product(department: str) -> dict[str, int]:
 
 def serialize(department, day) -> dict:
 	"""{department, slots: [{label, start_time, end_time, size}], products: [{product_name,
-	intro_line}], campaign_product, pull_unassigned, unassigned: {product: leads}, members:
+	intro_line}], campaign_product, pull_unassigned, unassigned: {product: leads}, auto_assign
+	(settings.auto_assign_rules), members:
 	[{user, full_name, product, sizes: {slot: calls}, total, has_plan, today: {size, called},
 	leads (open leads they own)}]}."""
+	from tbo_smart.sales.call_batches.settings import auto_assign_rules
 	from tbo_smart.sales.call_batches.settings import serialize as rules
 
 	slots = rules(department)["call_slots"]
@@ -205,6 +207,8 @@ def serialize(department, day) -> dict:
 		"pull_unassigned": cint(department.pull_unassigned),
 		"unassigned": unassigned_by_product(department.name),
 		"members": members,
+		# when the members nobody handed leads to are topped up automatically (§14)
+		"auto_assign": auto_assign_rules(department),
 	}
 
 

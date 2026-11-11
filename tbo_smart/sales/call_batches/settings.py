@@ -19,6 +19,10 @@ SAVE_FIELDS = {
 	"campaign_product",
 	"call_slots",
 	"member_caps",
+	"auto_assign",
+	"auto_assign_at",
+	"auto_assign_skip_sunday",
+	"auto_assign_skip_saturdays",
 }
 
 
@@ -50,14 +54,38 @@ def serialize(department) -> dict:
 		"member_caps": {
 			row.user: cint(row.daily_call_cap) for row in department.members if cint(row.daily_call_cap)
 		},
+		**auto_assign_rules(department),
+	}
+
+
+def auto_assign_rules(department) -> dict:
+	"""{auto_assign, auto_assign_at "HH:MM", auto_assign_skip_sunday, auto_assign_skip_saturdays,
+	auto_assigned_on} (docs/call-batches.md §14); empty values read as the defaults."""
+	from tbo_smart.sales.call_batches.auto_assign import DEFAULT_SATURDAYS, DEFAULT_TIME
+
+	return {
+		"auto_assign": cint(department.get("auto_assign")),
+		"auto_assign_at": format_time(department.get("auto_assign_at") or DEFAULT_TIME, "HH:mm"),
+		"auto_assign_skip_sunday": cint(department.get("auto_assign_skip_sunday")),
+		"auto_assign_skip_saturdays": department.get("auto_assign_skip_saturdays") or DEFAULT_SATURDAYS,
+		"auto_assigned_on": str(department.get("auto_assigned_on") or "") or None,
 	}
 
 
 def apply(department, values: dict) -> None:
 	"""Set the rules in `values` on the department (the caller saves it)."""
-	for field in ("call_batches_enabled", "pull_unassigned"):
+	for field in ("call_batches_enabled", "pull_unassigned", "auto_assign", "auto_assign_skip_sunday"):
 		if field in values:
 			department.set(field, cint(values[field]))
+	if "auto_assign_at" in values:
+		department.set("auto_assign_at", clean_time(values["auto_assign_at"]))
+	if "auto_assign_skip_saturdays" in values:
+		from tbo_smart.sales.call_batches.auto_assign import SATURDAYS
+
+		saturdays = values["auto_assign_skip_saturdays"] or "None"
+		if saturdays not in SATURDAYS:
+			frappe.throw(_("Saturdays to skip must be one of {0}.").format(", ".join(SATURDAYS)))
+		department.set("auto_assign_skip_saturdays", saturdays)
 	for field in ("daily_call_cap", "overdue_block_limit"):
 		if field in values:
 			department.set(field, max(cint(values[field]), 0))
@@ -80,6 +108,14 @@ def apply(department, values: dict) -> None:
 		caps = values["member_caps"] or {}
 		for row in department.members:
 			row.daily_call_cap = max(cint(caps.get(row.user)), 0)
+
+
+def clean_time(value) -> str:
+	"""A time of day as "HH:MM:SS", or an error in words."""
+	try:
+		return get_time(str(value or "").strip()).strftime("%H:%M:%S")
+	except Exception:
+		frappe.throw(_("Give the auto-assign time as HH:MM, e.g. 11:00."))
 
 
 def validate_slots(department) -> None:

@@ -15,6 +15,10 @@ Set on the department (hub: Settings, CRM, Lead departments):
 | `daily_call_cap` | 100 | Leads handed to one person in a day, retries not counted. A member's own `daily_call_cap` (Members table) replaces it. |
 | `pull_unassigned` | on | When the batch has room, pull the department's unassigned open leads. |
 | `overdue_block_limit` | 10 | Overdue calls above this block the next batch and, at slot end, tell the heads. |
+| `auto_assign` | on | At `auto_assign_at`, top up the planned members nobody handed leads to by hand today (§14). |
+| `auto_assign_at` | 11:00 | The time of the auto-assign (site time); blank reads as 11:00. |
+| `auto_assign_skip_sunday` | on | No auto-assign on Sundays. |
+| `auto_assign_skip_saturdays` | 2nd | Saturdays of the month without auto-assign: None, 2nd, 2nd and 4th or All. |
 | `campaign_industry/state/district/product` | blank | Narrow new leads (priority 3-5, not follow-ups) to this industry, state, district or product (`lead-departments.md` §10; the product must be one of the department's active products). A column Lead does not have yet (`tbo_district` arrives with lead categories) is skipped. |
 
 ## 2. Doctypes
@@ -174,10 +178,31 @@ On the same page a planner sees each member's open leads (and how many: `leads` 
 - **Who:** the planners (§11). At most 500 leads a call. Only leads of the department, and only to
   its members.
 
+## 14. The daily auto-assign (`sales/call_batches/auto_assign.py`)
+
+Managers hand leads out by hand on Assign leads (§12). Whoever they did not reach by the
+department's time gets leads automatically.
+
+- **When:** `run_auto_assign`, every 5 minutes with the clock (hooks). A department with
+  `auto_assign` on runs once a day, on the first run at or after `auto_assign_at`, unless the day
+  is a Sunday (`auto_assign_skip_sunday`) or a skipped Saturday (`auto_assign_skip_saturdays`; the
+  2nd Saturday is the 8th to the 14th). `auto_assigned_on` records the day before it starts, so a
+  failure is logged (Error Log "Auto-assign failed for …") and not retried every 5 minutes.
+- **Who:** each member with a call plan of more than 0 calls (§11) who is at work (`is_off_today`:
+  not on approved leave or a holiday of their list) and was not handed a lead of the department
+  by hand today (a ToDo "Assigned to you on Assign leads" created today).
+- **How many:** their plan's calls for the day minus the open leads of the plan's product they
+  own, with a phone, never called (`tbo_last_call_on` empty). Nothing when that is 0 or less.
+- **Which leads:** the next unassigned ones of the plan's product, as Assign leads picks them
+  (`handout.next_unassigned`: hot, then newest, rows locked). Handed with `handout.hand` and the
+  note "Assigned to you automatically: nobody handed you leads by the set time".
+- **Settings:** with the other call rules (`settings.py`, the hub's Lead departments dialog); the
+  Assign leads page shows them (`get_call_plans` → `auto_assign`).
+
 ## 7. Files
 
 `tbo_smart/sales/call_batches/` (`__init__` rules, `fill`, `outcomes`, `state`, `next_batch`,
-`reads`, `clock`, `settings`, `setup`, `focus`, `plans`, `handout`); doctypes under `tbo_smart/tbo_smart/doctype/tbo_call_*` and `tbo_bd_focus`;
+`reads`, `clock`, `settings`, `setup`, `focus`, `plans`, `handout`, `auto_assign`); doctypes under `tbo_smart/tbo_smart/doctype/tbo_call_*` and `tbo_bd_focus`;
 endpoints in `api/hub_leads.py`; tests `tests/test_call_batches.py`, `test_bd_focus.py` and `test_call_plans.py`, helpers in `test_utils.py`.
 
 ## 8. Decisions

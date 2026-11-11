@@ -331,7 +331,11 @@ scheduler_events = {
 		# Lead pipeline: meetings in progress, MOM pending and reminders
 		"*/15 * * * *": ["tbo_smart.lead_pipeline.meetings.run_meeting_clock"],
 		# Daily call batches: close ended slots and hand out the one that is running
-		"*/5 * * * *": ["tbo_smart.sales.call_batches.clock.run_call_batch_clock"],
+		"*/5 * * * *": [
+			"tbo_smart.sales.call_batches.clock.run_call_batch_clock",
+			# leads nobody handed out by the department's time (docs/call-batches.md §14)
+			"tbo_smart.sales.call_batches.auto_assign.run_auto_assign",
+		],
 		# Outreach: approved emails wait for the send window and the daily cap (docs/prospecting.md §10)
 		"*/10 * * * *": ["tbo_smart.outreach.sending.send_approved"],
 		# Commission: the previous month's Draft statements on the 1st, 03:00 (docs/commission.md)
