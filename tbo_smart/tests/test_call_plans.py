@@ -7,7 +7,7 @@ from frappe.utils import add_days, getdate, now_datetime
 from tbo_smart.api import hub_leads as hub
 from tbo_smart.sales import departments
 from tbo_smart.sales.activities import next_follow_ups
-from tbo_smart.sales.call_batches import clock, daily_cap, focus, handout, plans
+from tbo_smart.sales.call_batches import auto_assign, clock, daily_cap, focus, handout, plans, settings
 from tbo_smart.sales.call_batches.next_batch import create_next_batch
 from tbo_smart.sales.call_batches.state import CallQueue
 from tbo_smart.test_utils import (
@@ -342,3 +342,59 @@ class TestCallPlans(FrappeTestCase):
 		frappe.set_user(OUTSIDER)
 		with self.assertRaises(frappe.PermissionError):
 			handout.department_leads(GROWTHX)
+
+	# ---------- the daily auto-assign (§14) ----------
+
+	def auto_run(self, at: str = "2026-11-11 11:05:00"):
+		"""The auto-assign of the test departments at `at` (11 Nov 2026 is a Wednesday)."""
+		return auto_assign.run_auto_assign(at, departments=DEPARTMENTS)
+
+	def test_auto_assign_tops_a_planned_member_up_to_the_plan_at_the_set_time(self):
+		self.plan([BD], "PhoebiX", {"Day": 3})
+		make_callable_lead(BD, "Plan Auto Uncalled", GROWTHX, tbo_product="PhoebiX")
+		pool = self.unassigned(4, "PhoebiX")
+		self.unassigned(2, "BillaX")
+		self.assertEqual(self.auto_run("2026-11-11 10:55:00"), {})
+		done = self.auto_run()
+		# 3 planned, 1 of PhoebiX still uncalled: 2 more; OTHER_BD has no plan
+		self.assertEqual(done[GROWTHX], {BD: 2})
+		self.assertEqual(sum(self.owner_of(lead) == BD for lead in pool), 2)
+		self.assertEqual(
+			frappe.db.get_value("TBO Lead Department", GROWTHX, "auto_assigned_on"), getdate("2026-11-11")
+		)
+		# once a day
+		self.assertEqual(self.auto_run("2026-11-11 15:00:00"), {})
+
+	def test_a_member_handed_leads_by_hand_today_is_left_alone(self):
+		self.plan([BD, OTHER_BD], "PhoebiX", {"Day": 2})
+		handout.assign_leads(GROWTHX, BD, self.unassigned(1, "PhoebiX"))
+		self.unassigned(5, "PhoebiX")
+		done = auto_assign.assign_department(frappe.get_doc("TBO Lead Department", GROWTHX), getdate())
+		self.assertEqual(done, {OTHER_BD: 2})
+
+	def test_auto_assign_skips_sundays_and_the_saturdays_set(self):
+		department = frappe.get_doc("TBO Lead Department", GROWTHX)
+		sunday, first_saturday, second_saturday = "2026-11-15", "2026-11-07", "2026-11-14"
+		self.assertTrue(auto_assign.skips(department, sunday))
+		self.assertTrue(auto_assign.skips(department, second_saturday))
+		self.assertFalse(auto_assign.skips(department, first_saturday))
+		department.auto_assign_skip_sunday = 0
+		department.auto_assign_skip_saturdays = "None"
+		self.assertFalse(auto_assign.skips(department, sunday))
+		self.assertFalse(auto_assign.skips(department, second_saturday))
+		department.auto_assign_skip_saturdays = "2nd and 4th"
+		self.assertTrue(auto_assign.skips(department, "2026-11-28"))
+
+	def test_the_auto_assign_rules_are_read_and_saved_with_the_call_rules(self):
+		department = frappe.get_doc("TBO Lead Department", GROWTHX)
+		rules = settings.serialize(department)
+		self.assertEqual(
+			(rules["auto_assign"], rules["auto_assign_at"], rules["auto_assign_skip_saturdays"]),
+			(1, "11:00", "2nd"),
+		)
+		settings.apply(department, {"auto_assign_at": "10:30", "auto_assign_skip_saturdays": "All"})
+		self.assertEqual(settings.serialize(department)["auto_assign_at"], "10:30")
+		self.assertRaises(frappe.ValidationError, settings.apply, department, {"auto_assign_at": "soon"})
+		self.assertRaises(
+			frappe.ValidationError, settings.apply, department, {"auto_assign_skip_saturdays": "3rd"}
+		)

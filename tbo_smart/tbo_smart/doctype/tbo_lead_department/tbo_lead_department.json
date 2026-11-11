@@ -28,7 +28,14 @@
   "campaign_state",
   "campaign_district",
   "campaign_product",
-  "call_slots"
+  "call_slots",
+  "section_break_auto",
+  "auto_assign",
+  "auto_assign_at",
+  "column_break_auto",
+  "auto_assign_skip_sunday",
+  "auto_assign_skip_saturdays",
+  "auto_assigned_on"
  ],
  "fields": [
   {
@@ -176,10 +183,55 @@
    "fieldtype": "Data",
    "label": "Campaign: product",
    "description": "Blank: any. New leads in a batch (not follow-ups) are only of this product."
+  },
+  {
+   "fieldname": "section_break_auto",
+   "fieldtype": "Section Break",
+   "label": "Auto-assign leads"
+  },
+  {
+   "default": "1",
+   "description": "Members with a call plan who were not handed leads by hand today are topped up to their plan at this time.",
+   "fieldname": "auto_assign",
+   "fieldtype": "Check",
+   "label": "Auto-assign leads nobody handed out"
+  },
+  {
+   "default": "11:00:00",
+   "depends_on": "auto_assign",
+   "fieldname": "auto_assign_at",
+   "fieldtype": "Time",
+   "label": "Auto-assign at"
+  },
+  {
+   "fieldname": "column_break_auto",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "depends_on": "auto_assign",
+   "fieldname": "auto_assign_skip_sunday",
+   "fieldtype": "Check",
+   "label": "Not on Sundays"
+  },
+  {
+   "default": "2nd",
+   "depends_on": "auto_assign",
+   "fieldname": "auto_assign_skip_saturdays",
+   "fieldtype": "Select",
+   "label": "Not on Saturdays",
+   "options": "None\n2nd\n2nd and 4th\nAll"
+  },
+  {
+   "fieldname": "auto_assigned_on",
+   "fieldtype": "Date",
+   "label": "Last auto-assigned on",
+   "read_only": 1,
+   "no_copy": 1
   }
  ],
  "links": [],
- "modified": "2026-11-03 10:00:00.000000",
+ "modified": "2026-11-11 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Lead Department",

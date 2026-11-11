@@ -211,9 +211,10 @@ def next_unassigned(department, count: int, product: str) -> list[str]:
 	return [name for (name,) in query.for_update(skip_locked=True).run()]
 
 
-def hand(lead: str, user: str | None) -> None:
+def hand(lead: str, user: str | None, note: str = HANDED_NOTE) -> None:
 	"""`lead` to `user` (None: nobody). The previous owner's open assignment closes and the lead
-	leaves their running batch where it is still waiting to be called."""
+	leaves their running batch where it is still waiting to be called. `note` is the assignment's
+	text: by hand on Assign leads, or the daily auto-assign (auto_assign.AUTO_NOTE)."""
 	doc = frappe.get_doc("Lead", lead)
 	previous = doc.lead_owner
 	doc.lead_owner = user
@@ -222,7 +223,7 @@ def hand(lead: str, user: str | None) -> None:
 		close_assignments(lead, previous)
 		drop_from_batches(lead, previous)
 	if user:
-		assign_undated(lead, user, HANDED_NOTE)
+		assign_undated(lead, user, note)
 
 
 def close_assignments(lead: str, user: str) -> None:
