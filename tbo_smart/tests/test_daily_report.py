@@ -226,6 +226,30 @@ class TestDailyReport(DailyReportTestCase):
 		self.assertEqual(frappe.session.user, HUB)
 
 
+class TestMyCallCounts(DailyReportTestCase):
+	def test_my_calls_today_this_week_month_all_time_and_by_day(self):
+		today = now_datetime()
+		make_call(BDE, status="Answered", started_at=today)
+		make_call(BDE, status="Missed", started_at=today)
+		make_call(BDE, status="Answered", started_at=self.three_days_ago)
+		make_call(BDE, status="Answered", started_at=add_days(today, -400))
+		make_call(BDE2, status="Answered", started_at=today)
+		counts = hub.get_my_call_counts(acting_user=BDE)
+		self.assertEqual(counts["today"], {"calls": 2, "connected": 1})
+		self.assertEqual(counts["all_time"], {"calls": 4, "connected": 3})
+		self.assertEqual(
+			counts["days"][:2],
+			[
+				{"date": nowdate(), "calls": 2, "connected": 1},
+				{"date": str(getdate(self.three_days_ago)), "calls": 1, "connected": 1},
+			],
+		)
+		# the day-by-day list stops at `days`; the 400-day-old call is only in all time
+		self.assertEqual(len(counts["days"]), 2)
+		week = 2 + (1 if getdate(self.three_days_ago) >= week_start(nowdate()) else 0)
+		self.assertEqual(counts["week"]["calls"], week)
+
+
 class TestLogCall(DailyReportTestCase):
 	def setUp(self):
 		super().setUp()

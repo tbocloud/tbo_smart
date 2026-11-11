@@ -309,6 +309,14 @@ Each figure, for the day (site timezone) and for whom it counts:
 Everything is read in grouped queries for the whole scope (`lead_pipeline/daily_report.py`),
 never one query per lead.
 
+### 2.5.2 My calls
+
+`get_my_call_counts(days?, acting_user?)` is the acting user's own calls for the hub's My leads,
+counted exactly as the daily report counts `calls_total` and `calls_connected` (every TBO Call they
+made or took; connected: the answered ones): `{today, week (from Monday), month, all_time: {calls,
+connected}, days: [{date, calls, connected}]}`, `days` being the days with calls in the last
+`days` days (default 60, at most 366), newest first.
+
 ### 2.6 AI runs leads
 
 Behind TBO Smart Settings → AI runs leads (`smart-leads.md` §11). `get_lead_ai` answers with
