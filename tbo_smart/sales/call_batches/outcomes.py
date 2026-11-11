@@ -29,6 +29,7 @@ from tbo_smart.sales.call_batches import (
 	WRONG_NUMBER,
 )
 from tbo_smart.telephony import ANSWERED as CALL_ANSWERED
+from tbo_smart.telephony import OUTGOING
 from tbo_smart.telephony.calls import log_manual_call
 
 # what the call log calls each outcome
@@ -157,61 +158,114 @@ def close_due_follow_ups(lead: str) -> None:
 
 
 def sync_calls(user: str) -> int:
-	"""Items of `user` still open whose lead they called since (MyOperator, the Log call dialog,
-	a call in the app) get that call's outcome. Returns how many were closed."""
+	"""`user`'s calls logged any other way (MyOperator, the Log call dialog, a call in the app, the
+	customer calling back) go on their batches: an item still open gets the call's outcome; a lead
+	whose last call of the day was Not answered or Busy with nothing left to call, and then
+	answered (the customer called back, or picked up later), gets a "Called back" item, so the
+	day counts it connected. An incoming call counts only when it was answered. Returns how many
+	were recorded."""
 	since = add_to_date(getdate(), days=-OVERDUE_DAYS)
 	Batch, Item = frappe.qb.DocType(BATCH), frappe.qb.DocType(ITEM)
-	open_rows = (
+	rows = (
 		frappe.qb.from_(Item)
 		.join(Batch)
 		.on(Batch.name == Item.parent)
-		.select(Item.name, Item.parent, Item.lead, Batch.starts_at)
+		.select(Item.name, Item.parent, Item.lead, Item.outcome, Batch.starts_at, Batch.batch_date)
 		.where(
 			(Batch.user == user)
 			& (Batch.batch_date >= since)
-			& (Item.outcome.isnull() | (Item.outcome == ""))
+			& (Item.outcome.isnull() | (Item.outcome == "") | Item.outcome.isin(list(UNREACHED)))
 		)
 	).run(as_dict=True)
-	if not open_rows:
+	if not rows:
 		return 0
-	calls = frappe.get_all(
-		"TBO Call",
-		filters={
-			"agent": user,
-			"direction": "Outgoing",
-			"lead": ("in", list({row.lead for row in open_rows})),
-			"started_at": (">=", min(get_datetime(row.starts_at) for row in open_rows)),
-		},
-		fields=["lead", "status", "started_at"],
-		order_by="started_at asc",
-	)
-	closed = 0
-	open_names = {row.name for row in open_rows}
-	for parent in dict.fromkeys(row.parent for row in open_rows):
+	calls = [
+		call
+		for call in frappe.get_all(
+			"TBO Call",
+			filters={
+				"agent": user,
+				"lead": ("in", list({row.lead for row in rows})),
+				"started_at": (">=", min(get_datetime(row.starts_at) for row in rows)),
+			},
+			fields=["lead", "status", "direction", "started_at"],
+			order_by="started_at asc",
+		)
+		if call.direction == OUTGOING or call.status == CALL_ANSWERED
+	]
+	if not calls:
+		return 0
+	recorded = 0
+	for parent in dict.fromkeys(row.parent for row in rows):
 		batch = frappe.get_doc(BATCH, parent, for_update=True)
-		# a retry or call back counts only a call made after the lead's last recorded one
-		# (a child row's `creation` is its batch's, so it cannot say when the row was added)
-		done = {}
-		for row in batch.items:
-			if row.outcome and row.called_at:
-				done[row.lead] = max(
-					done.get(row.lead, get_datetime(row.called_at)), get_datetime(row.called_at)
-				)
-		since = get_datetime(batch.starts_at)
-		for row in list(batch.items):
-			if row.outcome or row.name not in open_names:
-				continue
-			after = max(since, done.get(row.lead, since))
-			call = next(
-				(call for call in calls if call.lead == row.lead and get_datetime(call.started_at) > after),
-				None,
-			)
-			if call:
-				outcome = CONNECTED if call.status == CALL_ANSWERED else NOT_ANSWERED
-				apply(batch, row, outcome, "", None, call.started_at)
-				done[row.lead] = get_datetime(call.started_at)
-				closed += 1
-	if closed:
+		recorded += record_calls(batch, calls)
+	if recorded:
 		# the hub reads the queue with a GET, which Frappe would roll back
 		frappe.flags.commit = True
-	return closed
+	return recorded
+
+
+def record_calls(batch, calls: list) -> int:
+	"""The calls of `batch`'s leads made since it started, on its items (see sync_calls)."""
+	# a retry or call back counts only a call made after the lead's last recorded one
+	# (a child row's `creation` is its batch's, so it cannot say when the row was added)
+	done = {}
+	for row in batch.items:
+		if row.outcome and row.called_at:
+			done[row.lead] = max(done.get(row.lead, get_datetime(row.called_at)), get_datetime(row.called_at))
+	since = get_datetime(batch.starts_at)
+	recorded = 0
+	for row in list(batch.items):
+		if row.outcome:
+			continue
+		call = next_call(calls, row.lead, max(since, done.get(row.lead, since)))
+		if call:
+			outcome = CONNECTED if call.status == CALL_ANSWERED else NOT_ANSWERED
+			apply(batch, row, outcome, "", None, call.started_at)
+			done[row.lead] = get_datetime(call.started_at)
+			recorded += 1
+	for lead in unreached_at_last(batch):
+		call = next_call(calls, lead, done[lead], answered=True, day=getdate(batch.batch_date))
+		if call:
+			last = next(row for row in reversed(batch.items) if row.lead == lead)
+			row = batch.append(
+				"items",
+				{
+					"lead": lead,
+					"priority": last.priority,
+					"priority_reason": _("Called back"),
+					"is_repeat": 1,
+					"attempts": last.attempts,
+				},
+			)
+			apply(batch, row, CONNECTED, "", None, call.started_at)
+			done[lead] = get_datetime(call.started_at)
+			recorded += 1
+	return recorded
+
+
+def unreached_at_last(batch) -> list[str]:
+	"""The leads of `batch` whose latest call was Not answered or Busy and that have nothing left
+	to call in it."""
+	latest, waiting = {}, set()
+	for row in batch.items:
+		if not row.outcome:
+			waiting.add(row.lead)
+		elif row.called_at and (
+			row.lead not in latest or get_datetime(row.called_at) >= get_datetime(latest[row.lead].called_at)
+		):
+			latest[row.lead] = row
+	return [lead for lead, row in latest.items() if row.outcome in UNREACHED and lead not in waiting]
+
+
+def next_call(calls: list, lead: str, after, answered: bool = False, day=None):
+	"""The first of `calls` on `lead` after `after` (answered, on `day`, when asked)."""
+	for call in calls:
+		if call.lead != lead or get_datetime(call.started_at) <= after:
+			continue
+		if answered and call.status != CALL_ANSWERED:
+			continue
+		if day and getdate(call.started_at) != day:
+			continue
+		return call
+	return None

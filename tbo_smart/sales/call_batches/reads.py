@@ -10,7 +10,6 @@ from tbo_smart.sales import numbers, products
 from tbo_smart.sales.activities import notes_of, plain_text
 from tbo_smart.sales.call_batches import (
 	ACTIVE,
-	ANSWERED,
 	BATCH,
 	CAMPAIGN_COLUMNS,
 	batch_departments,
@@ -22,7 +21,7 @@ from tbo_smart.sales.call_batches import (
 from tbo_smart.sales.call_batches import focus as bd_focus
 from tbo_smart.sales.call_batches.fill import build_batch, campaign_of, room_for
 from tbo_smart.sales.call_batches.outcomes import sync_calls
-from tbo_smart.sales.call_batches.state import CallQueue, item_rows
+from tbo_smart.sales.call_batches.state import CallQueue, item_rows, reached_leads
 from tbo_smart.telephony.calls import can_call
 
 NOTE_CHARS = 240
@@ -236,7 +235,8 @@ def report_departments() -> list | None:
 def get_call_batches_report(date=None) -> dict:
 	"""{date, people: [{user, user_name, department, size, called, connected, overdue, batches:
 	[{name, slot, status, starts_at, ends_at, size, called, connected, overdue}]}], totals}.
-	`connected` counts calls where someone answered (Connected, Call back, Not interested);
+	`connected` counts calls where someone answered (Connected, Call back, Not interested), on any
+	call of the lead in the batch (a retry, a call back, the customer calling back);
 	`overdue` the calls of an ended slot nobody made."""
 	day = getdate(date)
 	allowed = report_departments()
@@ -246,7 +246,9 @@ def get_call_batches_report(date=None) -> dict:
 	now = now_datetime()
 	people: dict[tuple, dict] = {}
 	batches: dict[str, dict] = {}
-	for row in item_rows(filters):
+	items = item_rows(filters)
+	reached = reached_leads(items)
+	for row in items:
 		person = people.setdefault(
 			(row.user, row.department),
 			{
@@ -278,7 +280,7 @@ def get_call_batches_report(date=None) -> dict:
 		if not row.is_repeat:
 			batch["size"] += 1
 			batch["called"] += 1 if row.outcome else 0
-			batch["connected"] += 1 if row.outcome in ANSWERED else 0
+			batch["connected"] += 1 if (row.batch, row.lead) in reached else 0
 		if not row.outcome and ended:
 			batch["overdue"] += 1
 	for person in people.values():

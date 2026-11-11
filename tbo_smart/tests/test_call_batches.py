@@ -20,6 +20,7 @@ from tbo_smart.test_utils import (
 	disable_sales_hierarchy,
 	get_batch_items,
 	make_batch_department,
+	make_call,
 	make_call_batch,
 	make_callable_lead,
 	make_lead_task,
@@ -299,6 +300,36 @@ class TestCallBatches(FrappeTestCase):
 		self.assertEqual(rows[1].outcome, "Connected")
 		frappe.set_user(BD)
 		self.assertEqual(get_my_calls()["counts"]["pending"], 1)
+
+	def test_a_lead_connected_on_its_retry_counts_connected(self):
+		leads, _batch, items = self.batch_of(1)
+		self.record(items[0], "Not answered")
+		frappe.set_user(BD)
+		hub.log_call(leads[0], "Connected")
+		counts = get_my_calls()["counts"]
+		self.assertEqual((counts["called"], counts["connected"], counts["pending"]), (1, 1, 0))
+		frappe.set_user("Administrator")
+		[person] = [p for p in get_call_batches_report()["people"] if p["user"] == BD]
+		self.assertEqual((person["called"], person["connected"]), (1, 1))
+
+	def test_a_customer_calling_back_after_the_last_try_counts_connected(self):
+		# the slot ends before a retry would come, so nothing is left to call
+		leads, batch, items = self.batch_of(1, ends_in_hours=1)
+		self.record(items[0], "Not answered")
+		make_call(BD, leads[0], "Missed", "Incoming", add_to_date(now_datetime(), minutes=1))
+		self.assertEqual(sync_calls(BD), 0)
+		make_call(BD, leads[0], "Answered", "Incoming", add_to_date(now_datetime(), minutes=2))
+		self.assertEqual(sync_calls(BD), 1)
+		rows = get_batch_items(batch)
+		self.assertEqual(
+			[(row.priority_reason, row.outcome) for row in rows][-1], ("Called back", "Connected")
+		)
+		self.assertEqual(rows[0].outcome, "Not answered")
+		frappe.set_user(BD)
+		counts = get_my_calls()["counts"]
+		self.assertEqual((counts["size"], counts["called"], counts["connected"]), (1, 1, 1))
+		# counted once
+		self.assertEqual(sync_calls(BD), 0)
 
 	# ---------- the queue and the next batch ----------
 
