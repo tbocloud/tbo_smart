@@ -16,7 +16,7 @@ from frappe.utils import cint
 
 from tbo_smart.sales import products, stale
 from tbo_smart.sales.call_batches import BATCH, ITEM, assign_undated
-from tbo_smart.sales.call_batches.plans import planned_department
+from tbo_smart.sales.call_batches.plans import clean_industry, planned_department
 
 MAX_LEADS = 500
 HANDED_NOTE = "Assigned to you on Assign leads"
@@ -38,11 +38,13 @@ def department_leads(
 	search: str | None = None,
 	start=0,
 	page_length=50,
+	industry: str | None = None,
 ) -> dict:
 	"""A page of the department's open leads: `owner` a member's (blank: the unassigned ones),
-	optionally one `product` and a `search` on the name, company or phone. {rows: [{name,
-	lead_name, company_name, product, stage, temperature, phone, modified}], total, products:
-	{product ("" for none): leads}} (the counts ignore the product and search)."""
+	optionally one `product` or `industry` ("-": none) and a `search` on the name, company or
+	phone. {rows: [{name, lead_name, company_name, product, industry, stage, temperature, phone,
+	modified}], total, products: {product ("" for none): leads}, industries: {industry: leads}}
+	(the counts ignore the product, industry and search)."""
 	doc = planned_department(department)
 	owner = (owner or "").strip()
 	if owner and owner not in {row.user for row in doc.members}:
@@ -62,8 +64,14 @@ def department_leads(
 			for name, total in base.select(Lead.tbo_product, Count(Lead.name)).groupby(Lead.tbo_product).run()
 		}
 	query = base
+	industries = {
+		(name or ""): total
+		for name, total in base.select(Lead.industry, Count(Lead.name)).groupby(Lead.industry).run()
+	}
 	if product and has_product:
 		query = query.where(Coalesce(Lead.tbo_product, "") == ("" if product == "-" else product))
+	if industry:
+		query = query.where(Coalesce(Lead.industry, "") == ("" if industry == "-" else industry))
 	text = " ".join(str(search or "").split())
 	if text:
 		like = f"%{text}%"
@@ -78,6 +86,7 @@ def department_leads(
 		Lead.tbo_stage,
 		Lead.tbo_temperature,
 		Coalesce(Lead.mobile_no, Lead.phone, Lead.whatsapp_no).as_("phone"),
+		Lead.industry,
 		Lead.modified,
 	]
 	if has_product:
@@ -95,6 +104,7 @@ def department_leads(
 				"lead_name": row.lead_name,
 				"company_name": row.company_name,
 				"product": row.get("tbo_product") or None,
+				"industry": row.get("industry") or None,
 				"stage": row.tbo_stage,
 				"temperature": row.tbo_temperature,
 				"phone": row.phone,
@@ -104,12 +114,20 @@ def department_leads(
 		],
 		"total": total,
 		"products": counts,
+		"industries": industries,
 	}
 
 
-def assign_leads(department: str, user: str, leads=None, count=0, product: str | None = None) -> dict:
+def assign_leads(
+	department: str,
+	user: str,
+	leads=None,
+	count=0,
+	product: str | None = None,
+	industry: str | None = None,
+) -> dict:
 	"""Give `user` (a member) the `leads` named, or else the next `count` unassigned open leads
-	with a phone (of `product` when given), hot first, then newest. A lead owned by someone else
+	with a phone (of `product` and of `industry` when given), hot first, then newest. A lead owned by someone else
 	moves to `user`. {assigned, skipped: [{name, reason}]}."""
 	doc = planned_department(department)
 	if user not in {row.user for row in doc.members}:
@@ -142,7 +160,7 @@ def assign_leads(department: str, user: str, leads=None, count=0, product: str |
 		if count <= 0:
 			frappe.throw(_("Pick the leads, or say how many to give."))
 		check_size(count)
-		chosen = next_unassigned(doc, count, clean_product(doc, product))
+		chosen = next_unassigned(doc, count, clean_product(doc, product), clean_industry(industry))
 	for name in chosen:
 		hand(name, user)
 	return {"assigned": len(chosen), "skipped": skipped}
@@ -189,7 +207,7 @@ def clean_product(department, product: str | None) -> str:
 	return chosen
 
 
-def next_unassigned(department, count: int, product: str) -> list[str]:
+def next_unassigned(department, count: int, product: str, industry: str = "") -> list[str]:
 	"""The next `count` unassigned open leads with a phone, rows locked (SKIP LOCKED) so the
 	batches pulling at the same moment never take the same one."""
 	Lead = frappe.qb.DocType("Lead")
@@ -208,6 +226,8 @@ def next_unassigned(department, count: int, product: str) -> list[str]:
 	)
 	if product:
 		query = query.where(Lead.tbo_product == product)
+	if industry:
+		query = query.where(Lead.industry == industry)
 	return [name for (name,) in query.for_update(skip_locked=True).run()]
 
 

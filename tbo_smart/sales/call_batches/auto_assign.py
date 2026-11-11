@@ -17,7 +17,7 @@ from frappe.utils import cint, get_datetime, get_time, getdate, now_datetime
 from tbo_smart.sales import stale
 from tbo_smart.sales.call_batches import is_off_today
 from tbo_smart.sales.call_batches.handout import HANDED_NOTE, hand, has_phone, next_unassigned
-from tbo_smart.sales.call_batches.plans import plan_product, plan_total
+from tbo_smart.sales.call_batches.plans import plan_industry, plan_product, plan_total
 from tbo_smart.sales.departments import DEPARTMENT
 
 AUTO_NOTE = "Assigned to you automatically: nobody handed you leads by the set time"
@@ -79,7 +79,7 @@ def assign_department(department, day) -> dict[str, int]:
 		if count <= 0:
 			continue
 		product = plan_product(department, row.user)
-		leads = next_unassigned(department, count, product)
+		leads = next_unassigned(department, count, product, plan_industry(department, row.user))
 		for lead in leads:
 			hand(lead, row.user, AUTO_NOTE)
 		if leads:
@@ -93,7 +93,9 @@ def missing(department, user: str, day) -> int:
 	total = plan_total(department, user)
 	if total <= 0 or is_off_today(user, day) or handed_by_hand(department.name, user, day):
 		return 0
-	return total - uncalled(department.name, user, plan_product(department, user))
+	return total - uncalled(
+		department.name, user, plan_product(department, user), plan_industry(department, user)
+	)
 
 
 def handed_by_hand(department: str, user: str, day) -> bool:
@@ -117,9 +119,9 @@ def handed_by_hand(department: str, user: str, day) -> bool:
 	)
 
 
-def uncalled(department: str, user: str, product: str) -> int:
-	"""The open leads with a phone `user` owns in `department` (of `product` when given) that were
-	never called."""
+def uncalled(department: str, user: str, product: str, industry: str = "") -> int:
+	"""The open leads with a phone `user` owns in `department` (of `product` and `industry` when
+	given) that were never called."""
 	Lead = frappe.qb.DocType("Lead")
 	query = (
 		frappe.qb.from_(Lead)
@@ -134,4 +136,6 @@ def uncalled(department: str, user: str, product: str) -> int:
 	)
 	if product:
 		query = query.where(Lead.tbo_product == product)
+	if industry:
+		query = query.where(Lead.industry == industry)
 	return query.run()[0][0]

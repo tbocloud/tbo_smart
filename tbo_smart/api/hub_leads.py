@@ -1537,14 +1537,16 @@ def save_call_plan(
 	product: str | None = None,
 	sizes: dict | str | None = None,
 	clear: int | str | bool = 0,
+	industry: str | None = None,
 	acting_user: str | None = None,
 ) -> dict:
 	"""Set the call plan of `users` (members of `department`): the `product` they are handed
-	(blank: any) and `sizes` ({slot label: calls, 0 to 500}); `clear` removes it. Same people as
+	(blank: any), the `industry` (a department without products plans by industry; blank: any)
+	and `sizes` ({slot label: calls, 0 to 500}); `clear` removes it. Same people as
 	get_call_plans (a head only for their departments). Returns that department as
 	get_call_plans lists it. The plan counts from the next slot or the next batch asked for."""
 	with acting_as(acting_user):
-		return call_plans.save_call_plan(department, users, product, sizes, cint(clear))
+		return call_plans.save_call_plan(department, users, product, sizes, cint(clear), industry)
 
 
 @frappe.whitelist()
@@ -1555,14 +1557,16 @@ def get_department_leads(
 	search: str | None = None,
 	start: int | str = 0,
 	page_length: int | str = 50,
+	industry: str | None = None,
 	acting_user: str | None = None,
 ) -> dict:
 	"""A page of a department's open leads, for the people who plan it (get_call_plans): `owner`
-	a member's (blank: the unassigned ones), `product` ("-" for none), `search` on name, company
-	or phone. {rows: [{name, lead_name, company_name, product, stage, temperature, phone,
-	modified}], total, products: {product: leads}} (docs/call-batches.md §12)."""
+	a member's (blank: the unassigned ones), `product` or `industry` ("-" for none), `search` on
+	name, company or phone. {rows: [{name, lead_name, company_name, product, industry, stage,
+	temperature, phone, modified}], total, products: {product: leads}, industries: {industry:
+	leads}} (docs/call-batches.md §12)."""
 	with acting_as(acting_user):
-		return call_handout.department_leads(department, owner, product, search, start, page_length)
+		return call_handout.department_leads(department, owner, product, search, start, page_length, industry)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -1572,13 +1576,14 @@ def assign_leads(
 	leads: list | str | None = None,
 	count: int | str = 0,
 	product: str | None = None,
+	industry: str | None = None,
 	acting_user: str | None = None,
 ) -> dict:
 	"""Give a member the `leads` named (moving them from whoever had them), or else the next
-	`count` unassigned open leads (of `product`). At most 500. {assigned, skipped: [{name,
+	`count` unassigned open leads (of `product`, and of `industry`). At most 500. {assigned, skipped: [{name,
 	reason}]}. Same people as get_call_plans."""
 	with acting_as(acting_user):
-		return call_handout.assign_leads(department, user, leads, count, product)
+		return call_handout.assign_leads(department, user, leads, count, product, industry)
 
 
 @frappe.whitelist(methods=["POST"])

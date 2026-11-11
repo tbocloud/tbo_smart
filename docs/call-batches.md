@@ -174,6 +174,13 @@ instead plan each member (hub: Leads, **Assign leads**): the **product** they ar
 - **Not enough leads:** a batch takes what there is (the person's own leads first, then
   unassigned ones of the product). `get_call_plans` counts the unassigned open leads per product
   so the planner sees it before saving.
+- **By industry:** a department without products (TBO) plans by **industry** instead: the
+  member's `call_industry` (an Industry Type; blank: any). New leads (steps 3 to 5) are only
+  that industry (`fill.campaign_of`: the department's campaign industry still wins), hand-out by
+  number (`assign_leads` with `industry`) and the auto-assign (§14) take that industry's
+  unassigned leads, and `department_leads` filters and counts by industry. `get_call_plans`
+  gives each member `industry` and the department `industries` (those its open leads are in)
+  and `unassigned_industries` (unassigned open leads with a phone, per industry).
 
 ## 12. Handing leads by hand (`sales/call_batches/handout.py`)
 

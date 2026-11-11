@@ -9,6 +9,7 @@
   "full_name",
   "daily_call_cap",
   "call_product",
+  "call_industry",
   "slot_sizes"
  ],
  "fields": [
@@ -42,6 +43,12 @@
    "description": "Members only: the product this person is handed (set on the hub's Assign leads page). Blank: as the department."
   },
   {
+   "description": "For a department without products: the industry this person's plan calls for",
+   "fieldname": "call_industry",
+   "fieldtype": "Data",
+   "label": "Calls for industry"
+  },
+  {
    "fieldname": "slot_sizes",
    "fieldtype": "JSON",
    "label": "Calls per slot",
@@ -50,7 +57,7 @@
  ],
  "istable": 1,
  "links": [],
- "modified": "2026-11-05 10:00:00.000000",
+ "modified": "2026-11-11 16:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Lead Department User",

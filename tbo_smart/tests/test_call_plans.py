@@ -8,17 +8,20 @@ from tbo_smart.api import hub_leads as hub
 from tbo_smart.sales import departments
 from tbo_smart.sales.activities import next_follow_ups
 from tbo_smart.sales.call_batches import auto_assign, clock, daily_cap, focus, handout, plans, settings
+from tbo_smart.sales.call_batches.fill import campaign_of
 from tbo_smart.sales.call_batches.next_batch import create_next_batch
 from tbo_smart.sales.call_batches.state import CallQueue
 from tbo_smart.test_utils import (
 	delete_bd_focus,
 	delete_call_batches,
+	delete_industries,
 	delete_lead_departments,
 	delete_sales_records,
 	disable_sales_hierarchy,
 	make_batch_department,
 	make_call_batch,
 	make_callable_lead,
+	make_industry,
 	make_lead_task,
 	make_user,
 )
@@ -398,3 +401,47 @@ class TestCallPlans(FrappeTestCase):
 		self.assertRaises(
 			frappe.ValidationError, settings.apply, department, {"auto_assign_skip_saturdays": "3rd"}
 		)
+
+	# ---------- planning by industry (a department without products) ----------
+
+	def by_industry(self):
+		for name in ("Test Plan Hotels", "Test Plan Hospitals"):
+			make_industry(name)
+		self.addCleanup(delete_industries, ("Test Plan Hotels", "Test Plan Hospitals"))
+		hotels = [
+			make_callable_lead(None, f"Plan Hotel Pool {i}", STAYVEX, industry="Test Plan Hotels")
+			for i in range(3)
+		]
+		make_callable_lead(None, "Plan Hospital Pool", STAYVEX, industry="Test Plan Hospitals")
+		return hotels
+
+	def test_a_department_without_products_plans_and_hands_out_by_industry(self):
+		hotels = self.by_industry()
+		result = self.plan([BD], sizes={"Day": 2}, department=STAYVEX, industry="Test Plan Hotels")
+		[member] = [row for row in result["members"] if row["user"] == BD]
+		self.assertEqual(member["industry"], "Test Plan Hotels")
+		self.assertTrue(member["has_plan"])
+		self.assertEqual(result["unassigned_industries"]["Test Plan Hotels"], 3)
+		self.assertIn("Test Plan Hospitals", result["industries"])
+		self.assertEqual(
+			handout.assign_leads(STAYVEX, BD, count=5, industry="Test Plan Hotels")["assigned"], 3
+		)
+		self.assertEqual({self.owner_of(lead) for lead in hotels}, {BD})
+		mine = handout.department_leads(STAYVEX, BD, industry="Test Plan Hotels")
+		self.assertEqual((mine["total"], mine["industries"]), (3, {"Test Plan Hotels": 3}))
+		self.assertRaises(
+			frappe.ValidationError, self.plan, [BD], department=STAYVEX, industry="No Such Industry"
+		)
+
+	def test_the_batches_and_the_auto_assign_follow_the_plans_industry(self):
+		self.by_industry()
+		self.plan([BD], sizes={"Day": 1}, department=STAYVEX, industry="Test Plan Hospitals")
+		department = frappe.get_doc("TBO Lead Department", STAYVEX)
+		self.assertEqual(campaign_of(department, user=BD)["industry"], "test plan hospitals")
+		with patch("tbo_smart.sales.call_batches.auto_assign.is_off_today", return_value=None):
+			done = auto_assign.assign_department(department, getdate())
+		self.assertEqual(done, {BD: 1})
+		[lead] = frappe.get_all(
+			"Lead", filters={"tbo_department": STAYVEX, "lead_owner": BD}, pluck="industry"
+		)
+		self.assertEqual(lead, "Test Plan Hospitals")
