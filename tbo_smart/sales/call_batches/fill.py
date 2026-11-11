@@ -297,12 +297,25 @@ class BatchFiller:
 		assign_undated(lead, self.user, PULLED_NOTE)
 
 
+def lock_batches(user: str, day) -> bool:
+	"""Hold `user`'s batches until this transaction ends, so two requests at once (a double tap on
+	Next batch, the slot clock) cannot both hand out the same leads. False when another request
+	made one of their batches for `day` after this one started reading: a plain read still sees
+	the transaction's first snapshot, a locking read sees what is committed now."""
+	frappe.db.get_value("User", user, "name", for_update=True)
+	filters = {"user": user, "batch_date": getdate(day)}
+	seen = frappe.db.count(BATCH, filters)
+	return len(frappe.db.get_values(BATCH, filters, "name", for_update=True)) == seen
+
+
 def build_batch(
 	department, user: str, label: str, starts_at, ends_at, size: int, campaign: dict, allow_empty: bool = True
 ):
 	"""Insert the batch for `user` and return it; None when the day's cap leaves no room, or
 	(`allow_empty` False) when there is no lead to call."""
 	day = getdate(starts_at)
+	if not lock_batches(user, day):
+		return None
 	room = room_for(department, user, day, size)
 	if room <= 0:
 		return None

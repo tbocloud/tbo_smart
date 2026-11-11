@@ -233,12 +233,30 @@ def report_departments() -> list | None:
 	return headed
 
 
+def missed_rows(items: list, now) -> list:
+	"""The day's overdue calls by CallQueue.missed's rule: per person, a lead once (its latest
+	missed row), and not at all when it was called that day or is still waiting in a running
+	batch."""
+	called, queued, latest = set(), set(), {}
+	for row in items:
+		ended = row.status != ACTIVE or get_datetime(row.ends_at) <= now
+		if row.outcome:
+			called.add((row.user, row.lead))
+		elif not ended:
+			queued.add((row.user, row.lead))
+	for row in items:  # by batch start, so the last row of a lead is its latest
+		key = (row.user, row.lead)
+		if not row.outcome and key not in called and key not in queued:
+			latest[key] = row
+	return list(latest.values())
+
+
 def get_call_batches_report(date=None) -> dict:
 	"""{date, people: [{user, user_name, department, size, called, connected, overdue, batches:
 	[{name, slot, status, starts_at, ends_at, size, called, connected, overdue}]}], totals}.
 	`connected` counts calls where someone answered (Connected, Call back, Not interested), on any
 	call of the lead in the batch (a retry, a call back, the customer calling back);
-	`overdue` the calls of an ended slot nobody made."""
+	`overdue` the calls of an ended slot nobody made, counted as the queue counts them (missed_rows)."""
 	day = getdate(date)
 	allowed = report_departments()
 	filters = {"batch_date": day}
@@ -277,13 +295,12 @@ def get_call_batches_report(date=None) -> dict:
 				"overdue": 0,
 			}
 			person["batches"].append(batch)
-		ended = row.status != ACTIVE or get_datetime(row.ends_at) <= now
 		if not row.is_repeat:
 			batch["size"] += 1
 			batch["called"] += 1 if row.outcome else 0
 			batch["connected"] += 1 if (row.batch, row.lead) in reached else 0
-		if not row.outcome and ended:
-			batch["overdue"] += 1
+	for row in missed_rows(items, now):
+		batches[row.batch]["overdue"] += 1
 	for person in people.values():
 		for key in ("size", "called", "connected", "overdue"):
 			person[key] = sum(batch[key] for batch in person["batches"])

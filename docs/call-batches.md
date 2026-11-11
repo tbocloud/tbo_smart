@@ -63,6 +63,11 @@ always wins, then the person's focus, §10). A lead is never in two active
 batches and never twice on one day. A lead owned by the person but outside any department is not
 batched.
 
+`build_batch` first locks the person (their User row, `lock_batches`) and gives up when another
+request made one of their batches for the day after this one started reading: a double tap on
+Next batch, or the clock's tick at the same moment, could otherwise make two batches with the
+same leads. Next batch then says "A batch was just handed out to you. Refresh to see it."
+
 ## 4. The clock (`sales/call_batches/clock.py`)
 
 `run_call_batch_clock` runs every 5 minutes. It closes active batches whose slot is over (their
@@ -82,7 +87,7 @@ its Event) and sets the item's outcome, which removes it from the queue:
 | --- | --- | --- |
 | Connected | Connected | Due follow-ups of the lead close. A `callback_at` sets the next follow-up. The hub asks for a note and stage. |
 | Not answered / Busy | No answer / Busy | One more try 2 hours later in the same batch, if the batch is still running then; after that, or when the slot ends first, the lead returns tomorrow as priority 2. |
-| Call back | Connected | `callback_at` (required) becomes `tbo_callback_at` and a follow-up ToDo; inside this batch the lead returns to the queue at that time. |
+| Call back | Connected | `callback_at` (required) becomes `tbo_callback_at` and a follow-up ToDo (unless a person's follow-up is already due that day; the AI's do not count, since §3 step 1 ignores them); inside this batch the lead returns to the queue at that time. |
 | Not interested | Connected | Due follow-ups close. The lead becomes Not Interested (lost reason "Not interested"). |
 | Wrong number | No answer | `tbo_wrong_number` is set, a note added and the lead becomes Wrong Number. |
 
@@ -95,7 +100,9 @@ a later answered call that day adds a "Called back" item with Connected. A move 
 Interested, Meeting Scheduled, Not Interested: `REACHED_STAGES`), by the person after the call,
 counts as an answered call the same way, for example Not answered in the batch and then Move
 stage to Contacted on the lead page. The stage move a logged answered call makes itself (within
-2 minutes, `SAME_CONTACT`) is that call's, so it is counted once. It runs whenever the
+2 minutes, `SAME_CONTACT`) is that call's, so it is counted once. A stage move is not a call: the
+item counts it Connected, but the lead's last call result and time are left as they were
+(`apply(..., call=False)`), so a lead nobody phoned does not read as called. It runs whenever the
 queue is read or a batch asked for.
 
 **Counts** (Today's calls and the report): `size` and `called` are the batch's own items (retries,
@@ -118,6 +125,9 @@ due do not count), overdue calls are within the limit, the day's cap is not reac
 day, a slot is open and there is a lead to call. Otherwise it returns `{created: false, reason}`.
 
 `get_call_batches_report(date)`: per person and batch, size, called, connected (answered), overdue.
+Overdue follows the queue's rule for that day (`reads.missed_rows`): a lead once per person (on its
+latest missed row), and not at all when it was called that day or is still waiting in a running
+batch, so a missed retry of a lead already reached is not overdue.
 Sales Managers, System Managers and department heads (their departments).
 
 ## 10. Calling for: the BD's switch (`sales/call_batches/focus.py`)
@@ -210,7 +220,7 @@ department's time gets leads automatically.
   is a Sunday (`auto_assign_skip_sunday`) or a skipped Saturday (`auto_assign_skip_saturdays`; the
   2nd Saturday is the 8th to the 14th). `auto_assigned_on` records the day before it starts, so a
   failure is logged (Error Log "Auto-assign failed for …") and not retried every 5 minutes.
-- **Who:** each member with a call plan of more than 0 calls (§11) who is at work (`is_off_today`:
+- **Who:** each enabled member with a call plan of more than 0 calls (§11) who is at work (`is_off_today`:
   not on approved leave or a holiday of their list) and was not handed a lead of the department
   by hand today (a ToDo "Assigned to you on Assign leads" created today).
 - **How many:** their plan's calls for the day minus the open leads of the plan's product they

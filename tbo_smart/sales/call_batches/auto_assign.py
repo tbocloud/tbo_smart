@@ -75,6 +75,8 @@ def assign_department(department, day) -> dict[str, int]:
 	"""{user: leads given} for the members topped up."""
 	given = {}
 	for row in department.members:
+		if not frappe.db.get_value("User", row.user, "enabled"):
+			continue  # left the company: leads handed to them would never be called
 		count = missing(department, row.user, day)
 		if count <= 0:
 			continue

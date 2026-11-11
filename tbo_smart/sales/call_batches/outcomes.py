@@ -82,9 +82,12 @@ def record(
 	return {"item": row.name, "outcome": outcome, "retry_at": retry_at}
 
 
-def apply(batch, row, outcome: str, note: str, callback, called_at, number: str | None = None):
+def apply(
+	batch, row, outcome: str, note: str, callback, called_at, number: str | None = None, call: bool = True
+):
 	"""Give `row` its outcome and schedule what follows; saves the batch once. Returns when the
-	lead comes back to this batch's queue (a retry or a call back), else None."""
+	lead comes back to this batch's queue (a retry or a call back), else None. `call` False: a
+	stage moved by hand, not a call, so the lead's last call and stage are left as they are."""
 	row.outcome, row.called_at, row.note = outcome, called_at, note or None
 	row.attempts = (row.attempts or 0) + 1
 	lead = row.lead
@@ -97,7 +100,8 @@ def apply(batch, row, outcome: str, note: str, callback, called_at, number: str 
 		comes_back = set_callback(batch, row, callback, repeat=outcome == CALL_BACK)
 	else:
 		frappe.db.set_value("Lead", lead, "tbo_callback_at", None, update_modified=False)
-	apply_call_outcome(lead, outcome, called_at, number=number)
+	if call:
+		apply_call_outcome(lead, outcome, called_at, number=number)
 	if outcome == WRONG_NUMBER and not numbers.has_usable(lead):
 		frappe.db.set_value("Lead", lead, "tbo_wrong_number", 1, update_modified=False)
 		add_note("Lead", lead, _("Wrong number, reported from the daily calls."))
@@ -163,6 +167,8 @@ def close_due_follow_ups(lead: str) -> None:
 REACHED_STAGES = (CONTACTED, FOLLOW_UP_REQUIRED, POSITIVE, MEETING_SCHEDULED, NOT_INTERESTED_STAGE)
 # a logged call moves the stage itself a moment later: that move is the same contact
 SAME_CONTACT = 120
+# the direction stage_contacts gives a move by hand, which is not a call
+STAGE_MOVE = "Stage"
 
 
 def sync_calls(user: str) -> int:
@@ -244,7 +250,7 @@ def stage_contacts(user: str, leads: list[str], rows: list, calls: list) -> list
 		):
 			continue
 		contacts.append(
-			frappe._dict(lead=move.parent, status=CALL_ANSWERED, direction="Stage", started_at=at)
+			frappe._dict(lead=move.parent, status=CALL_ANSWERED, direction=STAGE_MOVE, started_at=at)
 		)
 	return contacts
 
@@ -265,7 +271,7 @@ def record_calls(batch, calls: list) -> int:
 		call = next_call(calls, row.lead, max(since, done.get(row.lead, since)))
 		if call:
 			outcome = CONNECTED if call.status == CALL_ANSWERED else NOT_ANSWERED
-			apply(batch, row, outcome, "", None, call.started_at)
+			apply(batch, row, outcome, "", None, call.started_at, call=call.direction != STAGE_MOVE)
 			done[row.lead] = get_datetime(call.started_at)
 			recorded += 1
 	for lead in unreached_at_last(batch):
@@ -282,7 +288,7 @@ def record_calls(batch, calls: list) -> int:
 					"attempts": last.attempts,
 				},
 			)
-			apply(batch, row, CONNECTED, "", None, call.started_at)
+			apply(batch, row, CONNECTED, "", None, call.started_at, call=call.direction != STAGE_MOVE)
 			done[lead] = get_datetime(call.started_at)
 			recorded += 1
 	return recorded

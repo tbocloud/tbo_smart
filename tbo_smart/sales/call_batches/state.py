@@ -24,9 +24,9 @@ def reached_leads(rows: list) -> set[tuple[str, str]]:
 	return {(row.batch, row.lead) for row in rows if row.outcome in ANSWERED}
 
 
-def item_rows(batch_filters: dict) -> list[frappe._dict]:
-	"""The items of the batches matching `batch_filters`, each with its batch's name, slot,
-	department, user, status and window, in batch then list order."""
+def item_rows(batch_filters: dict, since=None) -> list[frappe._dict]:
+	"""The items of the batches matching `batch_filters` (and dated `since` or later), each with its
+	batch's name, slot, department, user, status and window, in batch then list order."""
 	Batch, Item = frappe.qb.DocType(BATCH), frappe.qb.DocType(ITEM)
 	query = (
 		frappe.qb.from_(Item)
@@ -49,6 +49,8 @@ def item_rows(batch_filters: dict) -> list[frappe._dict]:
 	for field, value in batch_filters.items():
 		many = isinstance(value, list | tuple | set)
 		query = query.where(Batch[field].isin(list(value)) if many else Batch[field] == value)
+	if since:
+		query = query.where(Batch.batch_date >= getdate(since))
 	return query.run(as_dict=True)
 
 
@@ -60,7 +62,7 @@ class CallQueue:
 	def __init__(self, user: str, now=None):
 		self.user, self.now = user, get_datetime(now) if now else now_datetime()
 		since = add_to_date(getdate(self.now), days=-OVERDUE_DAYS)
-		self.rows = [row for row in item_rows({"user": user}) if getdate(row.batch_date) >= since]
+		self.rows = item_rows({"user": user}, since=since)
 		self.running = [row for row in self.rows if self.is_running(row)]
 		self.pending = self.due_now()
 		self.scheduled = self.coming_back()

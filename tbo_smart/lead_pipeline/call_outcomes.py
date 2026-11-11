@@ -109,10 +109,11 @@ def apply_call_outcome(
 
 def schedule_call_back(lead: str, callback) -> None:
 	"""The lead's follow-up becomes `callback`: its call back time, and a Follow-up task for that
-	day unless one is already due then."""
+	day unless a person's one is already due then (the AI's own follow-ups do not count: the
+	batches only bring back a person's)."""
 	callback = get_datetime(callback)
 	frappe.db.set_value("Lead", lead, "tbo_callback_at", callback, update_modified=False)
-	if next_follow_ups("Lead", [lead]).get(lead) != getdate(callback):
+	if next_follow_ups("Lead", [lead], people_only=True).get(lead) != getdate(callback):
 		owner = frappe.db.get_value("Lead", lead, "lead_owner") or frappe.session.user
 		add_follow_up_task(
 			"Lead",
