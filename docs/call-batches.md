@@ -86,10 +86,18 @@ its Event) and sets the item's outcome, which removes it from the queue:
 | Not interested | Connected | Due follow-ups close. The lead becomes Not Interested (lost reason "Not interested"). |
 | Wrong number | No answer | `tbo_wrong_number` is set, a note added and the lead becomes Wrong Number. |
 
-A call logged on the lead by any other route (MyOperator, the Log call dialog, the app) counts
-too: `sync_calls` gives the person's open items the outcome of their newest later call (Answered:
-Connected; Missed or Voicemail: Not answered). It runs whenever the queue is read or a batch asked
-for.
+A call logged on the lead by any other route (MyOperator, the Log call dialog, the app, the
+customer calling back) counts too: `sync_calls` gives the person's open items (a retry or a call
+back included) the outcome of their next later call (Answered: Connected; Missed or Voicemail: Not
+answered). An incoming call counts only when it was answered. When the lead's last call of the day
+was Not answered or Busy and nothing of it is left to call (no retry, e.g. the slot ended first),
+a later answered call that day adds a "Called back" item with Connected. It runs whenever the
+queue is read or a batch asked for.
+
+**Counts** (Today's calls and the report): `size` and `called` are the batch's own items (retries,
+call backs and called-back items are not counted again); a lead is `connected` when **any** call of
+it in the batch was answered, so Not answered followed by a Connected retry, call back or the
+customer calling back counts connected (`state.reached_leads`).
 
 ## 6. Reading and the next batch
 

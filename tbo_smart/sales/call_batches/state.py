@@ -19,6 +19,11 @@ ITEM_FIELDS = (
 )
 
 
+def reached_leads(rows: list) -> set[tuple[str, str]]:
+	"""(batch, lead) of the rows whose call was answered."""
+	return {(row.batch, row.lead) for row in rows if row.outcome in ANSWERED}
+
+
 def item_rows(batch_filters: dict) -> list[frappe._dict]:
 	"""The items of the batches matching `batch_filters`, each with its batch's name, slot,
 	department, user, status and window, in batch then list order."""
@@ -112,10 +117,12 @@ class CallQueue:
 		return [row for row in self.rows if getdate(row.batch_date) == today and not row.is_repeat]
 
 	def totals(self, rows: list) -> dict:
-		"""{size, called, connected} of the non-retry rows."""
+		"""{size, called, connected} of the non-retry rows; a lead is connected when any call of it in
+		the batch was answered (a retry, a call back, or the customer calling back)."""
 		own = [row for row in rows if not row.is_repeat]
+		reached = reached_leads(rows)
 		return {
 			"size": len(own),
 			"called": sum(1 for row in own if row.outcome),
-			"connected": sum(1 for row in own if row.outcome in ANSWERED),
+			"connected": sum(1 for row in own if (row.batch, row.lead) in reached),
 		}
