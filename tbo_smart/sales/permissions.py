@@ -11,7 +11,9 @@ Frappe CRM's rule, unchanged, on ERPNext's records (the `has_permission` and
 - a Sales Manager outside the hierarchy: everything;
 - everyone else: what they own or what is assigned to them;
 - on top of the last two, the head of an active TBO Lead Department also sees every lead of
-  it (sales/departments.py); a lead without a department is unaffected.
+  it (sales/departments.py); a lead without a department is unaffected;
+- and whoever created a lead still reads it (never writes it) after it is handed to someone
+  else, so My leads can list what they created.
 
 ERPNext's role permissions still decide first; this only narrows them.
 """
@@ -43,11 +45,14 @@ def sees_everything(user: str, doctype: str, ptype: str | None) -> bool:
 	return "Sales Manager" in roles and not in_hierarchy(user)
 
 
-def conditions(user: str, doctype: str):
+def conditions(user: str, doctype: str, ptype: str | None = "read"):
 	"""The criterion on `doctype` for a user who doesn't see everything."""
 	criterion = own_conditions(user, doctype)
 	if doctype == LEAD:
-		criterion = criterion | frappe.qb.DocType(LEAD).tbo_department.isin(headed_departments(user))
+		Lead = frappe.qb.DocType(LEAD)
+		criterion = criterion | Lead.tbo_department.isin(headed_departments(user))
+		if (ptype or "read") in READ_PTYPES:
+			criterion = criterion | (Lead.owner == user)
 	return criterion
 
 
@@ -87,7 +92,7 @@ def check(doc, ptype: str | None, user: str | None, doctype: str) -> bool:
 	return bool(
 		frappe.qb.from_(Table)
 		.select(Table.name)
-		.where((Table.name == doc.name) & conditions(user, doctype))
+		.where((Table.name == doc.name) & conditions(user, doctype, ptype))
 		.limit(1)
 		.run()
 	)

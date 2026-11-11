@@ -73,8 +73,8 @@ def get_lead_index(after: str | None = None, limit: int = 1000) -> dict:
 def get_leads_bulk(names: list | str) -> dict:
 	"""{leads, missing, errors}: for up to 100 lead names, each lead's list row (`row`), its
 	`get_lead` answer (`payload`, without the flags that are about the person asking) and what
-	decides who sees it: `owner`, `assignees` (open and closed follow-up assignments) and
-	`department`. `missing` are names that are not leads (deleted or merged); `errors` maps a
+	decides who sees it: `owner`, `created_by` (reads it, sales/permissions.py), `assignees` (open
+	and closed follow-up assignments) and `department`. `missing` are names that are not leads (deleted or merged); `errors` maps a
 	lead that could not be read to why."""
 	require_integration_user()
 	names = list(dict.fromkeys(frappe.parse_json(names) if isinstance(names, str) else names or []))
@@ -85,6 +85,11 @@ def get_leads_bulk(names: list | str) -> dict:
 		for row in serialize_rows(frappe.get_all(LEAD, filters={"name": ("in", names)}, fields=ROW_FIELDS))
 	}
 	assignees = assignees_of(list(rows))
+	created_by = dict(
+		frappe.get_all(
+			LEAD, filters={"name": ("in", list(rows) or [""])}, fields=["name", "owner"], as_list=True
+		)
+	)
 	leads, errors = [], {}
 	for name in names:
 		if name not in rows:
@@ -104,6 +109,7 @@ def get_leads_bulk(names: list | str) -> dict:
 				"row": row,
 				"payload": payload,
 				"owner": row["lead_owner"],
+				"created_by": created_by.get(name),
 				"assignees": assignees.get(name, []),
 				"department": row["tbo_department"],
 				"modified": row["modified"],

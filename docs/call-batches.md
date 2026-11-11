@@ -33,8 +33,11 @@ Set on the department (hub: Settings, CRM, Lead departments):
 In order, up to the slot size and what is left of the day's cap. Only open leads (not Closed,
 not On Hold) of the department:
 
-1. The person's leads with a follow-up (an open ToDo) due today or earlier. A lead with a call
-   back later than this slot's end waits for the slot it falls in.
+1. The person's leads with a follow-up (an open ToDo) due today or earlier, set by a person (a
+   call back, a date they chose). A follow-up the AI scheduled ("AI: …", smart-leads.md §11)
+   does not count here: it came after every call and brought each called lead back first, ahead
+   of the leads never called. A lead with a call back later than this slot's end waits for the
+   slot it falls in.
 2. Their last working day's Not answered and Busy (the last outcome of the day wins).
 3. Their leads never called (no call Event), hot first, then New Lead, then newest.
 4. Their leads quiet for longest (the newest activity from `sales/stale.py`).

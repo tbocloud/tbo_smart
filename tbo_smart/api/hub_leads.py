@@ -44,6 +44,7 @@ from tbo_smart.sales.activities import (
 	OPEN,
 	add_follow_up_task,
 	add_log,
+	call_counts,
 	events_of,
 	next_follow_ups,
 	notes_of,
@@ -69,7 +70,7 @@ from tbo_smart.smart_leads.call_today import build_call_today
 from tbo_smart.telephony import MANUAL_OUTCOMES
 from tbo_smart.telephony.calls import call_details, can_call, log_manual_call
 
-VIEWS = ("all", "mine", "call_today", "follow_up")
+VIEWS = ("all", "mine", "call_today", "follow_up", "called")
 TEMPERATURES = ("Hot", "Warm", "Cold")
 SALES_USER = "Sales User"
 MAX_PAGE_LENGTH = 100
@@ -125,6 +126,7 @@ ROW_FIELDS = [
 	"tbo_district as district",
 	"no_of_employees as org_size",
 	"lead_owner",
+	"owner as created_by",
 	"tbo_score as score",
 	"modified",
 ]
@@ -157,6 +159,7 @@ LEAD_DETAIL_FIELDS = [
 	"tbo_last_reply_on as last_reply_on",
 	"status",
 	"lead_owner",
+	"owner as created_by",
 	"tbo_score",
 	"tbo_temperature",
 	"tbo_score_reason",
@@ -301,11 +304,16 @@ def list_leads(
 	last_call_result: list | str | None = None,
 	last_reply_class: list | str | None = None,
 	product: list | str | None = None,
+	mine: bool | int | str = False,
+	created_by_me: bool | int | str = False,
 	acting_user: str | None = None,
 ) -> dict:
 	"""The leads the acting user may see, newest change first: {rows, total}. `view`: all, mine
-	(they own it), call_today (their Call today list, in its order) or follow_up (an open
-	follow-up due by today, earliest first). `metric` (with `period`, or `from_date` and
+	(they own it or created it), call_today (their Call today list, in its order), follow_up (an
+	open follow-up due by today, earliest first) or called (called at least once, last called
+	first; `from_date` and `to_date` without a `metric` keep the leads last called in those
+	days). `mine` keeps any view to the leads they own or created; `created_by_me` to the ones
+	they created (whoever owns them now: they may read, not change, those). `metric` (with `period`, or `from_date` and
 	`to_date`) keeps the leads one number of the overview counts (get_overview). `department`
 	keeps one lead department's leads (the acting user still sees only what they may).
 	`industry`, `state`, `district`, `org_size` and `product` (a product of the department) each take a value or a list (a JSON list in a
@@ -338,8 +346,13 @@ def list_leads(
 			filters["name"] = ("in", board.metric_leads(metric) or [""])
 		or_filters = search_filters(search)
 		order_by = "modified desc"
-		if view == "mine":
-			filters["lead_owner"] = user
+		if cint(created_by_me):
+			filters["owner"] = user
+		if cint(mine) or view == "mine":
+			filters["name"] = ("in", within(filters, owned_or_created(user)) or [""])
+		if view == "called":
+			filters["tbo_last_call_on"] = called_between(from_date, to_date) if not metric else ("is", "set")
+			order_by = "tbo_last_call_on desc"
 		elif view == "call_today":
 			names = call_today_names(user)
 			filters["name"] = ("in", within(filters, names) or [""])
@@ -364,6 +377,22 @@ def list_leads(
 		if view in ("call_today", "follow_up"):
 			rows = rows[start : start + page_length]
 		return {"rows": serialize_rows(rows), "total": total}
+
+
+def owned_or_created(user: str) -> list[str]:
+	"""The leads `user` owns or created (the list query still applies who may see what)."""
+	return frappe.get_all("Lead", or_filters={"lead_owner": user, "owner": user}, pluck="name")
+
+
+def called_between(from_date: str | None, to_date: str | None):
+	"""The filter on a lead's last call for the Called view: set, or within the days given."""
+	if not (from_date or to_date):
+		return ("is", "set")
+	start = getdate(from_date) if from_date else getdate("2000-01-01")
+	end = getdate(to_date) if to_date else getdate()
+	if end < start:
+		frappe.throw(_("The end date is before the start date."))
+	return ("between", [f"{start} 00:00:00", f"{end} 23:59:59.999999"])
 
 
 def within(filters: dict, names: list[str]) -> list[str]:
@@ -440,6 +469,7 @@ def due_follow_ups() -> dict:
 def serialize_rows(rows: list) -> list[dict]:
 	names = [row.name for row in rows]
 	follow_ups = next_follow_ups("Lead", names)
+	calls = call_counts("Lead", names)
 	owners = get_full_names({row.lead_owner for row in rows if row.lead_owner})
 	# where each lead stands with the client, for the list row: two queries for the page
 	quotations = latest_quotations(names)
@@ -466,6 +496,8 @@ def serialize_rows(rows: list) -> list[dict]:
 			"org_size": row.org_size,
 			"lead_owner": row.lead_owner,
 			"owner_name": owners.get(row.lead_owner),
+			"created_by": row.get("created_by"),
+			"call_count": calls.get(row.name, 0),
 			"score": cint(row.score),
 			"next_follow_up": follow_ups.get(row.name),
 			"modified": row.modified,

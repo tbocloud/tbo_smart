@@ -3,10 +3,11 @@ import json
 import frappe
 from frappe.custom.doctype.property_setter.property_setter import make_property_setter
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import add_days, today
+from frappe.utils import add_days, now_datetime, today
 
 from tbo_smart.api import hub_leads as hub
 from tbo_smart.lead_pipeline.statuses import CLOSED_LOST, CONTACTED, STATUS_NAMES
+from tbo_smart.telephony.calls import log_manual_call
 from tbo_smart.test_utils import (
 	delete_sales_records,
 	disable_sales_hierarchy,
@@ -47,6 +48,44 @@ class TestHubLeads(FrappeTestCase):
 	def tearDown(self):
 		frappe.set_user("Administrator")
 		set_user_enabled(GONE, True)
+
+	def created_by_bde(self, first_name: str) -> str:
+		frappe.set_user("Administrator")
+		lead = make_lead(BDE2, first_name)
+		frappe.db.set_value("Lead", lead, "owner", BDE, update_modified=False)
+		frappe.set_user(HUB)
+		return lead
+
+	def test_my_leads_lists_what_they_created_too_and_only_reads_it(self):
+		created = self.created_by_bde("Hub Created")
+		rows = {row["name"]: row for row in hub.list_leads(view="mine", acting_user=BDE)["rows"]}
+		self.assertEqual(set(rows), {self.mine, created})
+		self.assertEqual(rows[created]["created_by"], BDE)
+		self.assertEqual(rows[created]["lead_owner"], BDE2)
+		only = hub.list_leads(view="all", mine=1, created_by_me=1, acting_user=BDE)["rows"]
+		self.assertEqual([row["name"] for row in only], [created])
+		frappe.set_user(BDE)
+		self.assertTrue(frappe.has_permission("Lead", "read", created))
+		self.assertFalse(frappe.has_permission("Lead", "write", created))
+		self.assertFalse(frappe.has_permission("Lead", "read", self.theirs))
+
+	def test_called_lists_the_leads_called_last_called_first_with_their_counts(self):
+		frappe.set_user("Administrator")
+		older = make_lead(BDE, "Hub Called Before", mobile_no="9847011112")
+		frappe.db.set_value("Lead", older, "tbo_last_call_on", add_days(today(), -3))
+		called = make_lead(BDE, "Hub Called Now", mobile_no="9847011111")
+		frappe.set_user(BDE)
+		log_manual_call(called, "Not answered")
+		log_manual_call(called, "Connected")
+		frappe.set_user("Administrator")
+		frappe.db.set_value("Lead", called, "tbo_last_call_on", now_datetime(), update_modified=False)
+		frappe.set_user(HUB)
+		rows = hub.list_leads(view="called", mine=1, acting_user=BDE)["rows"]
+		# the lead never called (self.mine) is not listed
+		self.assertEqual([row["name"] for row in rows], [called, older])
+		self.assertEqual([row["call_count"] for row in rows], [2, 0])
+		recent = hub.list_leads(view="called", mine=1, from_date=today(), to_date=today(), acting_user=BDE)
+		self.assertEqual([row["name"] for row in recent["rows"]], [called])
 
 	def test_the_integration_user_must_name_a_real_sales_user(self):
 		self.assertRaises(frappe.PermissionError, hub.list_leads)

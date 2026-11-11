@@ -18,7 +18,7 @@ from html import unescape
 import frappe
 from frappe import _
 from frappe.query_builder import CustomFunction
-from frappe.query_builder.functions import Coalesce, Max, Min
+from frappe.query_builder.functions import Coalesce, Count, Max, Min
 from frappe.utils import escape_html, get_datetime, getdate, now_datetime, strip_html, today
 
 from tbo_smart.api.mobile.utils import get_full_names
@@ -27,6 +27,8 @@ from tbo_smart.sales import record_label
 OPEN, DONE, CANCELLED = "Open", "Closed", "Cancelled"
 CLOSED_TASK_STATUSES = (DONE, CANCELLED)
 CALL = "Call"
+# the title the AI gives the follow-ups it schedules (smart_leads/autopilot.schedule_next_action)
+AI_TITLE_PREFIX = "AI: "
 LOG_CATEGORIES = {"meeting": "Meeting", "email": "Sent/Received Email", "whatsapp": "Other"}
 LOG_LABELS = {"meeting": "Meeting", "email": "Email", "whatsapp": "WhatsApp"}
 TITLE_CHARS = 140
@@ -234,23 +236,44 @@ def notes_of(doctype: str, names: list[str]) -> dict[str, list]:
 	return notes
 
 
-def next_follow_ups(reference_doctype: str, names: list[str]) -> dict:
-	"""{record: the earliest open task's due day} (one grouped query)."""
+def next_follow_ups(reference_doctype: str, names: list[str], people_only: bool = False) -> dict:
+	"""{record: the earliest open task's due day} (one grouped query). `people_only` leaves out
+	the follow-ups the AI scheduled (their title starts with AI_TITLE_PREFIX)."""
 	if not names:
 		return {}
 	ToDo = frappe.qb.DocType("ToDo")
-	return dict(
-		(
-			frappe.qb.from_(ToDo)
-			.select(ToDo.reference_name, Min(ToDo.date))
-			.where(
-				(ToDo.reference_type == reference_doctype)
-				& ToDo.reference_name.isin(names)
-				& (ToDo.status == OPEN)
-				& ToDo.date.isnotnull()
-			)
-			.groupby(ToDo.reference_name)
-		).run()
+	query = (
+		frappe.qb.from_(ToDo)
+		.select(ToDo.reference_name, Min(ToDo.date))
+		.where(
+			(ToDo.reference_type == reference_doctype)
+			& ToDo.reference_name.isin(names)
+			& (ToDo.status == OPEN)
+			& ToDo.date.isnotnull()
+		)
+		.groupby(ToDo.reference_name)
+	)
+	if people_only:
+		query = query.where(~Coalesce(ToDo.description, "").like(f"{AI_TITLE_PREFIX}%"))
+	return dict(query.run())
+
+
+def has_open_follow_up(reference_doctype: str, name: str) -> bool:
+	"""An open dated task on the record, read with a lock: it sees a task another transaction
+	committed after this one started, which a plain read would miss."""
+	ToDo = frappe.qb.DocType("ToDo")
+	return bool(
+		frappe.qb.from_(ToDo)
+		.select(ToDo.name)
+		.where(
+			(ToDo.reference_type == reference_doctype)
+			& (ToDo.reference_name == name)
+			& (ToDo.status == OPEN)
+			& ToDo.date.isnotnull()
+		)
+		.limit(1)
+		.for_update()
+		.run()
 	)
 
 
@@ -261,6 +284,18 @@ def last_calls(doctype: str, names: list[str]) -> dict:
 	query, Event, Participant = events_of(doctype, names, [CALL])
 	return dict(
 		query.select(Participant.reference_docname, Max(Coalesce(Event.starts_on, Event.creation)))
+		.groupby(Participant.reference_docname)
+		.run()
+	)
+
+
+def call_counts(doctype: str, names: list[str]) -> dict:
+	"""{record: how many calls it has had}."""
+	if not names:
+		return {}
+	query, Event, Participant = events_of(doctype, names, [CALL])
+	return dict(
+		query.select(Participant.reference_docname, Count(Event.name).distinct())
 		.groupby(Participant.reference_docname)
 		.run()
 	)

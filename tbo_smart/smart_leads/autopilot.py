@@ -36,7 +36,7 @@ from tbo_smart import ai
 from tbo_smart.lead_pipeline.statuses import OPEN_STATUSES, status_type
 from tbo_smart.prospecting.signals import first_message_context
 from tbo_smart.sales import products
-from tbo_smart.sales.activities import add_follow_up_task, next_follow_ups
+from tbo_smart.sales.activities import AI_TITLE_PREFIX, add_follow_up_task, has_open_follow_up
 from tbo_smart.sales.stages import set_lead_stage
 from tbo_smart.smart_leads import (
 	FOLLOW_UP_TYPE,
@@ -267,15 +267,20 @@ def store_insight(lead: str, insight: dict, digest: str) -> None:
 
 def schedule_next_action(lead: str, owner: str | None, insight: dict) -> bool:
 	"""The next action as the owner's Sales follow-up, only when nothing is planned: a person's
-	own plan always wins."""
+	own plan always wins. A call, its stage and its note each wake the AI, so reads of one lead
+	run at once: the lead's row is locked and the check reads past the snapshot, so only the
+	first of them schedules (each used to add its own follow-up)."""
 	action = insight["next_action"]
-	if not action or not owner or next_follow_ups("Lead", [lead]).get(lead):
+	if not action or not owner:
+		return False
+	frappe.db.get_value("Lead", lead, "name", for_update=True)
+	if has_open_follow_up("Lead", lead):
 		return False
 	add_follow_up_task(
 		"Lead",
 		lead,
 		action["due"],
-		title=_("AI: {0}").format(action["what"]),
+		title=AI_TITLE_PREFIX + action["what"],
 		assigned_to=owner,
 		description=action.get("why"),
 		task_type=FOLLOW_UP_TYPE,

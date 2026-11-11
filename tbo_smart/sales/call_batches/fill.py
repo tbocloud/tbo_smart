@@ -173,7 +173,10 @@ class BatchFiller:
 	# ---------- the five steps ----------
 
 	def follow_ups_due(self, pool: list) -> None:
-		due = next_follow_ups("Lead", [lead.name for lead in pool])
+		# a follow-up the AI scheduled after a call brought every called lead back the next days,
+		# ahead of the leads never called: only a person's follow-up (a call back, a date they set)
+		# puts a lead first; the AI's still shows on the lead
+		due = next_follow_ups("Lead", [lead.name for lead in pool], people_only=True)
 		now = now_datetime()
 		rows = []
 		for lead in pool:
