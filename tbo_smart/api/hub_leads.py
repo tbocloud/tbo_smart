@@ -13,7 +13,7 @@ from contextlib import contextmanager
 import frappe
 from frappe import _
 from frappe.query_builder.functions import Min
-from frappe.utils import cint, flt, get_datetime, getdate
+from frappe.utils import add_days, cint, flt, get_datetime, getdate
 
 from tbo_smart import lead_source, outreach
 from tbo_smart.api.mobile.capabilities import CRM_ROLES, get_capabilities
@@ -71,6 +71,8 @@ from tbo_smart.telephony import MANUAL_OUTCOMES
 from tbo_smart.telephony.calls import call_details, can_call, log_manual_call
 
 VIEWS = ("all", "mine", "call_today", "follow_up", "called")
+# when a lead's earliest open follow-up is due, as the Follow-up view's cards split them
+DUE_BUCKETS = ("overdue", "today", "tomorrow", "week", "later")
 TEMPERATURES = ("Hot", "Warm", "Cold")
 SALES_USER = "Sales User"
 MAX_PAGE_LENGTH = 100
@@ -306,6 +308,7 @@ def list_leads(
 	product: list | str | None = None,
 	mine: bool | int | str = False,
 	created_by_me: bool | int | str = False,
+	due: str | None = None,
 	acting_user: str | None = None,
 ) -> dict:
 	"""The leads the acting user may see, newest change first: {rows, total}. `view`: all, mine
@@ -313,7 +316,9 @@ def list_leads(
 	open follow-up due by today, earliest first) or called (called at least once, last called
 	first; `from_date` and `to_date` without a `metric` keep the leads last called in those
 	days). `mine` keeps any view to the leads they own or created; `created_by_me` to the ones
-	they created (whoever owns them now: they may read, not change, those). `metric` (with `period`, or `from_date` and
+	they created (whoever owns them now: they may read, not change, those). `due` (with
+	follow_up) keeps the leads whose earliest open follow-up is overdue, today, tomorrow, in the
+	week after (`week`: 2 to 7 days on) or `later`; without it follow_up is overdue and today. `metric` (with `period`, or `from_date` and
 	`to_date`) keeps the leads one number of the overview counts (get_overview). `department`
 	keeps one lead department's leads (the acting user still sees only what they may).
 	`industry`, `state`, `district`, `org_size` and `product` (a product of the department) each take a value or a list (a JSON list in a
@@ -357,7 +362,7 @@ def list_leads(
 			names = call_today_names(user)
 			filters["name"] = ("in", within(filters, names) or [""])
 		elif view == "follow_up":
-			due = due_follow_ups()
+			due = due_follow_ups(clean_due(due))
 			filters["name"] = ("in", within(filters, list(due)) or [""])
 		rows = frappe.get_list(
 			"Lead",
@@ -448,22 +453,65 @@ def call_today_names(user: str) -> list[str]:
 	return [row["id"] for row in result["data"]]
 
 
-def due_follow_ups() -> dict:
-	"""{lead: its earliest open follow-up's day} for follow-ups due by today."""
+def open_follow_ups() -> dict:
+	"""{lead: its earliest open follow-up's day}, for every lead that has one."""
 	ToDo = frappe.qb.DocType("ToDo")
 	return dict(
 		(
 			frappe.qb.from_(ToDo)
 			.select(ToDo.reference_name, Min(ToDo.date))
-			.where(
-				(ToDo.reference_type == "Lead")
-				& (ToDo.status == OPEN)
-				& ToDo.date.isnotnull()
-				& (ToDo.date <= frappe.utils.today())
-			)
+			.where((ToDo.reference_type == "Lead") & (ToDo.status == OPEN) & ToDo.date.isnotnull())
 			.groupby(ToDo.reference_name)
 		).run()
 	)
+
+
+def due_bucket(day, today) -> str:
+	"""Which of DUE_BUCKETS a follow-up due on `day` is in, seen on `today`."""
+	day = getdate(day)
+	if day < today:
+		return "overdue"
+	if day == today:
+		return "today"
+	if day == add_days(today, 1):
+		return "tomorrow"
+	return "week" if day <= add_days(today, 7) else "later"
+
+
+def clean_due(due: str | None) -> str | None:
+	if due and due not in DUE_BUCKETS:
+		frappe.throw(_("due must be one of {0}.").format(", ".join(DUE_BUCKETS)))
+	return due or None
+
+
+def due_follow_ups(due: str | None = None) -> dict:
+	"""{lead: its earliest open follow-up's day} for the leads in the `due` bucket; none: overdue
+	and today, the Follow-up view."""
+	today = getdate()
+	wanted = {due} if due else {"overdue", "today"}
+	return {lead: day for lead, day in open_follow_ups().items() if due_bucket(day, today) in wanted}
+
+
+@frappe.whitelist()
+def get_follow_up_counts(
+	owner: str | None = None, mine: bool | int | str = False, acting_user: str | None = None
+) -> dict:
+	"""{overdue, today, tomorrow, week, later}: how many of the leads the acting user may see
+	(`owner`'s, or with `mine` the ones they own or created) have their earliest open follow-up in
+	each, as list_leads(view="follow_up", due=…) lists them."""
+	with acting_as(acting_user) as user:
+		filters = lead_filters(None, owner, None)
+		if cint(mine):
+			filters["name"] = ("in", owned_or_created(user) or [""])
+		today = getdate()
+		buckets: dict[str, list] = {bucket: [] for bucket in DUE_BUCKETS}
+		for lead, day in open_follow_ups().items():
+			buckets[due_bucket(day, today)].append(lead)
+		counts = {}
+		for bucket, names in buckets.items():
+			picked = within(filters, names)
+			counts[bucket] = count_leads({**filters, "name": ("in", picked)}, None) if picked else 0
+		return counts
 
 
 def serialize_rows(rows: list) -> list[dict]:
