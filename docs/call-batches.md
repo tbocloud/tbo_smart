@@ -91,7 +91,11 @@ customer calling back) counts too: `sync_calls` gives the person's open items (a
 back included) the outcome of their next later call (Answered: Connected; Missed or Voicemail: Not
 answered). An incoming call counts only when it was answered. When the lead's last call of the day
 was Not answered or Busy and nothing of it is left to call (no retry, e.g. the slot ended first),
-a later answered call that day adds a "Called back" item with Connected. It runs whenever the
+a later answered call that day adds a "Called back" item with Connected. A move by hand to a stage that means they spoke (Contacted, Follow-up Required, Positive /
+Interested, Meeting Scheduled, Not Interested: `REACHED_STAGES`), by the person after the call,
+counts as an answered call the same way, for example Not answered in the batch and then Move
+stage to Contacted on the lead page. The stage move a logged answered call makes itself (within
+2 minutes, `SAME_CONTACT`) is that call's, so it is counted once. It runs whenever the
 queue is read or a batch asked for.
 
 **Counts** (Today's calls and the report): `size` and `called` are the batch's own items (retries,
