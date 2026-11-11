@@ -1140,13 +1140,19 @@ def make_lead_note(lead: str, text: str, days_ago: int = 0) -> str:
 
 
 def make_lead_task(
-	lead: str, due, assigned_to: str, status: str = "Open", task_type: str | None = "Sales follow-up"
+	lead: str,
+	due,
+	assigned_to: str,
+	status: str = "Open",
+	task_type: str | None = "Sales follow-up",
+	description: str = "Follow up",
 ) -> str:
-	"""An open ToDo (a follow-up) on a lead due on `due`'s day, inserted as Administrator."""
+	"""An open ToDo (a follow-up) on a lead due on `due`'s day, inserted as Administrator;
+	`description` "AI: …" makes it one the AI scheduled."""
 	task = frappe.get_doc(
 		{
 			"doctype": "ToDo",
-			"description": "Follow up",
+			"description": description,
 			"status": status,
 			"priority": "Medium",
 			"allocated_to": assigned_to,

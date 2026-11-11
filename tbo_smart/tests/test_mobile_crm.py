@@ -30,6 +30,38 @@ class TestMobileCRM(FrappeTestCase):
 		with self.assertRaises(frappe.PermissionError):
 			crm.get_lead(self.other_lead)
 
+	def test_mine_lists_the_leads_i_created_too_marked_so(self):
+		frappe.set_user("Administrator")
+		created = make_lead(OTHER_SELLER, "Rahim")
+		frappe.db.set_value("Lead", created, "owner", SELLER, update_modified=False)
+		frappe.set_user(SELLER)
+		rows = {row["name"]: row for row in crm.get_leads(scope="mine", page_length=100)["data"]}
+		self.assertTrue({self.lead, created} <= set(rows))
+		self.assertNotIn(self.other_lead, rows)
+		self.assertTrue(rows[created]["created_by_me"])
+		self.assertFalse(rows[self.lead]["created_by_me"])
+		only = {row["name"] for row in crm.get_leads(scope="mine", created_by_me=1, page_length=100)["data"]}
+		self.assertIn(created, only)
+		self.assertNotIn(self.lead, only)
+
+	def test_called_lists_my_leads_last_called_first_with_their_counts(self):
+		frappe.set_user("Administrator")
+		older = make_lead(SELLER, "Called Before", mobile_no="+91 98470 11112")
+		frappe.db.set_value("Lead", older, "tbo_last_call_on", add_days(now_datetime(), -3))
+		frappe.db.set_value("Lead", self.lead, "tbo_last_call_on", now_datetime())
+		frappe.set_user(SELLER)
+		rows = crm.get_leads(scope="mine", called=1, page_length=100)["data"]
+		names = [row["name"] for row in rows]
+		self.assertLess(names.index(self.lead), names.index(older))
+		self.assertNotIn(self.other_lead, names)
+		self.assertIn("call_count", rows[0])
+		today = crm.get_leads(
+			scope="mine", called=1, called_from=nowdate(), called_to=nowdate(), page_length=100
+		)
+		today_names = {row["name"] for row in today["data"]}
+		self.assertIn(self.lead, today_names)
+		self.assertNotIn(older, today_names)
+
 	def test_non_sales_staff_cannot_read_leads(self):
 		frappe.set_user(NON_SALES)
 		with self.assertRaises(frappe.PermissionError):

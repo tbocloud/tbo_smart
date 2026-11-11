@@ -114,6 +114,15 @@ class TestCallBatches(FrappeTestCase):
 			["Follow-up due", "Retry from yesterday", "Never called", "Never called"],
 		)
 
+	def test_only_a_persons_follow_up_puts_a_lead_first_not_the_ais(self):
+		theirs = self.lead("Calls Person Follow-up")
+		ai = self.lead("Calls AI Follow-up")
+		make_lead_task(theirs, add_days(getdate(), -1), BD)
+		make_lead_task(ai, add_days(getdate(), -1), BD, description="AI: Follow up on WhatsApp")
+		reasons = self.reasons(self.build())
+		self.assertEqual(reasons[theirs], "Follow-up due")
+		self.assertEqual(reasons[ai], "Never called")
+
 	def test_a_quiet_lead_that_was_called_before_comes_after_the_never_called(self):
 		fresh = self.lead("Calls Fresh")
 		quiet = self.lead("Calls Quiet")

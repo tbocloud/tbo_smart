@@ -67,6 +67,16 @@ class TestAILeads(FrappeTestCase):
 			make_lead_note(self.lead, text)
 		self.assertEqual(post.call_count, 1)
 
+	def test_the_ai_schedules_one_follow_up_marked_as_its_own(self):
+		# a call, its stage and its note each wake the AI: only the first read schedules
+		insight = {
+			"next_action": {"what": "Call back", "why": "Asked for a demo", "due": add_days(nowdate(), 1)}
+		}
+		self.assertTrue(autopilot.schedule_next_action(self.lead, BDE, insight))
+		self.assertFalse(autopilot.schedule_next_action(self.lead, BDE, insight))
+		[todo] = ai_todos(self.lead)
+		self.assertTrue(todo.description.startswith("AI: Call back"))
+
 	def test_nothing_happens_while_switched_off(self):
 		with mock_ai() as post:
 			make_lead_note(self.lead, "Asked for a demo")

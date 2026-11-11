@@ -63,6 +63,7 @@ from tbo_smart.sales.activities import (
 	add_follow_up_task,
 	add_log,
 	add_note,
+	call_counts,
 	close_due_follow_ups,
 	get_timeline,
 	last_calls,
@@ -132,6 +133,7 @@ LEAD_FIELDS = [
 	"tbo_score as score",
 	"tbo_temperature as temperature",
 	"creation",
+	"owner as created_by",
 ]
 DEAL_FIELDS = [
 	"name",
@@ -183,21 +185,46 @@ def get_leads(
 	metric: str | None = None,
 	period: str | None = None,
 	owner: str | None = None,
+	created_by_me: bool | int | str = False,
+	called: bool | int | str = False,
+	called_from: str | None = None,
+	called_to: str | None = None,
 ) -> dict:
 	"""Leads the session user may read in `scope` (mine / team / all; default: widest), newest first.
 
 	`source` and `temperature` (Hot / Warm / Cold) filter; `metric` with `period` keeps the leads
 	one number of the leads overview counts (`tbo_smart.api.mobile.leads.get_overview`), converted
 	ones included, as the hub's list does; `owner` (one person in my sales scope, as the overview
-	takes it) keeps that person's leads."""
+	takes it) keeps that person's leads. `mine` is the leads I own or created (the ones I created
+	and handed on I may read, not change); `created_by_me` keeps the ones I created; `called`
+	keeps the leads called at least once, last called first (`called_from` / `called_to`: last
+	called in those days)."""
+	# hub_leads imports this module, so it is imported when it is needed
+	from tbo_smart.api.hub_leads import called_between, owned_or_created
+
 	capabilities = require_crm()
-	filters = scope_filter(capabilities, scope, "lead_owner")
+	mine = resolve_crm_scope(capabilities, scope) == "mine"
+	filters = {} if mine else scope_filter(capabilities, scope, "lead_owner")
+	if cint(created_by_me):
+		filters["owner"] = frappe.session.user
 	if status:
 		filters["tbo_stage"] = status
 	filters.update(overview_filters(source, temperature, metric, period, owner))
+	if mine:
+		names = owned_or_created(frappe.session.user)
+		if "name" in filters:  # an overview number's leads: the ones of them that are mine
+			own = set(names)
+			names = [name for name in filters["name"][1] if name in own]
+		filters["name"] = ("in", names or [""])
+	if cint(called):
+		filters["tbo_last_call_on"] = called_between(called_from, called_to)
 	if not metric and not cint(include_converted):
 		converted = converted_leads_query().run(pluck=True)
-		if converted:
+		if converted and "name" in filters:
+			# mine already keeps a list of names: the converted ones leave it
+			gone = set(converted)
+			filters["name"] = ("in", [n for n in filters["name"][1] if n not in gone] or [""])
+		elif converted:
 			filters["name"] = ("not in", converted)
 	or_filters = search_filters(search, ["lead_name", "company_name", "email_id", "mobile_no"])
 	start, length = page_window(page, page_length)
@@ -206,7 +233,7 @@ def get_leads(
 		fields=lead_source.fields(LEAD_FIELDS),
 		filters=filters,
 		or_filters=or_filters,
-		order_by="creation desc",
+		order_by="tbo_last_call_on desc" if cint(called) else "creation desc",
 		start=start,
 		page_length=length + 1,
 	)
@@ -650,7 +677,9 @@ def serialize_leads(leads: list) -> list[dict]:
 	next_follow_up = next_follow_ups("Lead", names)
 	last_contact = last_calls("Lead", names)
 	converted = leads_with_opportunity(names)
+	calls = call_counts("Lead", names)
 	owners = get_full_names({lead.lead_owner for lead in leads})
+	me = frappe.session.user
 	return [
 		{
 			"name": lead.name,
@@ -670,6 +699,9 @@ def serialize_leads(leads: list) -> list[dict]:
 			"last_contact": last_contact.get(lead.name),
 			"next_follow_up": next_follow_up.get(lead.name),
 			"created": lead.creation,
+			"call_count": calls.get(lead.name, 0),
+			# I created it and someone else owns it now: I read it, they work it
+			"created_by_me": bool(lead.get("created_by") == me and lead.lead_owner != me),
 		}
 		for lead in leads
 	]
