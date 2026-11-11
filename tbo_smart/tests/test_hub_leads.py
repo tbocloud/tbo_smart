@@ -87,6 +87,26 @@ class TestHubLeads(FrappeTestCase):
 		recent = hub.list_leads(view="called", mine=1, from_date=today(), to_date=today(), acting_user=BDE)
 		self.assertEqual([row["name"] for row in recent["rows"]], [called])
 
+	def test_follow_ups_are_counted_and_listed_by_when_they_are_due(self):
+		frappe.set_user("Administrator")
+		leads = {when: make_lead(BDE, f"Hub Due {when}") for when in ("today", "tomorrow", "week", "later")}
+		make_lead_task(self.mine, add_days(today(), -2), BDE)
+		for when, days in (("today", 0), ("tomorrow", 1), ("week", 5), ("later", 20)):
+			make_lead_task(leads[when], add_days(today(), days), BDE)
+		# only the earliest open follow-up of a lead counts
+		make_lead_task(leads["later"], add_days(today(), 30), BDE)
+		make_lead_task(self.theirs, add_days(today(), -1), BDE2)
+		frappe.set_user(HUB)
+		counts = hub.get_follow_up_counts(mine=1, acting_user=BDE)
+		self.assertEqual(counts, {"overdue": 1, "today": 1, "tomorrow": 1, "week": 1, "later": 1})
+		tomorrow = hub.list_leads(view="follow_up", due="tomorrow", mine=1, acting_user=BDE)["rows"]
+		self.assertEqual([row["name"] for row in tomorrow], [leads["tomorrow"]])
+		due = hub.list_leads(view="follow_up", mine=1, acting_user=BDE)["rows"]
+		self.assertEqual([row["name"] for row in due], [self.mine, leads["today"]])
+		self.assertRaises(
+			frappe.ValidationError, hub.list_leads, view="follow_up", due="soon", acting_user=BDE
+		)
+
 	def test_the_integration_user_must_name_a_real_sales_user(self):
 		self.assertRaises(frappe.PermissionError, hub.list_leads)
 		for who in ("nobody@tbosmart.test", GONE, STAFF, HUB):
