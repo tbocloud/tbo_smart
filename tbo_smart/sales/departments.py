@@ -26,6 +26,7 @@ SAVE_FIELDS = {
 	"assignment",
 	"stale_after_days",
 	"heads",
+	"viewers",
 	"members",
 	"products",
 } | call_settings.SAVE_FIELDS
@@ -106,6 +107,7 @@ def serialize(name: str) -> dict:
 		"assignment": row.assignment or ASSIGNMENTS[0],
 		"stale_after_days": cint(row.stale_after_days),
 		"heads": user_rows(name, "heads"),
+		"viewers": user_rows(name, "viewers"),
 		"members": user_rows(name, "members"),
 		"products": products.serialize(products.rows_of(name)),
 	}
@@ -138,6 +140,7 @@ def active_departments_for(user: str) -> list[dict]:
 			"stale_after_days": cint(row.stale_after_days),
 			"call_batches_enabled": cint(row.call_batches_enabled),
 			"is_head": (row.name, "heads") in roles,
+			"is_viewer": (row.name, "viewers") in roles,
 			"is_member": (row.name, "members") in roles,
 			"products": products.active_serialized(row.name),
 		}
@@ -174,7 +177,7 @@ def is_head(department: str | None) -> bool:
 
 def save_department(values: dict, name: str | None = None) -> dict:
 	"""Create (no `name`) or update a department from `values` (department_name, lead_type,
-	is_active, assignment, stale_after_days, heads and members as lists of users, products as a
+	is_active, assignment, stale_after_days, heads, viewers and members as lists of users, products as a
 	list of {product_name, is_active, intro_line, website}, and the call batch rules of
 	`call_batches.settings`); the name does not change."""
 	require_manager()
@@ -202,7 +205,7 @@ def save_department(values: dict, name: str | None = None) -> dict:
 		doc.assignment = values["assignment"]
 	if "stale_after_days" in values:
 		doc.stale_after_days = max(cint(values["stale_after_days"]), 0)
-	for table in ("heads", "members"):
+	for table in ("heads", "viewers", "members"):
 		if table in values:
 			users = list(dict.fromkeys(values[table] or []))
 			# a member's cap and call plan stay when the list is saved again

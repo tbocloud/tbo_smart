@@ -169,6 +169,12 @@ instead plan each member (hub: Leads, **Assign leads**): the **product** they ar
 - **Who:** Sales Managers and System Managers for every department with batches on, heads for
   theirs. Only members can be planned. `save_call_plan` saves the department as the planner
   without needing write access to it.
+- **Viewers:** a department's **Viewers** (a table next to Heads) open Assign leads for it
+  read-only: `get_call_plans` lists it with `can_edit: false` and `get_department_leads` answers
+  them, but saving a plan, assigning and unassigning refuse (PermissionError). A Sales Manager
+  listed as a viewer only watches that department (a head listed in both still plans it).
+  `plans.department_access` decides; the batches report (§6) also covers the departments a person
+  views. `active_departments_for` gives `is_viewer`, so the hub shows them the page.
 - **When:** from the next slot or the next batch asked for; batches already handed out stay.
   Clearing a plan hands the department's sizes again.
 - **Not enough leads:** a batch takes what there is (the person's own leads first, then

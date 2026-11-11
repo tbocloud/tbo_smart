@@ -82,32 +82,62 @@ def plan_industry(department, user: str) -> str:
 # ---------- the managers' page ----------
 
 
-def managed_departments() -> list:
-	"""Departments with batches on that the session user plans: every one for a Sales Manager or
-	System Manager, else those they head. PermissionError for anyone else."""
-	departments = batch_departments()
-	if lead_departments.can_manage():
-		return departments
-	headed = set(
-		frappe.get_all(
+EDIT, VIEW = "edit", "view"
+
+
+def department_access() -> dict[str, str]:
+	"""{department: EDIT or VIEW} for the departments with batches on that the session user may
+	open on Assign leads. A head plans their department; a viewer only watches it, even a Sales
+	Manager listed there (they asked to be kept from changing it); any other Sales Manager or
+	System Manager plans every one."""
+	listed = {
+		(row.parent, row.parentfield)
+		for row in frappe.get_all(
 			lead_departments.DEPARTMENT_USER,
 			filters={
 				"user": frappe.session.user,
-				"parentfield": "heads",
+				"parentfield": ("in", ("heads", "viewers")),
 				"parenttype": lead_departments.DEPARTMENT,
 			},
-			pluck="parent",
+			fields=["parent", "parentfield"],
 		)
-	)
-	if not headed:
+	}
+	manager = lead_departments.can_manage()
+	access = {}
+	for department in batch_departments():
+		if (department.name, "heads") in listed:
+			access[department.name] = EDIT
+		elif (department.name, "viewers") in listed:
+			access[department.name] = VIEW
+		elif manager:
+			access[department.name] = EDIT
+	return access
+
+
+def visible_departments() -> list:
+	"""(department, can_edit) for the departments the session user may open on Assign leads.
+	PermissionError for anyone else."""
+	access = department_access()
+	if not access:
 		frappe.throw(_("Only a department head or a Sales Manager may assign leads."), frappe.PermissionError)
-	return [department for department in departments if department.name in headed]
+	return [(d, access[d.name] == EDIT) for d in batch_departments() if d.name in access]
 
 
-def planned_department(department: str):
-	"""The department, when the session user plans it (`managed_departments`); else
+def managed_departments() -> list:
+	"""Departments with batches on that the session user plans (department_access EDIT)."""
+	return [department for department, can_edit in visible_departments() if can_edit]
+
+
+def planned_department(department: str, view: bool = False):
+	"""The department, when the session user plans it (`view`: or only watches it); else
 	PermissionError."""
-	if department not in {d.name for d in managed_departments()}:
+	access = department_access().get(department)
+	if access == VIEW and not view:
+		frappe.throw(
+			_("You can only view {0} on Assign leads. Ask a Sales Manager to change it.").format(department),
+			frappe.PermissionError,
+		)
+	if not access:
 		frappe.throw(
 			_("You cannot assign leads in {0}: it is not one of your departments with daily calls.").format(
 				department
@@ -277,9 +307,13 @@ def serialize(department, day) -> dict:
 
 
 def get_call_plans() -> dict:
-	"""{date, departments: [serialize(...)]} for the departments the session user plans."""
+	"""{date, departments: [serialize(...) + can_edit]} for the departments the session user plans
+	or only views (can_edit false: the page is read-only)."""
 	day = frappe.utils.getdate()
-	return {"date": str(day), "departments": [serialize(d, day) for d in managed_departments()]}
+	return {
+		"date": str(day),
+		"departments": [{**serialize(d, day), "can_edit": can_edit} for d, can_edit in visible_departments()],
+	}
 
 
 def save_call_plan(

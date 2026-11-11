@@ -3035,9 +3035,11 @@ def make_batch_department(
 	members: list[str] | tuple,
 	heads: list[str] | tuple = (),
 	slots: list[dict] | None = None,
+	viewers: list[str] | tuple = (),
 	**rules,
 ) -> str:
-	"""A lead department that hands out call batches to `members`. `slots` are call_slots rows
+	"""A lead department that hands out call batches to `members`, planned by `heads` and watched
+	by `viewers` (Assign leads, read-only). `slots` are call_slots rows
 	(default: one all-day slot "Day" of 50, so a test passes at any hour); `rules` are the
 	department's call-batch fields (daily_call_cap, pull_unassigned, overdue_block_limit, ...)."""
 	slots = slots or [{"label": "Day", "start_time": "00:00:00", "end_time": "23:59:00", "size": 50}]
@@ -3049,6 +3051,7 @@ def make_batch_department(
 			"is_active": 1,
 			"call_batches_enabled": 1,
 			"heads": [{"user": user} for user in heads],
+			"viewers": [{"user": user} for user in viewers],
 			"members": [{"user": user} for user in members],
 			"call_slots": slots,
 			**rules,

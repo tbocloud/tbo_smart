@@ -15,6 +15,7 @@
   "last_assigned_user",
   "section_break_people",
   "heads",
+  "viewers",
   "members",
   "section_break_products",
   "products",
@@ -97,6 +98,13 @@
    "fieldname": "heads",
    "fieldtype": "Table",
    "label": "Heads",
+   "options": "TBO Lead Department User"
+  },
+  {
+   "description": "Can open Assign leads for this department and watch it, but not change it (even a Sales Manager listed here).",
+   "fieldname": "viewers",
+   "fieldtype": "Table",
+   "label": "Viewers",
    "options": "TBO Lead Department User"
   },
   {
@@ -231,7 +239,7 @@
   }
  ],
  "links": [],
- "modified": "2026-11-11 12:00:00.000000",
+ "modified": "2026-11-11 18:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Lead Department",

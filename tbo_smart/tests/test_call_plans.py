@@ -156,6 +156,43 @@ class TestCallPlans(FrappeTestCase):
 			[d["department"] for d in plans.get_call_plans()["departments"]], [GROWTHX, STAYVEX]
 		)
 
+	def test_a_viewer_sees_assign_leads_but_cannot_change_it(self):
+		frappe.set_user("Administrator")
+		doc = frappe.get_doc("TBO Lead Department", GROWTHX)
+		doc.append("viewers", {"user": OUTSIDER})
+		doc.save(ignore_permissions=True)
+		doc = frappe.get_doc("TBO Lead Department", STAYVEX)
+		doc.append("viewers", {"user": MANAGER})
+		doc.save(ignore_permissions=True)
+		self.unassigned(2)
+
+		frappe.set_user(OUTSIDER)
+		listed = plans.get_call_plans()["departments"]
+		self.assertEqual([(d["department"], d["can_edit"]) for d in listed], [(GROWTHX, False)])
+		self.assertEqual(handout.department_leads(GROWTHX)["total"], 2)
+		with self.assertRaises(frappe.PermissionError):
+			self.plan([BD], sizes={"Day": 5})
+		with self.assertRaises(frappe.PermissionError):
+			handout.assign_leads(GROWTHX, BD, count=1)
+		with self.assertRaises(frappe.PermissionError):
+			handout.department_leads(STAYVEX)
+
+		# a Sales Manager listed as a viewer only watches that department; the rest stay theirs
+		frappe.set_user(MANAGER)
+		access = {d["department"]: d["can_edit"] for d in plans.get_call_plans()["departments"]}
+		self.assertEqual(access, {GROWTHX: True, STAYVEX: False})
+		with self.assertRaises(frappe.PermissionError):
+			self.plan([BD], sizes={"Day": 5}, department=STAYVEX)
+
+	def test_viewers_are_saved_and_listed_with_the_department(self):
+		frappe.set_user(MANAGER)
+		saved = departments.save_department({"viewers": [OUTSIDER, OUTSIDER]}, GROWTHX)
+		self.assertEqual([p["user"] for p in saved["viewers"]], [OUTSIDER])
+		frappe.set_user(OUTSIDER)
+		mine = {d["name"]: d for d in departments.active_departments_for(OUTSIDER)}
+		self.assertTrue(mine[GROWTHX]["is_viewer"])
+		self.assertFalse(mine[GROWTHX]["is_head"])
+
 	def test_the_hub_endpoints_take_json(self):
 		result = hub.save_call_plan(
 			GROWTHX, frappe.as_json([BD]), "BillaX", frappe.as_json({"Day": 3}), acting_user=MANAGER
