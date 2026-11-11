@@ -11,8 +11,9 @@ for everybody in scope, never per lead.
 """
 
 import frappe
-from frappe.query_builder.functions import IfNull, Min
-from frappe.utils import add_days, cint, flt, getdate
+from frappe.query_builder import Case, CustomFunction
+from frappe.query_builder.functions import Count, IfNull, Min, Sum
+from frappe.utils import add_days, cint, flt, get_first_day, getdate
 
 from tbo_smart.lead_pipeline import document_types as kinds
 from tbo_smart.lead_pipeline.overview import SalesActivity
@@ -23,12 +24,54 @@ from tbo_smart.telephony import ANSWERED
 from tbo_smart.telephony.calls import DOCTYPE as CALL
 
 QUOTATION_KIND, PROPOSAL_KIND = "quotation", "proposal"
+# the most days My leads' day-by-day list goes back
+MY_CALL_DAYS = 366
+SqlDate = CustomFunction("DATE", ["value"])
 
 
 def week_start(day):
 	"""The Monday of the week `day` is in."""
 	day = getdate(day)
 	return add_days(day, -day.weekday())
+
+
+def my_calls(user: str, today=None, days: int = 60) -> dict:
+	"""`user`'s own calls, counted as the day's report counts them (every TBO Call they made or
+	took; connected: the answered ones): {today, week (from Monday), month, all_time: {calls,
+	connected}, days: [{date, calls, connected}] for the days with calls in the last `days` days,
+	newest first}."""
+	today = getdate(today)
+	days = min(max(cint(days) or 60, 1), MY_CALL_DAYS)
+	Call = frappe.qb.DocType(CALL)
+	day = SqlDate(Call.started_at)
+	rows = [
+		(getdate(on), cint(calls), cint(connected))
+		for on, calls, connected in (
+			frappe.qb.from_(Call)
+			.select(day, Count(Call.name), Sum(Case().when(Call.status == ANSWERED, 1).else_(0)))
+			.where((Call.agent == user) & (Call.started_at < f"{add_days(today, 1)} 00:00:00"))
+			.groupby(day)
+			.orderby(day, order=frappe.qb.desc)
+		).run()
+		if on
+	]
+
+	def total(since=None) -> dict:
+		kept = [row for row in rows if since is None or row[0] >= since]
+		return {"calls": sum(row[1] for row in kept), "connected": sum(row[2] for row in kept)}
+
+	first = add_days(today, -(days - 1))
+	return {
+		"today": total(today),
+		"week": total(week_start(today)),
+		"month": total(get_first_day(today)),
+		"all_time": total(),
+		"days": [
+			{"date": str(on), "calls": calls, "connected": connected}
+			for on, calls, connected in rows
+			if on >= first
+		],
+	}
 
 
 class DailyReport(SalesActivity):

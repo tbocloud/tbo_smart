@@ -24,7 +24,7 @@ from tbo_smart.lead_pipeline import lead_category, lead_place, rate_card, requir
 from tbo_smart.lead_pipeline.analysis import LeadAnalysis
 from tbo_smart.lead_pipeline.business import build_business, can_view_business
 from tbo_smart.lead_pipeline.client_documents import chain as document_chain
-from tbo_smart.lead_pipeline.daily_report import DailyReport, week_start
+from tbo_smart.lead_pipeline.daily_report import DailyReport, my_calls, week_start
 from tbo_smart.lead_pipeline.dashboard import company_currency, people, scope_owners
 from tbo_smart.lead_pipeline.meetings import DOCTYPE as MEETING
 from tbo_smart.lead_pipeline.money import ProposalMoney
@@ -598,6 +598,16 @@ def get_lead_intake(
 			for row in get_crm_users([owner] if owner else allowed, roles=(SALES_USER,))
 		]
 		return result
+
+
+@frappe.whitelist()
+def get_my_call_counts(days: int | str = 60, acting_user: str | None = None) -> dict:
+	"""The acting user's own calls for My leads: {today, week, month, all_time: {calls,
+	connected}, days: [{date, calls, connected}]} for the days with calls in the last `days` days
+	(at most 366), newest first; counted as get_daily_report counts `calls_total` and
+	`calls_connected`."""
+	with acting_as(acting_user) as user:
+		return my_calls(user, days=days)
 
 
 @frappe.whitelist()
