@@ -903,23 +903,28 @@ they are handed and the calls of each slot (Morning 40, Afternoon 30, Evening 30
 Plans = {date, departments: [Department]}
 Department = {department, slots: [{label, start_time "HH:MM", end_time, size}],
   products: [{product_name, intro_line}],      # the active ones
-  campaign_product | null, pull_unassigned (0/1),
+  campaign_product | null, campaign_district | null, pull_unassigned (0/1),
   unassigned: {product ("" for none): leads},  # open, unassigned, with a phone: what batches can pull
-  members: [{user, full_name, product | null, sizes: {slot label: calls}, total, has_plan,
+  industries: [name], unassigned_industries: {industry ("" for none): leads},
+  districts: [name],                           # the districts its open leads are in
+  unassigned_districts: {district ("" for none): {products: {product: leads}, industries: {industry: leads}}},
+  members: [{user, full_name, product | null, industry | null, district | null,
+             sizes: {slot label: calls}, total, has_plan,
              today: {size, called}, leads}]}  # sizes: the plan's, else the slot's size; leads: open leads they own
 ```
 
 | Method | Verb | Arguments | Returns |
 |---|---|---|---|
 | `get_call_plans` | GET | `acting_user` | `Plans`: every department with batches on for a Sales Manager / System Manager, the ones they head for a head; 403 for anyone else |
-| `get_department_leads` | GET | `department`, `owner?` (a member; blank: the unassigned leads), `product?` or `industry?` (`-` for none), `search?` (name, company, phone), `start`, `page_length` (≤ 100), `acting_user` | `{rows: [{name, lead_name, company_name, product, industry, stage, temperature, phone, modified}], total, products: {product: leads}, industries: {industry: leads}}`: open leads only; the counts ignore `product`, `industry` and `search` |
-| `assign_leads` | POST | `department`, `user` (a member), `leads?` (names; one owned by someone else moves), or `count` with `product?` and `industry?` (the next unassigned open leads with a phone, hot then newest), `acting_user` | `{assigned, skipped: [{name, reason}]}`; at most 500; 417 for a non-member, an unknown product or industry |
+| `get_department_leads` | GET | `department`, `owner?` (a member; blank: the unassigned leads), `product?`, `industry?` or `district?` (`-` for none), `search?` (name, company, phone), `start`, `page_length` (≤ 100), `acting_user` | `{rows: [{name, lead_name, company_name, product, industry, district, stage, temperature, phone, modified}], total, products: {product: leads}, industries: {industry: leads}, districts: {district: leads}}`: open leads only; the counts ignore `product`, `industry`, `district` and `search` |
+| `assign_leads` | POST | `department`, `user` (a member), `leads?` (names; one owned by someone else moves), or `count` with `product?`, `industry?` and `district?` (the next unassigned open leads with a phone, hot then newest), `acting_user` | `{assigned, skipped: [{name, reason}]}`; at most 500; 417 for a non-member, an unknown product or industry, or a district other than the department's campaign district |
 | `unassign_leads` | POST | `department`, `leads`, `acting_user` | `{unassigned, skipped}`: back to the department's unassigned pool |
-| `save_call_plan` | POST | `department`, `users` (members of it), `product?` (an active product of it; blank: any), `industry?` (an Industry Type, for a department without products; blank: any), `sizes?` (`{slot label: calls}`, 0 to 500, only the department's slots), `clear?` (1 removes their plan), `acting_user` | that `Department`; 403 for a department the person may not plan; 417 for a non-member, an unknown or switched-off product, a product other than the department's campaign product, an unknown slot or a number out of range |
+| `save_call_plan` | POST | `department`, `users` (members of it), `product?` (an active product of it; blank: any), `industry?` (an Industry Type, for a department without products; blank: any), `district?` (blank: any), `sizes?` (`{slot label: calls}`, 0 to 500, only the department's slots), `clear?` (1 removes their plan), `acting_user` | that `Department`; 403 for a department the person may not plan; 417 for a non-member, an unknown or switched-off product, a product other than the department's campaign product, a district other than its campaign district, an unknown slot or a number out of range |
 
 What a plan changes: the slot's batch holds the member's number of calls (0: no batch in that
-slot), the plan's product narrows new leads after the department's campaign and before the
-request and the person's focus (`set_calling_focus` then offers only that product), the day's cap
+slot), the plan's product, industry and district narrow new leads after the department's campaign
+and before the request and the person's focus (`set_calling_focus` then offers only that product
+and district), the day's cap
 is at least the plan's total, and the clock opens the department's batches for a planned member
 even when their focus is another department. Batches already handed out stay. Saving a
 department's members keeps each member's plan.

@@ -202,6 +202,18 @@ instead plan each member (hub: Leads, **Assign leads**): the **product** they ar
   unassigned leads, and `department_leads` filters and counts by industry. `get_call_plans`
   gives each member `industry` and the department `industries` (those its open leads are in)
   and `unassigned_industries` (unassigned open leads with a phone, per industry).
+- **By district:** any plan may also call for one **district**: the member's `call_district`
+  (any text, as leads carry `tbo_district`; blank: any). New leads (steps 3 to 5) are only that
+  district (`fill.campaign_of`: the department's campaign district still wins, and `save_call_plan`
+  refuses another one), the person's *Calling for* offers only that district (`focus.option_of`
+  `locked_district`), hand-out by number (`assign_leads` with `district`) and the auto-assign (§14)
+  take that district's unassigned leads, and `department_leads` filters by district (`-` for
+  none), counts per district and gives each row its `district`. `get_call_plans` gives each member
+  `district`, the department `campaign_district`, `districts` (those its open leads are in, by
+  name) and `unassigned_districts` (`{district: {products: {product: leads}, industries:
+  {industry: leads}}}`, unassigned open leads with a phone; `plans.department_districts`).
+  Districts that differ only in case or spacing are one district. Saving a department's members in
+  Settings keeps each member's whole plan (product, industry, district, sizes).
 
 ## 12. Handing leads by hand (`sales/call_batches/handout.py`)
 
@@ -234,9 +246,10 @@ department's time gets leads automatically.
 - **Who:** each enabled member with a call plan of more than 0 calls (§11) who is at work (`is_off_today`:
   not on approved leave or a holiday of their list) and was not handed a lead of the department
   by hand today (a ToDo "Assigned to you on Assign leads" created today).
-- **How many:** their plan's calls for the day minus the open leads of the plan's product they
-  own, with a phone, never called (`tbo_last_call_on` empty). Nothing when that is 0 or less.
-- **Which leads:** the next unassigned ones of the plan's product, as Assign leads picks them
+- **How many:** their plan's calls for the day minus the open leads of the plan's product,
+  industry and district they own, with a phone, never called (`tbo_last_call_on` empty). Nothing
+  when that is 0 or less.
+- **Which leads:** the next unassigned ones of the plan's product, industry and district, as Assign leads picks them
   (`handout.next_unassigned`: hot, then newest, rows locked). Handed with `handout.hand` and the
   note "Assigned to you automatically: nobody handed you leads by the set time".
 - **Settings:** with the other call rules (`settings.py`, the hub's Lead departments dialog); the

@@ -1532,9 +1532,11 @@ def record_call_outcome(
 def get_call_plans(acting_user: str | None = None) -> dict:
 	"""Managers and department heads: who is handed which product and how many calls per slot
 	(docs/call-batches.md §11): {date, departments: [{department, slots: [{label, start_time,
-	end_time, size}], products: [{product_name, intro_line}], campaign_product, pull_unassigned,
-	unassigned: {product: leads}, members: [{user, full_name, product, sizes: {slot: calls},
-	total, has_plan, today: {size, called}}], can_edit}]}. A Sales Manager sees every department
+	end_time, size}], products: [{product_name, intro_line}], campaign_product, campaign_district,
+	pull_unassigned, unassigned: {product: leads}, industries, unassigned_industries: {industry:
+	leads}, districts, unassigned_districts: {district: {products, industries}}, members: [{user,
+	full_name, product, industry, district, sizes: {slot: calls}, total, has_plan, today: {size,
+	called}, leads}], can_edit}]}. A Sales Manager sees every department
 	with batches on, a head theirs, a viewer theirs with can_edit false (read-only); anyone else
 	gets PermissionError."""
 	with acting_as(acting_user):
@@ -1549,15 +1551,17 @@ def save_call_plan(
 	sizes: dict | str | None = None,
 	clear: int | str | bool = 0,
 	industry: str | None = None,
+	district: str | None = None,
 	acting_user: str | None = None,
 ) -> dict:
 	"""Set the call plan of `users` (members of `department`): the `product` they are handed
-	(blank: any), the `industry` (a department without products plans by industry; blank: any)
+	(blank: any), the `industry` (a department without products plans by industry; blank: any),
+	the `district` (blank: any; the department's campaign district is the only one it can take)
 	and `sizes` ({slot label: calls, 0 to 500}); `clear` removes it. Same people as
 	get_call_plans (a head only for their departments). Returns that department as
 	get_call_plans lists it. The plan counts from the next slot or the next batch asked for."""
 	with acting_as(acting_user):
-		return call_plans.save_call_plan(department, users, product, sizes, cint(clear), industry)
+		return call_plans.save_call_plan(department, users, product, sizes, cint(clear), industry, district)
 
 
 @frappe.whitelist()
@@ -1569,15 +1573,18 @@ def get_department_leads(
 	start: int | str = 0,
 	page_length: int | str = 50,
 	industry: str | None = None,
+	district: str | None = None,
 	acting_user: str | None = None,
 ) -> dict:
 	"""A page of a department's open leads, for the people who plan it (get_call_plans): `owner`
-	a member's (blank: the unassigned ones), `product` or `industry` ("-" for none), `search` on
-	name, company or phone. {rows: [{name, lead_name, company_name, product, industry, stage,
-	temperature, phone, modified}], total, products: {product: leads}, industries: {industry:
-	leads}} (docs/call-batches.md §12)."""
+	a member's (blank: the unassigned ones), `product`, `industry` or `district` ("-" for none),
+	`search` on name, company or phone. {rows: [{name, lead_name, company_name, product, industry,
+	district, stage, temperature, phone, modified}], total, products: {product: leads}, industries:
+	{industry: leads}, districts: {district: leads}} (docs/call-batches.md §12)."""
 	with acting_as(acting_user):
-		return call_handout.department_leads(department, owner, product, search, start, page_length, industry)
+		return call_handout.department_leads(
+			department, owner, product, search, start, page_length, industry, district
+		)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -1588,13 +1595,14 @@ def assign_leads(
 	count: int | str = 0,
 	product: str | None = None,
 	industry: str | None = None,
+	district: str | None = None,
 	acting_user: str | None = None,
 ) -> dict:
 	"""Give a member the `leads` named (moving them from whoever had them), or else the next
-	`count` unassigned open leads (of `product`, and of `industry`). At most 500. {assigned, skipped: [{name,
-	reason}]}. Same people as get_call_plans."""
+	`count` unassigned open leads (of `product`, `industry` and `district`). At most 500.
+	{assigned, skipped: [{name, reason}]}. Same people as get_call_plans."""
 	with acting_as(acting_user):
-		return call_handout.assign_leads(department, user, leads, count, product, industry)
+		return call_handout.assign_leads(department, user, leads, count, product, industry, district)
 
 
 @frappe.whitelist(methods=["POST"])
