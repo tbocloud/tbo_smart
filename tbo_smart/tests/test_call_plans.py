@@ -7,7 +7,7 @@ from frappe.utils import add_days, getdate, now_datetime
 from tbo_smart.api import hub_leads as hub
 from tbo_smart.sales import departments
 from tbo_smart.sales.activities import next_follow_ups
-from tbo_smart.sales.call_batches import auto_assign, clock, daily_cap, focus, handout, plans, settings
+from tbo_smart.sales.call_batches import auto_assign, clock, daily_cap, focus, handout, plans, reads, settings
 from tbo_smart.sales.call_batches.fill import campaign_of
 from tbo_smart.sales.call_batches.next_batch import create_next_batch
 from tbo_smart.sales.call_batches.state import CallQueue
@@ -183,6 +183,31 @@ class TestCallPlans(FrappeTestCase):
 		self.assertEqual(access, {GROWTHX: True, STAYVEX: False})
 		with self.assertRaises(frappe.PermissionError):
 			self.plan([BD], sizes={"Day": 5}, department=STAYVEX)
+
+	def test_a_viewer_watches_a_members_calls_without_acting(self):
+		frappe.set_user("Administrator")
+		doc = frappe.get_doc("TBO Lead Department", GROWTHX)
+		doc.append("viewers", {"user": OUTSIDER})
+		doc.save(ignore_permissions=True)
+		waiting = make_callable_lead(BD, "Plan Waiting", GROWTHX)
+		done = make_callable_lead(BD, "Plan Done", GROWTHX)
+		make_call_batch(BD, GROWTHX, [waiting, done], outcomes={done: "Not answered"})
+
+		frappe.set_user(OUTSIDER)
+		view = reads.get_member_calls(BD)
+		self.assertEqual(view["member"]["user"], BD)
+		self.assertIn(waiting, [call["lead"] for call in view["pending"]])
+		self.assertEqual([(c["lead"], c["outcome"]) for c in view["called"]], [(done, "Not answered")])
+		self.assertFalse(view["can_call"])
+		self.assertFalse(view["next_batch"]["allowed"])
+		self.assertEqual(view["focus_options"], [])
+
+		# only the members of a department they plan or view
+		with self.assertRaises(frappe.PermissionError):
+			reads.get_member_calls(OUTSIDER)
+		frappe.set_user(OTHER_BD)
+		with self.assertRaises(frappe.PermissionError):
+			reads.get_member_calls(BD)
 
 	def test_viewers_are_saved_and_listed_with_the_department(self):
 		frappe.set_user(MANAGER)

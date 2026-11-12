@@ -1466,6 +1466,16 @@ def get_my_calls(acting_user: str | None = None) -> dict:
 		return call_reads.get_my_calls()
 
 
+@frappe.whitelist()
+def get_member_calls(user: str, acting_user: str | None = None) -> dict:
+	"""A member's Today's calls, read-only, for the people who plan or view one of their departments
+	on Assign leads: get_my_calls' queue with nothing to act on, plus `member` {user, full_name}
+	and `called` (the day's calls made, newest first: Call + outcome, called_at, note).
+	PermissionError for anyone else."""
+	with acting_as(acting_user):
+		return call_reads.get_member_calls(user)
+
+
 @frappe.whitelist(methods=["POST"])
 def get_next_batch(
 	department: str | None = None,

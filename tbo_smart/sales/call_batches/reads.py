@@ -110,6 +110,75 @@ def get_my_calls() -> dict:
 	from tbo_smart.sales.call_batches.next_batch import check_next_batch
 
 	user = frappe.session.user
+	view = queue_view(user, _("Daily call batches are not switched on for your department."))
+	if not view["enabled"]:
+		return view
+	decision = check_next_batch(user, view.pop("_queue"))
+	return {
+		**view,
+		"can_call": can_call(user),
+		"next_batch": {"allowed": decision["allowed"], "reason": decision["reason"]},
+		"next_slot": decision.get("next_slot"),
+		"focus_options": bd_focus.options_for(user),
+	}
+
+
+def get_member_calls(user: str) -> dict:
+	"""Another person's Today's calls, read-only, for whoever plans or views a department they are a
+	member of (plans.department_access): the queue as get_my_calls gives it, without anything to
+	act on (can_call false, no next batch, no focus choices), with `member` {user, full_name} and
+	`called`: the day's calls already made, newest first, each a Call with outcome, called_at and
+	note. PermissionError for anyone else."""
+	from tbo_smart.sales.call_batches.plans import department_access
+
+	user = (user or "").strip()
+	watched = set(department_access())
+	if not user or not frappe.db.exists(
+		lead_departments.DEPARTMENT_USER,
+		{
+			"user": user,
+			"parentfield": "members",
+			"parenttype": lead_departments.DEPARTMENT,
+			"parent": ("in", list(watched) or [""]),
+		},
+	):
+		frappe.throw(
+			_("You can see the calls of the members of your departments only."), frappe.PermissionError
+		)
+	view = queue_view(user, _("Daily call batches are not switched on for their department."))
+	queue = view.pop("_queue", None)
+	called = []
+	if queue:
+		done = sorted(
+			(row for row in queue.today(repeats=True) if row.outcome),
+			key=lambda row: get_datetime(row.called_at or row.starts_at),
+			reverse=True,
+		)
+		summaries = lead_summaries(list(dict.fromkeys(row.lead for row in done)))
+		calling = products.calling_for([row.lead for row in done])
+		called = [
+			{
+				**serialize_row(row, summaries, calling),
+				"outcome": row.outcome,
+				"called_at": row.called_at,
+				"note": row.note or None,
+			}
+			for row in done
+		]
+	return {
+		**view,
+		"member": {"user": user, "full_name": frappe.utils.get_fullname(user)},
+		"called": called,
+		"can_call": False,
+		"next_batch": {"allowed": False, "reason": None},
+		"next_slot": None,
+		"focus_options": [],
+	}
+
+
+def queue_view(user: str, off_reason: str) -> dict:
+	"""What get_my_calls and get_member_calls share: `user`'s synced queue (`_queue`, the CallQueue
+	itself, for the caller to pop) or, without batch departments, {enabled: False, reason}."""
 	if not batch_departments(user):
 		return {
 			"enabled": False,
@@ -118,7 +187,7 @@ def get_my_calls() -> dict:
 			"overdue": [],
 			"focus": None,
 			"focus_options": [],
-			"reason": _("Daily call batches are not switched on for your department."),
+			"reason": off_reason,
 		}
 	sync_calls(user)
 	queue = CallQueue(user)
@@ -129,8 +198,8 @@ def get_my_calls() -> dict:
 	newest = max(running, key=lambda row: get_datetime(row.starts_at)) if running else None
 	counts = queue.totals(running)
 	counts.update(pending=len(queue.pending), scheduled=len(queue.scheduled), overdue=len(queue.overdue))
-	decision = check_next_batch(user, queue)
 	return {
+		"_queue": queue,
 		"enabled": True,
 		"date": str(getdate()),
 		"batch": {
@@ -154,11 +223,7 @@ def get_my_calls() -> dict:
 		"pending": [serialize_row(row, summaries, calling) for row in queue.pending],
 		"scheduled": [serialize_row(row, summaries, calling) for row in queue.scheduled],
 		"overdue": [serialize_row(row, summaries, calling) for row in queue.overdue],
-		"can_call": can_call(user),
-		"next_batch": {"allowed": decision["allowed"], "reason": decision["reason"]},
-		"next_slot": decision.get("next_slot"),
 		"focus": bd_focus.get_focus(user),
-		"focus_options": bd_focus.options_for(user),
 	}
 
 

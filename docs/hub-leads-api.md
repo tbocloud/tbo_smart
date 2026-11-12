@@ -75,6 +75,7 @@ curl -s -X POST https://india.teambackoffice.com/api/method/tbo_smart.api.hub_le
 | `draft_lead_message` | POST | `name`, `channel` (`whatsapp` / `email`), `language` (`en` / `ml`, WhatsApp), `acting_user` | `{channel, subject, text, to?, url?}`: nothing is sent |
 | `log_message_sent` | POST | `name`, `channel`, `text`, `acting_user` | the new timeline `Item` (an activity by the acting user) |
 | `get_my_calls` | GET | `acting_user` | MyCalls (§2.13) |
+| `get_member_calls` | GET | `user`, `acting_user` | MyCalls of `user`, read-only (no actions) + `member` {user, full_name} + `called` [Call + outcome, called_at, note]; planners and viewers of their department only (call-batches.md §11) |
 | `set_calling_focus` | POST | `department?`, `product?`, `district?`, `acting_user` | `{focus, label, message, next_batch}` (§2.21) |
 | `get_next_batch` | POST | `department?`, `industry?`, `state?`, `district?`, `product?`, `acting_user` | `{created, reason, batch?, slot?, size?}` (§2.13) |
 | `record_call_outcome` | POST | `batch_item`, `outcome`, `note?`, `callback_at?`, `acting_user` | `{item, outcome, retry_at}` (§2.13) |
