@@ -185,6 +185,11 @@ instead plan each member (hub: Leads, **Assign leads**): the **product** they ar
   listed as a viewer only watches that department (a head listed in both still plans it).
   `plans.department_access` decides; the batches report (§6) also covers the departments a person
   views. `active_departments_for` gives `is_viewer`, so the hub shows them the page.
+- **A member's Today's calls:** `get_member_calls(user)` (`reads.get_member_calls`) gives the
+  planners and viewers of a department `user` is a member of that person's queue as
+  `get_my_calls` builds it (`queue_view`, synced first), with nothing to act on (`can_call`
+  false, no next batch, no focus choices), plus `member` and `called`: the day's calls made,
+  newest first, with their outcome, time and note. Anyone else gets PermissionError.
 - **When:** from the next slot or the next batch asked for; batches already handed out stay.
   Clearing a plan hands the department's sizes again.
 - **Not enough leads:** a batch takes what there is (the person's own leads first, then
