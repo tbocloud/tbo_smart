@@ -1,6 +1,6 @@
 """Handing a department's leads to its people by hand (docs/call-batches.md §12): the hub's Assign
 leads page lists a member's open leads and the unassigned ones, gives leads to a member (picked, or
-the next N of a product) and takes them back to the unassigned pool.
+the next N of a product, industry or district) and takes them back to the unassigned pool.
 
 The same people as the call plans may (`plans.planned_department`): Sales Managers and System
 Managers, and a department's heads for it. A lead changes hands as the batches give one: the owner
@@ -16,7 +16,8 @@ from frappe.utils import cint
 
 from tbo_smart.sales import products, stale
 from tbo_smart.sales.call_batches import BATCH, ITEM, assign_undated
-from tbo_smart.sales.call_batches.plans import clean_industry, planned_department
+from tbo_smart.sales.call_batches.focus import clean
+from tbo_smart.sales.call_batches.plans import clean_district, clean_industry, planned_department
 
 MAX_LEADS = 500
 HANDED_NOTE = "Assigned to you on Assign leads"
@@ -39,12 +40,14 @@ def department_leads(
 	start=0,
 	page_length=50,
 	industry: str | None = None,
+	district: str | None = None,
 ) -> dict:
 	"""A page of the department's open leads: `owner` a member's (blank: the unassigned ones),
-	optionally one `product` or `industry` ("-": none) and a `search` on the name, company or
-	phone. {rows: [{name, lead_name, company_name, product, industry, stage, temperature, phone,
-	modified}], total, products: {product ("" for none): leads}, industries: {industry: leads}}
-	(the counts ignore the product, industry and search). A viewer may read it too."""
+	optionally one `product`, `industry` or `district` ("-": none) and a `search` on the name,
+	company or phone. {rows: [{name, lead_name, company_name, product, industry, district, stage,
+	temperature, phone, modified}], total, products: {product ("" for none): leads}, industries:
+	{industry: leads}, districts: {district: leads}} (the counts ignore the product, industry,
+	district and search). A viewer may read it too."""
 	doc = planned_department(department, view=True)
 	owner = (owner or "").strip()
 	if owner and owner not in {row.user for row in doc.members}:
@@ -57,6 +60,7 @@ def department_leads(
 		.where((Lead.lead_owner == owner) if owner else (Lead.lead_owner.isnull() | (Lead.lead_owner == "")))
 	)
 	has_product = frappe.db.has_column("Lead", "tbo_product")
+	has_district = frappe.db.has_column("Lead", "tbo_district")
 	counts = {}
 	if has_product:
 		counts = {
@@ -72,6 +76,14 @@ def department_leads(
 		query = query.where(Coalesce(Lead.tbo_product, "") == ("" if product == "-" else product))
 	if industry:
 		query = query.where(Coalesce(Lead.industry, "") == ("" if industry == "-" else industry))
+	districts: dict[str, int] = {}
+	if has_district:
+		for name, total in base.select(Lead.tbo_district, Count(Lead.name)).groupby(Lead.tbo_district).run():
+			districts[clean(name)] = districts.get(clean(name), 0) + total
+		if district:
+			query = query.where(
+				Coalesce(Lead.tbo_district, "") == ("" if district == "-" else clean(district))
+			)
 	text = " ".join(str(search or "").split())
 	if text:
 		like = f"%{text}%"
@@ -91,6 +103,8 @@ def department_leads(
 	]
 	if has_product:
 		fields.append(Lead.tbo_product)
+	if has_district:
+		fields.append(Lead.tbo_district)
 	rows = (
 		query.select(*fields)
 		.orderby(Lead.modified, order=frappe.qb.desc)
@@ -105,6 +119,7 @@ def department_leads(
 				"company_name": row.company_name,
 				"product": row.get("tbo_product") or None,
 				"industry": row.get("industry") or None,
+				"district": clean(row.get("tbo_district")) or None,
 				"stage": row.tbo_stage,
 				"temperature": row.tbo_temperature,
 				"phone": row.phone,
@@ -115,6 +130,7 @@ def department_leads(
 		"total": total,
 		"products": counts,
 		"industries": industries,
+		"districts": districts,
 	}
 
 
@@ -125,10 +141,11 @@ def assign_leads(
 	count=0,
 	product: str | None = None,
 	industry: str | None = None,
+	district: str | None = None,
 ) -> dict:
 	"""Give `user` (a member) the `leads` named, or else the next `count` unassigned open leads
-	with a phone (of `product` and of `industry` when given), hot first, then newest. A lead owned by someone else
-	moves to `user`. {assigned, skipped: [{name, reason}]}."""
+	with a phone (of `product`, `industry` and `district` when given), hot first, then newest. A
+	lead owned by someone else moves to `user`. {assigned, skipped: [{name, reason}]}."""
 	doc = planned_department(department)
 	if user not in {row.user for row in doc.members}:
 		frappe.throw(
@@ -160,7 +177,13 @@ def assign_leads(
 		if count <= 0:
 			frappe.throw(_("Pick the leads, or say how many to give."))
 		check_size(count)
-		chosen = next_unassigned(doc, count, clean_product(doc, product), clean_industry(industry))
+		chosen = next_unassigned(
+			doc,
+			count,
+			clean_product(doc, product),
+			clean_industry(industry),
+			clean_district(doc, district),
+		)
 	for name in chosen:
 		hand(name, user)
 	return {"assigned": len(chosen), "skipped": skipped}
@@ -207,9 +230,12 @@ def clean_product(department, product: str | None) -> str:
 	return chosen
 
 
-def next_unassigned(department, count: int, product: str, industry: str = "") -> list[str]:
-	"""The next `count` unassigned open leads with a phone, rows locked (SKIP LOCKED) so the
-	batches pulling at the same moment never take the same one."""
+def next_unassigned(
+	department, count: int, product: str, industry: str = "", district: str = ""
+) -> list[str]:
+	"""The next `count` unassigned open leads with a phone (of `product`, `industry` and
+	`district` when given), rows locked (SKIP LOCKED) so the batches pulling at the same moment
+	never take the same one."""
 	Lead = frappe.qb.DocType("Lead")
 	query = (
 		frappe.qb.from_(Lead)
@@ -228,6 +254,8 @@ def next_unassigned(department, count: int, product: str, industry: str = "") ->
 		query = query.where(Lead.tbo_product == product)
 	if industry:
 		query = query.where(Lead.industry == industry)
+	if district:
+		query = query.where(Lead.tbo_district == district)
 	return [name for (name,) in query.for_update(skip_locked=True).run()]
 
 

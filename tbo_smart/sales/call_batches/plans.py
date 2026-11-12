@@ -1,9 +1,10 @@
 """Call plans (docs/call-batches.md §11): a manager or a department head decides, per member, which
 product they are handed and how many calls each slot (Morning 40, Afternoon 30, Evening 30).
 
-The plan sits on the member's row of the department (`call_product`, `slot_sizes`). The clock
-and the next batch read it: a slot's size becomes the member's own, the product narrows the new
-leads like a focus that the person cannot change, and the day's cap grows to the plan's total.
+The plan sits on the member's row of the department (`call_product`, `call_industry`,
+`call_district`, `slot_sizes`). The clock and the next batch read it: a slot's size becomes the
+member's own, the product, industry and district narrow the new leads like a focus that the person
+cannot change, and the day's cap grows to the plan's total.
 A member without a plan is handed batches as before.
 """
 
@@ -17,6 +18,7 @@ from frappe.utils import cint
 from tbo_smart.sales import departments as lead_departments
 from tbo_smart.sales import products
 from tbo_smart.sales.call_batches import BATCH, ITEM, batch_departments, slots_of
+from tbo_smart.sales.call_batches.focus import clean
 
 MAX_SLOT_CALLS = 500
 
@@ -46,6 +48,7 @@ def has_plan(department, user: str) -> bool:
 			sizes_of(row)
 			or (row.get("call_product") or "").strip()
 			or (row.get("call_industry") or "").strip()
+			or (row.get("call_district") or "").strip()
 		)
 	)
 
@@ -77,6 +80,12 @@ def plan_industry(department, user: str) -> str:
 	industry); "" for any."""
 	row = member_row(department, user)
 	return (row.get("call_industry") or "").strip() if row else ""
+
+
+def plan_district(department, user: str) -> str:
+	"""The district the member's plan calls for; "" for any."""
+	row = member_row(department, user)
+	return (row.get("call_district") or "").strip() if row else ""
 
 
 # ---------- the managers' page ----------
@@ -259,18 +268,56 @@ def unassigned_by_product(department: str) -> dict[str, int]:
 	return counts
 
 
+def department_districts(department: str) -> dict:
+	"""{districts: the districts the department's open leads are in, by name; unassigned:
+	{district ("" for none): {products: {product: leads}, industries: {industry: leads}}}, its
+	open unassigned leads with a phone}. Spellings that differ only in case or spacing are one
+	district. Empty while leads have no district."""
+	from tbo_smart.sales import stale
+	from tbo_smart.sales.call_batches.handout import has_phone
+
+	if not frappe.db.has_column("Lead", "tbo_district"):
+		return {"districts": [], "unassigned": {}}
+	Lead = frappe.qb.DocType("Lead")
+	open_leads = (Lead.tbo_department == department) & Lead.tbo_stage.isin(list(stale.STALE_STAGES))
+	names: dict[str, str] = {}
+	for (district,) in frappe.qb.from_(Lead).select(Lead.tbo_district).distinct().where(open_leads).run():
+		names.setdefault(clean(district).casefold(), clean(district))
+	fields = [Lead.tbo_district, Lead.industry]
+	if frappe.db.has_column("Lead", "tbo_product"):
+		fields.append(Lead.tbo_product)
+	unassigned: dict[str, dict] = {}
+	for row in (
+		frappe.qb.from_(Lead)
+		.select(*fields, Count(Lead.name).as_("leads"))
+		.where(open_leads & (Lead.lead_owner.isnull() | (Lead.lead_owner == "")) & has_phone(Lead))
+		.groupby(*fields)
+	).run(as_dict=True):
+		place = names.get(clean(row.tbo_district).casefold(), clean(row.tbo_district))
+		counts = unassigned.setdefault(place, {"products": {}, "industries": {}})
+		for kind, value in (("products", row.get("tbo_product")), ("industries", row.industry)):
+			key = clean(value)
+			counts[kind][key] = counts[kind].get(key, 0) + row.leads
+	return {
+		"districts": sorted((name for name in names.values() if name), key=str.casefold),
+		"unassigned": unassigned,
+	}
+
+
 def serialize(department, day) -> dict:
 	"""{department, slots: [{label, start_time, end_time, size}], products: [{product_name,
-	intro_line}], campaign_product, pull_unassigned, unassigned: {product: leads}, auto_assign
-	(settings.auto_assign_rules), members:
-	[{user, full_name, product, sizes: {slot: calls}, total, has_plan, today: {size, called},
-	leads (open leads they own)}]}."""
+	intro_line}], campaign_product, campaign_district, pull_unassigned, unassigned: {product:
+	leads}, industries, unassigned_industries, districts, unassigned_districts
+	(department_districts), auto_assign (settings.auto_assign_rules), members:
+	[{user, full_name, product, industry, district, sizes: {slot: calls}, total, has_plan, today:
+	{size, called}, leads (open leads they own)}]}."""
 	from tbo_smart.sales.call_batches.settings import auto_assign_rules
 	from tbo_smart.sales.call_batches.settings import serialize as rules
 
 	slots = rules(department)["call_slots"]
 	today = handed_today(department.name, day)
 	owned = owned_leads(department.name)
+	places = department_districts(department.name)
 	members = []
 	for row in department.members:
 		sizes = sizes_of(row)
@@ -280,6 +327,7 @@ def serialize(department, day) -> dict:
 				"full_name": row.full_name or frappe.utils.get_fullname(row.user),
 				"product": plan_product(department, row.user) or None,
 				"industry": plan_industry(department, row.user) or None,
+				"district": plan_district(department, row.user) or None,
 				"sizes": {slot["label"]: sizes.get(slot["label"], slot["size"]) for slot in slots},
 				"total": sum(sizes.get(slot["label"], slot["size"]) for slot in slots),
 				"has_plan": has_plan(department, row.user),
@@ -295,11 +343,15 @@ def serialize(department, day) -> dict:
 			for row in products.active_serialized(department.name)
 		],
 		"campaign_product": department.campaign_product or None,
+		"campaign_district": clean(department.campaign_district) or None,
 		"pull_unassigned": cint(department.pull_unassigned),
 		"unassigned": unassigned_by_product(department.name),
 		# a department without products plans by industry: what it has, and what waits
 		"industries": department_industries(department.name),
 		"unassigned_industries": unassigned_by_industry(department.name),
+		# a plan may call for one district: the districts there are, and what waits in each
+		"districts": places["districts"],
+		"unassigned_districts": places["unassigned"],
 		"members": members,
 		# when the members nobody handed leads to are topped up automatically (§14)
 		"auto_assign": auto_assign_rules(department),
@@ -317,11 +369,17 @@ def get_call_plans() -> dict:
 
 
 def save_call_plan(
-	department: str, users, product: str | None = None, sizes=None, clear=False, industry: str | None = None
+	department: str,
+	users,
+	product: str | None = None,
+	sizes=None,
+	clear=False,
+	industry: str | None = None,
+	district: str | None = None,
 ) -> dict:
 	"""Set the plan of `users` (members of `department`): the `product` they are handed (blank:
-	any of the department's), the `industry` (for a department without products; blank: any) and
-	`sizes` ({slot label: calls}). `clear` removes their plan.
+	any of the department's), the `industry` (for a department without products; blank: any), the
+	`district` (blank: any) and `sizes` ({slot label: calls}). `clear` removes their plan.
 	Returns the department as get_call_plans lists it. Batches already handed out are kept; the
 	plan counts from the next slot (or the next batch asked for)."""
 	doc = planned_department(department)
@@ -340,14 +398,17 @@ def save_call_plan(
 		for user in users:
 			rows[user].call_product = None
 			rows[user].call_industry = None
+			rows[user].call_district = None
 			rows[user].slot_sizes = None
 	else:
 		chosen = clean_product(doc, product)
 		trade = clean_industry(industry)
+		place = clean_district(doc, district)
 		planned = clean_sizes(doc, sizes)
 		for user in users:
 			rows[user].call_product = chosen or None
 			rows[user].call_industry = trade or None
+			rows[user].call_district = place or None
 			rows[user].slot_sizes = json.dumps(planned) if planned else None
 	doc.save(ignore_permissions=True)  # a head plans their department without editing it
 	return serialize(doc, frappe.utils.getdate())
@@ -360,6 +421,16 @@ def clean_industry(industry: str | None) -> str:
 		return ""
 	if not frappe.db.exists("Industry Type", wanted):
 		frappe.throw(_("{0} is not an industry.").format(wanted))
+	return wanted
+
+
+def clean_district(department, district: str | None) -> str:
+	"""A district as a plan keeps it (any text: leads carry districts as typed). A department's
+	campaign district is a manager's limit: the only district a plan can take."""
+	wanted = clean(district)
+	locked = clean(department.campaign_district)
+	if wanted and locked and wanted.casefold() != locked.casefold():
+		frappe.throw(_("{0} calls only in {1} (its campaign district).").format(department.name, locked))
 	return wanted
 
 

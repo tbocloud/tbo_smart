@@ -515,3 +515,68 @@ class TestCallPlans(FrappeTestCase):
 			"Lead", filters={"tbo_department": STAYVEX, "lead_owner": BD}, pluck="industry"
 		)
 		self.assertEqual(lead, "Test Plan Hospitals")
+
+	# ---------- planning by district ----------
+
+	def in_districts(self) -> list[str]:
+		ernakulam = [
+			make_callable_lead(
+				None, f"Plan Ernakulam Pool {i}", GROWTHX, tbo_product="PhoebiX", tbo_district="Ernakulam"
+			)
+			for i in range(3)
+		]
+		make_callable_lead(None, "Plan Kannur Pool", GROWTHX, tbo_product="BillaX", tbo_district="Kannur")
+		return ernakulam
+
+	def test_a_plan_calls_for_a_district_and_its_leads_are_counted_listed_and_given(self):
+		ernakulam = self.in_districts()
+		result = self.plan([BD], "PhoebiX", {"Day": 2}, district=" Ernakulam ")
+		[member] = [row for row in result["members"] if row["user"] == BD]
+		self.assertEqual(member["district"], "Ernakulam")
+		self.assertTrue(member["has_plan"])
+		self.assertEqual(result["districts"], ["Ernakulam", "Kannur"])
+		self.assertEqual(result["unassigned_districts"]["Ernakulam"]["products"], {"PhoebiX": 3})
+		self.assertEqual(result["unassigned_districts"]["Kannur"]["products"], {"BillaX": 1})
+		self.assertEqual(
+			handout.assign_leads(GROWTHX, BD, count=5, product="PhoebiX", district="Ernakulam")["assigned"], 3
+		)
+		self.assertEqual({self.owner_of(lead) for lead in ernakulam}, {BD})
+		mine = handout.department_leads(GROWTHX, BD, district="Ernakulam")
+		self.assertEqual((mine["total"], mine["districts"]), (3, {"Ernakulam": 3}))
+		self.assertEqual({row["district"] for row in mine["rows"]}, {"Ernakulam"})
+		self.assertEqual(handout.department_leads(GROWTHX, district="-")["total"], 0)
+		# the plan stays when the department's people are saved again in Settings
+		departments.save_department({"members": [BD, OTHER_BD]}, GROWTHX)
+		self.assertEqual(plans.plan_district(frappe.get_doc("TBO Lead Department", GROWTHX), BD), "Ernakulam")
+		members = {row["user"]: row for row in self.plan([BD], clear=1)["members"]}
+		self.assertIsNone(members[BD]["district"])
+
+	def test_a_district_typed_two_ways_is_one_district(self):
+		make_callable_lead(None, "Plan Kochi 1", GROWTHX, tbo_district="Kochi")
+		make_callable_lead(None, "Plan Kochi 2", GROWTHX, tbo_district="kochi ")
+		result = plans.serialize(frappe.get_doc("TBO Lead Department", GROWTHX), getdate())
+		[place] = result["districts"]
+		self.assertEqual(place.casefold(), "kochi")
+		self.assertEqual(
+			result["unassigned_districts"], {place: {"products": {"": 2}, "industries": {"": 2}}}
+		)
+
+	def test_the_batches_the_auto_assign_and_calling_for_follow_the_plans_district(self):
+		self.in_districts()
+		self.plan([BD], sizes={"Day": 1}, district="Kannur")
+		department = frappe.get_doc("TBO Lead Department", GROWTHX)
+		self.assertEqual(campaign_of(department, user=BD)["district"], "kannur")
+		self.assertEqual(focus.option_of(department, BD)["locked_district"], "Kannur")
+		with patch("tbo_smart.sales.call_batches.auto_assign.is_off_today", return_value=None):
+			done = auto_assign.assign_department(department, getdate())
+		self.assertEqual(done, {BD: 1})
+		[district] = frappe.get_all(
+			"Lead", filters={"tbo_department": GROWTHX, "lead_owner": BD}, pluck="tbo_district"
+		)
+		self.assertEqual(district, "Kannur")
+
+	def test_the_campaign_district_is_the_only_district_a_plan_can_take(self):
+		frappe.db.set_value("TBO Lead Department", GROWTHX, "campaign_district", "Kannur")
+		self.assertRaises(frappe.ValidationError, self.plan, [BD], district="Ernakulam")
+		result = self.plan([BD], district="kannur")
+		self.assertEqual(result["campaign_district"], "Kannur")

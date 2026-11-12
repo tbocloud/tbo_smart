@@ -18,7 +18,7 @@ LEAD_TYPES = ("ERP / Software", "Content / Digital Marketing")
 MANAGER_ROLES = {"System Manager", "Sales Manager"}
 ASSIGNMENTS = ("Manual", "Round robin")
 # what a member row keeps besides the user: their own cap and call plan
-MEMBER_FIELDS = ("daily_call_cap", "call_product", "slot_sizes")
+MEMBER_FIELDS = ("daily_call_cap", "call_product", "call_industry", "call_district", "slot_sizes")
 SAVE_FIELDS = {
 	"department_name",
 	"lead_type",

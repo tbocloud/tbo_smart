@@ -5,9 +5,9 @@ Per department, on its settings (`auto_assign`, `auto_assign_at`, `auto_assign_s
 `auto_assign_skip_saturdays`): from that time on, once a day and not on the days it skips, each
 member with a call plan (plans.py) who was not handed a lead of the department by hand today and
 is at work (not on leave or a holiday, `is_off_today`) is topped up to their plan: the plan's
-calls for the day minus the open leads of the plan's product they own and have never called. The
-leads are the next unassigned ones of that product, as Assign leads would pick them (hot first,
-then newest, rows locked so the batches never take the same one).
+calls for the day minus the open leads of the plan's product, industry and district they own and
+have never called. The leads are the next unassigned ones of those, as Assign leads would pick them
+(hot first, then newest, rows locked so the batches never take the same one).
 """
 
 import frappe
@@ -17,7 +17,7 @@ from frappe.utils import cint, get_datetime, get_time, getdate, now_datetime
 from tbo_smart.sales import stale
 from tbo_smart.sales.call_batches import is_off_today
 from tbo_smart.sales.call_batches.handout import HANDED_NOTE, hand, has_phone, next_unassigned
-from tbo_smart.sales.call_batches.plans import plan_industry, plan_product, plan_total
+from tbo_smart.sales.call_batches.plans import plan_district, plan_industry, plan_product, plan_total
 from tbo_smart.sales.departments import DEPARTMENT
 
 AUTO_NOTE = "Assigned to you automatically: nobody handed you leads by the set time"
@@ -80,8 +80,13 @@ def assign_department(department, day) -> dict[str, int]:
 		count = missing(department, row.user, day)
 		if count <= 0:
 			continue
-		product = plan_product(department, row.user)
-		leads = next_unassigned(department, count, product, plan_industry(department, row.user))
+		leads = next_unassigned(
+			department,
+			count,
+			plan_product(department, row.user),
+			plan_industry(department, row.user),
+			plan_district(department, row.user),
+		)
 		for lead in leads:
 			hand(lead, row.user, AUTO_NOTE)
 		if leads:
@@ -96,7 +101,11 @@ def missing(department, user: str, day) -> int:
 	if total <= 0 or is_off_today(user, day) or handed_by_hand(department.name, user, day):
 		return 0
 	return total - uncalled(
-		department.name, user, plan_product(department, user), plan_industry(department, user)
+		department.name,
+		user,
+		plan_product(department, user),
+		plan_industry(department, user),
+		plan_district(department, user),
 	)
 
 
@@ -121,9 +130,9 @@ def handed_by_hand(department: str, user: str, day) -> bool:
 	)
 
 
-def uncalled(department: str, user: str, product: str, industry: str = "") -> int:
-	"""The open leads with a phone `user` owns in `department` (of `product` and `industry` when
-	given) that were never called."""
+def uncalled(department: str, user: str, product: str, industry: str = "", district: str = "") -> int:
+	"""The open leads with a phone `user` owns in `department` (of `product`, `industry` and
+	`district` when given) that were never called."""
 	Lead = frappe.qb.DocType("Lead")
 	query = (
 		frappe.qb.from_(Lead)
@@ -140,4 +149,6 @@ def uncalled(department: str, user: str, product: str, industry: str = "") -> in
 		query = query.where(Lead.tbo_product == product)
 	if industry:
 		query = query.where(Lead.industry == industry)
+	if district:
+		query = query.where(Lead.tbo_district == district)
 	return query.run()[0][0]
