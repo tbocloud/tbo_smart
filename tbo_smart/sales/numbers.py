@@ -478,10 +478,8 @@ def add_lead_number(
 	note: str | None = None,
 	on_call: bool = False,
 ) -> dict:
-	"""Add a number to a lead the session user may write. Returns {numbers, duplicates}:
-	`duplicates` the other leads that have the number (a warning, never a refusal)."""
-	from tbo_smart.sales import duplicates
-
+	"""Add a number to a lead the session user may write. Returns {numbers}. A number another
+	lead has is refused (one lead per number, duplicates.refuse_taken_numbers)."""
 	doc = writable_lead(lead)
 	add_row(
 		doc,
@@ -494,10 +492,7 @@ def add_lead_number(
 		source="Added on a call" if on_call else "Manual",
 	)
 	doc.save()
-	return {
-		"numbers": numbers_of(lead),
-		"duplicates": duplicates.find_duplicates(None, number, None, lead),
-	}
+	return {"numbers": numbers_of(lead)}
 
 
 def update_lead_number(

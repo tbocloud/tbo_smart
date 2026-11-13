@@ -212,6 +212,7 @@ doc_events = {
 			"tbo_smart.sales.departments.validate_lead_department",
 			"tbo_smart.sales.products.validate_lead_product",
 			"tbo_smart.sales.duplicates.skip_import_duplicates",
+			"tbo_smart.sales.duplicates.refuse_taken_numbers",
 			"tbo_smart.lead_pipeline.lead_place.validate_place",
 			"tbo_smart.sales.numbers.sync",
 		],
@@ -425,6 +426,10 @@ before_tests = "tbo_smart.test_utils.before_tests"
 # ignore_links_on_delete = ["Communication", "ToDo"]
 # A draft quotation can still be deleted; its adjustment audit trail stays.
 ignore_links_on_delete = ["TBO Quotation Adjustment"]
+
+# meta_lead_integration: a Meta lead ads enquiry from someone who is already a lead goes on that
+# lead instead of making a second one (docs/lead-departments.md §6)
+meta_lead_existing_lead = ["tbo_smart.sales.meta_leads.enquiry_again"]
 
 # Request Events
 # ----------------

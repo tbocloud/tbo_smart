@@ -297,7 +297,8 @@ def create_lead(
 
 	Everything is checked before the insert: the assignee, the source channel, the card image
 	and possible duplicates. Duplicates without `force` raise DuplicateLead (HTTP 409) with the
-	matches in the response.
+	matches in the response. A lead with the same number is refused even with `force`: a number
+	belongs to one lead (docs/lead-departments.md §6).
 	"""
 	capabilities = require_crm()
 	first_name, _space, last_name = (lead_name or "").strip().partition(" ")
@@ -306,11 +307,20 @@ def create_lead(
 	assignee = check_assignee(capabilities, assign_to)
 	channel = check_source_channel(source_channel)
 	card = check_card_image(card_image)
+	# one lead per number, by the rule every save follows (sales.duplicates; imported here, as
+	# that module imports this one): the last 10 digits, a lead's every number, shared ones exempt
+	from tbo_smart.sales.duplicates import phone_match
+
 	matches = find_duplicates(mobile_no, email, organization)
-	if matches and not cint(force):
+	number_taken = bool(mobile_no and phone_match(mobile_no, None, None))
+	if number_taken or (matches and not cint(force)):
 		frappe.response["matches"] = matches
+		# `force` can't get past it: the app shows no "create anyway"
+		frappe.response["number_taken"] = int(number_taken)
 		frappe.throw(
-			_("This looks like a lead the team already has. Check the matches or create it anyway."),
+			_("This number is already on a lead the team has. Work that lead instead.")
+			if number_taken
+			else _("This looks like a lead the team already has. Check the matches or create it anyway."),
 			DuplicateLead,
 			title=_("Possible duplicate"),
 		)

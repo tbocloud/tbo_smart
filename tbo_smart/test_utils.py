@@ -427,10 +427,25 @@ def make_salary_slip_record(employee: str, start_date: str, net_pay: float = 100
 
 def make_lead(owner: str, first_name: str = "Test Lead", **fields) -> str:
 	"""An ERPNext Lead owned by `owner`, inserted as Administrator; `fields` are Lead fields
-	(company_name, email_id, mobile_no, source, tbo_stage, …)."""
+	(company_name, email_id, mobile_no, source, tbo_stage, …). It is inserted as it was
+	(`leads_as_they_were`), so fixtures may share a number; one lead per number has its own tests."""
 	lead = frappe.get_doc({"doctype": "Lead", "first_name": first_name, "lead_owner": owner, **fields})
-	lead.insert(ignore_permissions=True)
+	with leads_as_they_were():
+		lead.insert(ignore_permissions=True)
 	return lead.name
+
+
+@contextlib.contextmanager
+def leads_as_they_were():
+	"""Leads saved inside are copied as they were, as the CRM cutover does (flag `tbo_cutover`):
+	a number another lead has is not refused, so a test can set up the duplicates made before
+	one lead per number."""
+	before = frappe.flags.get("tbo_cutover")
+	frappe.flags.tbo_cutover = True
+	try:
+		yield
+	finally:
+		frappe.flags.tbo_cutover = before
 
 
 def get_lead_numbers(lead: str) -> list[tuple]:

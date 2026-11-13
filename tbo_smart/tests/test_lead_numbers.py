@@ -5,7 +5,7 @@ from tbo_smart.api import hub_leads as hub
 from tbo_smart.lead_pipeline.statuses import NEW_LEAD, WRONG_NUMBER
 from tbo_smart.outreach import whatsapp
 from tbo_smart.patches.v1 import lead_contact_numbers
-from tbo_smart.sales import numbers
+from tbo_smart.sales import SETTINGS, numbers
 from tbo_smart.telephony import calls
 from tbo_smart.test_utils import (
 	delete_sales_records,
@@ -73,7 +73,6 @@ class TestLeadNumbers(FrappeTestCase):
 
 	def test_adding_a_number_keeps_the_old_one_and_the_main_number(self):
 		result = self.add(THIRD, label="Decision-maker", person="Anil", note="Owner, after 5 pm")
-		self.assertEqual(result["duplicates"], [])
 		self.assertEqual(get_lead_numbers(self.lead), [(FIRST, "Active", 1), (THIRD, "Active", 0)])
 		row = result["numbers"][1]
 		self.assertEqual(
@@ -113,8 +112,49 @@ class TestLeadNumbers(FrappeTestCase):
 		with self.assertRaises(frappe.DuplicateEntryError):
 			hub.create_lead({"lead_name": "Same Person", "mobile_no": THIRD}, acting_user=BD2)
 		other = make_lead(BD2, "Other Lead", mobile_no="98765 43210")
-		answer = hub.add_lead_number(other, "9895011111", acting_user=BD2)
-		self.assertEqual([match["name"] for match in answer["duplicates"]], [self.lead])
+		with self.assertRaises(frappe.DuplicateEntryError):
+			hub.add_lead_number(other, "9895011111", acting_user=BD2)
+
+	def test_a_new_lead_with_a_number_another_lead_has_is_refused_however_it_comes_in(self):
+		frappe.set_user("Administrator")
+		desk = frappe.get_doc(
+			{"doctype": "Lead", "first_name": "Desk Lead", "lead_owner": BD2, "phone": "+91 98470-12345"}
+		)
+		with self.assertRaises(frappe.DuplicateEntryError) as refused:
+			desk.insert(ignore_permissions=True)
+		self.assertIn(f"Possible duplicate of {self.lead} (", str(refused.exception))
+		self.assertNotIn(BD, str(refused.exception))  # the owner by name, never their user id
+		self.assertFalse(frappe.db.exists("Lead", {"first_name": "Desk Lead"}))
+
+	def test_a_number_another_lead_has_cannot_be_added_or_typed_in(self):
+		frappe.set_user("Administrator")
+		other = make_lead(BD2, "Other Lead", mobile_no="98765 43210")
+		frappe.set_user(HUB)
+		with self.assertRaises(frappe.DuplicateEntryError):
+			hub.add_lead_number(other, "098470 12345", acting_user=BD2)
+		for field in ("mobile_no", "phone", "whatsapp_no"):
+			with self.assertRaises(frappe.DuplicateEntryError, msg=field):
+				hub.update_lead(other, {field: "+91 98470 12345"}, acting_user=BD2)
+		self.assertEqual(get_lead_numbers(other), [("98765 43210", "Active", 1)])
+
+	def test_a_duplicate_made_before_the_rule_can_still_be_changed(self):
+		frappe.set_user("Administrator")
+		twin = make_lead(BD2, "Twin Lead", mobile_no="+91 98470 12345")
+		frappe.set_user(HUB)
+		hub.update_lead(twin, {"company_name": "Twin Traders"}, acting_user=BD2)
+		self.assertEqual(frappe.db.get_value("Lead", twin, "company_name"), "Twin Traders")
+
+	def test_a_number_many_businesses_share_may_be_on_many_leads(self):
+		frappe.set_user("Administrator")
+		before = frappe.db.get_single_value(SETTINGS, "shared_numbers")
+		self.addCleanup(frappe.db.set_single_value, SETTINGS, "shared_numbers", before)
+		frappe.db.set_single_value(SETTINGS, "shared_numbers", "+91 80 4780 8605\n080 1111 2222")
+		for name in ("Portal One", "Portal Two"):
+			frappe.get_doc(
+				{"doctype": "Lead", "first_name": name, "lead_owner": BD2, "phone": "080 4780 8605"}
+			).insert(ignore_permissions=True)
+		frappe.set_user(HUB)
+		self.assertEqual(hub.find_duplicate_leads(phone="08047808605", acting_user=BD2), [])
 
 	def test_a_call_or_chat_finds_the_lead_by_any_of_its_numbers(self):
 		self.add(THIRD)

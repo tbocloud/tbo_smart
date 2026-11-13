@@ -1,4 +1,4 @@
-# TBO Smart API: ESS, CRM and manager (tboindia side), v1.11
+# TBO Smart API: ESS, CRM and manager (tboindia side), v1.12
 
 This is the contract for the TBO Smart mobile app's **india.teambackoffice.com** half (formerly tboindia.tbocloud.in): HR
 self-service (HRMS), CRM (ERPNext's Lead, Opportunity and Prospect since v1.9; Frappe CRM
@@ -37,7 +37,7 @@ Error mapping for the app:
 | `AuthenticationError` | 401 | `unauthenticated` | Single sign-in only (§2.5): the Microsoft ID token failed verification or was already used. |
 | `PermissionError` | 403 | `forbidden` | Not your document, not your role, or a setting is off. |
 | `DuplicateEntryError` | 409 | `duplicate` | For example, a second punch within 60 s. |
-| `DuplicateLead` | 409 | `duplicate_lead` | `crm.create_lead` found possible duplicates. The body also has `matches` (§6.2). Show them, then resend with `force=1` if the user still wants the lead. |
+| `DuplicateLead` | 409 | `duplicate_lead` | `crm.create_lead` found possible duplicates. The body also has `matches` and `number_taken` (§6.2). Show them, then resend with `force=1` if the user still wants the lead; with `number_taken: 1` don't offer that, a lead already has the number. |
 | `ValidationError` and subclasses (`CheckinRadiusExceededError`, `OverlapError`, `InsufficientLeaveBalanceError`, …) | 417 | `invalid` | Show the message. |
 | `RateLimitExceededError` | 429 | `rate_limited` | Retry later. |
 | `DoesNotExistError` | 404 | `not_found` | |
@@ -593,7 +593,7 @@ Writes are normal inserts and saves under the session user.
 | `get_options` | GET | – | `{lead_sources[], lead_statuses[{name,type}], deal_stages[{name,type,probability}], lost_reasons[]}` |
 | `get_leads` | GET | `status?`, `scope?` (§4.1; `mine` is the leads I own or created), `search?`, `include_converted?` (default false), `source?`, `temperature?` (Hot / Warm / Cold), `metric?` with `period?` and `owner?` (§6.5), `created_by_me?` (only the leads I created, owned by anyone: I read them, never change them), `called?` (called at least once, last called first) with `called_from?` / `called_to?` (last called in those days), `page`, `page_length` | page of Lead |
 | `get_lead` | GET | `name` | Lead plus `notes[]`, `tasks[]`, `activities[]` |
-| `create_lead` | POST | `lead_name`, `organization?`, `email?`, `mobile_no?`, `source?`, `note?`, and for lead capture (§6.2) `follow_up_on?`, `follow_up_note?`, `assign_to?`, `source_channel?`, `card_image?`, `force?` | the new Lead (owner = me), as `get_lead`. Possible duplicates without `force`: 409 `DuplicateLead` |
+| `create_lead` | POST | `lead_name`, `organization?`, `email?`, `mobile_no?`, `source?`, `note?`, and for lead capture (§6.2) `follow_up_on?`, `follow_up_note?`, `assign_to?`, `source_channel?`, `card_image?`, `force?` | the new Lead (owner = me), as `get_lead`. Possible duplicates without `force`, or a lead with the same number even with it: 409 `DuplicateLead` |
 | `check_duplicates` | GET | `phone?`, `email?`, `organization?` | `{data: {matches: [Match]}}` (§6.2) |
 | `get_assignable_users` | GET | – | `{data: [{user, full_name, image}]}`: who I may pass as `assign_to` (§6.2) |
 | `set_lead_status` | POST | `name`, `status`, `lost_reason?` (required for a Lost-type status, e.g. Closed – Lost) | `{name, status, lost_reason}` |
@@ -694,7 +694,7 @@ CRM Settings allow duplicates (the cutover turns that on when the CRM had duplic
 
 | Param | Behaviour |
 | --- | --- |
-| `force` (bool, default false) | Runs the same duplicate check on `mobile_no`, `email` and `organization`. Matches and no `force`: HTTP **409**, `exc_type: "DuplicateLead"`, `matches: [Match]` at the top level of the body, nothing created. With `force`: the lead is created with a note `Created despite possible duplicate of lead CRM-LEAD-… (Faisal); a lead owned by Deepa`. Hidden matches are named only by kind and owner there too. |
+| `force` (bool, default false) | Runs the same duplicate check on `mobile_no`, `email` and `organization`. Matches and no `force`: HTTP **409**, `exc_type: "DuplicateLead"`, `matches: [Match]` at the top level of the body, nothing created. With `force`: the lead is created with a note `Created despite possible duplicate of lead CRM-LEAD-… (Faisal); a lead owned by Deepa`. Hidden matches are named only by kind and owner there too. **One lead per number** (`lead-departments.md` §6): when a lead already has `mobile_no` (the last 10 digits of any of its numbers; a number many businesses share excepted), the 409 comes even with `force`, with `number_taken: 1` and the message "This number is already on a lead the team has. Work that lead instead."; otherwise `number_taken` is 0. |
 | `assign_to` (user email) | Allowed when `crm_scopes` has `all` (any CRM user), or has `team` and the assignee is in my sales team (`get_sales_team`). Otherwise `PermissionError`. The assignee must be an **enabled system user with a CRM role** (Sales User, Sales Manager or System Manager), else `ValidationError`. My own email is always allowed and changes nothing. The lead stays **owned by me**; the assignee is added with Frappe's `assign_to.add` (the desk's Assign To), so the assignee can read the lead and Frappe notifies them. |
 | `follow_up_on` (date or datetime) | A **ToDo** "Follow up with {lead name}", open, due that day, assigned to the assignee if `assign_to` was given, else to me. It shows as the lead's `next_follow_up`. |
 | `follow_up_note` (str) | Below the task's title in its description, and also a note on the lead. Without `follow_up_on` it is just the note. |
@@ -983,6 +983,7 @@ Read-only aggregates for the scope. Fixture: `crm.get_sales_insights.json`.
 | 29 | ESS `getNotifications` / `markNotificationsRead` | Not part of this backend. The push payload carries the route. A notification list for tboindia is a follow-up. | **Backend** (v1.1) if the app keeps an ESS notification list |
 | 30 | Screens shown by role or a "Preview as" switch | `get_me().capabilities` (or `capabilities.get_my_capabilities` without an Employee) decides every screen, and `crm_scopes` decides the Mine / Team / All switcher | **App** |
 | 31 | Manager dashboards built from per-person lists | `manager.get_team_insights` and `crm.get_sales_insights` return ready aggregates, deltas and 8-period trends; render them as they come | **App** |
+| 32 | "Create anyway" on every 409 `DuplicateLead` | With `number_taken: 1` a lead already has the number and `force` is refused too (v1.12) | **App**: hide "Create anyway" then and offer to open the match |
 
 ## 10. Tests
 
@@ -1013,7 +1014,7 @@ The tests are in `tbo_smart/tests/test_mobile_{ess,advance,crm,lead_capture,lead
 - **Lead capture** (`test_mobile_lead_capture.py`): phone formats (`+971 50…`, `050…`,
   `00971`, spaces and brackets), email and organization case, matches across leads,
   organizations, contacts and customers; hidden matches without details; 409 without
-  `force`, then creation with the duplicate note; the follow-up task's due date, assignee
+  `force`, then creation with the duplicate note; a number match refused even with `force`; the follow-up task's due date, assignee
   and description; `assign_to` refused for staff and outside the team, allowed for a manager
   and a team lead within scope, refused for a non-CRM assignee; the private card image; the
   source channel note and Lead Source mapping.
@@ -1046,6 +1047,10 @@ They need a site with **erpnext and hrms** installed and `allow_tests` on:
 those apps on Frappe version-15, and a second job adds the crm app for the cutover's tests.
 
 ## Changelog
+
+- **v1.12 (2026-11-13):** one lead per number (`lead-departments.md` §6). `crm.create_lead`
+  refuses a lead with the same number even with `force`; the 409 body adds `number_taken`
+  (1 then, else 0). §9 #32.
 
 - **v1.11 (2026-10-19):** calling through MyOperator (§6.6): `leads.click_to_call`,
   `leads.call_recording`, the `click_to_call` capability, and call fields on `get_lead`'s call

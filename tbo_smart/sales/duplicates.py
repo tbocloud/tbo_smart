@@ -6,6 +6,10 @@ company (case-insensitive, exact). The search covers every lead, whoever may see
 salesperson learns the lead exists and who owns it, not that they may open it.
 
 Email and phone matches block a new lead; a company match alone is only shown.
+
+One lead per number: whatever way a lead comes in (the hub, the app, the desk, an import, an
+integration), a new lead or a number new on a lead is refused when another lead has it
+(`refuse_taken_numbers`), except the numbers many businesses share (TBO Smart Settings).
 """
 
 import re
@@ -17,7 +21,7 @@ from frappe.query_builder.functions import Lower, Trim
 
 from tbo_smart.api.mobile.crm import any_of, phone_criterion, text_criterion
 from tbo_smart.api.mobile.utils import get_full_names
-from tbo_smart.sales import numbers
+from tbo_smart.sales import SETTINGS, numbers
 
 MAX_MATCHES = 5
 PHONE_DIGITS = 10
@@ -29,12 +33,26 @@ MATCH_FIELDS = ("name", "lead_name", "company_name", "email_id", "mobile_no", "l
 def match_keys(email: str | None, phone: str | None, company: str | None) -> frappe._dict:
 	"""Normalised search keys: lowercase email, the phone's last 10 digits (7 at least), and the
 	lowercase company; each None when it is empty or too short to compare."""
-	digits = re.sub(r"\D", "", phone or "")
+	key = phone_key(phone)
 	return frappe._dict(
 		email=(email or "").strip().lower() or None,
-		phone=digits[-PHONE_DIGITS:] if len(digits) >= MIN_PHONE_DIGITS else None,
+		# a shared number says nothing about who the lead is
+		phone=key if key and key not in shared_numbers() else None,
 		company=(company or "").strip().lower() or None,
 	)
+
+
+def phone_key(phone: str | None) -> str | None:
+	"""A number's last 10 digits (7 at least), whatever spaces, +91 or trunk 0 it is typed with."""
+	digits = re.sub(r"\D", "", phone or "")
+	return digits[-PHONE_DIGITS:] if len(digits) >= MIN_PHONE_DIGITS else None
+
+
+def shared_numbers() -> set[str]:
+	"""The numbers many businesses share (a lead portal's virtual number), from TBO Smart
+	Settings, by their last 10 digits: they may be on any number of leads."""
+	text = frappe.db.get_single_value(SETTINGS, "shared_numbers") or ""
+	return {key for line in text.splitlines() if (key := phone_key(line))}
 
 
 def find_duplicates(
@@ -93,8 +111,13 @@ def duplicate_message(match: dict) -> str:
 
 def refuse_duplicate(email: str | None, phone: str | None, company: str | None) -> None:
 	"""Raise DuplicateEntryError when a lead already has this email or phone; the matches go in
-	the response as `matches`."""
+	the response as `matches`. A phone match says a number belongs to one lead, as confirming the
+	duplicate won't get past it (`refuse_taken_numbers`)."""
 	matches = find_duplicates(email, phone, company)
+	taken = next((match for match in matches if "phone" in match["matched_on"]), None)
+	if taken:
+		frappe.response["matches"] = matches
+		frappe.throw(number_taken_message(taken, phone), frappe.DuplicateEntryError)
 	match = blocking(matches)
 	if match:
 		frappe.response["matches"] = matches
@@ -112,3 +135,59 @@ def skip_import_duplicates(doc, method=None) -> None:
 	)
 	if match:
 		frappe.throw(duplicate_message(match), frappe.DuplicateEntryError)
+
+
+def refuse_taken_numbers(doc, method=None) -> None:
+	"""doc_events: Lead validate. One lead per number: a new lead, or a number new on a lead, is
+	refused when another lead already has it (the last 10 digits, on any of that lead's numbers,
+	whatever their status), however the lead comes in. The numbers it had before stay, so an
+	old duplicate can still be edited; a shared number may be on any lead; the CRM cutover
+	(`tbo_cutover`) copies leads as they were; a merge (`doc.flags.merging`, the lead merged in)
+	brings that lead's numbers along."""
+	if frappe.flags.get("tbo_cutover"):
+		return
+	before = None if doc.is_new() else doc.get_doc_before_save()
+	had = numbers_on(before) if before else {}
+	for key, number in numbers_on(doc).items():
+		if key in had:
+			continue
+		match = phone_match(number, doc.name, doc.flags.get("merging"))
+		if match:
+			frappe.throw(number_taken_message(match, number), frappe.DuplicateEntryError)
+
+
+def numbers_on(doc) -> dict[str, str]:
+	"""{last 10 digits: the number as typed} for every number of the lead: its mobile, phone and
+	WhatsApp fields and its number rows."""
+	typed = [doc.get(field) for field in PHONE_FIELDS]
+	typed += [row.number for row in doc.get(numbers.FIELD) or []]
+	found = {}
+	for number in typed:
+		key = phone_key(number)
+		if key:
+			found.setdefault(key, number.strip())
+	return found
+
+
+def phone_match(number: str, exclude: str | None, merging: str | None) -> dict | None:
+	"""Another lead that has this number, other than the one being merged in."""
+	return next(
+		(
+			match
+			for match in find_duplicates(None, number, None, exclude)
+			if "phone" in match["matched_on"] and match["name"] != merging
+		),
+		None,
+	)
+
+
+def number_taken_message(match: dict, number: str) -> str:
+	"""Which lead has the number and whose it is, by name only: whoever is told (the app, an
+	integration) may not see that lead, so never the owner's user id."""
+	owner = _("no owner")
+	if match["lead_owner"]:
+		names = get_full_names([match["lead_owner"]], fallback_to_id=False)
+		owner = names.get(match["lead_owner"]) or _("a teammate")
+	return _(
+		"Possible duplicate of {0} ({1}): it already has the number {2}, and a number belongs to one lead."
+	).format(match["name"], owner, number)

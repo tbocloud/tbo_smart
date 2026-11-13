@@ -162,6 +162,8 @@
   "lead_intake_section",
   "lead_log_email_account",
   "website_lead_department",
+  "duplicate_numbers_section",
+  "shared_numbers",
   "prospecting_section",
   "enable_prospecting",
   "prospect_osm_enabled",
@@ -1228,6 +1230,17 @@
    "options": "TBO Lead Department"
   },
   {
+   "fieldname": "duplicate_numbers_section",
+   "fieldtype": "Section Break",
+   "label": "One lead per number"
+  },
+  {
+   "fieldname": "shared_numbers",
+   "fieldtype": "Small Text",
+   "label": "Numbers many businesses share",
+   "description": "One per line, e.g. a lead portal's virtual number. A number belongs to one lead, except these: they may be on any number of leads."
+  },
+  {
    "fieldname": "prospecting_section",
    "fieldtype": "Section Break",
    "label": "Prospecting",
@@ -1406,7 +1419,7 @@
  "index_web_pages_for_search": 0,
  "issingle": 1,
  "links": [],
- "modified": "2026-10-23 13:00:00.000000",
+ "modified": "2026-11-13 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Smart Settings",

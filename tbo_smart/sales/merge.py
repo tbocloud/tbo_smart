@@ -153,6 +153,8 @@ def merge_leads(keep: str, merge: str) -> str:
 	label = label_of(merged)
 	copy_numbers(kept, merged)
 	fill_empty_fields(kept, merged)
+	# the merged lead still holds its numbers until it is renamed into the kept one
+	kept.flags.merging = merge
 	kept.save()
 	frappe.rename_doc(LEAD, merge, keep, force=True, merge=True, show_alert=False, rebuild_search=False)
 	refresh_name_copies(kept)
