@@ -105,6 +105,14 @@ item counts it Connected, but the lead's last call result and time are left as t
 (`apply(..., call=False)`), so a lead nobody phoned does not read as called. It runs whenever the
 queue is read or a batch asked for.
 
+**A lead dealt with leaves Today's calls.** A call not made yet whose lead was moved, after its
+batch began, to any stage but New Lead, Not Responding and Follow-up Required
+(`state.CALL_AGAIN_STAGES`), by anyone from any page (On Hold, Not Interested, Wrong Number, a
+meeting, …), is no longer listed: not due now, not coming back, not overdue
+(`CallQueue.stage_moves`, the lead's `TBO Stage Change` rows). Not answered and Busy move a lead to
+Not Responding and a call back to Follow-up Required, so those retries stay. The call still counts
+in the day's size.
+
 **Counts** (Today's calls and the report): `size` and `called` are the batch's own items (retries,
 call backs and called-back items are not counted again); a lead is `connected` when **any** call of
 it in the batch was answered, so Not answered followed by a Connected retry, call back or the
