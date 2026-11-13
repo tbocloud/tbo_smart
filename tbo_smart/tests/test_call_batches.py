@@ -368,6 +368,18 @@ class TestCallBatches(FrappeTestCase):
 		)
 		self.assertFalse(result or called_on, "a stage move is not a call")
 
+	def test_a_lead_moved_to_another_stage_leaves_todays_calls(self):
+		# put On Hold from the lead page: dealt with, so no longer a call to make
+		leads, _batch, items = self.batch_of(2)
+		self.record(items[1], "Not answered")
+		frappe.set_user(BD)
+		set_lead_stage(leads[0], ON_HOLD)
+		calls = get_my_calls()
+		listed = {row["lead"] for row in calls["pending"] + calls["scheduled"] + calls["overdue"]}
+		# the other lead's No answer moved it to Not Responding: its retry stays
+		self.assertEqual(listed, {leads[1]})
+		frappe.set_user("Administrator")
+
 	def test_a_logged_answered_call_and_its_own_stage_move_count_once(self):
 		leads, batch, items = self.batch_of(1)
 		self.record(items[0], "Not answered")
