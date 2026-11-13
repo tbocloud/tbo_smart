@@ -1,4 +1,4 @@
-# Hub leads API (`tbo_smart.api.hub_leads`), v1.27
+# Hub leads API (`tbo_smart.api.hub_leads`), v1.28
 
 **Status:** built 2026-10-16. The TBO Support hub's lead page (tbocloud/helpdesk) shows and edits
 tboindia's leads through these methods. The leads are ERPNext's own **Lead**
@@ -49,7 +49,7 @@ curl -s -X POST https://india.teambackoffice.com/api/method/tbo_smart.api.hub_le
 | `get_proposal_money` | GET | `period`, `from_date?`, `to_date?`, `owner?` (as `get_overview`), `acting_user` | Money (§2.8) |
 | `get_sales_activity` | GET | `from_date?`, `to_date?` (default this month), `acting_user?` (§2.5) | `{from_date, to_date, currency, people: [Activity]}` |
 | `get_lead` | GET | `name`, `acting_user` | `{lead: Lead, timeline: [Item], quotations: [Quotation], proposals: [Proposal row], allowed_stages: [stage name]}` |
-| `create_lead` | POST | `data`, `allow_duplicate?` (1 to create past a duplicate, §2.9), `acting_user` | as `get_lead` |
+| `create_lead` | POST | `data`, `allow_duplicate?` (1 to create past an email match, §2.9; never past a number), `acting_user` | as `get_lead` |
 | `find_duplicate_leads` | GET | `email?`, `phone?`, `company?`, `exclude?` (a lead name), `acting_user` | `[Match]` (§2.9) |
 | `get_category_counts` | GET | `acting_user` | `{industry, state, district, org_size, last_call_result}`, each `{value: leads}` (§2.14, §2.16) |
 | `add_industry` | POST | `name`, `acting_user` | `{name, created}` (§2.14) |
@@ -430,9 +430,13 @@ salesperson must learn that a colleague owns the enquiry.
 
 `create_lead` first runs the same search with the new lead's `email_id`, `mobile_no` (or `phone`)
 and `company_name`. An email or phone match refuses the call with **`DuplicateEntryError`
-(HTTP 409)**, message `Possible duplicate of <lead> (<owner name>)`, and the matches in the
-response's `matches` (a `[Match]`). A company-only match never blocks. Pass `allow_duplicate=1` to
-create anyway. With the owner left empty in a **Round robin** department the lead goes to the
+(HTTP 409)** and the matches in the response's `matches` (a `[Match]`); the message is `Possible
+duplicate of <lead> (<owner name>): it already has the number <number>, and a number belongs to
+one lead.` when a lead has the number, else `Possible duplicate of <lead> (<owner name>)`. A
+company-only match never blocks. Pass `allow_duplicate=1` to create anyway past an email match; a
+number another lead has is refused even then (one lead per number, `lead-departments.md` §6),
+with the same number message and no `matches`. The same refusal stops `update_lead` putting such
+a number in `mobile_no`, `phone` or `whatsapp_no`. With the owner left empty in a **Round robin** department the lead goes to the
 department's next member (`lead-departments.md` §5); otherwise the owner is the acting user as
 before.
 
@@ -951,7 +955,7 @@ main number.
 
 | Method | Verb | Arguments | Returns |
 |---|---|---|---|
-| `add_lead_number` | POST | `lead`, `number`, `label?` (Mobile), `person?`, `designation?`, `make_primary?` (0/1: the old main number stays, marked Old), `note?`, `on_call?` (0/1: source "Added on a call"), `acting_user` | `{numbers: [Number], duplicates: [match]}`; `duplicates` as `find_duplicate_leads` (other leads with the number: a warning, never a refusal); 417 for something that isn't a phone number or a number the lead uses already; 403 without write on the lead |
+| `add_lead_number` | POST | `lead`, `number`, `label?` (Mobile), `person?`, `designation?`, `make_primary?` (0/1: the old main number stays, marked Old), `note?`, `on_call?` (0/1: source "Added on a call"), `acting_user` | `{numbers: [Number]}`; 409 `DuplicateEntryError` for a number another lead has (one lead per number, §2.9); 417 for something that isn't a phone number or a number the lead uses already; 403 without write on the lead |
 | `update_lead_number` | POST | `lead`, `number_id` (`Number.id`), `status?`, `label?`, `person?`, `designation?`, `note?`, `make_primary?`, `acting_user` | `{numbers}`; a main number that stops being usable (Wrong number, Old) hands over to the next Active or Not reachable one |
 | `remove_lead_number` | POST | `lead`, `number_id`, `acting_user` | `{numbers}`; System Manager and Sales Manager only (403 otherwise: a salesperson marks it Old or Wrong number) |
 
@@ -1146,6 +1150,10 @@ project set-ups saved by managers only.
 
 ## Changelog
 
+- **v1.28 (2026-11-13):** one lead per number (§2.9, `lead-departments.md` §6): `create_lead`'s
+  `allow_duplicate` no longer gets past a number another lead has; `update_lead` and
+  `add_lead_number` refuse such a number (409); `add_lead_number` returns `{numbers}` without
+  `duplicates`. TBO Smart Settings: *Numbers many businesses share*.
 - **v1.27 (2026-11-10):** the lead mirror's change feed (§2.32): `TBO Lead Change`,
   `get_lead_changes`, `get_lead_index`, `get_leads_bulk`, `get_mirror_scopes` (integration user only).
 - **v1.26 (2026-11-09):** merging duplicate leads (§2.26): `get_merge_preview`, `merge_leads`;

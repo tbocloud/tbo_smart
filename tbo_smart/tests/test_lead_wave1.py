@@ -6,6 +6,7 @@ from frappe.utils import add_days, now_datetime
 
 from tbo_smart.api import hub_leads as hub
 from tbo_smart.api import website_lead as website
+from tbo_smart.sales import meta_leads
 from tbo_smart.sales.activities import add_call, add_follow_up_task, add_note
 from tbo_smart.sales.stages import set_lead_stage
 from tbo_smart.telephony.calls import log_manual_call
@@ -186,10 +187,13 @@ class TestDuplicates(Wave1Case):
 			self.assertIn(
 				f"Possible duplicate of {lead} ({frappe.utils.get_fullname(ONE)})", str(raised.exception)
 			)
-		created = hub.create_lead(
-			{"first_name": "Wave1 Again", "mobile_no": phone}, allow_duplicate=1, acting_user=MANAGER
-		)
-		self.assertNotEqual(created["lead"]["name"], lead)
+		# confirming the duplicate never gets past a number another lead has
+		with self.assertRaises(frappe.DuplicateEntryError) as raised:
+			hub.create_lead(
+				{"first_name": "Wave1 Again", "mobile_no": phone}, allow_duplicate=1, acting_user=MANAGER
+			)
+		self.assertIn(f"it already has the number {phone}", str(raised.exception))
+		self.assertFalse(frappe.db.exists("Lead", {"first_name": "Wave1 Again"}))
 
 	def test_a_company_match_alone_does_not_block(self):
 		make_lead(ONE, "Wave1 Company Owner", company_name="Wave1 Shared Co")
@@ -219,6 +223,42 @@ class TestDuplicates(Wave1Case):
 		finally:
 			frappe.flags.in_import = False
 			frappe.flags.tbo_cutover = False
+
+
+class TestMetaLeadsAgain(Wave1Case):
+	def test_a_meta_enquiry_from_a_known_number_goes_on_that_lead(self):
+		phone = ten_digits()
+		lead = make_lead(TWO, "Wave1 Meta Lead", mobile_no=phone)
+		values = {
+			"lead_name": "Meta Person",
+			"email_id": f"meta.person{DOMAIN}",
+			"mobile_no": f"+91 {phone}",
+			"phone": f"+91 {phone}",
+			"custom_meta_platform": "Instagram",
+			"custom_meta_form_id": "F-1",
+		}
+		with patch("tbo_smart.api.website_lead.notify") as notify:
+			self.assertEqual(meta_leads.enquiry_again(values), lead)
+		self.assertTrue(
+			frappe.db.exists(
+				"Comment",
+				{
+					"reference_name": lead,
+					"content": (
+						"like",
+						f"Instagram lead form again (form F-1): Meta Person · meta.person{DOMAIN} · +91 {phone}%",
+					),
+				},
+			)
+		)
+		self.assertEqual(
+			notify.call_args.args[:2], ([TWO], "Wave1 Meta Lead enquired again through Instagram lead ads.")
+		)
+		self.assertIn("tbo_smart.sales.meta_leads.enquiry_again", frappe.get_hooks("meta_lead_existing_lead"))
+
+	def test_someone_new_is_left_to_meta(self):
+		values = {"lead_name": "Meta New", "email_id": f"meta.new{DOMAIN}", "mobile_no": ten_digits()}
+		self.assertIsNone(meta_leads.enquiry_again(values))
 
 
 class TestStaleLeads(Wave1Case):

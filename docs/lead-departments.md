@@ -81,10 +81,34 @@ create then keeps the acting user as owner). Heads are not in the rotation.
 (last 10 digits of mobile, phone or WhatsApp) and company (case-insensitive, exact) are compared
 with every lead, **ignoring who may see it**, and only name, owner, stage and contact fields come
 back: this is a deliberate choice, since the purpose is that nobody works an enquiry a colleague
-already has. Email or phone blocks `create_lead` (`DuplicateEntryError`, `allow_duplicate=1`
-overrides); a company match only shows. **Data Import** (`frappe.flags.in_import`) refuses a row
-whose email or phone another lead has, so the importer skips it and lists it with the same
-message; the CRM cutover (flag `tbo_cutover`) copies leads as they were and is not checked.
+already has. Email or phone blocks `create_lead` (`DuplicateEntryError`; `allow_duplicate=1`
+gets past an email match, never a number); a company match only shows. **Data Import**
+(`frappe.flags.in_import`) refuses a row whose email or phone another lead has, so the importer
+skips it and lists it with the same message; the CRM cutover (flag `tbo_cutover`) copies leads as
+they were and is not checked.
+
+**One lead per number** (`refuse_taken_numbers`, Lead validate). However a lead comes in (the
+hub, the app, the desk, Data Import, the website form, the Lead Bank, prospecting, an
+integration), a new lead, or a number new on a lead (its mobile, phone or WhatsApp field, or a
+number row), is refused with `DuplicateEntryError` when another lead has that number: the last
+10 digits, on any of that lead's numbers whatever their status (a Wrong number too: a manager
+removes it from that lead if it really is the new business's). The message names the lead and
+its owner by name only (`Possible duplicate of <lead> (<owner name>): it already has the number
+<number>, and a number belongs to one lead.`), since whoever is told may not see that lead.
+- **Duplicates made before the rule** stay: a lead keeps the numbers it had, so it can still be
+  edited. Merge them (hub API §2.26): the merge brings the merged lead's numbers along.
+- **Numbers many businesses share** (TBO Smart Settings → **One lead per number** → *Numbers
+  many businesses share*, one per line, e.g. a lead portal's virtual number) may be on any number
+  of leads, and `find_duplicates` ignores them (the app's own check still shows them as a
+  duplicate it may create past).
+- The website form, Meta lead ads (the meta_lead_integration app asks the hook
+  `meta_lead_existing_lead`, `sales/meta_leads.py`; its log says Duplicate and links the lead)
+  and the Lead Bank add to the lead that has the number or email, and prospecting skips the
+  business, instead of making a new lead; the hub's lead form and Add number check first and
+  say so. The app's `create_lead` refuses a number match even with `force`
+  (`tbo-smart-api-ess-crm.md` §6.2).
+- Only the last 10 digits are compared, as before: a UAE number typed once with +971 and once
+  with a 0 is not seen as the same.
 
 ## 7. Stale leads (`sales/stale.py`)
 
@@ -166,7 +190,10 @@ name, because "GrowthX" means nothing to the client).
 `tbo_smart/tests/test_lead_wave1.py`: round-robin order, wrap, skipping disabled users and the
 previous one, Manual leaving the owner empty, the hub create with the owner left empty;
 duplicates (normalisation, matched_on, the cap of 5, `exclude`, all leads regardless of
-visibility, the refusal and `allow_duplicate`, company-only allowed, Data Import skip); stale
+visibility, the refusal, `allow_duplicate` never past a number, company-only allowed, Data Import
+skip; a Meta enquiry from a known number on that lead); one lead per number in
+`test_lead_numbers.py` (a desk insert in another format, adding or typing a taken number, an old
+duplicate still editable, shared numbers); stale
 leads (each activity source, closed and On Hold excluded, the department's own days, visibility);
 BCC logging; the website form (honeypot, validation, duplicates, department fallback, round
 robin, the rate limit decorator). Website form: `website-lead-form.md`.

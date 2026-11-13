@@ -63,7 +63,11 @@ def submit_website_lead(
 		frappe.throw(_("That phone number looks too short."))
 	existing = blocking(find_duplicates(email, phone, None))
 	if existing:
-		enquired_again(existing, message)
+		enquired_again(
+			existing,
+			_("Website enquiry again: {0}").format(message or "-"),
+			_("{0} sent a website enquiry again.").format(existing["lead_name"] or existing["name"]),
+		)
 	else:
 		create_lead(name, email, phone, company, message, department, clean(source) or DEFAULT_SOURCE)
 	return {"ok": True}
@@ -73,16 +77,12 @@ def clean(value: str | None, limit: int = MAX_TEXT) -> str:
 	return (value or "").strip()[:limit]
 
 
-def enquired_again(existing: dict, message: str) -> None:
-	"""A note on the lead we already have, and a notice to its owner (or its department's heads)."""
-	add_note(LEAD, existing["name"], _("Website enquiry again: {0}").format(message or "-"))
+def enquired_again(existing: dict, note: str, notice: str) -> None:
+	"""`note` on the lead we already have, and `notice` to its owner (or its department's heads).
+	The website form's and Meta lead ads' (sales/meta_leads.py) repeat enquiries."""
+	add_note(LEAD, existing["name"], note)
 	people = [existing["lead_owner"]] if existing["lead_owner"] else heads_of(existing["name"])
-	notify(
-		people,
-		_("{0} sent a website enquiry again.").format(existing["lead_name"] or existing["name"]),
-		LEAD,
-		existing["name"],
-	)
+	notify(people, notice, LEAD, existing["name"])
 
 
 def heads_of(lead: str) -> list[str]:

@@ -59,6 +59,9 @@ Code: `tbo_smart/sales/numbers.py`. Lead `validate` runs `numbers.sync`, `on_upd
   flags it, `call-batches.md`) only when no usable number is left.
 - **Duplicates.** `duplicates.find_duplicates` compares the last ten digits with every number row
   of every lead, whatever its status, besides the three fields.
+- **One lead per number.** Adding a number another lead has, or typing it into the mobile, phone
+  or WhatsApp field, is refused (`DuplicateEntryError`), except a number many businesses share
+  (`lead-departments.md` §6). The numbers a lead already had stay.
 - **Lookups by number** (MyOperator incoming calls `telephony.calls.find_lead`, WhatsApp
   `outreach.whatsapp.find_lead`, click-to-call, the Lead Bank's duplicate check) match any number
   of a lead.

@@ -1244,8 +1244,8 @@ def add_lead_number(
 	"""Add a contact number to a lead the acting user may write (docs/lead-numbers.md). `label` is
 	Mobile (default), Office, WhatsApp, Decision-maker or Other; `make_primary` 1 makes it the
 	main number (the old one stays, marked Old); `on_call` 1 records it as added on a call. A
-	number the lead already uses is refused. Returns {numbers, duplicates}: `duplicates` are the
-	other leads that have the number, a warning and not a refusal."""
+	number the lead already uses is refused, and so is one another lead has (one lead per
+	number). Returns {numbers}."""
 	with acting_as(acting_user):
 		return numbers.add_lead_number(
 			lead, number, label, person, designation, bool(cint(make_primary)), note, bool(cint(on_call))

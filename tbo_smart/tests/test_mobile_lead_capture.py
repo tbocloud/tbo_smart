@@ -127,20 +127,34 @@ class TestMobileLeadCapture(FrappeTestCase):
 	# ---------- create_lead ----------
 
 	def test_duplicate_is_refused_with_409_until_forced(self):
-		mobile = make_test_mobile()
-		make_lead(OTHER_SELLER, "First Capture", mobile_no=mobile)
+		# a company match may be forced past; a number match may not (the next test)
+		company = f"Capture Co {make_test_mobile()}"
+		make_lead(OTHER_SELLER, "First Capture", company_name=company)
 		with self.assertRaises(crm.DuplicateLead) as refused:
-			crm.create_lead("Second Capture", mobile_no=f"0{mobile}")
+			crm.create_lead("Second Capture", organization=company.upper())
 		self.assertEqual(refused.exception.http_status_code, 409)
 		self.assertEqual([row["kind"] for row in frappe.response["matches"]], ["lead"])
 		self.assertIsNone(frappe.response["matches"][0]["name"])
+		self.assertEqual(frappe.response["number_taken"], 0)
 		self.assertFalse(frappe.db.exists("Lead", {"lead_name": "Second Capture"}))
 
-		lead = crm.create_lead("Second Capture", mobile_no=f"0{mobile}", force=True)
+		lead = crm.create_lead("Second Capture", organization=company, force=True)
 		self.assertEqual(lead["owner_id"], SELLER)
 		note = next(text for text in get_note_texts(lead) if text.startswith("Created despite"))
 		self.assertIn("a lead owned by", note)
 		self.assertNotIn("First Capture", note)
+
+	def test_a_lead_with_the_same_number_is_refused_even_when_forced(self):
+		mobile = "9" + make_test_mobile()
+		make_lead(OTHER_SELLER, "First Capture", mobile_no=mobile)
+		for force in (False, True):
+			with self.assertRaises(crm.DuplicateLead) as refused:
+				crm.create_lead("Second Capture", mobile_no=f"+91 {mobile}", force=force)
+			self.assertEqual(refused.exception.http_status_code, 409)
+			self.assertIn("This number is already on a lead", str(refused.exception))
+			self.assertEqual(frappe.response["number_taken"], 1)
+			self.assertIsNone(frappe.response["matches"][0]["name"])
+		self.assertFalse(frappe.db.exists("Lead", {"lead_name": "Second Capture"}))
 
 	def test_follow_up_task_and_note_at_creation(self):
 		due = f"{add_days(nowdate(), 3)} 10:30:00"
