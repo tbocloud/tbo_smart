@@ -6,6 +6,7 @@ import functools
 import io
 import json
 import math
+import random
 import time
 from unittest.mock import MagicMock, patch
 
@@ -3076,12 +3077,18 @@ def make_batch_department(
 	return doc.name
 
 
+def random_mobile() -> str:
+	"""A 10-digit mobile number no other test lead is likely to have: Today's calls leaves out a
+	lead sharing a number with an older one."""
+	return f"6{random.randint(10**8, 10**9 - 1)}"
+
+
 def make_callable_lead(owner: str | None, first_name: str, department: str, **fields) -> str:
-	"""An open lead of `department` with a phone number, owned by `owner` (None: unassigned, put
-	in the department afterwards because a department with people refuses an outside owner, and
-	so is its `tbo_product`: a product needs its department, which an unassigned lead lacks at
-	insert)."""
-	mobile = fields.pop("mobile_no", "9847012345")
+	"""An open lead of `department` with a phone number of its own (`random_mobile`), owned by
+	`owner` (None: unassigned, put in the department afterwards because a department with people
+	refuses an outside owner, and so is its `tbo_product`: a product needs its department, which an
+	unassigned lead lacks at insert)."""
+	mobile = fields.pop("mobile_no", None) or random_mobile()
 	if owner:
 		return make_lead(owner, first_name, tbo_department=department, mobile_no=mobile, **fields)
 	product = fields.pop("tbo_product", None)

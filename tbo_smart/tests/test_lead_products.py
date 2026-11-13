@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import add_to_date, getdate, now_datetime
+from frappe.utils import add_to_date, now_datetime
 
 from tbo_smart.api import hub_leads as hub
 from tbo_smart.outreach import whatsapp
@@ -23,7 +23,6 @@ from tbo_smart.test_utils import (
 	make_callable_lead,
 	make_lead,
 	make_lead_department,
-	make_lead_task,
 	make_user,
 )
 
@@ -272,16 +271,14 @@ class TestCallingUnderAProduct(ProductCase):
 	def callable(self, name: str, **fields) -> str:
 		return make_callable_lead(BD, name, GROWTHX, **fields)
 
-	def test_the_campaign_product_filters_new_leads_but_not_follow_ups(self):
+	def test_the_campaign_product_filters_the_new_leads(self):
 		solar = self.callable("Prod Call Solar", tbo_product=PHOEBIX)
 		billing = self.callable("Prod Call Billing", tbo_product="BillaX")
 		plain = self.callable("Prod Call Plain")
-		due = self.callable("Prod Call Due", tbo_product="BillaX")
-		make_lead_task(due, getdate(), BD)
 		frappe.db.set_value("TBO Lead Department", GROWTHX, "campaign_product", PHOEBIX)
 		batch = self.build()
 		leads = [row.lead for row in batch.items]
-		self.assertCountEqual(leads, [solar, due])
+		self.assertEqual(leads, [solar])
 		self.assertNotIn(billing, leads)
 		self.assertNotIn(plain, leads)
 

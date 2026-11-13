@@ -18,6 +18,7 @@ import frappe
 from frappe import _
 from frappe.query_builder import Case
 from frappe.query_builder.functions import Lower, Trim
+from frappe.utils import get_datetime
 
 from tbo_smart.api.mobile.crm import any_of, phone_criterion, text_criterion
 from tbo_smart.api.mobile.utils import get_full_names
@@ -53,6 +54,49 @@ def shared_numbers() -> set[str]:
 	Settings, by their last 10 digits: they may be on any number of leads."""
 	text = frappe.db.get_single_value(SETTINGS, "shared_numbers") or ""
 	return {key for line in text.splitlines() if (key := phone_key(line))}
+
+
+def newer_duplicates(leads: list[str]) -> set[str]:
+	"""The leads of `leads` with a number (the last 10 digits, on any number row whatever its
+	status) that a lead created before them has too: copies of an older lead, made before one lead
+	per number. Today's calls leaves them out so the client is called once, as the oldest lead.
+	A shared number says nothing about who the lead is, so it does not count."""
+	if not leads:
+		return set()
+	Row = frappe.qb.DocType(numbers.NUMBER)
+	own = (
+		frappe.qb.from_(Row)
+		.select(Row.parent, Row.digits)
+		.where((Row.parenttype == "Lead") & Row.parent.isin(list(leads)))
+	).run()
+	shared = shared_numbers()
+	keys_of: dict[str, set[str]] = {}
+	for lead, digits in own:
+		key = phone_key(digits)
+		if key and key not in shared:
+			keys_of.setdefault(lead, set()).add(key)
+	keys = {key for found in keys_of.values() for key in found}
+	if not keys:
+		return set()
+	Lead = frappe.qb.DocType("Lead")
+	key = numbers.Right(Row.digits, PHONE_DIGITS)
+	holders = (
+		frappe.qb.from_(Row)
+		.join(Lead)
+		.on(Lead.name == Row.parent)
+		.select(key.as_("key"), Lead.name, Lead.creation)
+		.where((Row.parenttype == "Lead") & key.isin(list(keys)))
+	).run(as_dict=True)
+	oldest: dict[str, tuple] = {}
+	for row in holders:
+		mark = (get_datetime(row.creation), row.name)
+		if row.key not in oldest or mark < oldest[row.key]:
+			oldest[row.key] = mark
+	return {
+		lead
+		for lead, found in keys_of.items()
+		if any(oldest[key][1] != lead for key in found if key in oldest)
+	}
 
 
 def find_duplicates(

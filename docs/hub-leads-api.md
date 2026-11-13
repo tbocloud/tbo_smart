@@ -540,6 +540,8 @@ Person = {user, user_name, department, size, called, connected, overdue, batches
 
 `pending` are due now (best priority first), `scheduled` come back later in the running batch
 (a retry or a call back), `overdue` belong to a slot that is over (kept 7 days, still callable).
+A call is listed only while its lead is at New Lead and is not a newer duplicate of another lead
+(`call-batches.md` §3, §5), so a retry or call back of a lead a call moved on is not listed.
 `record_call_outcome` takes an `item` from these lists; `outcome` is `Connected`, `Not answered`,
 `Busy`, `Call back` (`callback_at` required, a date-time), `Not interested` or `Wrong number`.
 It logs the call as `log_call` does and removes the item from the queue. Not answered and Busy

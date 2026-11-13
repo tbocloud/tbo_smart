@@ -5,7 +5,13 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, add_to_date, get_datetime, getdate, now_datetime
 
 from tbo_smart.api import hub_leads as hub
-from tbo_smart.lead_pipeline.statuses import CLOSED_LOST, CONTACTED, ON_HOLD
+from tbo_smart.lead_pipeline.statuses import (
+	CLOSED_LOST,
+	CONTACTED,
+	FOLLOW_UP_REQUIRED,
+	NOT_RESPONDING,
+	ON_HOLD,
+)
 from tbo_smart.sales.activities import next_follow_ups
 from tbo_smart.sales.call_batches import clock
 from tbo_smart.sales.call_batches.fill import build_batch, campaign_of
@@ -26,6 +32,7 @@ from tbo_smart.test_utils import (
 	make_callable_lead,
 	make_lead_task,
 	make_user,
+	random_mobile,
 )
 
 HUB = "calls.integration@tbosmart.test"
@@ -95,60 +102,51 @@ class TestCallBatches(FrappeTestCase):
 
 	# ---------- filling ----------
 
-	def test_a_batch_is_filled_in_priority_order_up_to_its_size(self):
-		due = self.lead("Calls Due")
-		retry = self.lead("Calls Retry")
+	def test_a_batch_holds_new_leads_never_called_hot_first_then_newest(self):
+		self.lead("Calls Oldest")
+		older = self.lead("Calls Older")
+		newer = self.lead("Calls Newer")
 		hot = self.lead("Calls Hot", tbo_temperature="Hot")
-		cold = self.lead("Calls Cold")
-		quiet = self.lead("Calls Quiet")
-		make_lead_task(due, add_days(getdate(), -1), BD)
-		make_call_batch(
-			BD, DEPARTMENT, [retry], days_ago=1, status="Closed", outcomes={retry: "Not answered"}
-		)
-		frappe.set_user(BD)
-		log_manual_call(quiet, "Connected")
-		frappe.set_user("Administrator")
-		age_lead_activity(quiet, 12)
-		batch = self.build(size=4)
-		self.assertEqual([row.lead for row in batch.items], [due, retry, hot, cold])
-		self.assertEqual(
-			[row.priority_reason for row in batch.items],
-			["Follow-up due", "Retry from yesterday", "Never called", "Never called"],
-		)
+		batch = self.build(size=3)
+		self.assertEqual([row.lead for row in batch.items], [hot, newer, older])
+		self.assertEqual({row.priority_reason for row in batch.items}, {"Never called"})
 
-	def test_only_a_persons_follow_up_puts_a_lead_first_not_the_ais(self):
-		theirs = self.lead("Calls Person Follow-up")
-		ai = self.lead("Calls AI Follow-up")
-		make_lead_task(theirs, add_days(getdate(), -1), BD)
-		make_lead_task(ai, add_days(getdate(), -1), BD, description="AI: Follow up on WhatsApp")
-		reasons = self.reasons(self.build())
-		self.assertEqual(reasons[theirs], "Follow-up due")
-		self.assertEqual(reasons[ai], "Never called")
-
-	def test_a_quiet_lead_that_was_called_before_comes_after_the_never_called(self):
-		fresh = self.lead("Calls Fresh")
-		quiet = self.lead("Calls Quiet")
-		frappe.set_user(BD)
-		log_manual_call(quiet, "Connected")
-		frappe.set_user("Administrator")
-		age_lead_activity(quiet, 9)
-		batch = self.build()
-		self.assertEqual([row.lead for row in batch.items], [fresh, quiet])
-		self.assertEqual(self.reasons(batch)[quiet], "Gone quiet")
-
-	def test_closed_on_hold_phoneless_and_other_peoples_leads_stay_out(self):
+	def test_only_new_leads_nobody_called_with_a_phone_of_their_own_are_batched(self):
 		ok = self.lead("Calls Ok")
-		lost = self.lead("Calls Lost")
-		hold = self.lead("Calls Hold")
-		frappe.db.set_value("Lead", lost, "tbo_stage", CLOSED_LOST)
-		frappe.db.set_value("Lead", hold, "tbo_stage", ON_HOLD)
+		moved = {}
+		for stage in (CONTACTED, NOT_RESPONDING, FOLLOW_UP_REQUIRED, ON_HOLD, CLOSED_LOST):
+			moved[stage] = self.lead(f"Calls {stage}")
+			frappe.db.set_value("Lead", moved[stage], "tbo_stage", stage)
+		# a follow-up due does not bring a lead past New Lead in
+		make_lead_task(moved[FOLLOW_UP_REQUIRED], add_days(getdate(), -1), BD)
+		called = self.lead("Calls Called")
+		frappe.set_user(BD)
+		log_manual_call(called, "No answer")
+		frappe.set_user("Administrator")
+		frappe.db.set_value("Lead", called, "tbo_stage", "New Lead")
 		nophone = self.lead("Calls No Phone")
 		frappe.db.set_value("Lead", nophone, {"mobile_no": None, "phone": None})
-		theirs = self.lead("Calls Theirs", owner=BD2)
-		batch = self.build()
-		listed = {row.lead for row in batch.items}
-		self.assertIn(ok, listed)
-		self.assertTrue({lost, hold, nophone, theirs}.isdisjoint(listed))
+		self.lead("Calls Theirs", owner=BD2)
+		listed = {row.lead for row in self.build().items}
+		self.assertEqual(listed, {ok})
+
+	def test_a_newer_duplicate_stays_out_and_the_oldest_is_called(self):
+		number = random_mobile()
+		oldest = self.lead("Calls First", mobile_no=number)
+		self.lead("Calls Copy", mobile_no=f"+91 {number}")
+		self.lead("Calls Free Copy", owner=None, mobile_no=f"0{number}")
+		self.assertEqual([row.lead for row in self.build().items], [oldest])
+
+	def test_a_newer_duplicate_already_handed_out_leaves_todays_calls(self):
+		number = random_mobile()
+		oldest = self.lead("Calls First", mobile_no=number)
+		copy = self.lead("Calls Copy", mobile_no=number)
+		make_call_batch(BD, DEPARTMENT, [oldest, copy])
+		make_call_batch(BD, DEPARTMENT, [copy], days_ago=1, status="Closed", ends_in_hours=-1)
+		frappe.set_user(BD)
+		calls = get_my_calls()
+		listed = [row["lead"] for row in calls["pending"] + calls["scheduled"] + calls["overdue"]]
+		self.assertEqual(listed, [oldest])
 
 	def test_a_batch_made_by_another_request_meanwhile_stops_a_second_one(self):
 		# two requests at once: the other one's batch is committed after this one started reading
@@ -201,14 +199,12 @@ class TestCallBatches(FrappeTestCase):
 		self.assertEqual(len(self.build().items), 0)
 		self.assertFalse(frappe.db.get_value("Lead", free, "lead_owner"))
 
-	def test_the_campaign_filter_narrows_new_leads_not_follow_ups(self):
-		kerala = self.lead("Calls Kerala", industry=None)
-		due = self.lead("Calls Due")
-		make_lead_task(due, getdate(), BD)
+	def test_the_campaign_filter_narrows_the_new_leads(self):
+		inside = self.lead("Calls Inside")
+		self.lead("Calls Outside")
+		frappe.db.set_value("Lead", inside, "state", "Nowhere")
 		frappe.db.set_value("TBO Lead Department", DEPARTMENT, "campaign_state", "Nowhere")
-		batch = self.build()
-		self.assertEqual([row.lead for row in batch.items], [due])
-		self.assertNotIn(kerala, [row.lead for row in batch.items])
+		self.assertEqual([row.lead for row in self.build().items], [inside])
 
 	# ---------- outcomes ----------
 
@@ -256,10 +252,10 @@ class TestCallBatches(FrappeTestCase):
 		self.assertEqual(rows[1].is_repeat, 1)
 		hours = (get_datetime(rows[1].retry_at) - now_datetime()).total_seconds() / 3600
 		self.assertAlmostEqual(hours, 2, delta=0.1)
-		# not due yet: it waits, and does not block
+		# No answer moved the lead to Not Responding: no longer a new lead, so the retry is not listed
 		frappe.set_user(BD)
 		calls = get_my_calls()
-		self.assertEqual((calls["counts"]["pending"], calls["counts"]["scheduled"]), (0, 1))
+		self.assertEqual((calls["counts"]["pending"], calls["counts"]["scheduled"]), (0, 0))
 		# the retry gets no answer either: the lead waits for tomorrow
 		frappe.db.set_value(
 			"TBO Call Batch Item", rows[1].name, "retry_at", add_to_date(now_datetime(), minutes=-1)
@@ -272,12 +268,6 @@ class TestCallBatches(FrappeTestCase):
 		_leads, batch, items = self.batch_of(1, ends_in_hours=1)
 		self.assertIsNone(self.record(items[0], "Busy")["retry_at"])
 		self.assertEqual(len(get_batch_items(batch)), 1)
-
-	def test_yesterdays_not_answered_is_retried_tomorrow_as_priority_two(self):
-		lead = self.lead("Calls Missed")
-		make_call_batch(BD, DEPARTMENT, [lead], days_ago=1, status="Closed", outcomes={lead: "Busy"})
-		batch = self.build()
-		self.assertEqual(batch.items[0].priority, 2)
 
 	def test_a_call_back_returns_to_the_queue_at_its_time(self):
 		leads, batch, items = self.batch_of(1)
@@ -368,16 +358,15 @@ class TestCallBatches(FrappeTestCase):
 		)
 		self.assertFalse(result or called_on, "a stage move is not a call")
 
-	def test_a_lead_moved_to_another_stage_leaves_todays_calls(self):
-		# put On Hold from the lead page: dealt with, so no longer a call to make
-		leads, _batch, items = self.batch_of(2)
+	def test_a_lead_moved_past_new_lead_leaves_todays_calls(self):
+		# put On Hold from the lead page, or No answer (Not Responding): no longer a new lead to call
+		leads, _batch, items = self.batch_of(3)
 		self.record(items[1], "Not answered")
 		frappe.set_user(BD)
 		set_lead_stage(leads[0], ON_HOLD)
 		calls = get_my_calls()
 		listed = {row["lead"] for row in calls["pending"] + calls["scheduled"] + calls["overdue"]}
-		# the other lead's No answer moved it to Not Responding: its retry stays
-		self.assertEqual(listed, {leads[1]})
+		self.assertEqual(listed, {leads[2]})
 		frappe.set_user("Administrator")
 
 	def test_a_logged_answered_call_and_its_own_stage_move_count_once(self):
@@ -470,7 +459,7 @@ class TestCallBatches(FrappeTestCase):
 		self.assertEqual(calls["counts"]["pending"], 2)
 		summary = next(row["summary"] for row in calls["pending"] if row["lead"] == leads[0])
 		self.assertEqual(summary["next_step"], "Send the quote")
-		self.assertEqual(summary["phone"], "9847012345")
+		self.assertEqual(summary["phone"], frappe.db.get_value("Lead", leads[0], "mobile_no"))
 		self.assertEqual(frappe.session.user, HUB)
 
 	# ---------- the clock ----------

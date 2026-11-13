@@ -1,11 +1,11 @@
 """One person's calls queue: what to call now, what is due later and what is overdue."""
 
 import frappe
-from frappe.query_builder.functions import Max
 from frappe.utils import add_to_date, get_datetime, getdate, now_datetime
 
-from tbo_smart.lead_pipeline.statuses import FOLLOW_UP_REQUIRED, NEW_LEAD, NOT_RESPONDING
+from tbo_smart.lead_pipeline.statuses import NEW_LEAD
 from tbo_smart.sales.call_batches import ACTIVE, ANSWERED, BATCH, ITEM, OVERDUE_DAYS
+from tbo_smart.sales.duplicates import newer_duplicates
 
 ITEM_FIELDS = (
 	"name",
@@ -19,10 +19,6 @@ ITEM_FIELDS = (
 	"attempts",
 	"note",
 )
-# the stages that still want a call: a lead moved to any other since its call was handed out has
-# been dealt with, and leaves the lists (No answer and Busy move it to Not Responding, a call back
-# to Follow-up Required; those calls stay)
-CALL_AGAIN_STAGES = (NEW_LEAD, NOT_RESPONDING, FOLLOW_UP_REQUIRED)
 
 
 def reached_leads(rows: list) -> set[tuple[str, str]]:
@@ -64,15 +60,14 @@ class CallQueue:
 	"""`pending` are due now, `scheduled` come back later in a running batch, `overdue` belong to a
 	batch whose slot is over. Overdue lasts OVERDUE_DAYS days and lists a lead once (its latest
 	missed call); a lead that is in the queue again, or was called since, is not listed overdue. A
-	call whose lead moved, since its batch began, to a stage that wants no more calls (by anyone
-	from any page) is not listed at all: the lead was dealt with."""
+	call is listed only while its lead is a new lead to call (see `dropped_leads`)."""
 
 	def __init__(self, user: str, now=None):
 		self.user, self.now = user, get_datetime(now) if now else now_datetime()
 		since = add_to_date(getdate(self.now), days=-OVERDUE_DAYS)
 		self.rows = item_rows({"user": user}, since=since)
-		self.moved = self.stage_moves()
-		self.running = [row for row in self.rows if self.is_running(row) and not self.moved_on(row)]
+		self.dropped = self.dropped_leads()
+		self.running = [row for row in self.rows if self.is_running(row) and row.lead not in self.dropped]
 		self.pending = self.due_now()
 		self.scheduled = self.coming_back()
 		queued = {row.lead for row in self.pending + self.scheduled}
@@ -89,7 +84,7 @@ class CallQueue:
 				)
 		latest = {}
 		for row in self.rows:  # by batch start, so the last row of a lead is its latest
-			if row.outcome or self.is_running(row) or row.lead in queued or self.moved_on(row):
+			if row.outcome or self.is_running(row) or row.lead in queued or row.lead in self.dropped:
 				continue
 			if row.lead in called and called[row.lead] >= getdate(row.batch_date):
 				continue
@@ -105,30 +100,17 @@ class CallQueue:
 		rows = [row for row in self.running if not row.outcome and self.waits(row)]
 		return sorted(rows, key=self.retry_order)
 
-	def stage_moves(self) -> dict:
-		"""{lead: its latest move to a stage that wants no more calls} for the leads with a call
-		not made yet, since the earliest of those calls' batches."""
-		waiting = [row for row in self.rows if not row.outcome]
+	def dropped_leads(self) -> set[str]:
+		"""The leads of the calls not made yet that are no longer new leads to call: moved past New
+		Lead (by a call, which moves No answer and Busy to Not Responding too, or by anyone from any
+		page), or a newer duplicate of another lead (`newer_duplicates`)."""
+		waiting = list({row.lead for row in self.rows if not row.outcome})
 		if not waiting:
-			return {}
-		Move = frappe.qb.DocType("TBO Stage Change")
-		rows = (
-			frappe.qb.from_(Move)
-			.select(Move.parent, Max(Move.changed_on).as_("moved_on"))
-			.where(
-				(Move.parenttype == "Lead")
-				& Move.parent.isin(list({row.lead for row in waiting}))
-				& Move.stage.notin(list(CALL_AGAIN_STAGES))
-				& (Move.changed_on >= min(get_datetime(row.starts_at) for row in waiting))
-			)
-			.groupby(Move.parent)
-		).run(as_dict=True)
-		return {row.parent: get_datetime(row.moved_on) for row in rows}
-
-	def moved_on(self, row) -> bool:
-		"""The lead moved on (see stage_moves) after this call's batch began."""
-		moved = self.moved.get(row.lead)
-		return bool(moved and moved >= get_datetime(row.starts_at))
+			return set()
+		moved = frappe.get_all(
+			"Lead", filters={"name": ("in", waiting), "tbo_stage": ("!=", NEW_LEAD)}, pluck="name"
+		)
+		return set(moved) | newer_duplicates(waiting)
 
 	@staticmethod
 	def queue_order(row) -> tuple:

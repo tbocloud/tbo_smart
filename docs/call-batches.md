@@ -34,31 +34,38 @@ Set on the department (hub: Settings, CRM, Lead departments):
 
 ## 3. Filling a batch (`sales/call_batches/fill.py`)
 
-In order, up to the slot size and what is left of the day's cap. Only open leads (not Closed,
-not On Hold) of the department:
+**Only new leads nobody has called** (TASK-2026-01848): leads of the department at **New Lead**,
+never called, with a phone, that are not a newer duplicate of another lead. In order, up to the
+slot size and what is left of the day's cap:
 
-1. The person's leads with a follow-up (an open ToDo) due today or earlier, set by a person (a
-   call back, a date they chose). A follow-up the AI scheduled ("AI: …", smart-leads.md §11)
-   does not count here: it came after every call and brought each called lead back first, ahead
-   of the leads never called. A lead with a call back later than this slot's end waits for the
-   slot it falls in.
-2. Their last working day's Not answered and Busy (the last outcome of the day wins).
-3. Their leads never called (no call Event), hot first, then New Lead, then newest.
-4. Their leads quiet for longest (the newest activity from `sales/stale.py`).
-5. If `pull_unassigned`: unassigned leads of the department, hot then newest. They are given to
-   the person (owner and a ToDo assignment). The rows are read `FOR UPDATE SKIP LOCKED`, so two
-   people being handed batches at once never get the same lead.
+1. The person's own (never called: no call Event), hot first, then the newest. Reason *Never
+   called*, priority 3.
+2. If `pull_unassigned`: unassigned ones of the department (`tbo_last_call_on` empty), hot then
+   newest. They are given to the person (owner and a ToDo assignment). The rows are read
+   `FOR UPDATE SKIP LOCKED`, so two people being handed batches at once never get the same lead.
+   Reason *New lead for you*, priority 5.
+
+Follow-ups due, yesterday's Not answered and Busy, and leads gone quiet are no longer handed out
+(they were steps 1, 2 and 4, priorities 1, 2 and 4, which items made before still carry): they
+are worked from the hub's Follow-up list and the lead pages.
+
+**Duplicates** (`duplicates.newer_duplicates`): a lead with a number (the last 10 digits, on any
+of its number rows whatever their status) that a lead created before it has too is a copy of that
+older lead, made before one lead per number (`lead-numbers.md`). Only the oldest is handed out, so
+the client is called once; the older lead counts whatever its stage or department. A shared
+number (TBO Smart Settings) does not make a duplicate. Merging the leads (`hub-leads-api.md` §2.26)
+ends it.
 
 The ToDo assignment a pulled or handed-out lead gets (§12) has **no date**. Frappe dates an
-assignment today by default, and step 1 reads any dated open ToDo as a follow-up due: every
-handed lead would have jumped all later batches from the next day on, ahead of the campaign
-filter. The patch `undated_lead_assignments` cleared the date on the open assignments made before
+assignment today by default, and the follow-ups step batches had then read any dated open ToDo as
+a follow-up due: every handed lead would have jumped all later batches from the next day on,
+ahead of the campaign filter. The patch `undated_lead_assignments` cleared the date on the open assignments made before
 ("Pulled into your daily calls", "Assigned to you on Assign leads"); real follow-ups keep theirs.
 Passing no date to the assignment is not enough (the ToDo's `date` defaults to Today on insert), so
 `assign_undated` (`call_batches/__init__.py`) clears it right after; the patch runs again for the
 ToDos dated before that fix.
 
-Steps 3 to 5 need a phone number and follow the campaign filter (the department's campaign, a limit that
+Both steps follow the campaign filter (the department's campaign, a limit that
 always wins, then the person's focus, §10). A lead is never in two active
 batches and never twice on one day. A lead owned by the person but outside any department is not
 batched.
@@ -86,8 +93,8 @@ its Event) and sets the item's outcome, which removes it from the queue:
 | Outcome | Logged as | Then |
 | --- | --- | --- |
 | Connected | Connected | Due follow-ups of the lead close. A `callback_at` sets the next follow-up. The hub asks for a note and stage. |
-| Not answered / Busy | No answer / Busy | One more try 2 hours later in the same batch, if the batch is still running then; after that, or when the slot ends first, the lead returns tomorrow as priority 2. |
-| Call back | Connected | `callback_at` (required) becomes `tbo_callback_at` and a follow-up ToDo (unless a person's follow-up is already due that day; the AI's do not count, since §3 step 1 ignores them); inside this batch the lead returns to the queue at that time. |
+| Not answered / Busy | No answer / Busy | One more try 2 hours later in the same batch, if the batch is still running then. It is listed only while the lead is still at New Lead (below): No answer and Busy move it to Not Responding, so with the lead pipeline on it is not. The lead is not handed out again on a later day. |
+| Call back | Connected | `callback_at` (required) becomes `tbo_callback_at` and a follow-up ToDo (unless a person's follow-up is already due that day; the AI's do not count); inside this batch an item comes back at that time, listed only while the lead is at New Lead (a call back moves it to Follow-up Required). |
 | Not interested | Connected | Due follow-ups close. The lead becomes Not Interested (lost reason "Not interested"). |
 | Wrong number | No answer | `tbo_wrong_number` is set, a note added and the lead becomes Wrong Number. |
 
@@ -105,13 +112,11 @@ item counts it Connected, but the lead's last call result and time are left as t
 (`apply(..., call=False)`), so a lead nobody phoned does not read as called. It runs whenever the
 queue is read or a batch asked for.
 
-**A lead dealt with leaves Today's calls.** A call not made yet whose lead was moved, after its
-batch began, to any stage but New Lead, Not Responding and Follow-up Required
-(`state.CALL_AGAIN_STAGES`), by anyone from any page (On Hold, Not Interested, Wrong Number, a
-meeting, …), is no longer listed: not due now, not coming back, not overdue
-(`CallQueue.stage_moves`, the lead's `TBO Stage Change` rows). Not answered and Busy move a lead to
-Not Responding and a call back to Follow-up Required, so those retries stay. The call still counts
-in the day's size.
+**Only new leads are listed.** A call not made yet is listed (due now, coming back, overdue) only
+while its lead is at **New Lead** and is not a newer duplicate (§3) (`CallQueue.dropped_leads`).
+A lead moved on by a call (No answer and Busy: Not Responding, a call back: Follow-up Required,
+Connected: Contacted) or by anyone from any page (On Hold, a meeting, …) leaves Today's calls, and
+so does a duplicate handed out before this rule. The call still counts in the day's size.
 
 **Counts** (Today's calls and the report): `size` and `called` are the batch's own items (retries,
 call backs and called-back items are not counted again); a lead is `connected` when **any** call of
@@ -277,6 +282,10 @@ endpoints in `api/hub_leads.py`; tests `tests/test_call_batches.py`, `test_bd_fo
 - The department's campaign is a limit, not a default: a request or a person's focus only fills
   what it leaves open (before, a request replaced it).
 - Closing due follow-ups on a conversation keeps yesterday's finished work from coming back.
+- Today's calls is for new leads only (TASK-2026-01848, the owner's call): follow-ups, retries and
+  quiet leads are followed up from the Follow-up list, so a batch is first calls. A duplicate is
+  left out rather than refused: it was made before one lead per number, and the oldest lead keeps
+  the client's history.
 
 Every outcome also sets the lead's last call result and may move its stage
 (`lead-pipeline.md` §2.3), through `apply_call_outcome`.
