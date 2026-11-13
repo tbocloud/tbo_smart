@@ -1,35 +1,30 @@
-"""Filling a call batch (docs/call-batches.md §3): in priority order until the slot is full.
-
-1. the person's leads with a follow-up due today or earlier (a call back set for later waits for
-   the slot it falls in), 2. yesterday's Not answered and Busy, 3. leads never called, hot or new
-   first, 4. the leads quiet for longest, 5. unassigned open leads of the department (given to
-   the person on the spot, rows locked so two people never get the same one).
-Steps 3 to 5 follow the campaign filter. A lead is never in two active batches nor twice in a day.
+"""Filling a call batch (docs/call-batches.md §3): new leads nobody has called yet, until the
+slot is full. 1. the person's own, hot first, then the newest, 2. unassigned ones of the
+department (given to the person on the spot, rows locked so two people never get the same one).
+Only leads at New Lead, with a phone, following the campaign filter, and not a newer duplicate of
+another lead. A lead is never in two active batches nor twice in a day.
 """
 
 import frappe
 from frappe import _
 from frappe.query_builder import Case
-from frappe.query_builder.functions import Coalesce, Lower, Max
-from frappe.utils import cint, get_datetime, getdate, now_datetime
+from frappe.query_builder.functions import Coalesce, Lower
+from frappe.utils import cint, get_datetime, getdate
 
-from tbo_smart.sales import stale
-from tbo_smart.sales.activities import last_calls, next_follow_ups
+from tbo_smart.lead_pipeline.statuses import NEW_LEAD
+from tbo_smart.sales.activities import last_calls
 from tbo_smart.sales.call_batches import (
 	ACTIVE,
 	BATCH,
 	CAMPAIGN_COLUMNS,
-	FOLLOW_UP_DUE,
-	GONE_QUIET,
 	ITEM,
 	NEVER_CALLED,
 	PULLED,
 	REASONS,
-	RETRY_YESTERDAY,
-	UNREACHED,
 	assign_undated,
 	daily_cap,
 )
+from tbo_smart.sales.duplicates import newer_duplicates
 
 PHONE_FIELDS = ("mobile_no", "phone", "whatsapp_no")
 PULLED_NOTE = "Pulled into your daily calls"
@@ -102,20 +97,15 @@ def room_for(department, user: str, day, size: int) -> int:
 
 
 class BatchFiller:
-	def __init__(self, department, user: str, day, starts_at, ends_at, room: int, campaign: dict):
+	def __init__(self, department, user: str, day, room: int, campaign: dict):
 		self.department, self.user, self.day = department, user, getdate(day)
-		self.starts_at, self.ends_at = get_datetime(starts_at), get_datetime(ends_at)
 		self.room, self.campaign = room, campaign
 		self.taken = taken_leads(self.day)
 		self.items: list[dict] = []
 		self.chosen: set[str] = set()
 
 	def run(self) -> list[dict]:
-		pool = self.owned_pool()
-		self.follow_ups_due(pool)
-		self.unreached_yesterday(pool)
-		self.never_called(pool)
-		self.gone_quiet(pool)
+		self.never_called(self.owned_pool())
 		self.pull_unassigned()
 		return self.items
 
@@ -125,7 +115,7 @@ class BatchFiller:
 	def full(self) -> bool:
 		return len(self.items) >= self.room
 
-	def add(self, lead: str, priority: int, retry_at=None) -> None:
+	def add(self, lead: str, priority: int) -> None:
 		if self.full or lead in self.taken or lead in self.chosen:
 			return
 		self.chosen.add(lead)
@@ -134,7 +124,6 @@ class BatchFiller:
 				"lead": lead,
 				"priority": priority,
 				"priority_reason": _(REASONS[priority]),
-				"retry_at": retry_at,
 				"attempts": 0,
 			}
 		)
@@ -146,14 +135,12 @@ class BatchFiller:
 			filters={
 				"lead_owner": self.user,
 				"tbo_department": self.department.name,
-				"tbo_stage": ("in", stale.STALE_STAGES),
+				"tbo_stage": NEW_LEAD,
 			},
 			fields=[
 				"name",
 				"tbo_temperature",
-				"tbo_stage",
 				"creation",
-				"tbo_callback_at",
 				*PHONE_FIELDS,
 				*columns,
 			],
@@ -162,10 +149,9 @@ class BatchFiller:
 
 	@staticmethod
 	def rank(lead) -> tuple:
-		"""Hot first, then a lead still at New Lead, then the newest."""
+		"""Hot first, then the newest."""
 		return (
 			TEMPERATURE_RANK.get(lead.get("tbo_temperature"), 2),
-			0 if lead.get("tbo_stage") == "New Lead" else 1,
 			-get_datetime(lead.creation).timestamp(),
 		)
 
@@ -178,90 +164,16 @@ class BatchFiller:
 				return False
 		return True
 
-	# ---------- the five steps ----------
-
-	def follow_ups_due(self, pool: list) -> None:
-		# a follow-up the AI scheduled after a call brought every called lead back the next days,
-		# ahead of the leads never called: only a person's follow-up (a call back, a date they set)
-		# puts a lead first; the AI's still shows on the lead
-		due = next_follow_ups("Lead", [lead.name for lead in pool], people_only=True)
-		now = now_datetime()
-		rows = []
-		for lead in pool:
-			callback = get_datetime(lead.tbo_callback_at) if lead.tbo_callback_at else None
-			if lead.name not in due or getdate(due[lead.name]) > self.day:
-				continue
-			if callback and callback > self.ends_at:
-				continue
-			rows.append((getdate(due[lead.name]), self.rank(lead), lead.name, callback))
-		for _due, _rank, name, callback in sorted(rows, key=lambda row: row[:3]):
-			self.add(
-				name, FOLLOW_UP_DUE, callback if callback and callback > max(now, self.starts_at) else None
-			)
-
-	def unreached_yesterday(self, pool: list) -> None:
-		if self.full:
-			return
-		Batch, Item = frappe.qb.DocType(BATCH), frappe.qb.DocType(ITEM)
-		previous = (
-			frappe.qb.from_(Batch)
-			.select(Max(Batch.batch_date))
-			.where(
-				(Batch.user == self.user)
-				& (Batch.department == self.department.name)
-				& (Batch.batch_date < self.day)
-			)
-		).run()[0][0]
-		if not previous:
-			return
-		rows = (
-			frappe.qb.from_(Item)
-			.join(Batch)
-			.on(Batch.name == Item.parent)
-			.select(Item.lead, Item.outcome)
-			.where(
-				(Batch.user == self.user)
-				& (Batch.department == self.department.name)
-				& (Batch.batch_date == previous)
-				& Item.outcome.isnotnull()
-				& (Item.outcome != "")
-			)
-			.orderby(Item.called_at)
-		).run()
-		final = dict(rows)  # the last outcome of the day wins
-		owned = {lead.name for lead in pool}
-		for lead, outcome in final.items():
-			if outcome in UNREACHED and lead in owned:
-				self.add(lead, RETRY_YESTERDAY)
+	# ---------- the two steps ----------
 
 	def never_called(self, pool: list) -> None:
-		if self.full:
-			return
 		candidates = [
 			lead for lead in pool if lead.name not in self.taken and self.callable_in_campaign(lead)
 		]
-		called = last_calls("Lead", [lead.name for lead in candidates])
-		for lead in sorted((lead for lead in candidates if lead.name not in called), key=self.rank):
+		names = [lead.name for lead in candidates]
+		skip = set(last_calls("Lead", names)) | newer_duplicates(names)
+		for lead in sorted((lead for lead in candidates if lead.name not in skip), key=self.rank):
 			self.add(lead.name, NEVER_CALLED)
-
-	def gone_quiet(self, pool: list) -> None:
-		if self.full:
-			return
-		candidates = [
-			lead for lead in pool if lead.name not in self.taken and self.callable_in_campaign(lead)
-		]
-		if not candidates:
-			return
-		newest = stale.latest_activity([lead.name for lead in candidates])
-		longest_quiet = sorted(
-			candidates,
-			key=lambda lead: (
-				get_datetime(newest.get(lead.name) or lead.creation),
-				lead.name,
-			),
-		)
-		for lead in longest_quiet:
-			self.add(lead.name, GONE_QUIET)
 
 	def pull_unassigned(self) -> None:
 		if self.full or not cint(self.department.pull_unassigned):
@@ -273,7 +185,8 @@ class BatchFiller:
 			.where(
 				(Lead.tbo_department == self.department.name)
 				& (Lead.lead_owner.isnull() | (Lead.lead_owner == ""))
-				& Lead.tbo_stage.isin(list(stale.STALE_STAGES))
+				& (Lead.tbo_stage == NEW_LEAD)
+				& Lead.tbo_last_call_on.isnull()
 			)
 			.where(
 				(Coalesce(Lead.mobile_no, "") != "")
@@ -286,8 +199,9 @@ class BatchFiller:
 		for key, column in CAMPAIGN_COLUMNS.items():
 			if self.campaign.get(key) and frappe.db.has_column("Lead", column):
 				query = query.where(Lower(Lead[column]) == self.campaign[key])
-		if self.taken or self.chosen:
-			query = query.where(Lead.name.notin(list(self.taken | self.chosen)))
+		skip = self.taken | self.chosen | newer_duplicates(query.run(pluck=True))
+		if skip:
+			query = query.where(Lead.name.notin(list(skip)))
 		# SKIP LOCKED: a lead another person is being given right now is passed over
 		rows = query.limit(self.room - len(self.items)).for_update(skip_locked=True).run()
 		for (name,) in rows:
@@ -323,7 +237,7 @@ def build_batch(
 	room = room_for(department, user, day, size)
 	if room <= 0:
 		return None
-	items = BatchFiller(department, user, day, starts_at, ends_at, room, campaign).run()
+	items = BatchFiller(department, user, day, room, campaign).run()
 	if not items and not allow_empty:
 		return None
 	return frappe.get_doc(

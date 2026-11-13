@@ -25,13 +25,11 @@ UNREACHED = (NOT_ANSWERED, BUSY)
 # the person at the other end picked up
 ANSWERED = (CONNECTED, CALL_BACK, NOT_INTERESTED)
 
-# why a lead is in a batch, best first
-FOLLOW_UP_DUE, RETRY_YESTERDAY, NEVER_CALLED, GONE_QUIET, PULLED = 1, 2, 3, 4, 5
+# why a lead is in a batch, best first; 1, 2 and 4 (a follow-up due, yesterday's retry, gone
+# quiet) are on the items of the batches made before only new leads were handed out
+NEVER_CALLED, PULLED = 3, 5
 REASONS = {
-	FOLLOW_UP_DUE: "Follow-up due",
-	RETRY_YESTERDAY: "Retry from yesterday",
 	NEVER_CALLED: "Never called",
-	GONE_QUIET: "Gone quiet",
 	PULLED: "New lead for you",
 }
 RETRY_AFTER = timedelta(hours=2)
