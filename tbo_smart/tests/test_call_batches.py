@@ -313,7 +313,7 @@ class TestCallBatches(FrappeTestCase):
 		make_call(BD, leads[2], "Missed", "Outgoing", start, provider_status="NOANSWER")
 		self.assertEqual(sync_calls(BD), 2)
 		rows = get_batch_items(batch)
-		self.assertEqual([row.outcome for row in rows[:3]], ["Busy", None, "Not answered"])
+		self.assertEqual([row.outcome for row in rows[:3]], ["Busy", "", "Not answered"])
 
 	def test_a_lead_connected_on_its_retry_counts_connected(self):
 		leads, _batch, items = self.batch_of(1)
