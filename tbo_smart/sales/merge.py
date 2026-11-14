@@ -13,6 +13,7 @@ The whole merge is one transaction: any failure leaves both leads as they were.
 
 import frappe
 from frappe import _
+from frappe.model.rename_doc import rename_doc
 from frappe.utils import cint
 
 from tbo_smart import lead_source
@@ -157,7 +158,8 @@ def merge_leads(keep: str, merge: str) -> str:
 	kept.flags.merging = merge
 	kept.save()
 	# check_pair has decided who may merge; a department head has no delete on Lead of their own
-	frappe.rename_doc(
+	# (frappe.rename_doc does not pass ignore_permissions on)
+	rename_doc(
 		LEAD,
 		merge,
 		keep,
