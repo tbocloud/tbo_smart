@@ -3034,6 +3034,23 @@ def callerdesk_report(call_sid: str, **fields) -> dict:
 	}
 
 
+def callerdesk_live(call_sid: str, **fields) -> dict:
+	"""A CallerDesk Live Call event shaped like the documented sample (only the fields the
+	Live Call table lists: no EndTime, no CallDuration): an outgoing click-to-call (campid
+	57305000) whose party has picked up (Status ANSWER); `fields` override any of it."""
+	return {
+		"SourceNumber": "9000000001",
+		"DestinationNumber": "1200000000",
+		"DialWhomNumber": "9876543210",
+		"Status": "ANSWER",
+		"StartTime": "2026-10-19 10:58:04",
+		"CallSid": call_sid,
+		"Direction": "WEBOBD",
+		"campid": "57305000",
+		**fields,
+	}
+
+
 def post_callerdesk_webhook(report: dict, token: str | None = TEST_CALLERDESK_TOKEN):
 	"""Call the CallerDesk webhook as Guest with `report` as the JSON body and `token` as the
 	`token` of its address (None: no token); then return to the session user."""
