@@ -16,6 +16,7 @@ from tbo_smart.test_utils import (
 	make_contact,
 	make_customer,
 	make_lead,
+	make_lead_created_by_admin,
 	make_lead_source,
 	make_organization,
 	make_sales_hierarchy_node,
@@ -97,7 +98,9 @@ class TestMobileLeadCapture(FrappeTestCase):
 
 	def test_hidden_matches_say_a_match_exists_without_details(self):
 		mobile = make_test_mobile()
-		hidden = make_lead(OTHER_SELLER, "Secret Prospect", mobile_no=mobile, company_name="Hidden Org")
+		hidden = make_lead_created_by_admin(
+			OTHER_SELLER, "Secret Prospect", mobile_no=mobile, company_name="Hidden Org"
+		)
 		matches = crm.check_duplicates(phone=f"0{mobile}")["data"]["matches"]
 		self.assertEqual(
 			matches,
@@ -129,7 +132,7 @@ class TestMobileLeadCapture(FrappeTestCase):
 	def test_duplicate_is_refused_with_409_until_forced(self):
 		# a company match may be forced past; a number match may not (the next test)
 		company = f"Capture Co {make_test_mobile()}"
-		make_lead(OTHER_SELLER, "First Capture", company_name=company)
+		make_lead_created_by_admin(OTHER_SELLER, "First Capture", company_name=company)
 		with self.assertRaises(crm.DuplicateLead) as refused:
 			crm.create_lead("Second Capture", organization=company.upper())
 		self.assertEqual(refused.exception.http_status_code, 409)
@@ -146,7 +149,7 @@ class TestMobileLeadCapture(FrappeTestCase):
 
 	def test_a_lead_with_the_same_number_is_refused_even_when_forced(self):
 		mobile = "9" + make_test_mobile()
-		make_lead(OTHER_SELLER, "First Capture", mobile_no=mobile)
+		make_lead_created_by_admin(OTHER_SELLER, "First Capture", mobile_no=mobile)
 		for force in (False, True):
 			with self.assertRaises(crm.DuplicateLead) as refused:
 				crm.create_lead("Second Capture", mobile_no=f"+91 {mobile}", force=force)

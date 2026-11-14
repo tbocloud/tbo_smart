@@ -41,7 +41,7 @@ curl -s -X POST https://india.teambackoffice.com/api/method/tbo_smart.api.hub_le
 
 | Method | Verb | Arguments | Returns |
 | --- | --- | --- | --- |
-| `get_options` | GET | `acting_user` | `{stages: [{name, label, type, color}], sources: [], segments: [], departments: [{name, lead_type, is_active, assignment, stale_after_days, call_batches_enabled, is_head, is_member}], lead_types: [], owners: [{email, full_name}], territories: [], industries: [], org_sizes: [], states: [], kerala_districts: [], districts_by_state: {state: [district]}, can_call}` (§2.12) |
+| `get_options` | GET | `acting_user` | `{stages: [{name, label, type, color}], sources: [], segments: [], departments: [{name, lead_type, is_active, assignment, stale_after_days, call_batches_enabled, is_head, is_viewer, is_member}], lead_types: [], owners: [{email, full_name}], territories: [], industries: [], org_sizes: [], states: [], kerala_districts: [], districts_by_state: {state: [district]}, can_call}` (§2.12) |
 | `list_leads` | GET | `search?`, `stage?`, `owner?`, `segment?`, `source?`, `temperature?` (Hot / Warm / Cold), `industry?`, `state?`, `district?`, `org_size?` (each a value or a list, §2.14), `last_call_result?` (a value or a list, §2.16), `metric?` with `period?` / `from_date?` / `to_date?` (§2.4), `view` (`all` / `mine` (owned or created) / `call_today` / `follow_up` / `called` (called at least once, last called first; `from_date` / `to_date` without a `metric` keep the leads last called in those days), default `all`), `mine?` (any view kept to the leads they own or created), `created_by_me?` (only the leads they created, owned by anyone: read only for them), `due?` (with `follow_up`: the leads whose earliest open follow-up is `overdue`, `today`, `tomorrow`, `week` (2 to 7 days on) or `later`; without it `follow_up` is overdue and today), `start` (0), `page_length` (20, at most 100), `acting_user` | `{rows: [Row], total}` |
 | `get_follow_up_counts` | GET | `owner?`, `mine?`, `acting_user` | `{overdue, today, tomorrow, week, later}`: how many leads the acting user may see have their earliest open follow-up in each, as `list_leads(view="follow_up", due=…)` lists them |
 | `get_overview` | GET | `period` (`week` / `month` / `quarter` / `custom`; default `month`, or `custom` when dates are sent), `from_date?`, `to_date?` (custom), `owner?`, `acting_user` | Overview (§2.4) |
@@ -1028,7 +1028,8 @@ Summary = {name, lead_name, company_name, email_id, mobile_no, tbo_stage, lead_o
   merge)` merges `merge` into `keep` and returns `keep` as `get_lead` does. Both need write on both
   leads. 417 for the same lead twice; 403 when the acting user is not a manager nor the head of
   `keep`'s department, or when the leads are in different departments (a manager may; `keep`'s
-  department stays).
+  department stays). The merged lead is deleted on the strength of that check, so a head, who has
+  no delete right on Lead of their own, can merge.
 - **Moves to `keep`:** the merged lead's numbers `keep` lacks (by digits; not primary, with their
   status, label, person and who added them), its values for fields `keep` has empty (company,
   email, phone, WhatsApp, job title, website, territory, industry, city, state, country,

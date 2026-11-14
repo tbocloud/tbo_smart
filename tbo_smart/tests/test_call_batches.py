@@ -25,6 +25,7 @@ from tbo_smart.test_utils import (
 	delete_lead_departments,
 	delete_sales_records,
 	disable_sales_hierarchy,
+	enable_lead_pipeline,
 	get_batch_items,
 	make_batch_department,
 	make_call,
@@ -33,6 +34,7 @@ from tbo_smart.test_utils import (
 	make_lead_task,
 	make_user,
 	random_mobile,
+	set_smart_lead_settings,
 )
 
 HUB = "calls.integration@tbosmart.test"
@@ -59,6 +61,10 @@ class TestCallBatches(FrappeTestCase):
 		frappe.set_user("Administrator")
 		self.clean()
 		disable_sales_hierarchy(OWNERS)
+		# a call's answer moves the lead's stage (No answer: Not Responding) only with the lead pipeline on
+		was_on = frappe.db.get_single_value("TBO Smart Settings", "enable_lead_pipeline")
+		enable_lead_pipeline()
+		self.addCleanup(set_smart_lead_settings, enable_lead_pipeline=was_on)
 		# Sundays are off when a user has no employee record: the tests run on any day
 		for target in (
 			"tbo_smart.sales.call_batches.next_batch.is_off_today",

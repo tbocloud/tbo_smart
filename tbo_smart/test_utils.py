@@ -436,6 +436,18 @@ def make_lead(owner: str, first_name: str = "Test Lead", **fields) -> str:
 	return lead.name
 
 
+def make_lead_created_by_admin(owner: str, first_name: str = "Test Lead", **fields) -> str:
+	"""`make_lead`, created by Administrator whoever is the session user: the creator of a lead
+	still reads it after handing it over, so a lead meant to be hidden from the session user must
+	not be created by them."""
+	user = frappe.session.user
+	frappe.set_user("Administrator")
+	try:
+		return make_lead(owner, first_name, **fields)
+	finally:
+		frappe.set_user(user)
+
+
 @contextlib.contextmanager
 def leads_as_they_were():
 	"""Leads saved inside are copied as they were, as the CRM cutover does (flag `tbo_cutover`):
@@ -3122,9 +3134,11 @@ def make_batch_department(
 ) -> str:
 	"""A lead department that hands out call batches to `members`, planned by `heads` and watched
 	by `viewers` (Assign leads, read-only). `slots` are call_slots rows
-	(default: one all-day slot "Day" of 50, so a test passes at any hour); `rules` are the
+	(default: one all-day slot "Day" of 50, so a test passes at any hour; auto-assign at 11:00); `rules` are the
 	department's call-batch fields (daily_call_cap, pull_unassigned, overdue_block_limit, ...)."""
 	slots = slots or [{"label": "Day", "start_time": "00:00:00", "end_time": "23:59:00", "size": 50}]
+	# a new document's Time fields get the time of day it is made, not their default
+	rules.setdefault("auto_assign_at", "11:00:00")
 	doc = frappe.get_doc(
 		{
 			"doctype": "TBO Lead Department",
