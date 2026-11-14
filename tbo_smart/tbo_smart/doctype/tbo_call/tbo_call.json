@@ -146,7 +146,7 @@
    "fieldname": "live_status",
    "fieldtype": "Select",
    "label": "Live status",
-   "options": "\nRinging\nOn call\nEnded",
+   "options": "\nRinging\nAgent picked\nOn call\nEnded",
    "read_only": 1,
    "description": "From CallerDesk's Live Call events and the Call Report; the hub's call box reads it."
   },

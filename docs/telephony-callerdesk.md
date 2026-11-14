@@ -132,8 +132,10 @@ The same address takes a Live Call event. It is told apart from a Call Report by
 same. `receive_live` keeps the call's **live status** on its TBO Call (`live_status`: Ringing,
 On call, Ended; `leg_a_picked_at`, `leg_b_picked_at`; `last_event` = `live` until the report):
 
-- `Status` `ANSWER` → **On call** (`leg_b_picked_at` = when the event arrived); any other status →
-  **Ringing**. The Call Report sets **Ended** and the real `LegA_Picked_time` / `LegB_Picked_time`.
+- `Status` `ANSWER` → **On call** (`leg_b_picked_at` = when the event arrived), except an outgoing
+  call whose `DialWhomNumber` is a telecaller's number: that is the telecaller's own phone being
+  picked up, **Agent picked** (`leg_a_picked_at`), and the lead's phone rings next; any other
+  status → **Ringing**. The Call Report sets **Ended** and the real `LegA_Picked_time` / `LegB_Picked_time`.
 - Idempotent: it only moves a call forward (Ringing → On call); a repeat, an older status, or any
   event for a call the Call Report has already closed returns `{"ok": true, "duplicate": true}`
   and changes nothing. An event without a `CallSid` is ignored. It makes no lead Event and no
@@ -142,7 +144,7 @@ On call, Ended; `leg_a_picked_at`, `leg_b_picked_at`; `last_event` = `live` unti
   the telecaller whose number is `DialWhomNumber`.
 
 `get_call_status(reference_id)` (`tbo_smart.api.telephony`, hub-leads-api §2.33) reads it for the
-box: `calling` (placed, no event yet), `ringing`, `on_call`, `ended`. Only the person who placed
+box: `calling` (placed, no event yet), `ringing` (the person's phone), `ringing_lead`, `on_call`, `ended`. Only the person who placed
 the call (or whose call it is) may ask. MyOperator rows only ever say calling, then ended
 (`call.end`). `get_incoming_call` returns a call ringing the person right now (a Live Call event
 in the last minute that the report hasn't closed).

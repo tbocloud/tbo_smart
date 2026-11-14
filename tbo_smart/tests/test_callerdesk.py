@@ -300,6 +300,10 @@ class TestLiveCall(TestCallerDesk):
 		frappe.set_user("Administrator")
 		post_callerdesk_webhook(callerdesk_live("CD-L1", Status="RINGING"))
 		self.assertEqual(self.status_of()["state"], "ringing")
+		# the telecaller's own phone is picked up first: the lead's phone rings now
+		post_callerdesk_webhook(callerdesk_live("CD-L1", DialWhomNumber="9000000001"))
+		self.assertEqual(self.status_of()["state"], "ringing_lead")
+		self.assertTrue(self.call_of("CD-L1").leg_a_picked_at)
 		self.assertEqual(frappe.db.count("Event", {"subject": ("like", "%Caller Known%")}), 0)
 		self.assertEqual(post_callerdesk_webhook(callerdesk_live("CD-L1")), {"ok": True})
 		status = self.status_of()

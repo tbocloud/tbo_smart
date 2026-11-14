@@ -19,6 +19,7 @@ from frappe.utils import cint, get_datetime, get_system_timezone
 
 from tbo_smart.smart_leads.utils import normalise_phone
 from tbo_smart.telephony import (
+	AGENT_PICKED,
 	ANSWERED,
 	INCOMING,
 	MISSED,
@@ -59,11 +60,21 @@ def is_report(event) -> bool:
 	return has_call_sid(event) and not is_live(event)
 
 
+def live_status(event: dict, outgoing: bool, agent_numbers: set[str]) -> str:
+	if str(event.get("Status") or "").strip().upper() != ANSWER:
+		return RINGING
+	if outgoing and tail(event.get("DialWhomNumber")) in agent_numbers:
+		return AGENT_PICKED
+	return ON_CALL
+
+
 def parse_live(event: dict, agent_numbers: set[str]) -> dict | None:
 	"""A Live Call event in this site's terms; None when it isn't one. `Status` ANSWER means
-	someone picked up ("On call"), anything else that the call is ringing. Only an incoming call
-	says who the customer and the telecaller are (SourceNumber, DialWhomNumber); for an outgoing
-	one the box already knows both from the click-to-call's campid."""
+	someone picked up, anything else that the call is ringing. An outgoing call's first pick-up
+	is the telecaller's own phone (DialWhomNumber is a telecaller's number: "Agent picked"),
+	then the customer's ("On call"). Only an incoming call says who the customer and the
+	telecaller are (SourceNumber, DialWhomNumber); for an outgoing one the box already knows
+	both from the click-to-call's campid."""
 	if not is_live(event):
 		return None
 	outgoing = str(event.get("Direction") or "").upper() in OUTGOING_DIRECTIONS
@@ -72,7 +83,7 @@ def parse_live(event: dict, agent_numbers: set[str]) -> dict | None:
 	return {
 		"call_id": str(event["CallSid"]).strip()[:140],
 		"direction": OUTGOING if outgoing else INCOMING,
-		"live_status": ON_CALL if str(event.get("Status") or "").strip().upper() == ANSWER else RINGING,
+		"live_status": live_status(event, outgoing, agent_numbers),
 		"customer_number": f"+{source}" if source and not outgoing else None,
 		"reference_id": str(event.get("campid") or "").strip() or None,
 		"agent": {"contact": agent_number} if agent_number and not outgoing else None,

@@ -28,6 +28,7 @@ from tbo_smart.sales.stages import system_save
 from tbo_smart.smart_leads import FOLLOW_UP_TYPE
 from tbo_smart.smart_leads.utils import normalise_phone
 from tbo_smart.telephony import (
+	AGENT_PICKED,
 	ANSWERED,
 	CALLERDESK,
 	ENDED,
@@ -57,6 +58,7 @@ REFERENCE_SECONDS = 6 * 60 * 60
 DIAL_LOCK_KEY = "tbo_smart:telephony:dialing:{}"
 DIAL_LOCK_SECONDS = 15
 INCOMING_SECONDS = 60
+LIVE_STATES = {RINGING: "ringing", AGENT_PICKED: "ringing_lead", ON_CALL: "on_call"}
 MAX_RECORDING_BYTES = 50 * 1024 * 1024
 DOWNLOAD_TIMEOUT = 60
 PHONE_FIELDS = ("mobile_no", "phone", "whatsapp_no")
@@ -146,7 +148,7 @@ def receive_live(event: dict) -> dict:
 				"agent_ref": agent_ref(live["agent"]),
 				"last_event": LIVE_EVENT,
 				"live_status": live["live_status"],
-				"leg_b_picked_at": now_datetime() if live["live_status"] == ON_CALL else None,
+				**picked_times(live["live_status"]),
 				"payload": json.dumps(event),
 			}
 		)
@@ -159,21 +161,28 @@ def receive_live(event: dict) -> dict:
 def advance_live_call(existing, live: dict) -> dict:
 	"""Move a stored call to the live status of a newer Live Call event; a closed call, or a
 	status it already has or has passed, is a duplicate."""
-	rank = {RINGING: 1, ON_CALL: 2}
+	rank = {RINGING: 1, AGENT_PICKED: 2, ON_CALL: 3}
 	if existing.last_event != LIVE_EVENT or rank[live["live_status"]] <= rank.get(existing.live_status, 0):
 		return {"ok": True, "duplicate": True}
 	frappe.db.set_value(
 		DOCTYPE,
 		existing.name,
-		{"live_status": live["live_status"], "leg_b_picked_at": now_datetime()},
+		{"live_status": live["live_status"], **picked_times(live["live_status"])},
 	)
 	return {"ok": True}
+
+
+def picked_times(live_status: str) -> dict:
+	"""The pick-up time a live status records (the event's arrival), until the Call Report
+	brings CallerDesk's own."""
+	field = {AGENT_PICKED: "leg_a_picked_at", ON_CALL: "leg_b_picked_at"}.get(live_status)
+	return {field: now_datetime()} if field else {}
 
 
 def call_status(reference_id: str) -> dict:
 	"""Where the session user's click-to-call is, for the call box: {state, call, lead, number,
 	answered, duration, talk_seconds, on_call_since}. `state` is calling (placed, nothing heard
-	yet), ringing, on_call or ended. Only the person who placed the call may ask; a call nobody
+	yet), ringing (the person's phone), ringing_lead (they picked up; the lead's phone rings), on_call or ended. Only the person who placed the call may ask; a call nobody
 	placed is refused the same way a stranger's is."""
 	user = frappe.session.user
 	placed = pending_call(reference_id)
@@ -200,7 +209,7 @@ def call_status(reference_id: str) -> dict:
 	if not row:
 		return {"state": "calling", "lead": placed.get("lead")}
 	ended = row.last_event != LIVE_EVENT
-	state = "ended" if ended else {RINGING: "ringing", ON_CALL: "on_call"}.get(row.live_status, "calling")
+	state = "ended" if ended else LIVE_STATES.get(row.live_status, "calling")
 	return {
 		"state": state,
 		"call": row.name,
@@ -240,7 +249,7 @@ def incoming_call() -> dict | None:
 		"number": row.customer_number,
 		"lead": lead,
 		"lead_name": frappe.db.get_value("Lead", lead, "lead_name") if lead else None,
-		"state": "on_call" if row.live_status == ON_CALL else "ringing",
+		"state": LIVE_STATES.get(row.live_status, "ringing"),
 	}
 
 
