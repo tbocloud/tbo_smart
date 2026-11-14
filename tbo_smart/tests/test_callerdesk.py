@@ -29,6 +29,7 @@ from tbo_smart.test_utils import (
 BDE = "cd.bde@tbosmart.test"
 BDE2 = "cd.bde2@tbosmart.test"
 ADMIN = "cd.admin@tbosmart.test"
+ADMIN_HUB = "callerdesk.adminhub@tbosmart.test"
 NUMBER = "+919876543210"
 UNKNOWN_NUMBER = "+919800011122"
 NUMBERS = (NUMBER, UNKNOWN_NUMBER)
@@ -294,6 +295,14 @@ class TestSettings(TestCallerDesk):
 		frappe.set_user(BDE)
 		with self.assertRaises(frappe.PermissionError):
 			api.get_callerdesk_webhook_url()
+
+	def test_the_desk_form_works_for_a_manager_who_also_holds_the_hub_role(self):
+		# Administrator holds every role, the hub integration role too: the desk form names no hub
+		# user and must still get the address
+		make_user(ADMIN_HUB, ["System Manager", "Hub Integration"])
+		frappe.set_user(ADMIN_HUB)
+		self.assertIn("token=", api.get_callerdesk_webhook_url()["url"])
+		self.assertTrue(api.test_connection()["ok"])
 
 	def test_a_person_needs_a_number_to_ring(self):
 		doc = frappe.get_single("TBO Smart Settings")
