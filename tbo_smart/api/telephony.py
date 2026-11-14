@@ -1,7 +1,10 @@
-"""Telephony through MyOperator (docs/telephony-myoperator.md §4).
+"""Telephony through MyOperator or CallerDesk (docs/telephony-myoperator.md §4,
+docs/telephony-callerdesk.md).
 
 - `myoperator_webhook`: MyOperator's Webhooks v2 (guest, rate limited, the shared secret in the
   X-Webhook-Token header is the only key).
+- `callerdesk_webhook`: CallerDesk's Call Report (guest, rate limited, the long token in the
+  webhook's address is the only key).
 - `click_to_call`, `call_recording`: for a salesperson, or for the hub's integration user acting
   for one (`acting_user`, as in tbo_smart.api.hub_leads).
 - The settings (`get_settings`, `save_settings`, `test_connection`, `regenerate_webhook_secret`):
@@ -11,6 +14,7 @@
 
 import hmac
 import json
+import mimetypes
 
 import frappe
 from frappe import _
@@ -18,13 +22,31 @@ from frappe.rate_limiter import rate_limit
 
 from tbo_smart.api.hub_leads import acting_as
 from tbo_smart.api.mobile.crm import get_crm_users
-from tbo_smart.telephony import SETTINGS, calls, myoperator, secret, telephony_enabled
+from tbo_smart.telephony import (
+	CALLERDESK,
+	SETTINGS,
+	callerdesk,
+	calls,
+	myoperator,
+	provider,
+	secret,
+	telephony_enabled,
+)
 
 TOKEN_HEADER = "X-Webhook-Token"
 WEBHOOK_METHOD = "tbo_smart.api.telephony.myoperator_webhook"
-SECRET_FIELDS = ("myoperator_api_key", "myoperator_secret_token", "myoperator_api_token")
+CALLERDESK_WEBHOOK_METHOD = "tbo_smart.api.telephony.callerdesk_webhook"
+SECRET_FIELDS = (
+	"myoperator_api_key",
+	"myoperator_secret_token",
+	"myoperator_api_token",
+	"callerdesk_api_key",
+)
 FIELDS = (
 	"enable_telephony",
+	"telephony_provider",
+	"callerdesk_deskphone",
+	"callerdesk_group",
 	"myoperator_company_id",
 	"myoperator_public_ivr_id",
 	"myoperator_caller_id",
@@ -37,7 +59,7 @@ FIELDS = (
 	"transcription_model",
 	"transcription_price_per_minute",
 )
-AGENT_FIELDS = ("user", "myoperator_user_id", "extension", "mobile")
+AGENT_FIELDS = ("user", "myoperator_user_id", "extension", "mobile", "callerdesk_number")
 
 
 # ---------- MyOperator's webhook ----------
@@ -62,6 +84,23 @@ def myoperator_webhook() -> dict:
 	return calls.receive(event)
 
 
+@frappe.whitelist(allow_guest=True, methods=["POST"])  # the token in the address is the key - nosemgrep
+@rate_limit(limit=600, seconds=60)
+def callerdesk_webhook(token: str | None = None) -> dict:
+	"""A CallerDesk Call Report (JSON). Only a request whose `token` in the address
+	is the webhook token is read; nothing in the payload decides who may call this. A call is
+	stored once by its CallSid and processed in the background."""
+	if not telephony_enabled() or provider() != CALLERDESK:
+		frappe.throw(_("Telephony is switched off."), frappe.PermissionError)
+	expected = secret("callerdesk_webhook_token") or ""
+	if not expected or not hmac.compare_digest((token or "").encode(), expected.encode()):
+		frappe.throw(_("Not allowed."), frappe.PermissionError)
+	report = frappe.request.get_json(silent=True)
+	if not isinstance(report, dict):
+		frappe.throw(_("The body must be JSON."))
+	return calls.receive(report)
+
+
 # ---------- calling and listening ----------
 
 
@@ -81,7 +120,7 @@ def call_recording(call: str, acting_user: str | None = None) -> None:
 		content = recording.get_content()
 	frappe.local.response.filename = recording.file_name
 	frappe.local.response.filecontent = content
-	frappe.local.response.content_type = "audio/mpeg"
+	frappe.local.response.content_type = mimetypes.guess_type(recording.file_name)[0] or "audio/mpeg"
 	frappe.local.response.display_content_as = "inline"
 	frappe.local.response.type = "download"
 
@@ -98,6 +137,12 @@ def webhook_url() -> str:
 	return frappe.utils.get_url(f"/api/method/{WEBHOOK_METHOD}")
 
 
+def callerdesk_webhook_url() -> str | None:
+	"""The address to paste into CallerDesk's webhook: it carries the token."""
+	token = secret("callerdesk_webhook_token")
+	return frappe.utils.get_url(f"/api/method/{CALLERDESK_WEBHOOK_METHOD}?token={token}") if token else None
+
+
 def masked(value: str | None) -> dict:
 	"""{set, masked}: enough of a secret to tell which one is saved, never the secret."""
 	if not value:
@@ -110,7 +155,10 @@ def settings_payload() -> dict:
 	return {
 		"settings": {field: doc.get(field) for field in FIELDS},
 		"agents": [{field: row.get(field) for field in AGENT_FIELDS} for row in doc.telephony_agents],
-		"secrets": {field: masked(secret(field)) for field in (*SECRET_FIELDS, "telephony_webhook_secret")},
+		"secrets": {
+			field: masked(secret(field))
+			for field in (*SECRET_FIELDS, "telephony_webhook_secret", "callerdesk_webhook_token")
+		},
 		"webhook": {"url": webhook_url(), "header": TOKEN_HEADER, "events": list(myoperator.CALL_EVENTS)},
 		"users": [{"email": row.user, "full_name": row.full_name} for row in get_crm_users(None)],
 	}
@@ -160,12 +208,41 @@ def regenerate_webhook_secret(acting_user: str | None = None) -> dict:
 		return {"secret": value, "header": TOKEN_HEADER, "url": webhook_url()}
 
 
-@frappe.whitelist(methods=["POST"])
-def test_connection(acting_user: str | None = None) -> dict:
-	"""Checks the saved settings without placing a call: the calling fields are there and the API
-	token lists MyOperator's users (returned, to fill the mapping). {ok, message, missing, users}."""
+@frappe.whitelist()
+def get_callerdesk_webhook_url(acting_user: str | None = None) -> dict:
+	"""{url}: the full address to paste into CallerDesk, token included (System Managers only)."""
 	with acting_as(acting_user):
 		require_manager()
+		return {"url": callerdesk_webhook_url()}
+
+
+@frappe.whitelist(methods=["POST"])
+def regenerate_callerdesk_token(acting_user: str | None = None) -> dict:
+	"""A new CallerDesk webhook token: {url}. The old address stops working."""
+	with acting_as(acting_user):
+		require_manager()
+		doc = frappe.get_single(SETTINGS)
+		doc.callerdesk_webhook_token = frappe.generate_hash(length=40)
+		doc.save(ignore_permissions=True)
+		return {"url": callerdesk_webhook_url()}
+
+
+@frappe.whitelist(methods=["POST"])
+def test_connection(acting_user: str | None = None) -> dict:
+	"""Checks the saved settings without placing a call: the calling fields are there and, for
+	MyOperator, the API token lists its users (returned, to fill the mapping). CallerDesk has no
+	call that checks the key without placing a call, so it only checks the fields.
+	{ok, message, missing, users}."""
+	with acting_as(acting_user):
+		require_manager()
+		if provider() == CALLERDESK:
+			missing = callerdesk.missing_call_settings()
+			message = (
+				_("CallerDesk still needs: {0}.").format(", ".join(missing))
+				if missing
+				else _("CallerDesk is set up. Place a test call to check the key.")
+			)
+			return {"ok": not missing, "message": message, "missing": missing, "users": []}
 		missing = myoperator.missing_call_settings()
 		try:
 			users = myoperator.list_users()

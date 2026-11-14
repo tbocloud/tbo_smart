@@ -8,7 +8,8 @@
   "user",
   "myoperator_user_id",
   "extension",
-  "mobile"
+  "mobile",
+  "callerdesk_number"
  ],
  "fields": [
   {
@@ -43,6 +44,15 @@
    "in_list_view": 1,
    "columns": 2,
    "description": "The phone MyOperator rings for this user, as set in MyOperator."
+  },
+  {
+   "fieldname": "callerdesk_number",
+   "fieldtype": "Data",
+   "label": "CallerDesk number",
+   "options": "Phone",
+   "in_list_view": 1,
+   "columns": 2,
+   "description": "The number CallerDesk rings for this person (as in the CallerDesk member list). Click-to-call rings it first; a call's agent is found by it."
   }
  ],
  "istable": 1,

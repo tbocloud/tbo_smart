@@ -1,6 +1,7 @@
-"""Calls from MyOperator onto leads (docs/telephony-myoperator.md §3).
+"""Calls from MyOperator or CallerDesk onto leads (docs/telephony-myoperator.md §3,
+docs/telephony-callerdesk.md).
 
-The webhook only stores the call (`receive`, a TBO Call keyed by MyOperator's call ID, so a
+The webhook only stores the call (`receive`, a TBO Call keyed by the provider's call ID, so a
 retried or repeated event changes nothing) and queues `process_call`, which finds the lead (the
 click-to-call that started it, else the number), creates one for an unknown caller, writes the
 call Event on the lead as the agent, adds a "Call back" task for a missed call, and queues the
@@ -28,14 +29,17 @@ from tbo_smart.smart_leads import FOLLOW_UP_TYPE
 from tbo_smart.smart_leads.utils import normalise_phone
 from tbo_smart.telephony import (
 	ANSWERED,
+	CALLERDESK,
 	INCOMING,
 	LEAD_SOURCE,
 	MANUAL_OUTCOMES,
 	MISSED,
 	OUTGOING,
 	SETTINGS,
+	callerdesk,
 	min_summary_seconds,
 	myoperator,
+	provider,
 	recording_days,
 	setting,
 	summary_enabled,
@@ -61,7 +65,7 @@ Replace = CustomFunction("REPLACE", ["text", "old", "new"])
 def receive(event: dict) -> dict:
 	"""Store a finished call's event once and queue its processing. A later call.summary
 	completes a call first stored from call.end; anything else already seen is a duplicate."""
-	call = myoperator.parse_event(event)
+	call = parse_call(event)
 	if not call:
 		return {"ok": True, "ignored": True}
 	values = {
@@ -137,6 +141,24 @@ def log_manual_call(lead: str, outcome: str, note: str | None = None, number: st
 	return doc.insert(ignore_permissions=True)
 
 
+def parse_call(event: dict) -> dict | None:
+	"""The call in a stored or arriving provider payload: a CallerDesk Call Report (it has a
+	CallSid), else a MyOperator event."""
+	if callerdesk.is_report(event):
+		return callerdesk.parse_report(event, agent_number_tails())
+	return myoperator.parse_event(event)
+
+
+def agent_number_tails() -> set[str]:
+	"""The last 10 digits of every number a telecaller is reached on (mobile, CallerDesk number)."""
+	return {
+		tail
+		for row in agent_rows()
+		for tail in (callerdesk.tail(row.mobile), callerdesk.tail(row.callerdesk_number))
+		if tail
+	}
+
+
 def stored_call(call_id: str):
 	return frappe.db.get_value(DOCTYPE, {"call_id": call_id}, ["name", "last_event"], as_dict=True)
 
@@ -155,7 +177,7 @@ def process_call(call: str) -> None:
 	if not telephony_enabled():
 		return
 	doc = frappe.get_doc(DOCTYPE, call, for_update=True)
-	parsed = myoperator.parse_event(json.loads(doc.payload or "{}")) or {}
+	parsed = parse_call(json.loads(doc.payload or "{}")) or {}
 	started = pending_call(doc.reference_id)
 	doc.agent = doc.agent or started.get("user") or map_agent(parsed.get("agent"))
 	if not doc.lead:
@@ -376,22 +398,22 @@ def agent_rows() -> list:
 	return frappe.get_all(
 		AGENT_DOCTYPE,
 		filters={"parenttype": SETTINGS, "parentfield": "telephony_agents"},
-		fields=["user", "myoperator_user_id", "extension", "mobile"],
+		fields=["user", "myoperator_user_id", "extension", "mobile", "callerdesk_number"],
 		order_by="idx asc",
 	)
 
 
 def map_agent(agent: dict | None) -> str | None:
-	"""The user behind MyOperator's agent: by user ID, extension or mobile in the mapping, else
-	an enabled user with the agent's email."""
+	"""The user behind the provider's agent: by user ID, extension, mobile or CallerDesk number
+	in the mapping, else an enabled user with the agent's email."""
 	if not agent:
 		return None
-	contact = normalise_phone(agent.get("contact"))
+	contact = callerdesk.tail(agent.get("contact"))
 	for row in agent_rows():
 		if (
 			(agent.get("uuid") and row.myoperator_user_id == agent["uuid"])
 			or (agent.get("extension") and row.extension == str(agent["extension"]))
-			or (contact and normalise_phone(row.mobile) == contact)
+			or (contact and contact in (callerdesk.tail(row.mobile), callerdesk.tail(row.callerdesk_number)))
 		):
 			return row.user
 	email = (agent.get("email") or "").strip()
@@ -406,35 +428,42 @@ def agent_of(user: str):
 
 
 def can_call(user: str | None = None) -> bool:
-	"""Telephony is on and the person has a sales role and a MyOperator user ID or a mobile to
-	ring: the app's click_to_call capability and the hub's can_call."""
+	"""Telephony is on and the person has a sales role and a number to ring (MyOperator: a user ID
+	or a mobile; CallerDesk: a CallerDesk number or a mobile): the app's click_to_call
+	capability and the hub's can_call."""
 	from tbo_smart.api.mobile.capabilities import CRM_ROLES  # it imports this module
 
 	user = user or frappe.session.user
 	if not telephony_enabled() or not CRM_ROLES & set(frappe.get_roles(user)):
 		return False
 	agent = agent_of(user)
-	return bool(agent and ((agent.myoperator_user_id or "").strip() or normalise_phone(agent.mobile)))
+	if not agent:
+		return False
+	if provider() == CALLERDESK:
+		return bool(normalise_phone(agent.callerdesk_number) or normalise_phone(agent.mobile))
+	return bool((agent.myoperator_user_id or "").strip() or normalise_phone(agent.mobile))
 
 
 # ---------- the recording ----------
 
 
 def fetch_recording(call: str) -> None:
-	"""Background job: download the recording (MyOperator's links last 24 hours) into a
-	private File on the call, then queue the AI summary when it is wanted."""
+	"""Background job: download the recording (MyOperator's links last 24 hours; CallerDesk sends
+	the link itself) into a private File on the call, then queue the AI summary when it is
+	wanted."""
 	doc = frappe.get_doc(DOCTYPE, call, for_update=True)
 	if doc.recording or not doc.recording_filename:
 		return
 	try:
-		content = download(myoperator.recording_link(doc.recording_filename))
+		link = doc.recording_filename
+		content = download(link if link.startswith("https://") else myoperator.recording_link(link))
 	except (myoperator.MyOperatorError, requests.RequestException, ValueError) as e:
-		frappe.log_error(title=f"MyOperator recording not fetched: {doc.name}", message=str(e)[:300])
+		frappe.log_error(title=f"Call recording not fetched: {doc.name}", message=str(e)[:300])
 		return
 	recording = frappe.get_doc(
 		{
 			"doctype": "File",
-			"file_name": f"call-{doc.name}.mp3",
+			"file_name": f"call-{doc.name}.{recording_extension(doc.recording_filename)}",
 			"attached_to_doctype": DOCTYPE,
 			"attached_to_name": doc.name,
 			"attached_to_field": "recording",
@@ -453,9 +482,15 @@ def fetch_recording(call: str) -> None:
 		)
 
 
+def recording_extension(link: str) -> str:
+	"""The audio format in a recording link (CallerDesk's are WAV), else mp3."""
+	extension = link.split("?")[0].rsplit(".", 1)[-1].lower() if "." in link.rsplit("/", 1)[-1] else ""
+	return extension if extension in ("mp3", "wav", "ogg", "m4a") else "mp3"
+
+
 def download(url: str | None) -> bytes:
 	if not url or not url.startswith("https://"):
-		raise ValueError("MyOperator gave no https recording link")
+		raise ValueError("the provider gave no https recording link")
 	with requests.get(url, timeout=DOWNLOAD_TIMEOUT, stream=True) as response:
 		response.raise_for_status()
 		chunks, size = [], 0
@@ -515,10 +550,11 @@ def purge_old_recordings() -> None:
 
 
 def click_to_call(lead: str, number: str | None = None) -> dict:
-	"""Ask MyOperator to ring the session user's phone, then the lead's number (one of the
-	lead's own numbers; default its mobile)."""
+	"""Ask the provider (MyOperator or CallerDesk) to ring the session user's phone, then the
+	lead's number (one of the lead's own numbers; default its mobile)."""
+	name = provider()
 	if not telephony_enabled():
-		frappe.throw(_("Calling through MyOperator is switched off."))
+		frappe.throw(_("Calling through {0} is switched off.").format(name))
 	frappe.has_permission("Lead", "read", lead, throw=True)
 	user = frappe.session.user
 	agent = agent_of(user)
@@ -526,25 +562,47 @@ def click_to_call(lead: str, number: str | None = None) -> dict:
 		frappe.throw(
 			_("You aren't set up for calling yet. Ask an admin to add you under Settings → Telephony.")
 		)
-	missing = myoperator.missing_call_settings()
+	missing = (callerdesk if name == CALLERDESK else myoperator).missing_call_settings()
 	if missing:
 		frappe.throw(_("Telephony isn't set up yet: add {0}.").format(", ".join(missing)))
 	customer = lead_number(lead, number)
 	key = frappe.cache.make_key(DIAL_LOCK_KEY.format(user))
 	if not frappe.cache.set(key, 1, nx=True, ex=DIAL_LOCK_SECONDS):  # site-prefixed via make_key - nosemgrep
 		frappe.throw(_("A call is already being placed. Wait a few seconds."))
-	reference_id = str(uuid4())
+	if name == CALLERDESK:
+		request_id = place_callerdesk_call(lead, user, customer, agent)
+		reference_id = request_id
+	else:
+		reference_id = str(uuid4())
+		remember_call(reference_id, lead, user)
+		answer = myoperator.place_call(myoperator.click_to_call_body(customer, agent, reference_id))
+		request_id = answer.get("unique_id")
+	return {
+		"ok": True,
+		"message": _("{0} is calling your phone…").format(name),
+		"number": customer,
+		"reference_id": reference_id,
+		"request_id": request_id,
+	}
+
+
+def remember_call(reference_id: str, lead: str, user: str) -> None:
+	"""The lead and agent a click-to-call was for, until its call report arrives."""
 	frappe.cache.set_value(
 		REFERENCE_KEY.format(reference_id), {"lead": lead, "user": user}, expires_in_sec=REFERENCE_SECONDS
 	)
-	answer = myoperator.place_call(myoperator.click_to_call_body(customer, agent, reference_id))
-	return {
-		"ok": True,
-		"message": _("MyOperator is calling your phone…"),
-		"number": customer,
-		"reference_id": reference_id,
-		"request_id": answer.get("unique_id"),
-	}
+
+
+def place_callerdesk_call(lead: str, user: str, customer: str, agent) -> str | None:
+	"""CallerDesk rings the agent's CallerDesk number (else mobile), then the customer. Its campid
+	comes back with the answer and is how the call report finds the lead: the campid, or None
+	when CallerDesk sent none (the report then finds the lead by number)."""
+	answer = callerdesk.place_call(
+		callerdesk.click_to_call_params(customer, agent.callerdesk_number or agent.mobile)
+	)
+	if answer["campid"]:
+		remember_call(answer["campid"], lead, user)
+	return answer["campid"]
 
 
 def lead_number(lead: str, number: str | None) -> str:

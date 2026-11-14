@@ -129,6 +129,7 @@
   "enable_implementation_plans",
   "telephony_section",
   "enable_telephony",
+  "telephony_provider",
   "myoperator_company_id",
   "myoperator_public_ivr_id",
   "myoperator_caller_id",
@@ -138,6 +139,13 @@
   "myoperator_api_token",
   "telephony_webhook_secret",
   "regenerate_webhook_secret",
+  "callerdesk_section",
+  "callerdesk_deskphone",
+  "callerdesk_group",
+  "column_break_callerdesk",
+  "callerdesk_api_key",
+  "callerdesk_webhook_token",
+  "regenerate_callerdesk_token",
   "telephony_agents_section",
   "telephony_agents",
   "telephony_create_leads",
@@ -1002,9 +1010,9 @@
   {
    "fieldname": "telephony_section",
    "fieldtype": "Section Break",
-   "label": "Telephony (MyOperator)",
+   "label": "Telephony",
    "collapsible": 1,
-   "description": "Calls with leads through MyOperator: click-to-call, every call on the lead with its recording, and an AI call summary. Setup and field mapping: docs/telephony-myoperator.md."
+   "description": "Calls with leads through MyOperator or CallerDesk: click-to-call, every call on the lead with its recording, and an AI call summary. Setup and field mapping: docs/telephony-myoperator.md, docs/telephony-callerdesk.md."
   },
   {
    "fieldname": "enable_telephony",
@@ -1017,21 +1025,21 @@
    "fieldname": "myoperator_company_id",
    "fieldtype": "Data",
    "label": "MyOperator company ID",
-   "depends_on": "enable_telephony",
+   "depends_on": "eval:doc.enable_telephony && doc.telephony_provider!=\"CallerDesk\"",
    "description": "MyOperator panel → APIs & Webhook → Developer API → Calling APIs → Endpoint details."
   },
   {
    "fieldname": "myoperator_public_ivr_id",
    "fieldtype": "Data",
    "label": "Public IVR ID",
-   "depends_on": "enable_telephony",
+   "depends_on": "eval:doc.enable_telephony && doc.telephony_provider!=\"CallerDesk\"",
    "description": "The IVR click-to-call calls go through (Endpoint details)."
   },
   {
    "fieldname": "myoperator_caller_id",
    "fieldtype": "Data",
    "label": "Caller ID",
-   "depends_on": "enable_telephony",
+   "depends_on": "eval:doc.enable_telephony && doc.telephony_provider!=\"CallerDesk\"",
    "description": "Optional: the virtual number customers see. Blank: MyOperator's default for the IVR."
   },
   {
@@ -1042,21 +1050,21 @@
    "fieldname": "myoperator_api_key",
    "fieldtype": "Password",
    "label": "Calling API key (x-api-key)",
-   "depends_on": "enable_telephony",
+   "depends_on": "eval:doc.enable_telephony && doc.telephony_provider!=\"CallerDesk\"",
    "length": 255
   },
   {
    "fieldname": "myoperator_secret_token",
    "fieldtype": "Password",
    "label": "Calling secret token",
-   "depends_on": "enable_telephony",
+   "depends_on": "eval:doc.enable_telephony && doc.telephony_provider!=\"CallerDesk\"",
    "length": 255
   },
   {
    "fieldname": "myoperator_api_token",
    "fieldtype": "Password",
    "label": "API token (users and recordings)",
-   "depends_on": "enable_telephony",
+   "depends_on": "eval:doc.enable_telephony && doc.telephony_provider!=\"CallerDesk\"",
    "length": 255,
    "description": "The token for developers.myoperator.co: fetches each call's recording and lists MyOperator's users for Test connection."
   },
@@ -1064,7 +1072,7 @@
    "fieldname": "telephony_webhook_secret",
    "fieldtype": "Password",
    "label": "Webhook secret",
-   "depends_on": "enable_telephony",
+   "depends_on": "eval:doc.enable_telephony && doc.telephony_provider!=\"CallerDesk\"",
    "read_only": 1,
    "length": 255,
    "description": "MyOperator sends it in the X-Webhook-Token header of every webhook. Regenerate it, then paste the new one into MyOperator."
@@ -1073,7 +1081,7 @@
    "fieldname": "regenerate_webhook_secret",
    "fieldtype": "Button",
    "label": "Regenerate webhook secret",
-   "depends_on": "enable_telephony"
+   "depends_on": "eval:doc.enable_telephony && doc.telephony_provider!=\"CallerDesk\""
   },
   {
    "fieldname": "telephony_agents_section",
@@ -1084,9 +1092,9 @@
   {
    "fieldname": "telephony_agents",
    "fieldtype": "Table",
-   "label": "MyOperator users",
+   "label": "Telephony users",
    "options": "TBO Telephony Agent",
-   "description": "Who each MyOperator user is here. Click-to-call rings the person's MyOperator user (or their mobile), and a call's agent is found by user ID, extension or mobile."
+   "description": "Who each telephony user is here. MyOperator: click-to-call rings the person's MyOperator user (or their mobile), and a call's agent is found by user ID, extension or mobile. CallerDesk: by the CallerDesk number (or mobile)."
   },
   {
    "fieldname": "telephony_create_leads",
@@ -1118,7 +1126,7 @@
    "fieldtype": "Small Text",
    "label": "Recording notice",
    "default": "This call may be recorded for quality and training purposes.",
-   "description": "Set this as the greeting of every MyOperator IVR and number, so callers hear it before a recorded call (DPDP Act 2023: tell people before you record them)."
+   "description": "Set this as the greeting of every IVR and number of your telephony provider, so callers hear it before a recorded call (DPDP Act 2023: tell people before you record them)."
   },
   {
    "fieldname": "telephony_ai_section",
@@ -1414,6 +1422,63 @@
    "options": "TBO Lead Department",
    "label": "Lead Bank: department for KSA",
    "description": "Blank: leads wait in the unassigned pool and managers are told."
+  },
+  {
+   "fieldname": "telephony_provider",
+   "fieldtype": "Select",
+   "label": "Telephony provider",
+   "options": "MyOperator\nCallerDesk",
+   "default": "MyOperator",
+   "depends_on": "enable_telephony",
+   "description": "Who connects the calls. Switch only when nobody is on a call."
+  },
+  {
+   "fieldname": "callerdesk_section",
+   "fieldtype": "Section Break",
+   "label": "CallerDesk",
+   "depends_on": "eval:doc.enable_telephony && doc.telephony_provider==\"CallerDesk\"",
+   "description": "CallerDesk panel → API & Integration → Webhooks: create a webhook with the call report event and the URL shown under Webhook token. Details: docs/telephony-callerdesk.md."
+  },
+  {
+   "fieldname": "callerdesk_deskphone",
+   "fieldtype": "Data",
+   "label": "Virtual number (deskphone)",
+   "depends_on": "eval:doc.enable_telephony && doc.telephony_provider==\"CallerDesk\"",
+   "description": "The CallerDesk number calls go through, as in the panel (without +91)."
+  },
+  {
+   "fieldname": "callerdesk_group",
+   "fieldtype": "Data",
+   "label": "Call group",
+   "depends_on": "eval:doc.enable_telephony && doc.telephony_provider==\"CallerDesk\"",
+   "description": "Optional: the CallerDesk call group the telecallers belong to. Needed when your account places calls through a call group."
+  },
+  {
+   "fieldname": "column_break_callerdesk",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "callerdesk_api_key",
+   "fieldtype": "Password",
+   "label": "API key (authcode)",
+   "depends_on": "eval:doc.enable_telephony && doc.telephony_provider==\"CallerDesk\"",
+   "length": 255,
+   "description": "CallerDesk panel → API & Integration."
+  },
+  {
+   "fieldname": "callerdesk_webhook_token",
+   "fieldtype": "Password",
+   "label": "Webhook token",
+   "depends_on": "eval:doc.enable_telephony && doc.telephony_provider==\"CallerDesk\"",
+   "read_only": 1,
+   "length": 255,
+   "description": "Made by itself. The full webhook address to paste into CallerDesk is shown here once this is saved."
+  },
+  {
+   "fieldname": "regenerate_callerdesk_token",
+   "fieldtype": "Button",
+   "label": "Regenerate webhook token",
+   "depends_on": "eval:doc.enable_telephony && doc.telephony_provider==\"CallerDesk\""
   }
  ],
  "index_web_pages_for_search": 0,

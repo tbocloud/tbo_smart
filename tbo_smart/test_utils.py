@@ -2827,6 +2827,9 @@ TEST_WEBHOOK_SECRET = "tbo-test-webhook-secret-0123456789"
 TEST_MYOPERATOR_KEY = "mo-test-x-api-key"
 TEST_MYOPERATOR_SECRET = "mo-test-secret-token"
 TEST_MYOPERATOR_TOKEN = "mo-test-api-token"
+TEST_CALLERDESK_KEY = "cd-test-authcode"
+TEST_CALLERDESK_TOKEN = "cd-test-webhook-token-0123456789abcdef"
+CALLERDESK_SECRETS = ("callerdesk_api_key", "callerdesk_webhook_token")
 TELEPHONY_SECRETS = (
 	"myoperator_api_key",
 	"myoperator_secret_token",
@@ -2864,11 +2867,31 @@ def enable_telephony(agents: list[dict] | tuple = (), **values) -> None:
 
 
 def disable_telephony() -> None:
-	"""Telephony and the AI call summary off, no MyOperator secrets, no people mapped."""
-	set_smart_lead_settings(enable_telephony=0, enable_call_summary=0)
-	for field in TELEPHONY_SECRETS:
+	"""Telephony and the AI call summary off, MyOperator chosen, no provider secrets, no people
+	mapped."""
+	set_smart_lead_settings(
+		enable_telephony=0, enable_call_summary=0, telephony_provider="MyOperator", callerdesk_group=None
+	)
+	for field in (*TELEPHONY_SECRETS, *CALLERDESK_SECRETS):
 		store_settings_secret(field, None)
 	set_telephony_agents(())
+
+
+def enable_callerdesk(agents: list[dict] | tuple = (), **values) -> None:
+	"""Telephony on through CallerDesk: the test authcode, deskphone 1200000000, no call group,
+	the webhook token TEST_CALLERDESK_TOKEN, the `agents` mapping rows ({user, callerdesk_number,
+	mobile}) and any other settings in `values`."""
+	enable_telephony(
+		agents,
+		**{
+			"telephony_provider": "CallerDesk",
+			"callerdesk_deskphone": "1200000000",
+			"callerdesk_group": None,
+			**values,
+		},
+	)
+	for field, value in zip(CALLERDESK_SECRETS, (TEST_CALLERDESK_KEY, TEST_CALLERDESK_TOKEN), strict=True):
+		store_settings_secret(field, value)
 
 
 def set_telephony_agents(agents: list[dict] | tuple) -> None:
@@ -2973,6 +2996,49 @@ def post_myoperator_webhook(event: dict, token: str | None = TEST_WEBHOOK_SECRET
 	frappe.local.request_ip = "127.0.0.1"
 	try:
 		return call_as_guest(telephony.myoperator_webhook)
+	finally:
+		frappe.local.request, frappe.local.request_ip = previous
+
+
+def callerdesk_report(call_sid: str, **fields) -> dict:
+	"""A CallerDesk Call Report shaped like the documented sample: an answered incoming call
+	(Direction IVR) from 9876543210 to the virtual number, answered by 9000000001; `fields`
+	override any of it."""
+	return {
+		"SourceNumber": "9876543210",
+		"DestinationNumber": "1200000000",
+		"DialWhomNumber": "9000000001",
+		"CallDuration": "18",
+		"Status": "ANSWER",
+		"StartTime": "2026-10-19 10:58:04",
+		"EndTime": "2026-10-19 10:59:26",
+		"CallSid": call_sid,
+		"CallRecordingUrl": "",
+		"Direction": "IVR",
+		"TalkDuration": "74",
+		"call_group": "TestGroup",
+		"receiver_name": "Test Agent",
+		**fields,
+	}
+
+
+def post_callerdesk_webhook(report: dict, token: str | None = TEST_CALLERDESK_TOKEN):
+	"""Call the CallerDesk webhook as Guest with `report` as the JSON body and `token` as the
+	`token` of its address (None: no token); then return to the session user."""
+	from tbo_smart.api import telephony
+
+	environ = EnvironBuilder(
+		method="POST",
+		base_url="https://tbosmart.test",
+		path="/api/method/tbo_smart.api.telephony.callerdesk_webhook",
+		data=json.dumps(report),
+		content_type="application/json",
+	).get_environ()
+	previous = getattr(frappe.local, "request", None), getattr(frappe.local, "request_ip", None)
+	frappe.local.request = WerkzeugRequest(environ)
+	frappe.local.request_ip = "127.0.0.1"
+	try:
+		return call_as_guest(telephony.callerdesk_webhook, token=token)
 	finally:
 		frappe.local.request, frappe.local.request_ip = previous
 

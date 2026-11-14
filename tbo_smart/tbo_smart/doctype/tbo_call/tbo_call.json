@@ -146,8 +146,8 @@
   },
   {
    "fieldname": "recording_filename",
-   "fieldtype": "Data",
-   "label": "MyOperator recording file",
+   "fieldtype": "Small Text",
+   "label": "Recording file or link",
    "read_only": 1
   },
   {
