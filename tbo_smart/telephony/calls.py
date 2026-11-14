@@ -734,7 +734,7 @@ def store_missing_calls(start_date: str, end_date: str) -> int:
 	"""Store every finished call in the window that has no closed TBO Call yet; how many. A call
 	the live webhook stored but the report never closed is completed too."""
 	rows = callerdesk.fetch_call_list(str(start_date), str(end_date))
-	reports = [report for report in map(callerdesk.report_from_row, rows) if report]
+	reports = [report for report in (callerdesk.report_from_row(row) for row in rows) if report]
 	closed = set(
 		frappe.get_all(
 			DOCTYPE,
