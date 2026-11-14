@@ -79,7 +79,7 @@ The secret of CallerDesk's Basic-auth APIs isn't a field: nothing here calls tho
 
 1. **Guest POST**, JSON body, rate limited (600 a minute per IP). Telephony must be on and the
    provider CallerDesk, else 403.
-2. **Authentication:** the `token` in the address must equal the webhook token
+2. **Authentication:** the `token` in the address (read from the request's address, because Frappe ignores the query string when the body is JSON; seen live 2026-11-14: every report was refused) must equal the webhook token
    (`hmac.compare_digest`). Anything else gets a 403. Nothing in the payload decides who may call.
 3. `calls.receive` stores one **TBO Call** per `CallSid` (a repeat returns
    `{"ok": true, "duplicate": true}`) and queues `process_call`, the same job as MyOperator's.
