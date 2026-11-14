@@ -269,6 +269,16 @@ class TestClickToCall(TestCallerDesk):
 		):
 			api.click_to_call(self.lead)
 
+	def test_a_refused_call_can_be_tried_again_at_once(self):
+		clear_dial_locks((BDE,))
+		with self.assertRaises(frappe.ValidationError):
+			self.refuse(200, {"type": "error", "message": "Agent on break/Inactive. Call not allowed"})
+		frappe.clear_messages()
+		with self.assertRaises(frappe.ValidationError) as caught:
+			self.refuse(200, {"type": "error", "message": "Agent on break/Inactive. Call not allowed"})
+		self.assertNotIn("already being placed", str(caught.exception))
+		frappe.clear_messages()
+
 	def test_an_unreachable_callerdesk_never_shows_the_key(self):
 		frappe.set_user(BDE)
 		with patch(

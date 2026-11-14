@@ -707,14 +707,19 @@ def click_to_call(lead: str, number: str | None = None) -> dict:
 	key = frappe.cache.make_key(DIAL_LOCK_KEY.format(user))
 	if not frappe.cache.set(key, 1, nx=True, ex=DIAL_LOCK_SECONDS):  # site-prefixed via make_key - nosemgrep
 		frappe.throw(_("A call is already being placed. Wait a few seconds."))
-	if name == CALLERDESK:
-		request_id = place_callerdesk_call(lead, user, customer, agent)
-		reference_id = request_id
-	else:
-		reference_id = str(uuid4())
-		remember_call(reference_id, lead, user)
-		answer = myoperator.place_call(myoperator.click_to_call_body(customer, agent, reference_id))
-		request_id = answer.get("unique_id")
+	try:
+		if name == CALLERDESK:
+			request_id = place_callerdesk_call(lead, user, customer, agent)
+			reference_id = request_id
+		else:
+			reference_id = str(uuid4())
+			remember_call(reference_id, lead, user)
+			answer = myoperator.place_call(myoperator.click_to_call_body(customer, agent, reference_id))
+			request_id = answer.get("unique_id")
+	except Exception:
+		# no call was placed: the person may try again at once, not after the lock runs out
+		frappe.cache.delete(key)
+		raise
 	return {
 		"ok": True,
 		"message": _("{0} is calling your phone…").format(name),
