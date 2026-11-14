@@ -112,7 +112,12 @@ def click_to_call(lead: str, number: str | None = None, acting_user: str | None 
 	"""MyOperator rings the person's phone, then the lead (`number`: one of the lead's numbers,
 	default its mobile). {ok, message, number, reference_id}."""
 	with acting_as(acting_user):
-		return calls.click_to_call(lead, number)
+		try:
+			return calls.click_to_call(lead, number)
+		except (myoperator.MyOperatorError, callerdesk.CallerDeskError) as e:
+			# through frappe.throw, so the provider's reason reaches the hub and the app as a
+			# message; a bare raise arrived there as "the ERP site ran into a problem (417)"
+			frappe.throw(str(e), exc=type(e))
 
 
 @frappe.whitelist()
