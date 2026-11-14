@@ -315,35 +315,38 @@ def approved_deliverables(doc) -> dict[str, list[str]]:
 def link_project(doc, project: str, url: str | None) -> None:
 	"""The hub made the project of the plan (or of the strategy proposal): kept on it (once) and
 	said on the lead."""
-	from tbo_smart.lead_pipeline.proposals import DOCTYPE
-
 	require_approved(doc)
+	keep_project(doc, project, url)
+
+
+def keep_project(doc, project: str, url: str | None) -> None:
+	"""The hub's project kept on `doc` (once): a plan, a strategy proposal, or the lead's own Project
+	step (document_steps, a project made straight from the lead). Said on the lead."""
 	project = (project or "").strip()[:140]
 	if not project:
 		frappe.throw(_("Name the hub project."))
-	current = frappe.db.get_value(DOCTYPE, doc.name, "hub_project", for_update=True)
+	source = doc.get("title") or _("the lead")
+	current = frappe.db.get_value(doc.doctype, doc.name, "hub_project", for_update=True)
 	if current and current != project:
-		frappe.throw(_("The project of {0} is already {1}.").format(doc.title, current))
+		frappe.throw(_("The project of {0} is already {1}.").format(source, current))
 	values = {"hub_project": project, "hub_project_url": (url or "").strip()[:500] or None}
-	frappe.db.set_value(DOCTYPE, doc.name, values, update_modified=False)
+	frappe.db.set_value(doc.doctype, doc.name, values, update_modified=False)
 	doc.update(values)
 	if not current:
-		frappe.get_doc("Lead", doc.lead).add_comment(
-			"Info", _("Project {0} made from {1}").format(project, doc.title)
-		)
+		from tbo_smart.lead_pipeline.proposals import tell_lead_owner
+
+		tell_lead_owner(doc.lead, _("Project {0} made from {1}").format(project, source))
 
 
 def record_uat(doc, status: str, signed_by: str | None = None) -> None:
-	"""The hub's UAT sign-off for the plan's project: its state, and when signed, who signed and
-	the warranty's start (the day after)."""
-	from tbo_smart.lead_pipeline.proposals import DOCTYPE
-
+	"""The hub's UAT sign-off for the project of `doc` (the plan, or the lead's own Project step):
+	its state, and when signed, who signed and the warranty's start (the day after)."""
 	if not doc.get("hub_project"):
-		frappe.throw(_("This plan has no project yet."))
+		frappe.throw(_("There is no project yet."))
 	status = (status or "").strip()[:60]
 	if not status:
 		frappe.throw(_("Give the UAT sign-off's state."))
-	current = frappe.db.get_value(DOCTYPE, doc.name, "uat_status", for_update=True)
+	current = frappe.db.get_value(doc.doctype, doc.name, "uat_status", for_update=True)
 	if status == current:
 		# the same state again (a retried call) changes nothing; Signed keeps its date and warranty
 		return
@@ -360,11 +363,13 @@ def record_uat(doc, status: str, signed_by: str | None = None) -> None:
 				"warranty_starts_on": add_days(getdate(now), 1),
 			}
 		)
-	frappe.db.set_value(DOCTYPE, doc.name, values, update_modified=False)
+	frappe.db.set_value(doc.doctype, doc.name, values, update_modified=False)
 	doc.update(values)
 	if status == UAT_SIGNED:
-		frappe.get_doc("Lead", doc.lead).add_comment(
-			"Info",
+		from tbo_smart.lead_pipeline.proposals import tell_lead_owner
+
+		tell_lead_owner(
+			doc.lead,
 			_("UAT signed off by {0}; the warranty starts on {1}").format(
 				values["uat_signed_by"] or _("the client"),
 				formatdate(values["warranty_starts_on"], "d MMMM yyyy"),

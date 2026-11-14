@@ -1568,7 +1568,8 @@ def disable_proposals() -> None:
 
 
 def delete_lead_proposals(leads: list[str] | tuple) -> None:
-	"""Delete the proposals of these leads with their blocks and image files, and commit."""
+	"""Delete the proposals of these leads with their blocks and image files, and their skipped
+	steps, and commit."""
 	names = frappe.get_all("TBO Proposal", filters={"lead": ("in", list(leads) or [""])}, pluck="name")
 	if names:
 		for file in frappe.get_all(
@@ -1579,6 +1580,7 @@ def delete_lead_proposals(leads: list[str] | tuple) -> None:
 			frappe.delete_doc("File", file, ignore_permissions=True, force=True)
 		frappe.db.delete("TBO Proposal Section", {"parenttype": "TBO Proposal", "parent": ("in", names)})
 		frappe.db.delete("TBO Proposal", {"name": ("in", names)})
+	frappe.db.delete("TBO Lead Document Step", {"lead": ("in", list(leads) or [""])})
 	frappe.db.commit()  # nosemgrep
 
 
@@ -1763,6 +1765,46 @@ def srs_answer(requirements: list[tuple[str, str]]) -> MagicMock:
 def brd_answer(sections: dict, questions: list | None = None) -> MagicMock:
 	"""The AI's BRD answer: {section: text} and the questions [{section, question}] it adds."""
 	return openai_answer({"sections": sections, "questions": questions or []}, 900, 400)
+
+
+def assign_lead_to(lead: str, user: str) -> None:
+	"""A Sales User (made if missing) assigned to the lead by an open follow-up: they may write the
+	lead without owning it."""
+	make_user(user, ["Sales User", "Business Development Executive"])
+	make_lead_task(lead, nowdate(), user)
+
+
+def decline_as_client(name: str, reason: str) -> None:
+	"""The client declines (or asks for changes to) the sent document on its page, saying why."""
+	from tbo_smart.api import proposal_page
+
+	call_as_guest(proposal_page.decline, proposal_token(name), reason, "Asha Menon", "asha@client.example")
+
+
+def skip_hub_steps(
+	lead: str, steps: list[str], reason: str, acting_user: str, status: str = "Skipped"
+) -> dict:
+	"""Mark the lead's steps Skipped (or Not used) through hub_proposals.skip_steps; returns the chain."""
+	from tbo_smart.api import hub_proposals
+
+	return hub_proposals.skip_steps(lead, json.dumps(steps), reason, status, acting_user=acting_user)
+
+
+def make_hub_document_from_lead(lead: str, document_type: str, acting_user: str) -> str:
+	"""A step's document made straight from the lead (no accepted document before it) through
+	hub_proposals.create_document; returns its name."""
+	from tbo_smart.api import hub_proposals
+
+	return hub_proposals.create_document(None, document_type, lead, acting_user=acting_user)["proposal"][
+		"name"
+	]
+
+
+def client_page_html(name: str) -> str:
+	"""The client's page of a document, as the client sees it."""
+	from tbo_smart.lead_pipeline import proposals
+
+	return proposals.render_html(frappe.get_doc("TBO Proposal", name))
 
 
 def make_hub_document(source: str, document_type: str, acting_user: str) -> dict:

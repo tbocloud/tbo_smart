@@ -10,15 +10,20 @@ from tbo_smart.api import hub_leads, lead_quotation
 from tbo_smart.api import hub_proposals as hub
 from tbo_smart.api import proposal_page as page
 from tbo_smart.lead_pipeline import brd, srs
+from tbo_smart.lead_pipeline import client_documents as documents
 from tbo_smart.lead_pipeline import document_types as kinds
 from tbo_smart.lead_pipeline import proposals as p
 from tbo_smart.lead_pipeline import quotations as q
 from tbo_smart.test_utils import (
 	accept_as_client,
+	assign_lead_to,
 	brd_answer,
 	call_as_guest,
+	change_lead_stage,
+	client_page_html,
 	configure_ai_providers,
 	configure_quotation_approval,
+	decline_as_client,
 	delete_owner_lead_records,
 	disable_client_documents,
 	disable_lead_quotations,
@@ -34,6 +39,7 @@ from tbo_smart.test_utils import (
 	make_customised_proposal,
 	make_gst_template,
 	make_hub_document,
+	make_hub_document_from_lead,
 	make_hub_proposal,
 	make_lead,
 	make_outgoing_email_account,
@@ -49,11 +55,15 @@ from tbo_smart.test_utils import (
 	set_leaf_customer_group,
 	set_segment_rates,
 	set_smart_lead_settings,
+	skip_hub_steps,
 	srs_answer,
 )
 
 HUB = "docs.hub@tbosmart.test"
 BDE = "docs.bde@tbosmart.test"
+# assigned to a lead (may write it) without owning it
+OTHER_BDE = "docs.other@tbosmart.test"
+MANAGER = "docs.manager@tbosmart.test"
 OWNERS = (BDE,)
 SERVICE = "TBO Smart Document Implementation"
 # the customisation days' service item in ERPNext's Day, which takes fractions (Nos doesn't)
@@ -212,8 +222,10 @@ class TestQuotation(ClientDocumentTestCase):
 		send_hub_proposal(proposal, BDE)
 		self.assertRaises(frappe.ValidationError, make_hub_document, proposal, kinds.QUOTATION, BDE)
 		accept_as_client(proposal)
-		# a work order isn't made from a proposal
-		self.assertRaises(frappe.ValidationError, make_hub_document, proposal, kinds.WORK_ORDER, BDE)
+		# past the quotation is out of order: the lead owner's call (TestFlexibleChain), refused for a
+		# BD who may write the lead but doesn't own it
+		assign_lead_to(self.lead, OTHER_BDE)
+		self.assertRaises(frappe.ValidationError, make_hub_document, proposal, kinds.BRD, OTHER_BDE)
 
 	def test_an_unpriced_proposal_is_priced_from_its_modules(self):
 		proposal = make_hub_proposal(self.lead, BDE, TEMPLATE)["name"]
@@ -473,7 +485,9 @@ class TestProposalIsQuotation(ClientDocumentTestCase):
 		self.assertFalse(quotation.taxes_and_charges)
 		send_hub_proposal(proposal, BDE)
 		accept_as_client(proposal)
-		self.assertRaises(frappe.ValidationError, make_hub_document, proposal, kinds.WORK_ORDER, BDE)
+		# the agreement straight from the proposal skips the quotation: not for a BD who isn't the owner
+		assign_lead_to(self.lead, OTHER_BDE)
+		self.assertRaises(frappe.ValidationError, make_hub_document, proposal, kinds.WORK_ORDER, OTHER_BDE)
 		self.assertEqual(
 			hub.get_document_chain(self.lead, acting_user=BDE)["next"]["document_type"], kinds.QUOTATION
 		)
@@ -978,3 +992,248 @@ class TestContentLeadChain(ClientDocumentTestCase):
 		self.assertRaises(
 			frappe.ValidationError, hub.link_project, lead, "PROJ-0053", proposal=name, acting_user=BDE
 		)
+
+
+class TestFlexibleChain(ClientDocumentTestCase):
+	"""Skip a step, start anywhere, make one in between, bring one back; the next document made
+	when one is accepted, the revision when changes are asked (docs/client-documents.md §9)."""
+
+	DOCUMENTS = (kinds.PROPOSAL, kinds.WORK_ORDER, kinds.BRD, kinds.SRS, kinds.PLAN)
+
+	def setUp(self):
+		super().setUp()
+		enable_client_documents(proposal_is_quotation=True)
+
+	def chain(self, user=BDE):
+		return hub.get_document_chain(self.lead, acting_user=user)
+
+	def step(self, chain, kind):
+		return next(step for step in chain["steps"] if step["document_type"] == kind)
+
+	def said(self, text):
+		return frappe.db.exists(
+			"Comment", {"reference_doctype": "Lead", "reference_name": self.lead, "content": ("like", text)}
+		)
+
+	def test_skip_three_in_a_row_then_continue_and_bring_one_back(self):
+		draft = make_hub_proposal(self.lead, BDE, TEMPLATE)
+		chain = skip_hub_steps(self.lead, list(self.DOCUMENTS[:3]), "Repeat client, scope agreed", BDE)
+		for kind in self.DOCUMENTS[:3]:
+			step = self.step(chain, kind)
+			self.assertEqual((step["status"], step["done"]), ("Skipped", False))
+			self.assertEqual(step["skipped"]["reason"], "Repeat client, scope agreed")
+			self.assertEqual(step["skipped"]["by"], BDE)
+			self.assertIn("bring_back", step["actions"])
+		self.assertTrue(self.said("Skipped %Repeat client, scope agreed%"))
+		# kept for the app and the reports
+		self.assertEqual(
+			frappe.db.count("TBO Lead Document Step", {"lead": self.lead, "status": "Skipped"}), 3
+		)
+		self.assertEqual(
+			(chain["next"]["action"], chain["next"]["document_type"], chain["next"]["source"]),
+			("create", kinds.SRS, None),
+		)
+		# the SRS made after them: filled from the skipped draft, which isn't named as its source
+		self.assertEqual(self.step(chain, kinds.SRS)["prefill"], draft["name"])
+		srs_doc = hub.create_document(None, kinds.SRS, self.lead, acting_user=BDE)["proposal"]
+		self.assertEqual((srs_doc["document_type"], srs_doc["source_document"]), (kinds.SRS, None))
+		self.assertEqual(
+			[row["module_name"] for row in srs_doc["modules"]],
+			[row["module_name"] for row in draft["modules"]],
+		)
+		self.assertTrue(self.said("%made the SRS%from the lead%"))
+		# the BRD back, then made in between: it is next again, before the SRS
+		chain = hub.bring_back_step(self.lead, kinds.BRD, acting_user=BDE)
+		self.assertIsNone(self.step(chain, kinds.BRD)["skipped"])
+		self.assertEqual((chain["next"]["action"], chain["next"]["document_type"]), ("create", kinds.BRD))
+		self.assertTrue(self.said("Brought back BRD%"))
+		brd_doc = make_hub_document_from_lead(self.lead, kinds.BRD, BDE)
+		chain = self.chain()
+		self.assertEqual(self.step(chain, kinds.BRD)["name"], brd_doc)
+		self.assertEqual((chain["next"]["name"], chain["next"]["label"]), (brd_doc, "Review and send"))
+		# the skipped ones stay skipped
+		self.assertEqual(self.step(chain, kinds.PROPOSAL)["status"], "Skipped")
+
+	def test_start_in_the_middle(self):
+		plan_doc = make_hub_document_from_lead(self.lead, kinds.PLAN, BDE)
+		chain = self.chain()
+		for kind in self.DOCUMENTS[:4]:
+			step = self.step(chain, kind)
+			self.assertEqual((step["status"], step.get("implicit")), ("Not used", True))
+		self.assertEqual(
+			chain["next"],
+			{"action": "open", "document_type": kinds.PLAN, "name": plan_doc, "label": "Review and send"},
+		)
+		# a proposal now is out of order: not for a BD who isn't the lead's owner
+		assign_lead_to(self.lead, OTHER_BDE)
+		self.assertRaises(frappe.PermissionError, make_hub_proposal, self.lead, OTHER_BDE, TEMPLATE)
+		# marked not used in one go, with one reason, so the app and the reports have them
+		skip_hub_steps(
+			self.lead, list(self.DOCUMENTS[:4]), "Repeat client: plan only", BDE, status="Not used"
+		)
+		self.assertEqual(
+			frappe.db.count("TBO Lead Document Step", {"lead": self.lead, "status": "Not used"}), 4
+		)
+		hub.save_proposal(plan_doc, json.dumps({"start_date": nowdate()}), acting_user=BDE)
+		send_hub_proposal(plan_doc, BDE)
+		accept_as_client(plan_doc)
+		chain = self.chain()
+		self.assertEqual(
+			(chain["next"]["action"], chain["next"]["source_type"], chain["next"]["source"]),
+			("create_project", kinds.PLAN, plan_doc),
+		)
+		# the approved plan makes the project, not the lead
+		with self.assertRaisesRegex(frappe.ValidationError, "made from its implementation plan"):
+			hub.link_project(self.lead, "PROJ-0070", acting_user=BDE)
+		hub.link_project(self.lead, "PROJ-0071", plan_doc, acting_user=BDE)
+		self.assertFalse(
+			frappe.db.exists("TBO Lead Document Step", {"lead": self.lead, "document_type": "Project"})
+		)
+
+	def test_a_project_straight_from_the_lead_and_its_uat(self):
+		skip_hub_steps(self.lead, list(self.DOCUMENTS), "Support renewal: straight to the project", BDE)
+		chain = self.chain()
+		self.assertEqual(
+			(chain["next"]["action"], chain["next"]["source_type"], chain["next"]["source"]),
+			("create_project", "Lead", None),
+		)
+		chain = hub.link_project(
+			self.lead, "PROJ-0060", url="https://hub.example/helpdesk/projects/PROJ-0060", acting_user=BDE
+		)
+		self.assertTrue(self.step(chain, "Project")["done"])
+		self.assertEqual(
+			self.step(chain, "Project")["url"], "https://hub.example/helpdesk/projects/PROJ-0060"
+		)
+		# its UAT has no SRS to test: it waits, saying so, and can be skipped
+		self.assertIsNone(chain["next"])
+		self.assertIn("made straight from the lead", chain["note"])
+		self.assertIn("skip", self.step(chain, "UAT")["actions"])
+		# the same project again changes nothing; another is refused
+		hub.link_project(self.lead, "PROJ-0060", acting_user=BDE)
+		self.assertRaises(frappe.ValidationError, hub.link_project, self.lead, "PROJ-0061", acting_user=BDE)
+		chain = hub.record_uat(status="Signed", signed_by="Asha Menon", lead=self.lead, acting_user=BDE)
+		self.assertTrue(self.step(chain, "UAT")["done"])
+		self.assertIsNone(chain["next"])
+		self.assertEqual(
+			frappe.db.get_value(
+				"TBO Lead Document Step",
+				{"lead": self.lead, "document_type": "Project"},
+				"warranty_starts_on",
+			),
+			getdate(add_days(nowdate(), 1)),
+		)
+
+	def test_no_project(self):
+		chain = skip_hub_steps(self.lead, [*self.DOCUMENTS, "Project", "UAT"], "Consulting only", BDE)
+		self.assertIsNone(chain["next"])
+		self.assertIsNone(chain["note"])
+		self.assertTrue(all(step["skipped"] for step in chain["steps"]))
+		# the UAT without a project, while the project is skipped, waits with a note
+		hub.bring_back_step(self.lead, "UAT", acting_user=BDE)
+		chain = self.chain()
+		self.assertIsNone(chain["next"])
+		self.assertIn("needs a project", chain["note"])
+
+	def test_what_cant_be_skipped(self):
+		self.assertRaises(frappe.ValidationError, skip_hub_steps, self.lead, [kinds.BRD], "  ", BDE)
+		self.assertRaises(frappe.ValidationError, skip_hub_steps, self.lead, ["Invoice"], "Not needed", BDE)
+		proposal = make_hub_proposal(self.lead, BDE, TEMPLATE)["name"]
+		price_hub_proposal(proposal, BDE, SERVICE)
+		# a draft can be skipped, and comes back with its step
+		skip_hub_steps(self.lead, [kinds.PROPOSAL], "Price agreed on the call", BDE)
+		self.assertEqual(self.step(self.chain(), kinds.PROPOSAL)["name"], proposal)
+		hub.bring_back_step(self.lead, kinds.PROPOSAL, acting_user=BDE)
+		send_hub_proposal(proposal, BDE)
+		# with the client: only a revision changes it
+		with self.assertRaisesRegex(frappe.ValidationError, "only revised"):
+			skip_hub_steps(self.lead, [kinds.PROPOSAL], "Changed our mind", BDE)
+		self.assertNotIn("skip", self.step(self.chain(), kinds.PROPOSAL)["actions"])
+		# made while another is with the client: refused (skip it, or wait for the client)
+		self.assertRaises(
+			frappe.ValidationError, hub.create_document, None, kinds.BRD, self.lead, acting_user=BDE
+		)
+
+	def test_who_may_skip_and_work_out_of_order(self):
+		make_user(MANAGER, ["Sales User", "Sales Manager"])
+		# assigned: they may write the lead, but it isn't theirs
+		assign_lead_to(self.lead, OTHER_BDE)
+		chain = self.chain(OTHER_BDE)
+		self.assertFalse(chain["can_steer"])
+		self.assertNotIn("skip", self.step(chain, kinds.PROPOSAL)["actions"])
+		self.assertRaises(
+			frappe.PermissionError, skip_hub_steps, self.lead, [kinds.PROPOSAL], "Not needed", OTHER_BDE
+		)
+		# the next step is theirs to make; a step further on isn't
+		self.assertEqual(chain["next"]["action"], "create_proposal")
+		self.assertRaises(
+			frappe.ValidationError, hub.create_document, None, kinds.BRD, self.lead, acting_user=OTHER_BDE
+		)
+		# a manager may, and the owner is told
+		chain = skip_hub_steps(self.lead, [kinds.PROPOSAL], "Price agreed with the director", MANAGER)
+		self.assertEqual(self.step(chain, kinds.PROPOSAL)["skipped"]["by"], MANAGER)
+
+	def test_a_lost_lead_moves_nothing(self):
+		frappe.set_user("Administrator")
+		change_lead_stage(self.lead, "Wrong Number")
+		frappe.set_user(HUB)
+		chain = self.chain()
+		self.assertIn("Wrong Number", chain["blocked"])
+		self.assertIsNone(chain["next"])
+		self.assertFalse(chain["can_steer"])
+		self.assertFalse(any({"create", "skip"} & set(step["actions"]) for step in chain["steps"]))
+		self.assertRaises(frappe.ValidationError, make_hub_proposal, self.lead, BDE, TEMPLATE)
+		self.assertRaises(frappe.ValidationError, skip_hub_steps, self.lead, [kinds.PROPOSAL], "Lost", BDE)
+
+	def test_the_quotation_is_made_when_the_proposal_is_accepted(self):
+		enable_client_documents()
+		proposal = make_accepted_proposal(self.lead, BDE, TEMPLATE, SERVICE)
+		documents.after_decision(proposal, True)
+		made = frappe.get_all(
+			p.DOCTYPE,
+			filters={"lead": self.lead, "document_type": kinds.QUOTATION},
+			fields=["name", "status", "source_document", "quotation", "prepared_by"],
+		)
+		self.assertEqual(len(made), 1)
+		self.assertEqual(
+			(made[0].status, made[0].source_document, made[0].prepared_by), (p.DRAFT, proposal, BDE)
+		)
+		self.assertTrue(made[0].quotation)
+		self.assertTrue(self.said(f"Quotation {made[0].quotation} created from the accepted proposal%"))
+		self.assertEqual(self.chain()["next"]["label"], "Review and send")
+		# once: run again, nothing more is made
+		documents.after_decision(proposal, True)
+		self.assertEqual(frappe.db.count(p.DOCTYPE, {"lead": self.lead, "document_type": kinds.QUOTATION}), 1)
+
+	def test_the_proposal_is_the_quotation_so_the_agreement_is_prepared(self):
+		proposal = make_accepted_proposal(self.lead, BDE, TEMPLATE, SERVICE)
+		documents.after_decision(proposal, True)
+		self.assertFalse(frappe.db.exists(p.DOCTYPE, {"lead": self.lead, "document_type": kinds.QUOTATION}))
+		order = frappe.db.get_value(p.DOCTYPE, {"lead": self.lead, "document_type": kinds.WORK_ORDER}, "name")
+		self.assertTrue(order)
+		self.assertTrue(self.said(f"Project Agreement {order} prepared from {proposal}%"))
+
+	def test_changes_asked_make_the_revision(self):
+		proposal = make_accepted_proposal(self.lead, BDE, TEMPLATE, SERVICE)
+		order = make_hub_document(proposal, kinds.WORK_ORDER, BDE)["proposal"]["name"]
+		hub.save_proposal(order, json.dumps({"start_date": nowdate()}), acting_user=BDE)
+		send_hub_proposal(order, BDE)
+		decline_as_client(order, "Add payroll to the scope")
+		self.assertTrue(self.said("Asha Menon asked for changes to the agreement%Add payroll to the scope"))
+		documents.after_decision(order, False)
+		revision = frappe.db.get_value(
+			p.DOCTYPE, {"lead": self.lead, "document_type": kinds.WORK_ORDER, "is_latest": 1}, "name"
+		)
+		self.assertNotEqual(revision, order)
+		changes = hub.get_proposal(revision, acting_user=BDE)["changes_asked"]
+		self.assertEqual((changes["name"], changes["reason"]), (order, "Add payroll to the scope"))
+		self.assertEqual(
+			self.chain()["next"],
+			{
+				"action": "open",
+				"document_type": kinds.WORK_ORDER,
+				"name": revision,
+				"label": "Review and send",
+			},
+		)
+		# the client's page says what happens next
+		self.assertIn("send you the updated agreement with your changes", client_page_html(order))
