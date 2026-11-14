@@ -61,6 +61,7 @@ REFERENCE_KEY = "tbo_smart:telephony:ref:{}"
 REFERENCE_SECONDS = 6 * 60 * 60
 DIAL_LOCK_KEY = "tbo_smart:telephony:dialing:{}"
 DIAL_LOCK_SECONDS = 15
+RECORDING_WAIT_SECONDS = 60 * 60
 RECONCILE_LOCK_KEY = "tbo_smart:telephony:reconcile"
 RECONCILE_LOCK_SECONDS = 5 * 60
 RECONCILE_USER_KEY = "tbo_smart:telephony:refresh:{}"
@@ -877,9 +878,10 @@ def lead_number(lead: str, number: str | None) -> str:
 
 
 def call_details(events: list[str]) -> dict:
-	"""{event: {call, duration, direction, status, recording, summary}} for the call Events that
-	came through MyOperator. `recording` is the call's name when it has one (the player asks a
-	permission-checked endpoint for it); the transcript never leaves the server."""
+	"""{event: {call, duration, direction, status, recording, recording_state, summary}} for the
+	call Events that came through a provider. `recording` is the call's name when it has one (the
+	player asks a permission-checked endpoint for it); `recording_state` says saved, pending (the
+	provider has one, the download is still due) or none; the transcript never leaves the server."""
 	if not events:
 		return {}
 	Call = frappe.qb.DocType(DOCTYPE)
@@ -893,6 +895,8 @@ def call_details(events: list[str]) -> dict:
 			Call.direction,
 			Call.status,
 			Call.recording,
+			Call.recording_filename,
+			Call.creation,
 			Call.summary,
 		)
 		.where(Call.event.isin(events))
@@ -904,10 +908,20 @@ def call_details(events: list[str]) -> dict:
 			"direction": row.direction.lower() if row.direction else None,
 			"status": row.status.lower() if row.status else None,
 			"recording": row.name if row.recording else None,
+			"recording_state": recording_state(row),
 			"summary": parse_summary(row.summary),
 		}
 		for row in rows
 	}
+
+
+def recording_state(row) -> str:
+	"""saved, pending (the provider sent a recording that isn't downloaded yet, for up to an hour
+	after the call) or none."""
+	if row.recording:
+		return "saved"
+	recent = row.creation and row.creation > add_to_date(now_datetime(), seconds=-RECORDING_WAIT_SECONDS)
+	return "pending" if row.recording_filename and recent else "none"
 
 
 def parse_summary(value) -> dict | None:

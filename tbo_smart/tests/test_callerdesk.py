@@ -574,6 +574,35 @@ def calls_events(lead: str) -> list[str]:
 	)
 
 
+class TestRecordingState(TestCallerDesk):
+	"""The lead's timeline says whether a call's recording is saved, still coming, or not there."""
+
+	def state_of(self, call_id: str) -> str:
+		return calls.call_details([self.call_of(call_id).event])[self.call_of(call_id).event][
+			"recording_state"
+		]
+
+	def test_saved_pending_and_none(self):
+		post_callerdesk_webhook(callerdesk_report("CD-NONE"))
+		self.assertEqual(self.state_of("CD-NONE"), "none")
+		with patch("tbo_smart.telephony.calls.requests.get", side_effect=requests.ConnectionError("down")):
+			post_callerdesk_webhook(callerdesk_report("CD-WAIT", CallRecordingUrl=RECORDING_URL))
+		self.assertEqual(self.state_of("CD-WAIT"), "pending")
+		with patch(
+			"tbo_smart.telephony.calls.requests.get", return_value=myoperator_response(200, {}, content=AUDIO)
+		):
+			post_callerdesk_webhook(callerdesk_report("CD-OK", CallRecordingUrl=RECORDING_URL))
+		self.assertEqual(self.state_of("CD-OK"), "saved")
+
+	def test_a_download_that_never_worked_stops_saying_pending_after_an_hour(self):
+		with patch("tbo_smart.telephony.calls.requests.get", side_effect=requests.ConnectionError("down")):
+			post_callerdesk_webhook(callerdesk_report("CD-OLD", CallRecordingUrl=RECORDING_URL))
+		frappe.db.set_value(
+			"TBO Call", self.call_of("CD-OLD").name, "creation", frappe.utils.add_to_date(None, hours=-2)
+		)
+		self.assertEqual(self.state_of("CD-OLD"), "none")
+
+
 class TestReconcile(TestCallerDesk):
 	"""Calls whose webhook never arrived are found in CallerDesk's call report."""
 
