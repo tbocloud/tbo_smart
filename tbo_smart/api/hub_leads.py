@@ -73,6 +73,8 @@ from tbo_smart.telephony.calls import call_details, can_call, log_manual_call
 VIEWS = ("all", "mine", "call_today", "follow_up", "called")
 # when a lead's earliest open follow-up is due, as the Follow-up view's cards split them
 DUE_BUCKETS = ("overdue", "today", "tomorrow", "week", "later")
+# the views the follow-up due days (due_from, due_to) narrow
+DUE_DAYS_VIEWS = ("follow_up", "mine")
 TEMPERATURES = ("Hot", "Warm", "Cold")
 SALES_USER = "Sales User"
 MAX_PAGE_LENGTH = 100
@@ -309,6 +311,8 @@ def list_leads(
 	mine: bool | int | str = False,
 	created_by_me: bool | int | str = False,
 	due: str | None = None,
+	due_from: str | None = None,
+	due_to: str | None = None,
 	acting_user: str | None = None,
 ) -> dict:
 	"""The leads the acting user may see, newest change first: {rows, total}. `view`: all, mine
@@ -318,7 +322,10 @@ def list_leads(
 	days). `mine` keeps any view to the leads they own or created; `created_by_me` to the ones
 	they created (whoever owns them now: they may read, not change, those). `due` (with
 	follow_up) keeps the leads whose earliest open follow-up is overdue, today, tomorrow, in the
-	week after (`week`: 2 to 7 days on) or `later`; without it follow_up is overdue and today. `metric` (with `period`, or `from_date` and
+	week after (`week`: 2 to 7 days on) or `later`; without it follow_up is overdue and today.
+	`due_from` and `due_to` (with follow_up or mine; either may be left out) keep the leads whose
+	earliest open follow-up falls in those days, earliest first; on follow_up they take the place
+	of `due`. `metric` (with `period`, or `from_date` and
 	`to_date`) keeps the leads one number of the overview counts (get_overview). `department`
 	keeps one lead department's leads (the acting user still sees only what they may).
 	`industry`, `state`, `district`, `org_size` and `product` (a product of the department) each take a value or a list (a JSON list in a
@@ -329,6 +336,7 @@ def list_leads(
 		frappe.throw(_("view must be one of {0}.").format(", ".join(VIEWS)))
 	start = max(cint(start), 0)
 	page_length = min(max(cint(page_length) or 20, 1), MAX_PAGE_LENGTH)
+	days = follow_up_days(due_from, due_to) if view in DUE_DAYS_VIEWS else None
 	with acting_as(acting_user) as user:
 		filters = lead_filters(stage, owner, segment)
 		if source:
@@ -361,25 +369,31 @@ def list_leads(
 		elif view == "call_today":
 			names = call_today_names(user)
 			filters["name"] = ("in", within(filters, names) or [""])
+		by_due = None
+		if days:
+			by_due = follow_ups_between(*days)
 		elif view == "follow_up":
-			due = due_follow_ups(clean_due(due))
-			filters["name"] = ("in", within(filters, list(due)) or [""])
+			by_due = due_follow_ups(clean_due(due))
+		if by_due is not None:
+			filters["name"] = ("in", within(filters, list(by_due)) or [""])
+		# these are ordered here, not by the query, so the page is cut after sorting
+		in_memory = view == "call_today" or by_due is not None
 		rows = frappe.get_list(
 			"Lead",
 			filters=filters,
 			or_filters=or_filters,
 			fields=ROW_FIELDS,
 			order_by=order_by,
-			limit_page_length=0 if view in ("call_today", "follow_up") else page_length,
-			limit_start=0 if view in ("call_today", "follow_up") else start,
+			limit_page_length=0 if in_memory else page_length,
+			limit_start=0 if in_memory else start,
 		)
 		if view == "call_today":
 			order = {name: index for index, name in enumerate(names)}
 			rows.sort(key=lambda row: order[row.name])
-		elif view == "follow_up":
-			rows.sort(key=lambda row: (due[row.name], row.name))
-		total = len(rows) if view in ("call_today", "follow_up") else count_leads(filters, or_filters)
-		if view in ("call_today", "follow_up"):
+		elif by_due is not None:
+			rows.sort(key=lambda row: (by_due[row.name], row.name))
+		total = len(rows) if in_memory else count_leads(filters, or_filters)
+		if in_memory:
 			rows = rows[start : start + page_length]
 		return {"rows": serialize_rows(rows), "total": total}
 
@@ -476,6 +490,27 @@ def due_bucket(day, today) -> str:
 	if day == add_days(today, 1):
 		return "tomorrow"
 	return "week" if day <= add_days(today, 7) else "later"
+
+
+def follow_up_days(due_from: str | None, due_to: str | None) -> tuple | None:
+	"""(start, end) of the follow-up days asked for, either None when left out; None for neither."""
+	if not (due_from or due_to):
+		return None
+	start = getdate(due_from) if due_from else None
+	end = getdate(due_to) if due_to else None
+	if start and end and end < start:
+		frappe.throw(_("The end date is before the start date."))
+	return start, end
+
+
+def follow_ups_between(start, end) -> dict:
+	"""{lead: its earliest open follow-up's day} for the leads whose day is within start and end
+	(either None: open on that side)."""
+	return {
+		lead: day
+		for lead, day in open_follow_ups().items()
+		if (not start or getdate(day) >= start) and (not end or getdate(day) <= end)
+	}
 
 
 def clean_due(due: str | None) -> str | None:

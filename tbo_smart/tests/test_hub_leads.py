@@ -107,6 +107,36 @@ class TestHubLeads(FrappeTestCase):
 			frappe.ValidationError, hub.list_leads, view="follow_up", due="soon", acting_user=BDE
 		)
 
+	def test_follow_ups_are_listed_by_the_days_they_are_due(self):
+		frappe.set_user("Administrator")
+		soon = make_lead(BDE, "Hub Due Soon")
+		later = make_lead(BDE, "Hub Due Later")
+		make_lead_task(self.mine, add_days(today(), -2), BDE)
+		make_lead_task(soon, add_days(today(), 3), BDE)
+		make_lead_task(later, add_days(today(), 10), BDE)
+		frappe.set_user(HUB)
+
+		def names(**kwargs):
+			return [row["name"] for row in hub.list_leads(mine=1, acting_user=BDE, **kwargs)["rows"]]
+
+		week = {"due_from": today(), "due_to": add_days(today(), 7)}
+		self.assertEqual(names(view="follow_up", **week), [soon])
+		# the days take the place of a due card
+		self.assertEqual(names(view="follow_up", due="later", **week), [soon])
+		# either side may be left out, earliest first
+		self.assertEqual(names(view="mine", due_from=today()), [soon, later])
+		self.assertEqual(names(view="mine", due_to=today()), [self.mine])
+		# only Follow-up and Mine take the days
+		self.assertEqual(len(names(view="all", due_to=today())), 3)
+		self.assertRaises(
+			frappe.ValidationError,
+			hub.list_leads,
+			view="mine",
+			due_from=today(),
+			due_to=add_days(today(), -1),
+			acting_user=BDE,
+		)
+
 	def test_the_integration_user_must_name_a_real_sales_user(self):
 		self.assertRaises(frappe.PermissionError, hub.list_leads)
 		for who in ("nobody@tbosmart.test", GONE, STAFF, HUB):
