@@ -645,10 +645,10 @@ class TestReconcile(TestCallerDesk):
 		self.assertEqual((call.duration, call.talk_seconds, call.direction), (112, 87, "Outgoing"))
 		self.assertTrue(call.event)
 		self.assertTrue(calls.recording_file(call.name).get_content() == AUDIO)
-		sent = post.call_args.kwargs["data"]
+		sent = post.call_args_list[0].kwargs["data"]
 		self.assertEqual(sent["authcode"], TEST_CALLERDESK_KEY)
 		self.assertEqual(sent["current_page"], 1)
-		self.assertEqual(post.call_args.args[0], callerdesk.CALL_LIST_URL)
+		self.assertEqual(post.call_args_list[0].args[0], callerdesk.CALL_LIST_URL)
 
 	def test_a_call_dialled_from_the_callerdesk_app_lands_as_an_outgoing_call(self):
 		app_row = callerdesk_list_row("77001", callresult="Answered", callstatus="ANSWER")
@@ -689,10 +689,11 @@ class TestReconcile(TestCallerDesk):
 		post_callerdesk_webhook(callerdesk_report("59884395"))
 		self.reconcile(callerdesk_list_row("59884395"), callerdesk_list_row("59884396"))
 		self.assertEqual(frappe.db.count("TBO Call", {"call_id": ("in", ["59884395", "59884396"])}), 2)
+		events = frappe.db.count("Event")
 		frappe.cache.delete_value(frappe.cache.make_key(calls.RECONCILE_LOCK_KEY), make_keys=False)
 		self.reconcile(callerdesk_list_row("59884395"), callerdesk_list_row("59884396"))
 		self.assertEqual(frappe.db.count("TBO Call", {"call_id": ("in", ["59884395", "59884396"])}), 2)
-		self.assertEqual(frappe.db.count("Event", {"subject": ("like", "%Caller Known%")}), 2)
+		self.assertEqual(frappe.db.count("Event"), events)
 
 	def test_a_call_stuck_on_live_is_closed_by_its_report(self):
 		self.place_click_to_call()
@@ -707,7 +708,7 @@ class TestReconcile(TestCallerDesk):
 		self.assertFalse(frappe.db.exists("TBO Call", {"call_id": "59884398"}))
 
 	def test_nothing_runs_for_another_provider_or_without_the_key(self):
-		enable_telephony()
+		enable_telephony(telephony_provider="MyOperator")
 		with patch("tbo_smart.telephony.callerdesk.requests.post") as post:
 			calls.reconcile_callerdesk()
 		post.assert_not_called()
