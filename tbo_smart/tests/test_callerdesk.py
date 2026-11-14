@@ -24,6 +24,7 @@ from tbo_smart.test_utils import (
 	make_user,
 	myoperator_response,
 	post_callerdesk_webhook,
+	set_smart_lead_settings,
 )
 
 BDE = "cd.bde@tbosmart.test"
@@ -31,8 +32,10 @@ BDE2 = "cd.bde2@tbosmart.test"
 ADMIN = "cd.admin@tbosmart.test"
 NUMBER = "+919876543210"
 UNKNOWN_NUMBER = "+919800011122"
-NUMBERS = (NUMBER, UNKNOWN_NUMBER)
-AUDIO = b"RIFF\x24\x00\x00\x00WAVEfmt "
+OTHER_NUMBER = "+919812345678"
+NUMBERS = (NUMBER, OTHER_NUMBER, UNKNOWN_NUMBER)
+# real audio isn't text (File.get_content decodes text)
+AUDIO = b"RIFF\x24\x00\x00\x00WAVEfmt \xff\xfb\x90"
 RECORDING_URL = "https://callrecords.callerdesk.test/incoming/01_rec.wav"
 CLICK_URL = "https://app.callerdesk.io/api/click_to_call_v2"
 AGENTS = [
@@ -131,6 +134,7 @@ class TestWebhook(TestCallerDesk):
 
 	def test_it_is_refused_while_off_or_while_the_other_provider_is_chosen(self):
 		enable_telephony(AGENTS)
+		set_smart_lead_settings(telephony_provider="MyOperator")
 		with self.assertRaises(frappe.PermissionError):
 			post_callerdesk_webhook(callerdesk_report("CD-OFF"))
 		enable_callerdesk(AGENTS)
@@ -213,14 +217,18 @@ class TestClickToCall(TestCallerDesk):
 
 	def test_a_call_group_is_sent_when_set_and_a_mobile_rings_when_there_is_no_callerdesk_number(self):
 		enable_callerdesk(AGENTS, callerdesk_group="TestGroup")
+		lead = make_lead(BDE2, "Second Caller", mobile_no=OTHER_NUMBER)
 		frappe.set_user(BDE2)
 		with patch(
 			"tbo_smart.telephony.callerdesk.requests.get",
 			return_value=myoperator_response(200, {"status": "success"}),
 		) as get:
-			result = api.click_to_call(self.lead)
+			result = api.click_to_call(lead)
 		params = get.call_args.kwargs["params"]
-		self.assertEqual((params["group_name"], params["calling_party_a"]), ("TestGroup", "9000000002"))
+		self.assertEqual(
+			(params["group_name"], params["calling_party_a"], params["calling_party_b"]),
+			("TestGroup", "9000000002", "9812345678"),
+		)
 		self.assertIsNone(result["reference_id"])
 
 	def test_refusals_are_in_plain_words(self):
