@@ -226,7 +226,29 @@ instead plan each member (hub: Leads, **Assign leads**): the **product** they ar
   name) and `unassigned_districts` (`{district: {products: {product: leads}, industries:
   {industry: leads}}}`, unassigned open leads with a phone; `plans.department_districts`).
   Districts that differ only in case or spacing are one district. Saving a department's members in
-  Settings keeps each member's whole plan (product, industry, district, sizes).
+  Settings keeps each member's whole plan (product, industry, district, sizes, slot districts).
+- **Each slot by district:** a plan can instead split each slot into districts, for example
+  Morning: Ernakulam 50; Afternoon: Idukki 20 + Mixed 10. It is the member's `slot_districts`
+  (`{"Morning": [{"district": "Ernakulam", "calls": 50}], "Afternoon": [{"district": "Idukki",
+  "calls": 20}, {"district": "", "calls": 10}]}`; a blank district is **Mixed**, any district).
+  `save_call_plan` takes it as `slot_districts`: each slot of the department's own, each district
+  once a slot (Mixed too; case and spacing ignored), only the campaign district when the department
+  has one, 0 to 500 calls a slot in all, rows of 0 dropped. `slot_sizes` then holds each slot's
+  total (the cap, `plan_total` and older readers keep working) and `call_district` is cleared: the
+  rows decide. A slot left out keeps its size and the plan's district.
+  - **The batches** (`fill.fill_items`, from the clock and the next batch): the slot's shares in
+    order, named districts first and Mixed last (so Mixed never takes what a named district
+    waits for); each share takes up to its calls of its district, the person's own leads first,
+    then unassigned ones, until the slot's room is used. Mixed takes any district, or the one the
+    request or the person's *Calling for* narrows to. The campaign district still wins. A lead is
+    never in two shares.
+  - **The auto-assign** (§14) tops up district by district (`plans.day_shares`: the day's calls
+    per district over every slot), then Mixed.
+  - **Calling for** locks a district only for a plan with one `call_district`; with a split the
+    named rows decide and the person may narrow Mixed.
+  - `get_call_plans` gives each member `slot_districts` for every slot: a slot not split is one
+    share (the plan's district, or Mixed) of its size, so the hub draws every plan the same way.
+    No patch: a plan saved before reads as that one share.
 
 ## 12. Handing leads by hand (`sales/call_batches/handout.py`)
 
@@ -261,8 +283,11 @@ department's time gets leads automatically.
   by hand today (a ToDo "Assigned to you on Assign leads" created today).
 - **How many:** their plan's calls for the day minus the open leads of the plan's product,
   industry and district they own, with a phone, never called (`tbo_last_call_on` empty). Nothing
-  when that is 0 or less.
-- **Which leads:** the next unassigned ones of the plan's product, industry and district, as Assign leads picks them
+  when that is 0 or less. A plan split by district (§11) counts each named district's calls
+  against their uncalled leads there, then Mixed against the rest of their uncalled leads (those
+  no named district used): `auto_assign.missing` gives `[(district, short)]`.
+- **Which leads:** the next unassigned ones of the plan's product, industry and district (each
+  district short, then any district for Mixed), as Assign leads picks them
   (`handout.next_unassigned`: hot, then newest, rows locked). Handed with `handout.hand` and the
   note "Assigned to you automatically: nobody handed you leads by the set time".
 - **Settings:** with the other call rules (`settings.py`, the hub's Lead departments dialog); the

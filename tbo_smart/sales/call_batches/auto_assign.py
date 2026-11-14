@@ -6,7 +6,8 @@ Per department, on its settings (`auto_assign`, `auto_assign_at`, `auto_assign_s
 member with a call plan (plans.py) who was not handed a lead of the department by hand today and
 is at work (not on leave or a holiday, `is_off_today`) is topped up to their plan: the plan's
 calls for the day minus the open leads of the plan's product, industry and district they own and
-have never called. The leads are the next unassigned ones of those, as Assign leads would pick them
+have never called. A plan split by district (plans.day_shares) is topped up district by district,
+then Mixed with any district. The leads are the next unassigned ones of those, as Assign leads would pick them
 (hot first, then newest, rows locked so the batches never take the same one).
 """
 
@@ -17,7 +18,7 @@ from frappe.utils import cint, get_datetime, get_time, getdate, now_datetime
 from tbo_smart.sales import stale
 from tbo_smart.sales.call_batches import is_off_today
 from tbo_smart.sales.call_batches.handout import HANDED_NOTE, hand, has_phone, next_unassigned
-from tbo_smart.sales.call_batches.plans import plan_district, plan_industry, plan_product, plan_total
+from tbo_smart.sales.call_batches.plans import day_shares, plan_industry, plan_product, plan_total
 from tbo_smart.sales.departments import DEPARTMENT
 
 AUTO_NOTE = "Assigned to you automatically: nobody handed you leads by the set time"
@@ -77,36 +78,38 @@ def assign_department(department, day) -> dict[str, int]:
 	for row in department.members:
 		if not frappe.db.get_value("User", row.user, "enabled"):
 			continue  # left the company: leads handed to them would never be called
-		count = missing(department, row.user, day)
-		if count <= 0:
-			continue
-		leads = next_unassigned(
-			department,
-			count,
-			plan_product(department, row.user),
-			plan_industry(department, row.user),
-			plan_district(department, row.user),
-		)
-		for lead in leads:
-			hand(lead, row.user, AUTO_NOTE)
-		if leads:
-			given[row.user] = len(leads)
+		product, industry = plan_product(department, row.user), plan_industry(department, row.user)
+		count = 0
+		for district, short in missing(department, row.user, day):
+			leads = next_unassigned(department, short, product, industry, district)
+			for lead in leads:
+				hand(lead, row.user, AUTO_NOTE)
+			count += len(leads)
+		if count:
+			given[row.user] = count
 	return given
 
 
-def missing(department, user: str, day) -> int:
-	"""How many leads `user` is short of their plan today; 0 when they are left alone (no plan, a
-	plan of no calls, off today, or handed leads by hand today)."""
-	total = plan_total(department, user)
-	if total <= 0 or is_off_today(user, day) or handed_by_hand(department.name, user, day):
-		return 0
-	return total - uncalled(
-		department.name,
-		user,
-		plan_product(department, user),
-		plan_industry(department, user),
-		plan_district(department, user),
-	)
+def missing(department, user: str, day) -> list[tuple[str, int]]:
+	"""[(district, leads)] `user` is short of their plan today ("" is any district); empty when
+	they are left alone (no plan, a plan of no calls, off today, or handed leads by hand today).
+	Each named district counts their uncalled leads there; Mixed counts the rest of their uncalled
+	leads (those a named district does not need)."""
+	if plan_total(department, user) <= 0 or is_off_today(user, day):
+		return []
+	if handed_by_hand(department.name, user, day):
+		return []
+	product, industry = plan_product(department, user), plan_industry(department, user)
+	short, used = [], 0
+	for district, calls in day_shares(department, user):
+		if district:
+			own = uncalled(department.name, user, product, industry, district)
+			used += min(own, calls)
+		else:
+			own = max(uncalled(department.name, user, product, industry) - used, 0)
+		if calls > own:
+			short.append((district, calls - own))
+	return short
 
 
 def handed_by_hand(department: str, user: str, day) -> bool:
