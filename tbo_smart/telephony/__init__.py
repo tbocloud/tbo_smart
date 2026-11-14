@@ -29,6 +29,10 @@ MANUAL_OUTCOMES = {
 	"Not interested": ANSWERED,
 	"Wrong number": MISSED,
 }
+# CallerDesk `Status` values (lower case): the customer's line was engaged, and the telecaller's
+# own side failed (so the customer was never really tried)
+BUSY_STATUSES = ("busy", "agentengaged")
+AGENT_SIDE_STATUSES = ("cancel-agent", "agent-unregistered")
 # a TBO Call's live_status, for the call box
 RINGING, AGENT_PICKED, ON_CALL, ENDED = "Ringing", "Agent picked", "On call", "Ended"
 LIVE_EVENT = "live"

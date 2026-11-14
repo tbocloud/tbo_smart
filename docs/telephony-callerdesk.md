@@ -1,4 +1,4 @@
-# Telephony through CallerDesk (living spec, v1.1)
+# Telephony through CallerDesk (living spec, v1.2)
 
 **Status:** built 2026-11-14, behind TBO Smart Settings → **Telephony → Telephony provider =
 CallerDesk**, off by default (MyOperator stays the default provider). Telecallers' calls through
@@ -15,47 +15,50 @@ Code: `tbo_smart/telephony/callerdesk.py` (everything shaped like CallerDesk: `p
 
 ## 1. What CallerDesk's documentation says
 
-Sources: <https://docs.callerdesk.io/sample-payload>, <https://docs.callerdesk.io/setup-live-webhook>,
+Sources: CallerDesk's full API reference (its Postman collection, read in full on 2026-11-14: webhook payloads, click-to-call variants, call report, live call, members, break control), CallerDesk support's answers of 2026-11-14, <https://docs.callerdesk.io/sample-payload>, <https://docs.callerdesk.io/setup-live-webhook>,
 <https://docs.callerdesk.io/what-is-webhook-event>, the API reference
-<https://api.callerdesk.io/view/metadata/2sA3kPp4vp> (its Postman collection needs a Postman login
-and could not be read), and CallerDesk's own LeadSquared guide
+<https://api.callerdesk.io/view/metadata/2sA3kPp4vp>, and CallerDesk's own LeadSquared guide
 (<https://docs.callerdesk.io/leadsquard-integration/>), the only public page that shows the
 click-to-call URL. Read on 2026-11-14.
 
 ### 1.1 Confirmed
 
-| Topic | What the docs say |
+| Topic | What CallerDesk says (source) |
 | --- | --- |
-| Auth | The API key goes in the `authcode` parameter; HTTPS only. (Postman: Basic auth, key and secret; we don't use it.) |
-| Call Report webhook | Fields `SourceNumber`, `DestinationNumber` (virtual number), `DialWhomNumber` (who answered), `CallDuration`, `coins`, `Status` (sample `ANSWER`), `StartTime`, `EndTime` (`yyyy-mm-dd hh:mm:ss`), `CallSid` (id), `CallRecordingUrl`, `Direction` (`IVR` incoming, `WEBOBD` outgoing), `campid`, `TalkDuration`, `call_group`, `receiver_name`, `error_code`, `LegA_Picked_time`, `LegB_Start_time`, `LegB_Picked_time`. |
-| Live Call webhook | Sample fields `SourceNumber`, `DestinationNumber`, `DialWhomNumber` (the agent number that answered), `Status` (`ANSWER`; the docs say outcomes such as agent engaged, busy, abandoned, answered, cancel), `StartTime`, `CallSid`, `Direction`, `campid`. No `EndTime`, no `CallDuration`. A "Live Call (Only Picked)" event exists too. |
-| Webhook setup | Dashboard → API & Integration → Webhooks → Create Webhook: a public HTTPS URL, an alert email, the events. Up to five URLs. A premium feature (ask the account manager). URLs containing CallerDesk's domain are refused. |
-| Click-to-call URL | `GET https://app.callerdesk.io/api/click_to_call_v2` with `calling_party_a` (the agent, no country code), `calling_party_b` (the customer), `deskphone` (the virtual number), `call_from_did=1`, `authcode`. The "with call group" variant adds `group_name` (calling_party_a must be a member of the group). Leg A is dialled first. |
+| Auth | The API key goes in the `authcode` parameter; HTTPS only. Most APIs are POST form (`authcode`); click-to-call and live_call are GET (docs). |
+| Call Report webhook | JSON with `"type": "call_report"`, `SourceNumber` (caller), `DestinationNumber` (virtual number), `DialWhomNumber` ("agent number on which the call has been answered"), `CallDuration` ("total call duration from initiation to end"; the sample is 26 for StartTime to EndTime 26 s), `coins`, `Status`, `StartTime`, `EndTime` (`yyyy-mm-dd hh:mm:ss`), `CallSid`, `CallRecordingUrl`, `Direction` (`IVR` incoming, `WEBOBD` outgoing), `campid` (outgoing only), `TalkDuration` ("if the call was answered", sample 2), `call_group`, `receiver_name`, `error_code`, `LegA_Picked_time`, `LegB_Start_time`, `LegB_Picked_time`, `key_press`, `hangup_cause` (sample `ANSWER(16-customer)`), `Uniqueid` (docs, Post Webhook payload). |
+| Who is who on WEBOBD | The sample is an outgoing call: `receiver_name` "Aniket" answered on `DialWhomNumber` 0765208xxx, the member number the click-to-call docs use as the agent; `SourceNumber` is the customer. So customer = `SourceNumber`, agent = `DialWhomNumber` (docs; confirm with a real call, §1.3). |
+| Durations | `CallDuration` is the whole call (ringing included), `TalkDuration` the conversation (docs). |
+| Report or live | A Call Report carries `type` `call_report`. The Live Call sample lists only `SourceNumber`, `DestinationNumber`, `DialWhomNumber`, `Status`, `StartTime`, `CallSid`, `Direction`, `call_group` and documents no `type` (docs). |
+| Status values | Besides `ANSWER`: `cancel-Agent`, `cancel-Customer`, `CANCEL`, `Congestion`, `AgentEngaged`, `AbandonedCall`, `Agent-Unregistered`, `Unavailable`, `NOANSWER`, `Busy`. A separate `CallStatus` returns only "Answered" or "No Answer" (support, 2026-11-14). |
+| Delivery | Call Report and Live Call webhooks are enabled on the account; delivered by POST in JSON (support, 2026-11-14). |
+| Recordings | Downloadable from the recording URL without login; how long CallerDesk keeps them is not confirmed (support, 2026-11-14). |
+| Coins | Click-to-call does not use click-to-call coins; OBD coins are deducted (support, 2026-11-14). |
+| Browser calling | WebRTC calling in the browser is supported; no details given (support, 2026-11-14). |
+| Webhook setup | Dashboard → API & Integration → Webhooks → Create Webhook: a public HTTPS URL, an alert email, the events. Up to five URLs. A premium feature. URLs containing CallerDesk's domain are refused. |
+| Click-to-call request | `GET https://app.callerdesk.io/api/click_to_call_v2` with `calling_party_a` (the agent, called first), `calling_party_b` (the customer), `deskphone`, `call_from_did=1` (mandatory), `authcode`; the "with call group" variant adds `group_name` (party A must be in the group); `call_start_time` is optional (docs). |
+| Click-to-call answer | Success: `{"type": "success", "message": "Call to Customer Initiate Successfully..", "campid": <int>, "callerid": "…"}`, `campid` at the top level (docs). A refusal is HTTP 200 `{"type": "error", "message": "…"}` (seen live, 2026-11-14). With no member in the account CallerDesk says "Agent on break/Inactive. Call not allowed" (seen live). |
+| Account | Deskphone `08065117042` (did_num `8065117042`); the member list endpoints need POST (seen live). |
 
-### 1.2 Assumed (confirm with CallerDesk)
+### 1.2 Still assumed
 
 1. **No signature, no header auth.** The docs say nothing about either, so the webhook's
    address carries a long random token (`?token=…`), checked in constant time.
-2. **Status values.** Only `ANSWER` is documented. Anything else (BUSY, CANCEL, NOANSWER, …) is
-   stored as Missed.
-3. **Who is the customer on an outgoing call.** The docs don't say which of `SourceNumber` and
-   `DialWhomNumber` is the telecaller's on `WEBOBD`. We take the one that is a mapped telecaller's
-   number (CallerDesk number or mobile) as the agent and the other as the customer; a click-to-call
-   is found by its `campid` anyway.
-4. **Durations.** The sample shows `CallDuration` 18 and `TalkDuration` 40, so which is the
-   conversation isn't clear. We store `CallDuration` as the call's duration and `TalkDuration`
-   (else `CallDuration`) as the talk time, for answered calls only.
-5. **The click-to-call answer.** Not documented. Seen live (2026-11-14): a refusal is HTTP 200
-   with `{"type": "error", "message": "Invalid Auth Code!"}`, so `type` is read too. A 2xx whose JSON doesn't say it failed
-   (`status` error/fail/false, or an `error` key) is accepted; the `campid` is read from the
-   answer's `campid` or `data.campid`. If CallerDesk sends none, the call report finds the lead by
-   the customer's number instead.
-6. **Customer numbers.** Indian numbers are sent as 10 digits; any other country's with its code.
-7. **Webhook delivery.** Another CRM integration reports that CallerDesk didn't reliably push
-   Call Reports and only sent the validation ping. Check the webhook is active, and ask the
-   account manager to enable the event; only then do calls arrive. The recording links need no
-   login (the same report).
-8. **Recordings** are WAV files; we keep the format. `CallRecordingUrl` must be https.
+2. **Times are India time.** The docs give the format only, not the zone.
+3. **Live Call `type`.** Not documented; any `type` other than `call_report` is taken as live,
+   and with no `type` the old rule (a CallSid but no EndTime and no CallDuration) decides.
+4. **What Live Call `ANSWER` means on an outgoing call**, and whether Live Call fires again
+   when the second leg picks up (§3.1).
+5. **Customer numbers.** Indian numbers are sent as 10 digits; any other country's with its code.
+6. **Recordings** are WAV files; we keep the format. `CallRecordingUrl` must be https.
+
+### 1.3 To confirm with a real test call
+
+- On a WEBOBD report, that `SourceNumber` is the customer and `DialWhomNumber` the telecaller
+  (the code still swaps them when only `SourceNumber` is a mapped telecaller's number).
+- The Live Call payload: its `type`, and the order of its events for one click-to-call.
+- That `Status` of an unanswered click-to-call is one of the listed values.
+- The time zone of the times.
 
 ## 2. Settings (TBO Smart Settings → Telephony)
 
@@ -87,15 +90,25 @@ The secret of CallerDesk's Basic-auth APIs isn't a field: nothing here calls tho
    | --- | --- |
    | call_id | `CallSid` |
    | direction | `Direction` `WEBOBD`/`OBD` → Outgoing, anything else Incoming |
-   | status | `Status` `ANSWER` → Answered, anything else Missed |
-   | customer_number | incoming: `SourceNumber`; outgoing: the number that isn't a telecaller's (§1.2) |
-   | agent | incoming: `DialWhomNumber`; outgoing: the telecaller's number; mapped to a user through the table |
+   | status | `Status` `ANSWER` → Answered, every other value Missed (list in §1.1); when `Status` is missing or not in that list, `CallStatus` ("Answered" / "No Answer") decides |
+   | provider_status | the `Status` as CallerDesk wrote it (or the `CallStatus` stand-in) |
+   | customer_number | `SourceNumber` |
+   | agent | `DialWhomNumber`, mapped to a user through the table (swapped with `SourceNumber` on an outgoing call only when `SourceNumber` is the mapped telecaller's) |
    | started_at, ended_at | `StartTime`, `EndTime` (India time, converted to the site's time zone) |
-   | duration, talk_seconds | `CallDuration`, `TalkDuration` (§1.2) |
+   | duration, talk_seconds | `CallDuration` (whole call), `TalkDuration` (answered calls only; a missing one, not a 0, falls back to `CallDuration`) |
    | recording_filename | `CallRecordingUrl`, answered calls only |
    | reference_id | `campid` |
 
-4. `process_call` is unchanged: the click-to-call's lead and agent first (by `campid`), else the
+   **What the status means for the lead and the batches** (`calls.call_outcome`, `outcomes.sync_calls`):
+
+   | `Status` | TBO Call | Lead's last call / batch item |
+   | --- | --- | --- |
+   | `ANSWER` | Answered | Connected |
+   | `Busy`, `AgentEngaged` | Missed | **Busy** (retried like Not answered) |
+   | `NOANSWER`, `Unavailable`, `Congestion`, `AbandonedCall`, `CANCEL`, `cancel-Customer` | Missed | Not answered |
+   | `cancel-Agent`, `Agent-Unregistered` | Missed | nothing: the telecaller's own side failed, the lead was never tried (no lead result, not counted on a batch) |
+
+4. `process_call` is otherwise unchanged: the click-to-call's lead and agent first (by `campid`), else the
    lead with the customer's number among all its numbers, else a new lead for an unknown incoming
    caller (when "Create a lead for an unknown caller" is on), the call Event on the lead, a "Call
    back" task for a missed incoming call, and the call's outcome for call batches.
@@ -114,23 +127,39 @@ GET https://app.callerdesk.io/api/click_to_call_v2
     &deskphone=<virtual number>&call_from_did=1&authcode=<API key>[&group_name=<call group>]
 ```
 
-CallerDesk rings the telecaller first, then the lead. The `campid` of its answer is remembered
+CallerDesk rings the telecaller first, then the lead. Only an answer with `type` "success" is an
+accepted call; its top-level `campid` is remembered
 for 6 hours with the lead and the person, so the call report lands on that lead. Answer to the
 user: "CallerDesk is calling your phone…". Errors are plain: "CallerDesk didn't accept the call:
-<its reason>", "…it refused the API key…", "Couldn't reach CallerDesk. Try again in a minute."
+<its reason>" (after "Agent on break/Inactive…" it adds "Ask an admin to add your number as an active member in CallerDesk."), "…it refused the API key…", "Couldn't reach CallerDesk. Try again in a minute."
 The key is in the request's URL, so no failure message or log shows the URL.
 
 **Test connection** (settings API) only checks that the key and the virtual number are set;
 CallerDesk has no call that proves the key without placing a call.
 
-The "Reverse C2C" and "C2C via member id" variants aren't used: they ring the customer first,
-or need CallerDesk member IDs.
+The "Reverse C2C" (`click_to_call_v3`, customer first) variant isn't used. Click-to-call does not
+use click-to-call coins; OBD coins are deducted (support, 2026-11-14).
+
+### 4.1 Other CallerDesk APIs we could use (not built)
+
+- **Add / Update member** (`add_member_v2`, `update_member`, POST): add a telecaller as an active
+  member from the Telephony users table, so "Agent on break/Inactive" never has to be fixed by hand.
+- **Member list** (POST): check, before dialling, that the person's number is an active member,
+  and tell them plainly if not.
+- **Member break status / control** (`member_analysis_v2`, `update-working-status-v2`): read
+  `working_status` (Ready, breaks) to know the member is callable, or set it (Login, Sleep, breaks).
+- **live_call_v2** (GET): the calls running now; a poll for the call box if Live Call webhooks are missed.
+- **call_list_v2** (POST, filters by date, `Flow_type`, `callstatus`): a nightly reconcile that stores any call whose webhook never arrived.
+- **click_to_call_v4** (GET, `member_id` instead of party A): rings a member by id, so a changed phone number needs no change here.
+- **singleleg-clicktocall** (POST, `agent_number`, `customer_number`, `callerid`) and **app_call_list_v2**: for calls dialled from CallerDesk's mobile app (one leg), with their own report.
+
+None is called today; we make no live calls except click-to-call.
 
 ### 3.1 Live Call and the call box (`calls.receive_live`, `calls.call_status`)
 
-The same address takes a Live Call event. It is told apart from a Call Report by having a
-`CallSid` but no `EndTime` and no `CallDuration` (`callerdesk.is_live`); the token check is the
-same. `receive_live` keeps the call's **live status** on its TBO Call (`live_status`: Ringing,
+The same address takes a Live Call event. It is told apart from a Call Report by its `type`
+(`call_report` is the report; any other `type` is live) and, with no `type`, by having a `CallSid`
+but no `EndTime` and no `CallDuration` (`callerdesk.is_live`); the token check is the same. `receive_live` keeps the call's **live status** on its TBO Call (`live_status`: Ringing,
 On call, Ended; `leg_a_picked_at`, `leg_b_picked_at`; `last_event` = `live` until the report):
 
 - `Status` `ANSWER` → **On call** (`leg_b_picked_at` = when the event arrived), except an outgoing
@@ -150,7 +179,7 @@ the call (or whose call it is) may ask. MyOperator rows only ever say calling, t
 (`call.end`). `get_incoming_call` returns a call ringing the person right now (a Live Call event
 in the last minute that the report hasn't closed).
 
-**Assumed (confirm with CallerDesk):** Live Call fires when a leg is ringing/connected and again
+**Assumed (see §1.2):** Live Call fires when a leg is ringing/connected and again
 with `ANSWER` when picked; for an outgoing click-to-call we can't tell which leg `ANSWER` is, so
 "On call" starts when it arrives. Incoming Live Call events carry `Direction` `IVR` and the
 caller in `SourceNumber`. If none of this arrives, nothing breaks: the box waits for the report.
@@ -187,11 +216,18 @@ makes a Call back and no recording; an unknown caller becomes a lead, or not whe
 an outgoing call finds its customer; a click-to-call's `campid` lands the call on its lead;
 the request's URL and params, with and without a call group, a mobile instead of a CallerDesk
 number; refusals in plain words and no key in them; the token is made on choosing CallerDesk,
-never returned by the settings API and shown only to a System Manager; Live Call events (`TestLiveCall`): ringing then on call, repeats and late events ignored, the report closes the call, only the caller can read its status, an incoming call shows to its telecaller only. MyOperator's tests
+never returned by the settings API and shown only to a System Manager; Live Call events (`TestLiveCall`): ringing then on call, repeats and late events ignored, the report closes the call, only the caller can read its status, an incoming call shows to its telecaller only. every documented `Status`, the `CallStatus` fallback, Busy and the telecaller's own failure for the lead and the batches (`TestStatuses`, `test_call_batches.py`), report vs live by `type`. MyOperator's tests
 (`test_telephony.py`) are unchanged.
 
 ## Changelog
 
+- **v1.2 (2026-11-14):** aligned with CallerDesk's API reference and support's answers: report
+  vs live by `type`; customer = `SourceNumber`, agent = `DialWhomNumber` on outgoing calls;
+  `TalkDuration` no longer falls back to the whole call; every documented `Status` and the
+  `CallStatus` fallback (new `provider_status` on TBO Call); Busy / AgentEngaged count as Busy,
+  cancel-Agent / Agent-Unregistered as no attempt (lead and batches); only `type` "success" is
+  an accepted click-to-call; hint after "Agent on break/Inactive"; §1 split into confirmed /
+  assumed / to confirm; §4.1 other APIs. Needs `bench migrate` (new field).
 - **v1.1 (2026-11-14):** Live Call events (§3.1), `live_status` and picked-at fields on TBO Call,
   `get_call_status`, `get_incoming_call`, for the hub's call box. Owner: tick Live Call in the webhook.
 - **v1.0 (2026-11-14):** first version: provider switch, Call Report webhook, click-to-call,

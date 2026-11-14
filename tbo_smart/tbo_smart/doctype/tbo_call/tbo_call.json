@@ -8,6 +8,7 @@
   "call_id",
   "direction",
   "status",
+  "provider_status",
   "customer_number",
   "lead",
   "event",
@@ -59,6 +60,13 @@
    "options": "Answered\nMissed\nVoicemail",
    "in_list_view": 1,
    "in_standard_filter": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "provider_status",
+   "fieldtype": "Data",
+   "label": "Provider status",
+   "description": "CallerDesk's own end result (Busy, cancel-Agent, ...)",
    "read_only": 1
   },
   {

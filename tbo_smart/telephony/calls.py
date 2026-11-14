@@ -24,12 +24,15 @@ from tbo_smart.lead_pipeline.call_outcomes import apply_call_outcome
 from tbo_smart.lead_pipeline.statuses import OPEN_STATUSES
 from tbo_smart.sales import numbers
 from tbo_smart.sales.activities import CALL, CANCELLED, OPEN, add_event, add_follow_up_task
+from tbo_smart.sales.call_batches import BUSY
 from tbo_smart.sales.stages import system_save
 from tbo_smart.smart_leads import FOLLOW_UP_TYPE
 from tbo_smart.smart_leads.utils import normalise_phone
 from tbo_smart.telephony import (
 	AGENT_PICKED,
+	AGENT_SIDE_STATUSES,
 	ANSWERED,
+	BUSY_STATUSES,
 	CALLERDESK,
 	ENDED,
 	INCOMING,
@@ -78,6 +81,7 @@ def receive(event: dict) -> dict:
 	values = {
 		"direction": call["direction"],
 		"status": call["status"],
+		"provider_status": call.get("provider_status"),
 		"customer_number": call["customer_number"],
 		"started_at": call["started_at"],
 		"ended_at": call["ended_at"],
@@ -301,6 +305,18 @@ def stored_call(call_id: str):
 	return frappe.db.get_value(DOCTYPE, {"call_id": call_id}, ["name", "last_event"], as_dict=True)
 
 
+def call_outcome(status: str, provider_status: str | None) -> str | None:
+	"""What a finished call means for the lead: its status, "Busy" when CallerDesk says the line
+	was engaged, and nothing when the telecaller's own side failed (they never reached the lead,
+	so it is not an attempt the lead didn't answer)."""
+	said = (provider_status or "").lower()
+	if status == ANSWERED:
+		return status
+	if said in AGENT_SIDE_STATUSES:
+		return None
+	return BUSY if said in BUSY_STATUSES else status
+
+
 def agent_ref(agent: dict | None) -> str | None:
 	if not agent:
 		return None
@@ -333,7 +349,9 @@ def process_call(call: str) -> None:
 			settle_call_back(doc, owner or doc.agent or fallback_owner())
 			# a missed incoming call says nothing about a lead who did not answer us
 			if doc.direction == OUTGOING or doc.status == ANSWERED:
-				apply_call_outcome(doc.lead, doc.status, doc.started_at)
+				outcome = call_outcome(doc.status, doc.provider_status)
+				if outcome:
+					apply_call_outcome(doc.lead, outcome, doc.started_at)
 	if wants_summary(doc) and not doc.ai_status:
 		doc.ai_status = "Pending"
 	doc.save(ignore_permissions=True)

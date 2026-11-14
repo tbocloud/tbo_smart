@@ -5,9 +5,9 @@ Everything CallerDesk-shaped lives here, as `myoperator.py` does for MyOperator:
 call report becomes the same call shape `myoperator.parse_event` makes, so `calls.py` handles
 both the same way.
 
-Sources: https://docs.callerdesk.io/sample-payload (the Call Report fields),
-https://docs.callerdesk.io/setup-live-webhook and CallerDesk's API reference at
-https://api.callerdesk.io (the key goes in the `authcode` parameter, HTTPS only).
+Sources: CallerDesk's API reference (https://api.callerdesk.io, its Postman collection: webhook
+payloads, click-to-call, call report) and CallerDesk support's answers of 2026-11-14; the key
+goes in the `authcode` parameter, HTTPS only.
 """
 
 from zoneinfo import ZoneInfo
@@ -20,6 +20,7 @@ from frappe.utils import cint, get_datetime, get_system_timezone
 from tbo_smart.smart_leads.utils import normalise_phone
 from tbo_smart.telephony import (
 	AGENT_PICKED,
+	AGENT_SIDE_STATUSES,
 	ANSWERED,
 	INCOMING,
 	MISSED,
@@ -37,7 +38,25 @@ PANEL_TIMEZONE = "Asia/Kolkata"
 FINAL_EVENT = "call.summary"
 ANSWER = "ANSWER"
 OUTGOING_DIRECTIONS = ("WEBOBD", "OBD")
-FAILED_STATUSES = ("error", "fail", "failed", "failure", "false", "0")
+REPORT_TYPE = "call_report"
+# every `Status` CallerDesk support listed (2026-11-14), compared in lower case
+KNOWN_STATUSES = {
+	ANSWER.lower(),
+	"cancel-agent",
+	"cancel-customer",
+	"cancel",
+	"congestion",
+	"agentengaged",
+	"abandonedcall",
+	"agent-unregistered",
+	"unavailable",
+	"noanswer",
+	"busy",
+}
+# `CallStatus` only ever says "Answered" or "No Answer"
+CALL_STATUS_AS_STATUS = {"answered": ANSWER, "no answer": "NOANSWER"}
+AGENT_ON_BREAK = "agent on break"
+AGENT_ON_BREAK_HINT = "Ask an admin to add your number as an active member in CallerDesk."
 
 
 class CallerDeskError(frappe.ValidationError):
@@ -49,10 +68,16 @@ def has_call_sid(event) -> bool:
 
 
 def is_live(event) -> bool:
-	"""A Live Call event: a CallSid and none of the fields only a finished call has (EndTime,
-	CallDuration). CallerDesk's sample for it lists only SourceNumber, DestinationNumber,
-	DialWhomNumber, Status, StartTime, CallSid, Direction and campid."""
-	return has_call_sid(event) and not (event.get("EndTime") or event.get("CallDuration"))
+	"""A Live Call event: a CallSid and not a Call Report. CallerDesk's Call Report carries
+	`type` "call_report"; its Live Call sample documents no `type`, so any other `type` is live,
+	and with no `type` at all the call is live when it has none of the fields only a finished
+	call has (EndTime, CallDuration)."""
+	if not has_call_sid(event):
+		return False
+	kind = str(event.get("type") or "").strip().lower()
+	if kind:
+		return kind != REPORT_TYPE
+	return not (event.get("EndTime") or event.get("CallDuration"))
 
 
 def is_report(event) -> bool:
@@ -60,8 +85,18 @@ def is_report(event) -> bool:
 	return has_call_sid(event) and not is_live(event)
 
 
+def provider_status(event: dict) -> str:
+	"""The call's end result as CallerDesk words it: `Status` when it is one of the documented
+	values, else `CallStatus` ("Answered" / "No Answer") in `Status`'s words, else whatever
+	`Status` said ("" when nothing)."""
+	status = str(event.get("Status") or "").strip()
+	if status.lower() in KNOWN_STATUSES:
+		return status
+	return CALL_STATUS_AS_STATUS.get(str(event.get("CallStatus") or "").strip().lower(), status)
+
+
 def live_status(event: dict, outgoing: bool, agent_numbers: set[str]) -> str:
-	if str(event.get("Status") or "").strip().upper() != ANSWER:
+	if provider_status(event).upper() != ANSWER:
 		return RINGING
 	if outgoing and tail(event.get("DialWhomNumber")) in agent_numbers:
 		return AGENT_PICKED
@@ -112,35 +147,36 @@ def local_time(value):
 def parse_report(event: dict, agent_numbers: set[str]) -> dict | None:
 	"""The call in a Call Report, in this site's terms (as `myoperator.parse_event`); None when
 	it has no CallSid. `agent_numbers`: the last 10 digits of every mapped telecaller's number.
-	Incoming (Direction "IVR"): the caller is SourceNumber and DialWhomNumber answered. Outgoing
-	(Direction "WEBOBD"): CallerDesk doesn't say which number is the customer, so it is the one
-	that isn't a telecaller's. The call ID is the CallSid, the click-to-call's campid is the
-	reference."""
+	The caller is SourceNumber and DialWhomNumber ("the agent number on which the call has been
+	answered") the telecaller, on an incoming call (Direction "IVR") and, as in CallerDesk's
+	WEBOBD sample, on an outgoing one; if SourceNumber is a telecaller's mapped number and
+	DialWhomNumber isn't, the two are the other way round. The call ID is the CallSid, the
+	click-to-call's campid is the reference."""
 	if not is_report(event):
 		return None
 	source, dialled = str(event.get("SourceNumber") or ""), str(event.get("DialWhomNumber") or "")
 	outgoing = str(event.get("Direction") or "").upper() in OUTGOING_DIRECTIONS
-	if not outgoing:
-		customer, agent_number = source, dialled
-	elif tail(source) in agent_numbers:
+	if outgoing and tail(source) in agent_numbers and tail(dialled) not in agent_numbers:
 		customer, agent_number = dialled, source
-	elif tail(dialled) in agent_numbers:
-		customer, agent_number = source, dialled
 	else:
-		customer, agent_number = dialled, None
-	answered = str(event.get("Status") or "").strip().upper() == ANSWER
+		customer, agent_number = source, dialled
+	result = provider_status(event)
+	answered = result.upper() == ANSWER
 	duration = max(cint(event.get("CallDuration")), 0)
+	# TalkDuration is "if the call was answered": a 0 is a real 0, only a missing one is unknown
+	talk = max(cint(event.get("TalkDuration")), 0) if str(event.get("TalkDuration") or "") else duration
 	recording = (event.get("CallRecordingUrl") or "").strip()
 	return {
 		"call_id": str(event["CallSid"]).strip()[:140],
 		"event_type": FINAL_EVENT,
 		"direction": OUTGOING if outgoing else INCOMING,
 		"status": ANSWERED if answered else MISSED,
+		"provider_status": result[:140],
 		"customer_number": f"+{normalise_phone(customer)}" if normalise_phone(customer) else None,
 		"started_at": local_time(event.get("StartTime")),
 		"ended_at": local_time(event.get("EndTime")),
 		"duration": duration,
-		"talk_seconds": (max(cint(event.get("TalkDuration")), 0) or duration) if answered else 0,
+		"talk_seconds": talk if answered else 0,
 		"recording_filename": recording if answered and recording else None,
 		"reference_id": str(event.get("campid") or "").strip() or None,
 		"agent": {"contact": agent_number, "name": event.get("receiver_name")} if agent_number else None,
@@ -188,8 +224,9 @@ def click_to_call_params(customer: str, agent_number: str) -> dict:
 
 
 def place_call(params: dict) -> dict:
-	"""GET the click-to-call request; {campid} when CallerDesk accepted it. CallerDesk doesn't
-	document the answer, so a 2xx whose JSON doesn't say it failed is taken as accepted."""
+	"""GET the click-to-call request; {campid} when CallerDesk accepted it. CallerDesk answers
+	{"type": "success", "message", "campid", "callerid"} and refuses with HTTP 200
+	{"type": "error", "message"}, so only `type` "success" is an accepted call."""
 	try:
 		response = requests.get(CLICK_TO_CALL_URL, params=params, timeout=TIMEOUT)
 	except requests.RequestException:
@@ -200,27 +237,9 @@ def place_call(params: dict) -> dict:
 	except ValueError:
 		answer = {}
 	answer = answer if isinstance(answer, dict) else {}
-	reason = refusal_reason(answer)
-	if response.ok and not reason:
-		return {"campid": find_campid(answer)}
-	raise CallerDeskError(call_refused(response.status_code, reason))
-
-
-def refusal_reason(answer: dict) -> str | None:
-	"""CallerDesk's own words when its answer says the call failed; "" when it fails without any."""
-	# seen live: HTTP 200 with {"type": "error", "message": "Invalid Auth Code!"}
-	said = [str(answer.get(key, "")).strip().lower() for key in ("type", "status", "success")]
-	if any(word in FAILED_STATUSES for word in said) or answer.get("error"):
-		return str(answer.get("message") or answer.get("msg") or answer.get("error") or "")[:200]
-	return None
-
-
-def find_campid(answer: dict) -> str | None:
-	"""The call's campid, wherever the answer keeps it."""
-	for holder in (answer, answer.get("data")):
-		if isinstance(holder, dict) and holder.get("campid"):
-			return str(holder["campid"])
-	return None
+	if response.ok and str(answer.get("type") or "").strip().lower() == "success":
+		return {"campid": str(answer["campid"]).strip() if answer.get("campid") else None}
+	raise CallerDeskError(call_refused(response.status_code, str(answer.get("message") or "")[:200]))
 
 
 def call_refused(status: int, reason: str | None) -> str:
@@ -229,6 +248,8 @@ def call_refused(status: int, reason: str | None) -> str:
 		return _(
 			"CallerDesk didn't accept the call: it refused the API key. Ask an admin to check Settings → Telephony."
 		)
+	if reason and AGENT_ON_BREAK in reason.lower():
+		return _("CallerDesk didn't accept the call: {0} {1}").format(reason, _(AGENT_ON_BREAK_HINT))
 	if reason:
 		return _("CallerDesk didn't accept the call: {0}").format(reason)
 	return _("CallerDesk didn't accept the call ({0}). Try again in a minute.").format(status)

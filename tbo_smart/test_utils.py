@@ -1223,14 +1223,17 @@ def make_call(
 	status: str = "Answered",
 	direction: str = "Outgoing",
 	started_at=None,
+	provider_status: str | None = None,
 ) -> str:
-	"""A TBO Call taken by `agent` on `lead` (now by default), inserted as Administrator."""
+	"""A TBO Call taken by `agent` on `lead` (now by default), inserted as Administrator;
+	`provider_status` is CallerDesk's own end result (e.g. Busy, cancel-Agent)."""
 	call = frappe.get_doc(
 		{
 			"doctype": "TBO Call",
 			"call_id": f"test-{frappe.generate_hash(length=12)}",
 			"direction": direction,
 			"status": status,
+			"provider_status": provider_status,
 			"agent": agent,
 			"lead": lead,
 			"started_at": started_at or now_datetime(),
@@ -3013,23 +3016,34 @@ def post_myoperator_webhook(event: dict, token: str | None = TEST_WEBHOOK_SECRET
 
 
 def callerdesk_report(call_sid: str, **fields) -> dict:
-	"""A CallerDesk Call Report shaped like the documented sample: an answered incoming call
-	(Direction IVR) from 9876543210 to the virtual number, answered by 9000000001; `fields`
-	override any of it."""
+	"""A CallerDesk Call Report shaped like the documented sample (type "call_report"): an
+	answered incoming call (Direction IVR) from 9876543210 to the virtual number, answered by
+	9000000001; CallDuration is the whole call (StartTime to EndTime), TalkDuration the
+	conversation. `fields` override any of it."""
 	return {
+		"type": "call_report",
 		"SourceNumber": "9876543210",
 		"DestinationNumber": "1200000000",
 		"DialWhomNumber": "9000000001",
-		"CallDuration": "18",
+		"CallDuration": "82",
+		"coins": "2",
 		"Status": "ANSWER",
 		"StartTime": "2026-10-19 10:58:04",
 		"EndTime": "2026-10-19 10:59:26",
 		"CallSid": call_sid,
 		"CallRecordingUrl": "",
 		"Direction": "IVR",
+		"campid": "",
 		"TalkDuration": "74",
 		"call_group": "TestGroup",
 		"receiver_name": "Test Agent",
+		"error_code": "0",
+		"LegA_Picked_time": "2026-10-19 10:58:10",
+		"LegB_Start_time": "2026-10-19 10:58:11",
+		"LegB_Picked_time": "2026-10-19 10:58:20",
+		"key_press": "",
+		"hangup_cause": "ANSWER(16-customer)",
+		"Uniqueid": call_sid,
 		**fields,
 	}
 
