@@ -308,7 +308,6 @@ class TestLiveCall(TestCallerDesk):
 		self.assertEqual(post_callerdesk_webhook(callerdesk_live("CD-L1")), {"ok": True})
 		status = self.status_of()
 		self.assertEqual((status["state"], status["lead"]), ("on_call", self.lead))
-		self.assertTrue(status["on_call_since"])
 		self.assertEqual(self.call_of("CD-L1").agent, BDE)
 
 	def test_a_repeated_or_older_live_event_changes_nothing(self):
@@ -400,6 +399,7 @@ class TestLiveCall(TestCallerDesk):
 			)
 		)
 		frappe.set_user(BDE)
+		self.assertTrue(api.get_incoming_call()["enabled"])
 		incoming = calls.incoming_call()
 		self.assertEqual(
 			(incoming["number"], incoming["lead"], incoming["state"]), (NUMBER, self.lead, "ringing")

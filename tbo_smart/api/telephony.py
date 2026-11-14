@@ -119,17 +119,19 @@ def click_to_call(lead: str, number: str | None = None, acting_user: str | None 
 def get_call_status(reference_id: str, acting_user: str | None = None) -> dict:
 	"""Where the person's click-to-call is (the `reference_id` click_to_call returned), for the
 	hub's call box: {state: calling | ringing | on_call | ended, call, lead, number, answered,
-	duration, talk_seconds, on_call_since}. Only the person who placed the call may ask."""
+	duration, talk_seconds}. Only the person who placed the call may ask."""
 	with acting_as(acting_user):
 		return calls.call_status(reference_id)
 
 
 @frappe.whitelist()
 def get_incoming_call(acting_user: str | None = None) -> dict:
-	"""{call: {call, number, lead, lead_name, state} | None}: the call coming in to the person
-	now (CallerDesk's Live Call events), for the hub's "Incoming call" notice."""
+	"""{enabled, call: {call, number, lead, lead_name, state} | None}: the call coming in to the
+	person now (CallerDesk's Live Call events), for the hub's "Incoming call" notice. `enabled`
+	is whether the person is set up for calling at all: when it is false the hub stops asking."""
 	with acting_as(acting_user):
-		return {"call": calls.incoming_call()}
+		enabled = calls.can_call()
+		return {"enabled": enabled, "call": calls.incoming_call() if enabled else None}
 
 
 @frappe.whitelist()
