@@ -1,4 +1,4 @@
-# Telephony through CallerDesk (living spec, v1.2)
+# Telephony through CallerDesk (living spec, v1.3)
 
 **Status:** built 2026-11-14, behind TBO Smart Settings → **Telephony → Telephony provider =
 CallerDesk**, off by default (MyOperator stays the default provider). Telecallers' calls through
@@ -59,6 +59,11 @@ click-to-call URL. Read on 2026-11-14.
 - The Live Call payload: its `type`, and the order of its events for one click-to-call.
 - That `Status` of an unanswered click-to-call is one of the listed values.
 - The time zone of the times.
+- Questions for CallerDesk: is there a **hang-up API** (end a running call by `sid_id`)? Their
+  Postman collection (read 2026-11-14) has none, only `hangup_cause` in reports. Is a webhook's
+  `CallSid` the same as `call_list_v2`'s `sid_id` (the first real call's recording file name ends
+  in its `sid_id`, 59884394)? Does `call_list_v2` take `current_page` and `start_date` /
+  `end_date` as the docs say, and does a row carry `campid` or `channel`?
 
 ## 2. Settings (TBO Smart Settings → Telephony)
 
@@ -149,11 +154,43 @@ use click-to-call coins; OBD coins are deducted (support, 2026-11-14).
 - **Member break status / control** (`member_analysis_v2`, `update-working-status-v2`): read
   `working_status` (Ready, breaks) to know the member is callable, or set it (Login, Sleep, breaks).
 - **live_call_v2** (GET): the calls running now; a poll for the call box if Live Call webhooks are missed.
-- **call_list_v2** (POST, filters by date, `Flow_type`, `callstatus`): a nightly reconcile that stores any call whose webhook never arrived.
+- **call_list_v2** (POST, filters by date, `Flow_type`, `callstatus`): used since v1.3 to store any call whose webhook never arrived (§3.2).
 - **click_to_call_v4** (GET, `member_id` instead of party A): rings a member by id, so a changed phone number needs no change here.
 - **singleleg-clicktocall** (POST, `agent_number`, `customer_number`, `callerid`) and **app_call_list_v2**: for calls dialled from CallerDesk's mobile app (one leg), with their own report.
 
 None is called today; we make no live calls except click-to-call.
+
+### 3.2 Missed webhooks: the reconcile (`calls.reconcile_callerdesk`, `calls.refresh_my_call`)
+
+A missed webhook would lose the call and its recording (the first real call, 2026-11-14, never
+arrived). So every **10 minutes**, while telephony is on, the provider is CallerDesk and the API key is
+set, the site asks CallerDesk's **call report** for today's and yesterday's finished calls:
+
+```
+POST https://app.callerdesk.io/api/call_list_v2   (form)
+    authcode, start_date=yyyy-mm-dd, end_date=yyyy-mm-dd, current_page=1, 2, …
+```
+
+- Pages are read until one adds no `sid_id` not seen before (at most 20 pages of 25).
+- `callerdesk.report_from_row` turns a row into the Call Report the webhook would have sent:
+  `sid_id` → `CallSid`, `caller_num` → `SourceNumber` (customer), `member_num` → `DialWhomNumber`
+  (telecaller), `callstatus` → `Status`, `startdatetime` / `enddatetime`, `total_duration` →
+  `CallDuration`, `talk_duration` → `TalkDuration`, `file` → `CallRecordingUrl`, the leg times;
+  Direction is WEBOBD when `channel` / `Flow_type` says so or `callresult` is "Click-to-call",
+  else IVR. A row with no `enddatetime` (still running) is left for the next run.
+- Each report goes through the normal `calls.receive`: lead match, agent, status, durations,
+  recording download, AI summary and batch sync all follow. **Idempotent:** a `sid_id` that already
+  has a closed TBO Call is skipped; one the Live Call webhook stored but no report closed is
+  completed. The CallSid is assumed to equal `sid_id` (§1.3).
+- Rate-safe: one run at a time (a 5-minute lock), one request per page, no more than 20. A CallerDesk
+  failure is logged without the request (the key is in it).
+
+`tbo_smart.api.telephony.refresh_call(reference_id)` (POST, hub-leads-api §2.33) does the same
+for the hub's call box when it reaches "Can't see this call any more", for **the person's own
+calls only**: the person must be the one who placed the click-to-call, it looks at their calls (by
+`member_num` = their number) of the last 6 hours, stores the missing ones, links the newest to the
+click-to-call's `campid` so `get_call_status` answers `ended`, and runs at most once every 20 s per
+person. Returns `{stored}`.
 
 ### 3.1 Live Call and the call box (`calls.receive_live`, `calls.call_status`)
 
@@ -216,11 +253,14 @@ makes a Call back and no recording; an unknown caller becomes a lead, or not whe
 an outgoing call finds its customer; a click-to-call's `campid` lands the call on its lead;
 the request's URL and params, with and without a call group, a mobile instead of a CallerDesk
 number; refusals in plain words and no key in them; the token is made on choosing CallerDesk,
-never returned by the settings API and shown only to a System Manager; Live Call events (`TestLiveCall`): ringing then on call, repeats and late events ignored, the report closes the call, only the caller can read its status, an incoming call shows to its telecaller only. every documented `Status`, the `CallStatus` fallback, Busy and the telecaller's own failure for the lead and the batches (`TestStatuses`, `test_call_batches.py`), report vs live by `type`. MyOperator's tests
+never returned by the settings API and shown only to a System Manager; Live Call events (`TestLiveCall`): ringing then on call, repeats and late events ignored, the report closes the call, only the caller can read its status, an incoming call shows to its telecaller only. every documented `Status`, the `CallStatus` fallback, Busy and the telecaller's own failure for the lead and the batches (`TestStatuses`, `test_call_batches.py`), report vs live by `type`. `TestReconcile` (v1.3): a missed call lands on its lead with its recording, a stored call isn't stored twice, a stuck live call is closed, an unfinished row waits, no run for another provider, a failing call list logs without the key, the box's refresh is the caller's own and throttled. MyOperator's tests
 (`test_telephony.py`) are unchanged.
 
 ## Changelog
 
+- **v1.3 (2026-11-14):** the reconcile (§3.2): a 10-minute job that stores calls whose webhook
+  never arrived from `call_list_v2`, and `refresh_call` for the hub's box; questions for
+  CallerDesk (hang-up API, `sid_id`). No migrate needed.
 - **v1.2 (2026-11-14):** aligned with CallerDesk's API reference and support's answers: report
   vs live by `type`; customer = `SourceNumber`, agent = `DialWhomNumber` on outgoing calls;
   `TalkDuration` no longer falls back to the whole call; every documented `Status` and the

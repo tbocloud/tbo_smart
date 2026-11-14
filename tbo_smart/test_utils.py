@@ -3065,6 +3065,31 @@ def callerdesk_live(call_sid: str, **fields) -> dict:
 	}
 
 
+def callerdesk_list_row(sid_id: str, **fields) -> dict:
+	"""A `call_list_v2` row shaped like the one the first real call returned: an answered
+	click-to-call from the telecaller 9000000001 to the customer 9876543210; `fields` override."""
+	return {
+		"sid_id": sid_id,
+		"file": f"https://brecording.callerdesk.test/outgoing/11_2026/14/130445/5533-7042-{sid_id}.wav",
+		"caller_num": "09876543210",
+		"member_num": "09000000001",
+		"startdatetime": "2026-11-14 17:41:55",
+		"enddatetime": "2026-11-14 17:43:47",
+		"total_duration": "112",
+		"talk_duration": "87",
+		"ringing_duration": 25,
+		"callresult": "Click-to-call",
+		"callstatus": "ANSWER",
+		**fields,
+	}
+
+
+def callerdesk_list_response(*rows: dict) -> MagicMock:
+	"""A fake `call_list_v2` answer ({"result": rows}). Asked for another page it answers the
+	same rows, which adds nothing new, so paging stops."""
+	return ai_http_response(200, {"result": list(rows)})
+
+
 def post_callerdesk_webhook(report: dict, token: str | None = TEST_CALLERDESK_TOKEN):
 	"""Call the CallerDesk webhook as Guest with `report` as the JSON body and `token` as the
 	`token` of its address (None: no token); then return to the session user."""

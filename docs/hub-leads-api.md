@@ -1,4 +1,4 @@
-# Hub leads API (`tbo_smart.api.hub_leads`), v1.30
+# Hub leads API (`tbo_smart.api.hub_leads`), v1.31
 
 **Status:** built 2026-10-16. The TBO Support hub's lead page (tbocloud/helpdesk) shows and edits
 tboindia's leads through these methods. The leads are ERPNext's own **Lead**
@@ -1107,6 +1107,11 @@ The hub's call box (hub `docs/leads.md`) follows a click-to-call through two rea
   coming in to the acting user now (a Live Call event in the last minute); `enabled` is false when
   they aren't set up for calling, and the hub stops asking.
 
+- `refresh_call(reference_id)` (POST, `acting_user`): the box's last try when it can't see a call
+  any more: looks the person's own recent calls up in CallerDesk's call report and stores the
+  missing ones (`telephony-callerdesk.md` §3.2). `{stored}`; 403 unless the call is the acting
+  user's; at most once every 20 seconds per person; MyOperator answers `{stored: 0}`.
+
 ## 3. Links back to the hub
 
 Teams messages, emails and the morning digest link to the lead page when TBO Smart Settings →
@@ -1170,6 +1175,7 @@ project set-ups saved by managers only.
 
 ## Changelog
 
+- **v1.31 (2026-11-14):** `refresh_call` (§2.33).
 - **v1.30 (2026-11-14):** the Small Business stage in `get_options` (Lost, gray); `set_stage`
   to it needs no `note` (§2.16).
 

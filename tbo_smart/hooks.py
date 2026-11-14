@@ -338,7 +338,11 @@ scheduler_events = {
 			"tbo_smart.sales.call_batches.auto_assign.run_auto_assign",
 		],
 		# Outreach: approved emails wait for the send window and the daily cap (docs/prospecting.md §10)
-		"*/10 * * * *": ["tbo_smart.outreach.sending.send_approved"],
+		"*/10 * * * *": [
+			"tbo_smart.outreach.sending.send_approved",
+			# CallerDesk: store calls whose webhook never arrived (docs/telephony-callerdesk.md §3.2)
+			"tbo_smart.telephony.calls.reconcile_callerdesk",
+		],
 		# Commission: the previous month's Draft statements on the 1st, 03:00 (docs/commission.md)
 		"0 3 1 * *": ["tbo_smart.lead_pipeline.commission.generate_previous_month"],
 	},
