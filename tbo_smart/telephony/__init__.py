@@ -1,6 +1,7 @@
-"""Telephony through MyOperator (docs/telephony-myoperator.md).
+"""Telephony through MyOperator or CallerDesk (docs/telephony-myoperator.md, docs/telephony-callerdesk.md).
 
-Behind TBO Smart Settings → Telephony (MyOperator) (`enable_telephony`), off by default.
+Behind TBO Smart Settings → Telephony (`enable_telephony`), off by default; the provider is
+`telephony_provider` (MyOperator unless CallerDesk is chosen). Both land calls the same way.
 MyOperator's Webhooks v2 tell this site about every call; the call lands on the lead as a call
 Event with its recording, a missed call becomes a "Call back" task, and with the AI call
 summary on, the recording is transcribed and summed up on the lead. Click-to-call asks
@@ -14,6 +15,7 @@ from tbo_smart.sales import erpnext_installed
 
 SETTINGS = "TBO Smart Settings"
 LEAD_SOURCE = "Phone call"
+MYOPERATOR, CALLERDESK = "MyOperator", "CallerDesk"
 INCOMING, OUTGOING = "Incoming", "Outgoing"
 ANSWERED, MISSED, VOICEMAIL = "Answered", "Missed", "Voicemail"
 # what a salesperson can say about a call they logged by hand, and the status it is stored as
@@ -38,6 +40,10 @@ def setting(fieldname: str):
 
 def telephony_enabled() -> bool:
 	return erpnext_installed() and bool(cint(setting("enable_telephony")))
+
+
+def provider() -> str:
+	return CALLERDESK if setting("telephony_provider") == CALLERDESK else MYOPERATOR
 
 
 def summary_enabled() -> bool:

@@ -1,4 +1,8 @@
-# Telephony through MyOperator (living spec, v1.0)
+# Telephony through MyOperator (living spec, v1.1)
+
+CallerDesk is the other provider (`telephony_provider`): see `telephony-callerdesk.md`. The call
+processing in §3, §5 and §6 is shared; the settings, webhook and click-to-call below are
+MyOperator's.
 
 **Status:** built 2026-10-19, behind TBO Smart Settings → **Telephony (MyOperator)**, off by
 default. A salesperson's calls with leads go through MyOperator's cloud telephony. Each call
@@ -125,7 +129,10 @@ TBO Call is readable by System Managers only, so the transcript and the raw payl
 | Method | Verb | Arguments | Returns |
 | --- | --- | --- | --- |
 | `myoperator_webhook` | POST (guest) | the v2 JSON body, header `X-Webhook-Token` | `{ok, ignored? , duplicate?}` |
-| `click_to_call` | POST | `lead`, `number?` (one of the lead's own numbers, default its first: mobile, phone, WhatsApp), `acting_user?` | `{ok, message: "MyOperator is calling your phone…", number, reference_id, request_id}` |
+| `callerdesk_webhook` | POST (guest) | the Call Report JSON, `token` in the address | `{ok, ignored?, duplicate?}` (`telephony-callerdesk.md` §3) |
+| `get_callerdesk_webhook_url` | GET | `acting_user?` | `{url}`: the address to paste into CallerDesk, token included (System Manager) |
+| `regenerate_callerdesk_token` | POST | `acting_user?` | `{url}`: a new token; the old address stops working |
+| `click_to_call` | POST | `lead`, `number?` (one of the lead's own numbers, default its first: mobile, phone, WhatsApp), `acting_user?` | `{ok, message: "MyOperator is calling your phone…" (CallerDesk: "CallerDesk is calling your phone…"), number, reference_id, request_id}` |
 | `call_recording` | GET | `call` (TBO Call name, from the timeline's `recording`), `acting_user?` | the audio (audio/mpeg, inline) |
 | `get_settings` | GET | `acting_user?` | `{settings, agents, secrets: {field: {set, masked (the last 4 characters)}}, webhook: {url, header, events}, users: [{email, full_name}]}` |
 | `save_settings` | POST | `values` (fields, secrets, `agents` replaces the mapping), `acting_user?` | as `get_settings` |
@@ -287,6 +294,10 @@ The TBO Call, the Event and the summary stay.
 
 ## Changelog
 
+- **v1.1 (2026-11-14):** the provider switch (`telephony_provider`) and the **Telephony users** table's
+  new column **CallerDesk number**; agents are matched by the last 10 digits of a number; a
+  recording's link may be the provider's own (CallerDesk); `call_recording` takes the content type
+  from the file.
 - **v1.0 (2026-10-19):** first version: webhook, click-to-call, recordings, AI call summary,
   timeline fields, scoreboard figures, settings API.
 

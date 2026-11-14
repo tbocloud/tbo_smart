@@ -95,7 +95,7 @@ Lead = {name, lead_name, first_name, last_name, company_name, email_id, mobile_n
   status (ERPNext's own, read only), lead_owner, owner_name, tbo_score, tbo_temperature
   (Hot / Warm / Cold), tbo_score_reason, tbo_lost_reason, tbo_lost_notes, creation, modified,
   next_follow_up (date | null), deal (the Opportunity once won | null), can_write,
-  can_call (the acting user may use MyOperator click-to-call),
+  can_call (the acting user may use click-to-call, through MyOperator or CallerDesk),
   place: {google_profile_url, maps_url, latitude, longitude, location_note} (each null while
   empty, §2.11), photo_count}
 

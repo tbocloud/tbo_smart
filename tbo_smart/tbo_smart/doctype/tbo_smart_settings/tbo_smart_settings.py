@@ -93,6 +93,7 @@ class TBOSmartSettings(Document):
 		self.validate_pipeline_numbers()
 		self.validate_segment_rates()
 		self.validate_telephony()
+		self.ensure_callerdesk_token()
 		self.validate_prospecting()
 
 	def on_update(self):
@@ -165,21 +166,35 @@ class TBOSmartSettings(Document):
 				)
 
 	def validate_telephony(self):
-		"""One mapping row per person, each with a MyOperator user ID or a mobile to ring."""
+		"""One mapping row per person, each with a number to ring: a MyOperator user ID, a CallerDesk
+		number or a mobile."""
 		seen = set()
 		for row in self.get("telephony_agents") or []:
 			if row.user in seen:
-				frappe.throw(_("MyOperator users: {0} is there twice.").format(row.user))
+				frappe.throw(_("Telephony users: {0} is there twice.").format(row.user))
 			seen.add(row.user)
-			if not ((row.myoperator_user_id or "").strip() or (row.mobile or "").strip()):
+			if not any(
+				(row.get(field) or "").strip()
+				for field in ("myoperator_user_id", "callerdesk_number", "mobile")
+			):
 				frappe.throw(
-					_("MyOperator users: give {0} a MyOperator user ID or a mobile.").format(row.user)
+					_(
+						"Telephony users: give {0} a MyOperator user ID, a CallerDesk number or a mobile."
+					).format(row.user)
 				)
 		for fieldname in ("telephony_recording_days", "call_summary_min_seconds"):
 			if cint(self.get(fieldname)) < 0:
 				frappe.throw(_("{0} can't be negative.").format(_(self.meta.get_label(fieldname))))
 		if flt(self.transcription_price_per_minute) < 0:
 			frappe.throw(_("The transcription price can't be negative."))
+
+	def ensure_callerdesk_token(self):
+		"""CallerDesk's webhook address carries a long random token: made when CallerDesk is chosen,
+		kept until someone regenerates it."""
+		if self.telephony_provider == "CallerDesk" and not self.get_password(
+			"callerdesk_webhook_token", raise_exception=False
+		):
+			self.callerdesk_webhook_token = frappe.generate_hash(length=40)
 
 	def validate_prospecting(self):
 		"""A paid provider is switched on only with its login or key; the cap and the run size are
