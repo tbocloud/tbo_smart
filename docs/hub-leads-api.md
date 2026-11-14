@@ -1096,7 +1096,7 @@ The hub's call box (hub `docs/leads.md`) follows a click-to-call through two rea
 `acting_user` and both GET:
 
 - `get_call_status(reference_id)`: `reference_id` is what `click_to_call` returned. Returns
-  `{state, call, lead, number, answered, duration, talk_seconds, on_call_since}`; `state` is
+  `{state, call, lead, number, answered, duration, talk_seconds}`; `state` is
   `calling` (placed, nothing heard yet), `ringing` (their phone), `ringing_lead` (they picked up, the lead's phone rings), `on_call` or `ended`. `answered`, `duration`
   and `talk_seconds` are set once `ended`. 403 unless the call
   is the acting user's. Live states need CallerDesk's Live Call event (`telephony-callerdesk.md`
