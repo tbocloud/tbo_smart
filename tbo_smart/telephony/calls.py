@@ -191,7 +191,7 @@ def picked_times(live_status: str) -> dict:
 
 def call_status(reference_id: str) -> dict:
 	"""Where the session user's click-to-call is, for the call box: {state, call, lead, number,
-	answered, duration, talk_seconds}. `state` is calling (placed, nothing heard
+	answered, duration, talk_seconds, recording_state}. `state` is calling (placed, nothing heard
 	yet), ringing (the person's phone), ringing_lead (they picked up; the lead's phone rings), on_call or ended. Only the person who placed the call may ask; a call nobody
 	placed is refused the same way a stranger's is."""
 	user = frappe.session.user
@@ -209,6 +209,9 @@ def call_status(reference_id: str) -> dict:
 			"status",
 			"duration",
 			"talk_seconds",
+			"recording",
+			"recording_filename",
+			"creation",
 		],
 		as_dict=True,
 	)
@@ -227,6 +230,7 @@ def call_status(reference_id: str) -> dict:
 		"answered": row.status == ANSWERED if ended else None,
 		"duration": cint(row.duration) if ended else None,
 		"talk_seconds": cint(row.talk_seconds) if ended else None,
+		"recording_state": recording_state(row) if ended and row.status == ANSWERED else None,
 	}
 
 
@@ -726,11 +730,23 @@ def reconcile_callerdesk() -> None:
 		frappe.log_error(title="CallerDesk call list", message=str(e))
 
 
+def note_unknown_event(event: dict) -> None:
+	"""Log, once a day, the field names (never the values) of a CallerDesk event this site can't
+	read, so the shape of an undocumented event can be learnt."""
+	key = frappe.cache.make_key("tbo_smart:telephony:unknown_event")
+	if frappe.cache.set(key, 1, nx=True, ex=24 * 60 * 60):  # nosemgrep
+		frappe.log_error(
+			title="CallerDesk event not read", message=", ".join(sorted(str(field) for field in event))
+		)
+
+
 def store_missing_calls(start_date: str, end_date: str) -> int:
 	"""Store every finished call in the window that has no closed TBO Call yet; how many. A call
 	the live webhook stored but the report never closed is completed too."""
-	rows = callerdesk.fetch_call_list(str(start_date), str(end_date))
-	reports = [report for report in map(callerdesk.report_from_row, rows) if report]
+	reports = []
+	for url, app in ((callerdesk.CALL_LIST_URL, False), (callerdesk.APP_CALL_LIST_URL, True)):
+		rows = callerdesk.fetch_call_list(str(start_date), str(end_date), url)
+		reports += [r for r in (callerdesk.report_from_row(row, app=app) for row in rows) if r]
 	closed = set(
 		frappe.get_all(
 			DOCTYPE,
