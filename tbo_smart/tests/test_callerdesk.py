@@ -650,6 +650,41 @@ class TestReconcile(TestCallerDesk):
 		self.assertEqual(sent["current_page"], 1)
 		self.assertEqual(post.call_args.args[0], callerdesk.CALL_LIST_URL)
 
+	def test_a_call_dialled_from_the_callerdesk_app_lands_as_an_outgoing_call(self):
+		app_row = callerdesk_list_row("77001", callresult="Answered", callstatus="ANSWER")
+
+		def listing(url, data=None, timeout=None):
+			return callerdesk_list_response(*([app_row] if url == callerdesk.APP_CALL_LIST_URL else []))
+
+		with (
+			patch("tbo_smart.telephony.callerdesk.requests.post", side_effect=listing) as post,
+			patch(
+				"tbo_smart.telephony.calls.requests.get",
+				return_value=myoperator_response(200, {}, content=AUDIO),
+			),
+		):
+			calls.reconcile_callerdesk()
+		self.assertIn(callerdesk.APP_CALL_LIST_URL, [c.args[0] for c in post.call_args_list])
+		call = self.call_of("77001")
+		self.assertEqual((call.direction, call.agent, call.lead), ("Outgoing", BDE, self.lead))
+		self.assertTrue(call.event)
+		# the same row again changes nothing
+		frappe.cache.delete_value(frappe.cache.make_key(calls.RECONCILE_LOCK_KEY), make_keys=False)
+		with patch("tbo_smart.telephony.callerdesk.requests.post", side_effect=listing):
+			calls.reconcile_callerdesk()
+		self.assertEqual(frappe.db.count("TBO Call", {"call_id": "77001"}), 1)
+
+	def test_an_app_event_without_a_call_sid_is_ignored_and_logged_once(self):
+		frappe.cache.delete_value(frappe.cache.make_key("tbo_smart:telephony:unknown_event"), make_keys=False)
+		with patch("tbo_smart.telephony.calls.frappe.log_error") as log:
+			self.assertEqual(
+				post_callerdesk_webhook({"type": "app_call_report", "secret": "x"}),
+				{"ok": True, "ignored": True},
+			)
+			post_callerdesk_webhook({"type": "app_call_report"})
+		self.assertEqual(log.call_count, 1)
+		self.assertNotIn("x", log.call_args.kwargs["message"].replace("type", "").replace("secret", ""))
+
 	def test_a_call_the_webhook_stored_is_not_stored_again(self):
 		post_callerdesk_webhook(callerdesk_report("59884395"))
 		self.reconcile(callerdesk_list_row("59884395"), callerdesk_list_row("59884396"))

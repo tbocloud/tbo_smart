@@ -1,4 +1,4 @@
-# Telephony through CallerDesk (living spec, v1.3)
+# Telephony through CallerDesk (living spec, v1.4)
 
 **Status:** built 2026-11-14, behind TBO Smart Settings → **Telephony → Telephony provider =
 CallerDesk**, off by default (MyOperator stays the default provider). Telecallers' calls through
@@ -156,7 +156,7 @@ use click-to-call coins; OBD coins are deducted (support, 2026-11-14).
 - **live_call_v2** (GET): the calls running now; a poll for the call box if Live Call webhooks are missed.
 - **call_list_v2** (POST, filters by date, `Flow_type`, `callstatus`): used since v1.3 to store any call whose webhook never arrived (§3.2).
 - **click_to_call_v4** (GET, `member_id` instead of party A): rings a member by id, so a changed phone number needs no change here.
-- **singleleg-clicktocall** (POST, `agent_number`, `customer_number`, `callerid`) and **app_call_list_v2**: for calls dialled from CallerDesk's mobile app (one leg), with their own report.
+- **singleleg-clicktocall** ("Mobile Based single C2C API", POST `authcode`, `agent_number`, `customer_number`, `callerid`): a possible later option, where our Call button makes the telecaller's own CallerDesk app dial the customer directly (one leg). Not built; its calls already arrive through `app_call_list_v2` (§3.2).
 
 None is called today; we make no live calls except click-to-call.
 
@@ -178,6 +178,12 @@ POST https://app.callerdesk.io/api/call_list_v2   (form)
   `CallDuration`, `talk_duration` → `TalkDuration`, `file` → `CallRecordingUrl`, the leg times;
   Direction is WEBOBD when `channel` / `Flow_type` says so or `callresult` is "Click-to-call",
   else IVR. A row with no `enddatetime` (still running) is left for the next run.
+- **Calls dialled from CallerDesk's own Android app** (a telecaller who uses the app instead of
+  our Call button) are pulled the same way from **`app_call_list_v2`** ("Single Leg Call Report",
+  POST form, `authcode`; rows like `call_list_v2`'s): customer = `caller_num`, telecaller =
+  `member_num` (mapped through the Telephony users table), direction **Outgoing** unless the row's
+  `Flow_type` / `channel` says IVR. They land on the lead found by the customer's number, with the
+  recording, exactly like any other call.
 - Each report goes through the normal `calls.receive`: lead match, agent, status, durations,
   recording download, AI summary and batch sync all follow. **Idempotent:** a `sid_id` that already
   has a closed TBO Call is skipped; one the Live Call webhook stored but no report closed is
@@ -191,6 +197,12 @@ calls only**: the person must be the one who placed the click-to-call, it looks 
 `member_num` = their number) of the last 6 hours, stores the missing ones, links the newest to the
 click-to-call's `campid` so `get_call_status` answers `ended`, and runs at most once every 20 s per
 person. Returns `{stored}`.
+
+**The "APP Call Report" webhook.** CallerDesk's Create Webhook form has an *APP Call Report*
+event; its payload is undocumented. The webhook takes it when it carries the Call Report fields
+(a `CallSid`, and an end or a duration), like any Call Report. An event with no `CallSid` is
+ignored, and its field names (never the values) are logged once a day as "CallerDesk event not
+read", so its shape can be learnt; the reconcile above stores the call anyway.
 
 ### 3.1 Live Call and the call box (`calls.receive_live`, `calls.call_status`)
 
@@ -253,11 +265,12 @@ makes a Call back and no recording; an unknown caller becomes a lead, or not whe
 an outgoing call finds its customer; a click-to-call's `campid` lands the call on its lead;
 the request's URL and params, with and without a call group, a mobile instead of a CallerDesk
 number; refusals in plain words and no key in them; the token is made on choosing CallerDesk,
-never returned by the settings API and shown only to a System Manager; Live Call events (`TestLiveCall`): ringing then on call, repeats and late events ignored, the report closes the call, only the caller can read its status, an incoming call shows to its telecaller only. every documented `Status`, the `CallStatus` fallback, Busy and the telecaller's own failure for the lead and the batches (`TestStatuses`, `test_call_batches.py`), report vs live by `type`. `TestReconcile` (v1.3): a missed call lands on its lead with its recording, a stored call isn't stored twice, a stuck live call is closed, an unfinished row waits, no run for another provider, a failing call list logs without the key, the box's refresh is the caller's own and throttled. MyOperator's tests
+never returned by the settings API and shown only to a System Manager; Live Call events (`TestLiveCall`): ringing then on call, repeats and late events ignored, the report closes the call, only the caller can read its status, an incoming call shows to its telecaller only. every documented `Status`, the `CallStatus` fallback, Busy and the telecaller's own failure for the lead and the batches (`TestStatuses`, `test_call_batches.py`), report vs live by `type`. `TestReconcile` (v1.3; the app list and an unreadable APP event, v1.4): a missed call lands on its lead with its recording, a stored call isn't stored twice, a stuck live call is closed, an unfinished row waits, no run for another provider, a failing call list logs without the key, the box's refresh is the caller's own and throttled. MyOperator's tests
 (`test_telephony.py`) are unchanged.
 
 ## Changelog
 
+- **v1.4 (2026-11-14):** calls dialled from the CallerDesk app: `app_call_list_v2` in the reconcile and the APP Call Report webhook (§3.2).
 - **v1.3 (2026-11-14):** the reconcile (§3.2): a 10-minute job that stores calls whose webhook
   never arrived from `call_list_v2`, and `refresh_call` for the hub's box; questions for
   CallerDesk (hang-up API, `sid_id`). No migrate needed.

@@ -107,6 +107,10 @@ def callerdesk_webhook(token: str | None = None) -> dict:
 		frappe.throw(_("The body must be JSON."))
 	if callerdesk.is_live(report):
 		return calls.receive_live(report)
+	if not callerdesk.is_report(report):
+		# an "APP Call Report" (undocumented shape) without a CallSid: the reconcile finds the call
+		calls.note_unknown_event(report)
+		return {"ok": True, "ignored": True}
 	return calls.receive(report)
 
 
