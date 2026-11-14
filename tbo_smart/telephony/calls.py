@@ -191,7 +191,7 @@ def picked_times(live_status: str) -> dict:
 
 def call_status(reference_id: str) -> dict:
 	"""Where the session user's click-to-call is, for the call box: {state, call, lead, number,
-	answered, duration, talk_seconds}. `state` is calling (placed, nothing heard
+	answered, duration, talk_seconds, recording_state}. `state` is calling (placed, nothing heard
 	yet), ringing (the person's phone), ringing_lead (they picked up; the lead's phone rings), on_call or ended. Only the person who placed the call may ask; a call nobody
 	placed is refused the same way a stranger's is."""
 	user = frappe.session.user
@@ -209,6 +209,9 @@ def call_status(reference_id: str) -> dict:
 			"status",
 			"duration",
 			"talk_seconds",
+			"recording",
+			"recording_filename",
+			"creation",
 		],
 		as_dict=True,
 	)
@@ -227,6 +230,7 @@ def call_status(reference_id: str) -> dict:
 		"answered": row.status == ANSWERED if ended else None,
 		"duration": cint(row.duration) if ended else None,
 		"talk_seconds": cint(row.talk_seconds) if ended else None,
+		"recording_state": recording_state(row) if ended and row.status == ANSWERED else None,
 	}
 
 

@@ -603,6 +603,21 @@ class TestRecordingState(TestCallerDesk):
 		self.assertEqual(self.state_of("CD-OLD"), "none")
 
 
+class TestStatusRecording(TestCallerDesk):
+	def test_the_ended_status_says_whether_the_recording_is_saved(self):
+		self.place_click_to_call()
+		frappe.set_user("Administrator")
+		with patch("tbo_smart.telephony.calls.requests.get", side_effect=requests.ConnectionError("down")):
+			post_callerdesk_webhook(
+				callerdesk_report(
+					"CD-ST", Direction="WEBOBD", campid="57305000", CallRecordingUrl=RECORDING_URL
+				)
+			)
+		frappe.set_user(BDE)
+		self.assertEqual(calls.call_status("57305000")["recording_state"], "pending")
+		frappe.set_user("Administrator")
+
+
 class TestReconcile(TestCallerDesk):
 	"""Calls whose webhook never arrived are found in CallerDesk's call report."""
 
