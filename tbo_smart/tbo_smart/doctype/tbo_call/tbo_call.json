@@ -20,6 +20,9 @@
   "duration",
   "talk_seconds",
   "reference_id",
+  "live_status",
+  "leg_a_picked_at",
+  "leg_b_picked_at",
   "recording_section",
   "recording_filename",
   "recording",
@@ -140,6 +143,26 @@
    "read_only": 1
   },
   {
+   "fieldname": "live_status",
+   "fieldtype": "Select",
+   "label": "Live status",
+   "options": "\nRinging\nAgent picked\nOn call\nEnded",
+   "read_only": 1,
+   "description": "From CallerDesk's Live Call events and the Call Report; the hub's call box reads it."
+  },
+  {
+   "fieldname": "leg_a_picked_at",
+   "fieldtype": "Datetime",
+   "label": "Telecaller picked up at",
+   "read_only": 1
+  },
+  {
+   "fieldname": "leg_b_picked_at",
+   "fieldtype": "Datetime",
+   "label": "Customer picked up at",
+   "read_only": 1
+  },
+  {
    "fieldname": "recording_section",
    "fieldtype": "Section Break",
    "label": "Recording and summary"
@@ -201,7 +224,7 @@
  "in_create": 1,
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-10-19 21:00:00.000000",
+ "modified": "2026-11-14 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Call",

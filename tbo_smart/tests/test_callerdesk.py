@@ -12,6 +12,7 @@ from tbo_smart.telephony import callerdesk, calls
 from tbo_smart.test_utils import (
 	TEST_CALLERDESK_KEY,
 	TEST_CALLERDESK_TOKEN,
+	callerdesk_live,
 	callerdesk_report,
 	clear_dial_locks,
 	delete_sales_records,
@@ -285,6 +286,136 @@ class TestClickToCall(TestCallerDesk):
 		self.assertTrue(calls.can_call(BDE))
 		frappe.set_user("Administrator")
 		self.assertFalse(calls.can_call(ADMIN))
+
+
+class TestLiveCall(TestCallerDesk):
+	def status_of(self, user: str = BDE, reference_id: str = "57305000") -> dict:
+		frappe.set_user(user)
+		try:
+			return calls.call_status(reference_id)
+		finally:
+			frappe.set_user("Administrator")
+
+	def test_a_placed_call_is_calling_until_something_is_heard(self):
+		self.place_click_to_call()
+		frappe.set_user("Administrator")
+		self.assertEqual(self.status_of(), {"state": "calling", "lead": self.lead})
+
+	def test_live_events_move_the_call_from_ringing_to_on_call(self):
+		self.place_click_to_call()
+		frappe.set_user("Administrator")
+		post_callerdesk_webhook(callerdesk_live("CD-L1", Status="RINGING"))
+		self.assertEqual(self.status_of()["state"], "ringing")
+		# the telecaller's own phone is picked up first: the lead's phone rings now
+		post_callerdesk_webhook(callerdesk_live("CD-L1", DialWhomNumber="9000000001"))
+		self.assertEqual(self.status_of()["state"], "ringing_lead")
+		self.assertTrue(self.call_of("CD-L1").leg_a_picked_at)
+		self.assertEqual(frappe.db.count("Event", {"subject": ("like", "%Caller Known%")}), 0)
+		self.assertEqual(post_callerdesk_webhook(callerdesk_live("CD-L1")), {"ok": True})
+		status = self.status_of()
+		self.assertEqual((status["state"], status["lead"]), ("on_call", self.lead))
+		self.assertEqual(self.call_of("CD-L1").agent, BDE)
+
+	def test_a_repeated_or_older_live_event_changes_nothing(self):
+		self.place_click_to_call()
+		frappe.set_user("Administrator")
+		post_callerdesk_webhook(callerdesk_live("CD-L2"))
+		self.assertEqual(post_callerdesk_webhook(callerdesk_live("CD-L2")), {"ok": True, "duplicate": True})
+		self.assertEqual(
+			post_callerdesk_webhook(callerdesk_live("CD-L2", Status="RINGING")),
+			{"ok": True, "duplicate": True},
+		)
+		self.assertEqual(self.status_of()["state"], "on_call")
+		self.assertEqual(frappe.db.count("TBO Call", {"call_id": "CD-L2"}), 1)
+
+	def test_an_event_without_a_call_sid_is_ignored(self):
+		event = callerdesk_live("")
+		self.assertEqual(post_callerdesk_webhook(event), {"ok": True, "ignored": True})
+		self.assertEqual(frappe.db.count("TBO Call"), 0)
+
+	def test_the_call_report_closes_the_call(self):
+		self.place_click_to_call()
+		frappe.set_user("Administrator")
+		post_callerdesk_webhook(callerdesk_live("CD-L3"))
+		post_callerdesk_webhook(
+			callerdesk_report(
+				"CD-L3",
+				Direction="WEBOBD",
+				SourceNumber="9000000001",
+				DialWhomNumber="9876543210",
+				campid="57305000",
+				LegB_Picked_time="2026-10-19 10:58:30",
+			)
+		)
+		status = self.status_of()
+		self.assertEqual(
+			(status["state"], status["answered"], status["duration"], status["talk_seconds"]),
+			("ended", True, 18, 74),
+		)
+		call = self.call_of("CD-L3")
+		self.assertEqual((call.live_status, call.lead, call.agent), ("Ended", self.lead, BDE))
+		self.assertTrue(call.leg_b_picked_at)
+		self.assertEqual(len(calls_events(self.lead)), 1)
+		# a late Live Call event can't reopen it
+		self.assertEqual(
+			post_callerdesk_webhook(callerdesk_live("CD-L3", Status="RINGING")),
+			{"ok": True, "duplicate": True},
+		)
+		self.assertEqual(self.status_of()["state"], "ended")
+
+	def test_a_missed_call_ends_as_not_answered(self):
+		self.place_click_to_call()
+		frappe.set_user("Administrator")
+		post_callerdesk_webhook(
+			callerdesk_report(
+				"CD-L4",
+				Status="NOANSWER",
+				Direction="WEBOBD",
+				SourceNumber="9000000001",
+				DialWhomNumber="9876543210",
+				campid="57305000",
+			)
+		)
+		self.assertEqual(self.status_of()["answered"], False)
+
+	def test_only_the_person_who_placed_the_call_can_ask(self):
+		self.place_click_to_call()
+		frappe.set_user("Administrator")
+		post_callerdesk_webhook(callerdesk_live("CD-L5"))
+		with self.assertRaises(frappe.PermissionError):
+			self.status_of(BDE2)
+		with self.assertRaises(frappe.PermissionError):
+			self.status_of(BDE, "no-such-call")
+
+	def test_the_hub_asks_for_the_status_as_the_person(self):
+		self.place_click_to_call()
+		frappe.set_user("Administrator")
+		with self.assertRaises(frappe.PermissionError):
+			api.get_call_status("57305000", acting_user=BDE2)
+
+	def test_an_incoming_call_shows_to_the_telecaller_it_rings(self):
+		post_callerdesk_webhook(
+			callerdesk_live(
+				"CD-IN",
+				Direction="IVR",
+				SourceNumber="9876543210",
+				DialWhomNumber="9000000001",
+				campid="",
+				Status="RINGING",
+			)
+		)
+		frappe.set_user(BDE)
+		self.assertTrue(api.get_incoming_call()["enabled"])
+		incoming = calls.incoming_call()
+		self.assertEqual(
+			(incoming["number"], incoming["lead"], incoming["state"]), (NUMBER, self.lead, "ringing")
+		)
+		frappe.set_user(BDE2)
+		self.assertIsNone(calls.incoming_call())
+		frappe.set_user("Administrator")
+		post_callerdesk_webhook(callerdesk_report("CD-IN"))
+		frappe.set_user(BDE)
+		self.assertIsNone(calls.incoming_call())
 
 
 class TestSettings(TestCallerDesk):

@@ -17,7 +17,7 @@ import requests
 from frappe import _
 from frappe.query_builder import CustomFunction
 from frappe.query_builder.functions import Coalesce, Count, Sum
-from frappe.utils import add_days, cint, getdate, now_datetime, today
+from frappe.utils import add_days, add_to_date, cint, getdate, now_datetime, today
 
 from tbo_smart import lead_source
 from tbo_smart.lead_pipeline.call_outcomes import apply_call_outcome
@@ -28,13 +28,18 @@ from tbo_smart.sales.stages import system_save
 from tbo_smart.smart_leads import FOLLOW_UP_TYPE
 from tbo_smart.smart_leads.utils import normalise_phone
 from tbo_smart.telephony import (
+	AGENT_PICKED,
 	ANSWERED,
 	CALLERDESK,
+	ENDED,
 	INCOMING,
 	LEAD_SOURCE,
+	LIVE_EVENT,
 	MANUAL_OUTCOMES,
 	MISSED,
+	ON_CALL,
 	OUTGOING,
+	RINGING,
 	SETTINGS,
 	callerdesk,
 	min_summary_seconds,
@@ -52,6 +57,8 @@ REFERENCE_KEY = "tbo_smart:telephony:ref:{}"
 REFERENCE_SECONDS = 6 * 60 * 60
 DIAL_LOCK_KEY = "tbo_smart:telephony:dialing:{}"
 DIAL_LOCK_SECONDS = 15
+INCOMING_SECONDS = 60
+LIVE_STATES = {RINGING: "ringing", AGENT_PICKED: "ringing_lead", ON_CALL: "on_call"}
 MAX_RECORDING_BYTES = 50 * 1024 * 1024
 DOWNLOAD_TIMEOUT = 60
 PHONE_FIELDS = ("mobile_no", "phone", "whatsapp_no")
@@ -80,6 +87,9 @@ def receive(event: dict) -> dict:
 		"reference_id": call["reference_id"],
 		"agent_ref": agent_ref(call["agent"]),
 		"last_event": call["event_type"],
+		"live_status": ENDED,
+		"leg_a_picked_at": call.get("leg_a_picked_at"),
+		"leg_b_picked_at": call.get("leg_b_picked_at"),
 		"payload": json.dumps(event),
 	}
 	final = call["event_type"] == myoperator.FINAL_EVENT
@@ -109,6 +119,134 @@ def receive(event: dict) -> dict:
 		now=frappe.flags.in_test,
 	)
 	return {"ok": True}
+
+
+def receive_live(event: dict) -> dict:
+	"""A CallerDesk Live Call event: the call's live status on its TBO Call (made now when the
+	call isn't stored yet), for the call box. It only moves a call forward (Ringing, then On
+	call) and never touches one the Call Report has closed, so a repeated, late or out-of-order
+	event changes nothing. The lead and the Event are the Call Report's job."""
+	live = callerdesk.parse_live(event, agent_number_tails())
+	if not live:
+		return {"ok": True, "ignored": True}
+	existing = frappe.db.get_value(
+		DOCTYPE, {"call_id": live["call_id"]}, ["name", "last_event", "live_status"], as_dict=True
+	)
+	if existing:
+		return advance_live_call(existing, live)
+	started = pending_call(live["reference_id"])
+	try:
+		doc = frappe.get_doc(
+			{
+				"doctype": DOCTYPE,
+				"call_id": live["call_id"],
+				"direction": live["direction"],
+				"customer_number": live["customer_number"],
+				"started_at": live["started_at"],
+				"reference_id": live["reference_id"],
+				"agent": started.get("user") or map_agent(live["agent"]),
+				"agent_ref": agent_ref(live["agent"]),
+				"last_event": LIVE_EVENT,
+				"live_status": live["live_status"],
+				**picked_times(live["live_status"]),
+				"payload": json.dumps(event),
+			}
+		)
+		doc.insert(ignore_permissions=True)
+	except (frappe.DuplicateEntryError, frappe.UniqueValidationError):
+		return {"ok": True, "duplicate": True}
+	return {"ok": True}
+
+
+def advance_live_call(existing, live: dict) -> dict:
+	"""Move a stored call to the live status of a newer Live Call event; a closed call, or a
+	status it already has or has passed, is a duplicate."""
+	rank = {RINGING: 1, AGENT_PICKED: 2, ON_CALL: 3}
+	if existing.last_event != LIVE_EVENT or rank[live["live_status"]] <= rank.get(existing.live_status, 0):
+		return {"ok": True, "duplicate": True}
+	frappe.db.set_value(
+		DOCTYPE,
+		existing.name,
+		{"live_status": live["live_status"], **picked_times(live["live_status"])},
+	)
+	return {"ok": True}
+
+
+def picked_times(live_status: str) -> dict:
+	"""The pick-up time a live status records (the event's arrival), until the Call Report
+	brings CallerDesk's own."""
+	field = {AGENT_PICKED: "leg_a_picked_at", ON_CALL: "leg_b_picked_at"}.get(live_status)
+	return {field: now_datetime()} if field else {}
+
+
+def call_status(reference_id: str) -> dict:
+	"""Where the session user's click-to-call is, for the call box: {state, call, lead, number,
+	answered, duration, talk_seconds}. `state` is calling (placed, nothing heard
+	yet), ringing (the person's phone), ringing_lead (they picked up; the lead's phone rings), on_call or ended. Only the person who placed the call may ask; a call nobody
+	placed is refused the same way a stranger's is."""
+	user = frappe.session.user
+	placed = pending_call(reference_id)
+	row = frappe.db.get_value(
+		DOCTYPE,
+		{"reference_id": reference_id},
+		[
+			"name",
+			"agent",
+			"lead",
+			"customer_number",
+			"last_event",
+			"live_status",
+			"status",
+			"duration",
+			"talk_seconds",
+		],
+		as_dict=True,
+	)
+	owner = (row.agent if row else None) or placed.get("user")
+	if owner != user:
+		frappe.throw(_("This isn't your call."), frappe.PermissionError)
+	if not row:
+		return {"state": "calling", "lead": placed.get("lead")}
+	ended = row.last_event != LIVE_EVENT
+	state = "ended" if ended else LIVE_STATES.get(row.live_status, "calling")
+	return {
+		"state": state,
+		"call": row.name,
+		"lead": row.lead or placed.get("lead"),
+		"number": row.customer_number,
+		"answered": row.status == ANSWERED if ended else None,
+		"duration": cint(row.duration) if ended else None,
+		"talk_seconds": cint(row.talk_seconds) if ended else None,
+	}
+
+
+def incoming_call() -> dict | None:
+	"""The call coming in to the session user right now, from a Live Call event in the last
+	minute that the Call Report hasn't closed: {call, number, lead, lead_name, state}; None when
+	there is none."""
+	user = frappe.session.user
+	row = frappe.db.get_value(
+		DOCTYPE,
+		{
+			"agent": user,
+			"direction": INCOMING,
+			"last_event": LIVE_EVENT,
+			"modified": (">", add_to_date(now_datetime(), seconds=-INCOMING_SECONDS)),
+		},
+		["name", "customer_number", "live_status"],
+		as_dict=True,
+		order_by="modified desc",
+	)
+	if not row:
+		return None
+	lead = find_lead(row.customer_number)
+	return {
+		"call": row.name,
+		"number": row.customer_number,
+		"lead": lead,
+		"lead_name": frappe.db.get_value("Lead", lead, "lead_name") if lead else None,
+		"state": LIVE_STATES.get(row.live_status, "ringing"),
+	}
 
 
 def log_manual_call(lead: str, outcome: str, note: str | None = None, number: str | None = None):

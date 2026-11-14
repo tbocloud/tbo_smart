@@ -1,4 +1,4 @@
-# Telephony through CallerDesk (living spec, v1.0)
+# Telephony through CallerDesk (living spec, v1.1)
 
 **Status:** built 2026-11-14, behind TBO Smart Settings → **Telephony → Telephony provider =
 CallerDesk**, off by default (MyOperator stays the default provider). Telecallers' calls through
@@ -28,6 +28,7 @@ click-to-call URL. Read on 2026-11-14.
 | --- | --- |
 | Auth | The API key goes in the `authcode` parameter; HTTPS only. (Postman: Basic auth, key and secret; we don't use it.) |
 | Call Report webhook | Fields `SourceNumber`, `DestinationNumber` (virtual number), `DialWhomNumber` (who answered), `CallDuration`, `coins`, `Status` (sample `ANSWER`), `StartTime`, `EndTime` (`yyyy-mm-dd hh:mm:ss`), `CallSid` (id), `CallRecordingUrl`, `Direction` (`IVR` incoming, `WEBOBD` outgoing), `campid`, `TalkDuration`, `call_group`, `receiver_name`, `error_code`, `LegA_Picked_time`, `LegB_Start_time`, `LegB_Picked_time`. |
+| Live Call webhook | Sample fields `SourceNumber`, `DestinationNumber`, `DialWhomNumber` (the agent number that answered), `Status` (`ANSWER`; the docs say outcomes such as agent engaged, busy, abandoned, answered, cancel), `StartTime`, `CallSid`, `Direction`, `campid`. No `EndTime`, no `CallDuration`. A "Live Call (Only Picked)" event exists too. |
 | Webhook setup | Dashboard → API & Integration → Webhooks → Create Webhook: a public HTTPS URL, an alert email, the events. Up to five URLs. A premium feature (ask the account manager). URLs containing CallerDesk's domain are refused. |
 | Click-to-call URL | `GET https://app.callerdesk.io/api/click_to_call_v2` with `calling_party_a` (the agent, no country code), `calling_party_b` (the customer), `deskphone` (the virtual number), `call_from_did=1`, `authcode`. The "with call group" variant adds `group_name` (calling_party_a must be a member of the group). Leg A is dialled first. |
 
@@ -125,6 +126,35 @@ CallerDesk has no call that proves the key without placing a call.
 The "Reverse C2C" and "C2C via member id" variants aren't used: they ring the customer first,
 or need CallerDesk member IDs.
 
+### 3.1 Live Call and the call box (`calls.receive_live`, `calls.call_status`)
+
+The same address takes a Live Call event. It is told apart from a Call Report by having a
+`CallSid` but no `EndTime` and no `CallDuration` (`callerdesk.is_live`); the token check is the
+same. `receive_live` keeps the call's **live status** on its TBO Call (`live_status`: Ringing,
+On call, Ended; `leg_a_picked_at`, `leg_b_picked_at`; `last_event` = `live` until the report):
+
+- `Status` `ANSWER` → **On call** (`leg_b_picked_at` = when the event arrived), except an outgoing
+  call whose `DialWhomNumber` is a telecaller's number: that is the telecaller's own phone being
+  picked up, **Agent picked** (`leg_a_picked_at`), and the lead's phone rings next; any other
+  status → **Ringing**. The Call Report sets **Ended** and the real `LegA_Picked_time` / `LegB_Picked_time`.
+- Idempotent: it only moves a call forward (Ringing → On call); a repeat, an older status, or any
+  event for a call the Call Report has already closed returns `{"ok": true, "duplicate": true}`
+  and changes nothing. An event without a `CallSid` is ignored. It makes no lead Event and no
+  task: that stays the Call Report's job (`process_call`), which completes the same row.
+- The agent of an outgoing call is the click-to-call's person (by `campid`); of an incoming call,
+  the telecaller whose number is `DialWhomNumber`.
+
+`get_call_status(reference_id)` (`tbo_smart.api.telephony`, hub-leads-api §2.33) reads it for the
+box: `calling` (placed, no event yet), `ringing` (the person's phone), `ringing_lead`, `on_call`, `ended`. Only the person who placed
+the call (or whose call it is) may ask. MyOperator rows only ever say calling, then ended
+(`call.end`). `get_incoming_call` returns a call ringing the person right now (a Live Call event
+in the last minute that the report hasn't closed).
+
+**Assumed (confirm with CallerDesk):** Live Call fires when a leg is ringing/connected and again
+with `ANSWER` when picked; for an outgoing click-to-call we can't tell which leg `ANSWER` is, so
+"On call" starts when it arrives. Incoming Live Call events carry `Direction` `IVR` and the
+caller in `SourceNumber`. If none of this arrives, nothing breaks: the box waits for the report.
+
 ## 5. What the owner does
 
 In CallerDesk (app.callerdesk.io):
@@ -132,7 +162,9 @@ In CallerDesk (app.callerdesk.io):
 1. Dashboard → API & Integration: copy the **API key (authcode)**.
 2. Add each telecaller as a member with their mobile (and a call group, if the account uses one).
 3. Dashboard → API & Integration → Webhooks → **Create Webhook**: URL = the address shown under
-   Webhook token in TBO Smart Settings, an alert email, event **Call Report**. If the webhook
+   Webhook token in TBO Smart Settings, method POST, an alert email, events **Call Report** and
+   **Live Call** (the hub's call box shows "Ringing" and "On call" from it; without it the box still
+   works but only says "Calling your phone…" until the call ends). If the webhook
    isn't offered, ask the account manager (it's a premium feature).
 4. Play the recording notice (DPDP) in the number's greeting before turning recording on.
 
@@ -155,10 +187,12 @@ makes a Call back and no recording; an unknown caller becomes a lead, or not whe
 an outgoing call finds its customer; a click-to-call's `campid` lands the call on its lead;
 the request's URL and params, with and without a call group, a mobile instead of a CallerDesk
 number; refusals in plain words and no key in them; the token is made on choosing CallerDesk,
-never returned by the settings API and shown only to a System Manager. MyOperator's tests
+never returned by the settings API and shown only to a System Manager; Live Call events (`TestLiveCall`): ringing then on call, repeats and late events ignored, the report closes the call, only the caller can read its status, an incoming call shows to its telecaller only. MyOperator's tests
 (`test_telephony.py`) are unchanged.
 
 ## Changelog
 
+- **v1.1 (2026-11-14):** Live Call events (§3.1), `live_status` and picked-at fields on TBO Call,
+  `get_call_status`, `get_incoming_call`, for the hub's call box. Owner: tick Live Call in the webhook.
 - **v1.0 (2026-11-14):** first version: provider switch, Call Report webhook, click-to-call,
   recordings, CallerDesk number in the users table.

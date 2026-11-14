@@ -18,7 +18,17 @@ from frappe import _
 from frappe.utils import cint, get_datetime, get_system_timezone
 
 from tbo_smart.smart_leads.utils import normalise_phone
-from tbo_smart.telephony import ANSWERED, INCOMING, MISSED, OUTGOING, secret, setting
+from tbo_smart.telephony import (
+	AGENT_PICKED,
+	ANSWERED,
+	INCOMING,
+	MISSED,
+	ON_CALL,
+	OUTGOING,
+	RINGING,
+	secret,
+	setting,
+)
 
 CLICK_TO_CALL_URL = "https://app.callerdesk.io/api/click_to_call_v2"
 TIMEOUT = 15
@@ -34,9 +44,51 @@ class CallerDeskError(frappe.ValidationError):
 	"""CallerDesk refused or couldn't be reached; the message is for people."""
 
 
-def is_report(event) -> bool:
-	"""A Call Report: the one payload with a CallSid."""
+def has_call_sid(event) -> bool:
 	return isinstance(event, dict) and bool(str(event.get("CallSid") or "").strip())
+
+
+def is_live(event) -> bool:
+	"""A Live Call event: a CallSid and none of the fields only a finished call has (EndTime,
+	CallDuration). CallerDesk's sample for it lists only SourceNumber, DestinationNumber,
+	DialWhomNumber, Status, StartTime, CallSid, Direction and campid."""
+	return has_call_sid(event) and not (event.get("EndTime") or event.get("CallDuration"))
+
+
+def is_report(event) -> bool:
+	"""A Call Report: a CallSid and the end of the call."""
+	return has_call_sid(event) and not is_live(event)
+
+
+def live_status(event: dict, outgoing: bool, agent_numbers: set[str]) -> str:
+	if str(event.get("Status") or "").strip().upper() != ANSWER:
+		return RINGING
+	if outgoing and tail(event.get("DialWhomNumber")) in agent_numbers:
+		return AGENT_PICKED
+	return ON_CALL
+
+
+def parse_live(event: dict, agent_numbers: set[str]) -> dict | None:
+	"""A Live Call event in this site's terms; None when it isn't one. `Status` ANSWER means
+	someone picked up, anything else that the call is ringing. An outgoing call's first pick-up
+	is the telecaller's own phone (DialWhomNumber is a telecaller's number: "Agent picked"),
+	then the customer's ("On call"). Only an incoming call says who the customer and the
+	telecaller are (SourceNumber, DialWhomNumber); for an outgoing one the box already knows
+	both from the click-to-call's campid."""
+	if not is_live(event):
+		return None
+	outgoing = str(event.get("Direction") or "").upper() in OUTGOING_DIRECTIONS
+	source = normalise_phone(event.get("SourceNumber"))
+	agent_number = str(event.get("DialWhomNumber") or "")
+	return {
+		"call_id": str(event["CallSid"]).strip()[:140],
+		"direction": OUTGOING if outgoing else INCOMING,
+		"live_status": live_status(event, outgoing, agent_numbers),
+		"customer_number": f"+{source}" if source and not outgoing else None,
+		"reference_id": str(event.get("campid") or "").strip() or None,
+		"agent": {"contact": agent_number} if agent_number and not outgoing else None,
+		"started_at": local_time(event.get("StartTime")),
+	}
 
 
 def tail(number: str | None) -> str | None:
@@ -92,6 +144,8 @@ def parse_report(event: dict, agent_numbers: set[str]) -> dict | None:
 		"recording_filename": recording if answered and recording else None,
 		"reference_id": str(event.get("campid") or "").strip() or None,
 		"agent": {"contact": agent_number, "name": event.get("receiver_name")} if agent_number else None,
+		"leg_a_picked_at": local_time(event.get("LegA_Picked_time")),
+		"leg_b_picked_at": local_time(event.get("LegB_Picked_time")),
 	}
 
 

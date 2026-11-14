@@ -1,4 +1,4 @@
-# Hub leads API (`tbo_smart.api.hub_leads`), v1.28
+# Hub leads API (`tbo_smart.api.hub_leads`), v1.29
 
 **Status:** built 2026-10-16. The TBO Support hub's lead page (tbocloud/helpdesk) shows and edits
 tboindia's leads through these methods. The leads are ERPNext's own **Lead**
@@ -1090,6 +1090,21 @@ visible = scope.all
 lead, user=…)` for a salesperson, one in the hierarchy, a team leader, a department head and a
 Sales Manager, over owned, assigned and department leads.
 
+### 2.33 The call box (`tbo_smart.api.telephony`)
+
+The hub's call box (hub `docs/leads.md`) follows a click-to-call through two reads, both with
+`acting_user` and both GET:
+
+- `get_call_status(reference_id)`: `reference_id` is what `click_to_call` returned. Returns
+  `{state, call, lead, number, answered, duration, talk_seconds}`; `state` is
+  `calling` (placed, nothing heard yet), `ringing` (their phone), `ringing_lead` (they picked up, the lead's phone rings), `on_call` or `ended`. `answered`, `duration`
+  and `talk_seconds` are set once `ended`. 403 unless the call
+  is the acting user's. Live states need CallerDesk's Live Call event (`telephony-callerdesk.md`
+  §3.1); without it a call goes from `calling` straight to `ended` when the report arrives.
+- `get_incoming_call()`: `{enabled, call: {call, number, lead, lead_name, state} | null}`, the call
+  coming in to the acting user now (a Live Call event in the last minute); `enabled` is false when
+  they aren't set up for calling, and the hub stops asking.
+
 ## 3. Links back to the hub
 
 Teams messages, emails and the morning digest link to the lead page when TBO Smart Settings →
@@ -1152,6 +1167,8 @@ project set-ups saved by managers only.
 `tbo_smart/tests/test_lead_bank.py`: see `lead-bank.md` §9.
 
 ## Changelog
+
+- **v1.29 (2026-11-14):** the call box (§2.33): `get_call_status`, `get_incoming_call`.
 
 - **v1.28 (2026-11-13):** one lead per number (§2.9, `lead-departments.md` §6): `create_lead`'s
   `allow_duplicate` no longer gets past a number another lead has; `update_lead` and

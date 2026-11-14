@@ -29,6 +29,9 @@ MANUAL_OUTCOMES = {
 	"Not interested": ANSWERED,
 	"Wrong number": MISSED,
 }
+# a TBO Call's live_status, for the call box
+RINGING, AGENT_PICKED, ON_CALL, ENDED = "Ringing", "Agent picked", "On call", "Ended"
+LIVE_EVENT = "live"
 DEFAULT_MIN_SUMMARY_SECONDS = 30
 DEFAULT_TRANSCRIPTION_MODEL = "gpt-4o-transcribe"
 DEFAULT_RECORDING_DAYS = 180

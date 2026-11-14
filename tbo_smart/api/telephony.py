@@ -88,7 +88,7 @@ def myoperator_webhook() -> dict:
 @frappe.whitelist(allow_guest=True, methods=["POST"])  # the token in the address is the key - nosemgrep
 @rate_limit(limit=600, seconds=60)
 def callerdesk_webhook(token: str | None = None) -> dict:
-	"""A CallerDesk Call Report (JSON). Only a request whose `token` in the address
+	"""A CallerDesk Call Report or Live Call event (JSON). Only a request whose `token` in the address
 	is the webhook token is read; nothing in the payload decides who may call this. A call is
 	stored once by its CallSid and processed in the background."""
 	if not telephony_enabled() or provider() != CALLERDESK:
@@ -99,6 +99,8 @@ def callerdesk_webhook(token: str | None = None) -> dict:
 	report = frappe.request.get_json(silent=True)
 	if not isinstance(report, dict):
 		frappe.throw(_("The body must be JSON."))
+	if callerdesk.is_live(report):
+		return calls.receive_live(report)
 	return calls.receive(report)
 
 
@@ -111,6 +113,25 @@ def click_to_call(lead: str, number: str | None = None, acting_user: str | None 
 	default its mobile). {ok, message, number, reference_id}."""
 	with acting_as(acting_user):
 		return calls.click_to_call(lead, number)
+
+
+@frappe.whitelist()
+def get_call_status(reference_id: str, acting_user: str | None = None) -> dict:
+	"""Where the person's click-to-call is (the `reference_id` click_to_call returned), for the
+	hub's call box: {state: calling | ringing | on_call | ended, call, lead, number, answered,
+	duration, talk_seconds}. Only the person who placed the call may ask."""
+	with acting_as(acting_user):
+		return calls.call_status(reference_id)
+
+
+@frappe.whitelist()
+def get_incoming_call(acting_user: str | None = None) -> dict:
+	"""{enabled, call: {call, number, lead, lead_name, state} | None}: the call coming in to the
+	person now (CallerDesk's Live Call events), for the hub's "Incoming call" notice. `enabled`
+	is whether the person is set up for calling at all: when it is false the hub stops asking."""
+	with acting_as(acting_user):
+		enabled = calls.can_call()
+		return {"enabled": enabled, "call": calls.incoming_call() if enabled else None}
 
 
 @frappe.whitelist()
