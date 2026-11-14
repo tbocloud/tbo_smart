@@ -15,6 +15,7 @@ docs/telephony-callerdesk.md).
 import hmac
 import json
 import mimetypes
+from contextlib import nullcontext
 
 import frappe
 from frappe import _
@@ -128,6 +129,14 @@ def call_recording(call: str, acting_user: str | None = None) -> None:
 # ---------- settings ----------
 
 
+def settings_caller(acting_user: str | None):
+	"""The settings actions run for the hub's person when the hub names one (acting_user), else
+	for whoever is signed in on this site's desk form, as require_manager checks. Without this a
+	System Manager who also holds the hub integration role (Administrator) was refused on the
+	desk form with "Name the hub user this call is for"."""
+	return acting_as(acting_user) if acting_user else nullcontext()
+
+
 def require_manager() -> None:
 	if frappe.session.user != "Administrator" and "System Manager" not in frappe.get_roles():
 		frappe.throw(_("Only a System Manager can change the telephony settings."), frappe.PermissionError)
@@ -199,7 +208,7 @@ def save_settings(values: dict | str, acting_user: str | None = None) -> dict:
 @frappe.whitelist(methods=["POST"])
 def regenerate_webhook_secret(acting_user: str | None = None) -> dict:
 	"""A new webhook secret: {secret, header, url}. Shown this once; the old one stops working."""
-	with acting_as(acting_user):
+	with settings_caller(acting_user):
 		require_manager()
 		value = frappe.generate_hash(length=40)
 		doc = frappe.get_single(SETTINGS)
@@ -211,7 +220,7 @@ def regenerate_webhook_secret(acting_user: str | None = None) -> dict:
 @frappe.whitelist()
 def get_callerdesk_webhook_url(acting_user: str | None = None) -> dict:
 	"""{url}: the full address to paste into CallerDesk, token included (System Managers only)."""
-	with acting_as(acting_user):
+	with settings_caller(acting_user):
 		require_manager()
 		return {"url": callerdesk_webhook_url()}
 
@@ -219,7 +228,7 @@ def get_callerdesk_webhook_url(acting_user: str | None = None) -> dict:
 @frappe.whitelist(methods=["POST"])
 def regenerate_callerdesk_token(acting_user: str | None = None) -> dict:
 	"""A new CallerDesk webhook token: {url}. The old address stops working."""
-	with acting_as(acting_user):
+	with settings_caller(acting_user):
 		require_manager()
 		doc = frappe.get_single(SETTINGS)
 		doc.callerdesk_webhook_token = frappe.generate_hash(length=40)
@@ -233,7 +242,7 @@ def test_connection(acting_user: str | None = None) -> dict:
 	MyOperator, the API token lists its users (returned, to fill the mapping). CallerDesk has no
 	call that checks the key without placing a call, so it only checks the fields.
 	{ok, message, missing, users}."""
-	with acting_as(acting_user):
+	with settings_caller(acting_user):
 		require_manager()
 		if provider() == CALLERDESK:
 			missing = callerdesk.missing_call_settings()
