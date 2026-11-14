@@ -44,7 +44,8 @@ click-to-call URL. Read on 2026-11-14.
 4. **Durations.** The sample shows `CallDuration` 18 and `TalkDuration` 40, so which is the
    conversation isn't clear. We store `CallDuration` as the call's duration and `TalkDuration`
    (else `CallDuration`) as the talk time, for answered calls only.
-5. **The click-to-call answer.** Not documented. A 2xx whose JSON doesn't say it failed
+5. **The click-to-call answer.** Not documented. Seen live (2026-11-14): a refusal is HTTP 200
+   with `{"type": "error", "message": "Invalid Auth Code!"}`, so `type` is read too. A 2xx whose JSON doesn't say it failed
    (`status` error/fail/false, or an `error` key) is accepted; the `campid` is read from the
    answer's `campid` or `data.campid`. If CallerDesk sends none, the call report finds the lead by
    the customer's number instead.

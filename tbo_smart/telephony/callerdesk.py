@@ -154,8 +154,9 @@ def place_call(params: dict) -> dict:
 
 def refusal_reason(answer: dict) -> str | None:
 	"""CallerDesk's own words when its answer says the call failed; "" when it fails without any."""
-	status = str(answer.get("status", answer.get("success", ""))).strip().lower()
-	if status in FAILED_STATUSES or answer.get("error"):
+	# seen live: HTTP 200 with {"type": "error", "message": "Invalid Auth Code!"}
+	said = [str(answer.get(key, "")).strip().lower() for key in ("type", "status", "success")]
+	if any(word in FAILED_STATUSES for word in said) or answer.get("error"):
 		return str(answer.get("message") or answer.get("msg") or answer.get("error") or "")[:200]
 	return None
 
