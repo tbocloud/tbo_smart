@@ -257,6 +257,10 @@ class TestClickToCall(TestCallerDesk):
 			with self.assertRaises(frappe.ValidationError) as caught:
 				self.refuse(status, body)
 			self.assertEqual(str(caught.exception), expected)
+			# the hub reads the reason from the response's messages
+			shown = " ".join(str(row.get("message")) for row in frappe.get_message_log())
+			self.assertIn(expected, shown)
+			frappe.clear_messages()
 
 	def refuse(self, status: int, body: dict):
 		frappe.set_user(BDE)
