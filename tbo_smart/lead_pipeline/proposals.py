@@ -926,6 +926,26 @@ def create_revision(doc):
 	return revision
 
 
+def changes_asked(doc) -> dict | None:
+	"""On a draft revision: what the client asked to change on the version before it (its reason,
+	who and when), so presales sees it while revising. None otherwise."""
+	family = doc.proposal_family
+	if doc.status != DRAFT or not family or cint(doc.revision_no) < 1:
+		return None
+	previous = frappe.get_all(
+		DOCTYPE,
+		filters={"revision_no": ("<", cint(doc.revision_no))},
+		or_filters={"proposal_family": family, "name": family},
+		fields=["name", "status", "decline_reason", "decided_by_name", "decided_on"],
+		order_by="revision_no desc",
+		limit=1,
+	)
+	if not previous or previous[0].status != DECLINED:
+		return None
+	row = previous[0]
+	return {"name": row.name, "reason": row.decline_reason, "by": row.decided_by_name, "on": row.decided_on}
+
+
 def revisions(doc) -> list[dict]:
 	return frappe.get_all(
 		DOCTYPE,
@@ -1008,6 +1028,10 @@ def send_blockers(doc, by_email: bool = True) -> list[str]:
 def accepted_price_blockers(doc) -> list[str]:
 	"""A document after the price shows the price the client accepted: it needs that quotation (the
 	accepted proposal's, while the proposal is the quotation), still accepted."""
+	if not doc.quotation and not kinds.priced_lineage(doc):
+		# no priced document before it (the proposal skipped, or the chain started here): it states
+		# no price, so there is no accepted one to wait for
+		return []
 	status = frappe.db.get_value("Quotation", doc.quotation, "tbo_quote_status") if doc.quotation else None
 	if status == q.ACCEPTED:
 		return []
@@ -1066,6 +1090,17 @@ def release(doc, via: str, to: str | None) -> None:
 	doc.flags.proposal_workflow = True
 	doc.save()
 	media.drop_unused_images(doc)
+	from tbo_smart.lead_pipeline import document_steps
+
+	# going out means the step is done after all, if it was skipped
+	document_steps.clear(doc.lead, kinds.of(doc).name)
+	noun = kinds.words(kinds.of(doc).name)["noun"]
+	tell_owner(
+		doc,
+		(_("{0} sent the {1} {2} to {3}") if to else _("{0} shared the {1} {2}")).format(
+			frappe.utils.get_fullname(frappe.session.user), noun, doc.title, to
+		),
+	)
 
 
 def send_price(doc, via: str) -> None:
@@ -1214,14 +1249,29 @@ def decide(
 			move_pipeline(doc, accept)
 		who = name or email_address or client_name(doc)
 		noun = kinds.words(spec.name)["noun"]
-		tell_owner(
-			doc,
-			(
-				(_("{0} signed the {1} {2}") if spec.signature else _("{0} accepted the {1} {2}"))
-				if accept
-				else _("{0} declined the {1} {2}")
-			).format(who, noun, doc.title),
-		)
+		tell_owner(doc, decision_line(spec, accept, who, noun, doc))
+	# the next document as a draft (accepted), or the revision (changes asked), made in the
+	# background as the lead's owner once this answer is saved
+	frappe.enqueue(
+		"tbo_smart.lead_pipeline.client_documents.after_decision",
+		name=doc.name,
+		accepted=accept,
+		enqueue_after_commit=True,
+	)
+
+
+def decision_line(spec, accept: bool, who: str, noun: str, doc) -> str:
+	"""The client's answer on the lead's timeline, in the type's words."""
+	if not accept and spec.name in kinds.REVISED_ON_CHANGES:
+		line = _("{0} asked for changes to the {1} {2}").format(who, noun, doc.title)
+		return f"{line}: {doc.decline_reason}" if doc.decline_reason else line
+	if not accept:
+		return _("{0} declined the {1} {2}").format(who, noun, doc.title)
+	if spec.signature:
+		return _("{0} signed the {1} {2}").format(who, noun, doc.title)
+	if spec.accepted_as == "Approved":
+		return _("{0} approved the {1} {2}").format(who, noun, doc.title)
+	return _("{0} accepted the {1} {2}").format(who, noun, doc.title)
 
 
 def move_pipeline(doc, accept: bool) -> None:
@@ -1268,20 +1318,26 @@ def contact_name(doc) -> str | None:
 
 
 def tell_owner(doc, subject: str) -> None:
-	"""A timeline comment on the lead and an in-app note (and push) to its owner."""
+	tell_lead_owner(doc.lead, subject)
+
+
+def tell_lead_owner(lead: str, subject: str, always: bool = False) -> None:
+	"""A timeline comment on the lead and an in-app note (and push) to its owner, unless the owner
+	is the one who did it (the client's answers run as Administrator, so the owner hears of them)
+	and not `always` (work done for them in the background)."""
 	from frappe.desk.doctype.notification_log.notification_log import enqueue_create_notification
 
-	frappe.get_doc("Lead", doc.lead).add_comment("Info", subject)
-	owner = frappe.db.get_value("Lead", doc.lead, "lead_owner")
-	if owner:
+	frappe.get_doc("Lead", lead).add_comment("Info", subject)
+	owner = frappe.db.get_value("Lead", lead, "lead_owner")
+	if owner and (always or owner != frappe.session.user):
 		enqueue_create_notification(
 			[owner],
 			{
 				"type": "Alert",
 				"document_type": "Lead",
-				"document_name": doc.lead,
+				"document_name": lead,
 				"subject": subject,
-				"from_user": "Administrator",
+				"from_user": frappe.session.user if frappe.session.user != "Guest" else "Administrator",
 			},
 		)
 

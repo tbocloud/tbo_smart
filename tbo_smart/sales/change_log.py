@@ -119,6 +119,8 @@ READERS = {
 	"TBO Call": linked_lead("lead", "Call"),
 	"TBO Call Batch": batch_leads,
 	"TBO Proposal": linked_lead("lead", "Proposal"),
+	# a document step skipped, not used or brought back: the lead's documents changed
+	"TBO Lead Document Step": linked_lead("lead", "Proposal"),
 	"TBO Lead Meeting": linked_lead("lead", "Meeting"),
 	"Quotation": linked_lead("tbo_lead", "Quotation"),
 	"Opportunity": linked_lead("tbo_lead", "Deal"),

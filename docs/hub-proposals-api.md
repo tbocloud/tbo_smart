@@ -1,4 +1,4 @@
-# Hub proposals API (`tbo_smart.api.hub_proposals`), v2.9
+# Hub proposals API (`tbo_smart.api.hub_proposals`), v3.0
 
 **Status:** built 2026-10-19. The TBO Support hub's proposal builder (tbocloud/helpdesk
 `docs/proposals.md`) calls these. What proposals are and do: `proposals.md`; the documents after
@@ -28,13 +28,15 @@ otherwise) and count against the day's limit (417 "Today's AI proposal runs are 
 | `extract_requirements` | POST | `lead`, `text`, `acting_user` | `{template, scoping: Scoping}` for presales to confirm; nothing saved |
 | `read_chat_answer` | POST | `lead`, `question`, `text`, `acting_user` | `{language ("English" / "Malayalam" / "Mixed"), english, profile: {only the Profile fields given}, template, scoping: {only the Scoping keys given}}`: an off-script start-chat answer, one small call; nothing saved |
 | `create_proposal` | POST | `lead`, `template?`, `ai_draft` (0/1), `scoping?` (JSON `Scoping`), `requirements?`, `client_profile` (JSON `Profile`, required: industry and pain_points), `chat?` (JSON `[ChatLine]`), `acting_user` | `{proposal: Proposal, warnings: [text]}` |
-| `create_document` | POST | `source` (the accepted document), `document_type` (`Quotation` (not while the proposal is the quotation), `Work Order`, `BRD`, `SRS`, `Implementation Plan`), `acting_user` | `{proposal: Proposal, warnings: [text]}` (`client-documents.md` §2) |
+| `create_document` | POST | `document_type` (`Quotation` (not while the proposal is the quotation), `Work Order`, `BRD`, `SRS`, `Implementation Plan`), `source?` (the step's `source` in the chain: the latest accepted document before it) or `lead?` (when the step has no `source`: made from the lead, filled from its `prefill`), `acting_user` | `{proposal: Proposal, warnings: [text]}` (`client-documents.md` §2, §9) |
 | `get_document_chain` | GET | `lead`, `acting_user` | `Chain` |
+| `skip_steps` | POST | `lead`, `document_types` (JSON list of steps: the types, `Project`, `UAT`), `reason` (required, up to 500), `status?` (`Skipped`, the default, or `Not used`), `acting_user` | `Chain` (`client-documents.md` §9.1) |
+| `bring_back_step` | POST | `lead`, `document_type`, `acting_user` | `Chain` (the step wanted again) |
 | `get_project_plan` | GET | `name` (an approved plan), `acting_user` | `{plan, lead, client, project_name, solution_type, start, end, hub_project, phases: [{phase, start, end, tasks: [{subject, start, end, milestone}]}]}` (417 while not approved or undated) |
 | `get_accepted_proposal` | GET | `name` (an accepted, latest proposal of a Content / Digital Marketing lead), `acting_user` | `{proposal, lead, lead_name, client, customer (the ERPNext Customer made from the lead, else null), tbo_lead_type, tbo_department, project_name, solution_type, start, end, months: [{month 1-6, start, end}], roadmap (the accepted 6-Month Roadmap text), deliverables (the accepted Deliverables text), hub_project}` (417 while not accepted or not that kind of proposal). `start` is the proposal's `start_date`, else the day it was accepted; `end` is six months later less a day |
-| `link_project` | POST | `lead`, `project`, `plan?` (the approved plan of an ERP / Software lead) or `proposal?` (the accepted strategy proposal of a Content / Digital Marketing lead): exactly one; `url?`, `acting_user` | `Chain` (the project, once; another name is 417; a document that is not the one its lead type makes a project from, or not the lead's, is 417) |
+| `link_project` | POST | `lead`, `project`, `plan?` (the approved plan of an ERP / Software lead) or `proposal?` (the accepted strategy proposal of a Content / Digital Marketing lead), not both; neither: a project made straight from the lead (kept on its Project step, while the chain's Project step offers `create`); `url?`, `acting_user` | `Chain` (the project, once; another name is 417; a document that is not the one its lead type makes a project from, or not the lead's, is 417) |
 | `get_uat_cases` | GET | `name` (an approved plan), `acting_user` | `{srs, cases: [{fr, module, title, steps, expected}]}` (each FR of the approved SRS) |
-| `record_uat` | POST | `name`, `status`, `signed_by?`, `acting_user` | `Chain` (Signed sets who and when, and the warranty's start the day after) |
+| `record_uat` | POST | `name` (the plan) or `lead` (its project made straight from the lead), `status`, `signed_by?`, `acting_user` | `Chain` (Signed sets who and when, and the warranty's start the day after) |
 | `save_questions` | POST | `name` (a draft BRD), `questions` (JSON `[{section_type, question}]`), `acting_user` | `Proposal` (answered questions kept) |
 | `share_questionnaire` | POST | `name`, `acting_user` | `{proposal, url}`: the client's `/questions/<token>` link |
 | `send_questionnaire` | POST | `name`, `recipients?`, `message?`, `acting_user` | `{proposal, url}` (an email on the lead) |
@@ -91,10 +93,22 @@ DocumentType = {name ("Proposal" / "Quotation" / "Work Order"), label ("Project 
 Questionnaire = {questions: [{name, section_type, question, answer, answered_on, applied,
   asked_by}], url (null until shared), open, sent_on, answered_on, new_answers}
 
-Chain = {steps: [{document_type (a type, or "Project" / "UAT" after the plan), label, name,
-  title, status, status_label, done, view_count, quotation_status, url? (the project)}],
-  next: null | {action ("create_proposal" / "create" / "open" / "create_project" / "uat"),
-  document_type, label, source?, name?}}
+Chain = {steps: [Step], next: null | {action ("create_proposal" / "create" / "open" /
+  "create_project" / "uat"), document_type, label ("Review and send" for a draft, "Open the …"
+  while with the client, "Revise the …" once declined or expired, "Create …", "New proposal",
+  "Create project"), source? (create: the accepted document, null: from the lead),
+  source_type? (create_project: the plan's or proposal's type, or "Lead"), name? (open, uat)},
+  blocked: null | text (the lead is lost: nothing moves), can_steer (may skip, bring back and
+  work out of order), note: null | text (the UAT waits for a project)}
+
+Step = {document_type (a type, or "Project" / "UAT" after the plan), label, name, title,
+  document_status (the document's own), status (the document's, or "Skipped" / "Not used"),
+  status_label, done, view_count, quotation_status, url? (the project),
+  skipped: null | {status, reason, by, by_name, on}, implicit? (true: shown Not used because a
+  later step started, nothing recorded), wanted (brought back), actions: ["open", "create",
+  "skip", "bring_back"] (what the acting user may do), source (to make it from), prefill (made
+  from the lead: the document it is filled from), in_order (it is the next step),
+  create_refused: null | text}
 
 Template = {name, template_name, solution_type, description, enabled, page_guide,
   questions: [keys], default_modules: [names],
@@ -132,7 +146,8 @@ Proposal = {name, document_type, document_label, accepted_label, source_document
     line as the page shows it, e.g. "GST 18%"), desk_url (the internal ERPNext Quotation's desk
     form, for staff; the client never sees its number)}, pricing: {segment,
     price_list, discount_band}, public_url (null while Draft), preview_url,
-  revision_no, is_latest, revisions, tracking, can_write,
+  revision_no, is_latest, revisions, changes_asked: null | {name, reason, by, on} (a draft
+  revision after the client asked for changes on the version before), tracking, can_write,
   send_blockers: [text], share_blockers: [text] (the same without the email account),
   ai: null (not an editor) | {runs, input_tokens, output_tokens, cost_usd, estimate_tokens,
     daily_limit}}
@@ -160,9 +175,17 @@ Library = {can_edit, modules: [Module + enabled, sort_order], items: [{name, lib
   whose text changed is marked `edited`). Payment Terms milestones must add up to 100 (417).
   `modules` replaces the module lines (at most 40); a line whose price wasn't set by hand takes
   the list price again. `letter_head` must be an enabled Letter Head.
-- `create_document`: 417 while the type (or one before it) is off, the source isn't of the type
-  it follows, or isn't accepted and the latest; 409 while the lead has one of that type in play.
-  `warnings` has "Not priced yet: …" when a quotation can't be priced from the modules.
+- `create_document`: 417 while the type (or one before it) is off, the lead is lost, a document
+  before it is still with the client, Draft, declined or expired and not skipped ("…Make this
+  once it is accepted, or skip that step first."), `source` isn't the step's `source`, or the
+  step is out of order (not the next one) and the person isn't the lead's owner, a head of its
+  department or a manager; 409 while the lead has one of that type in play. `warnings` has "Not priced yet: …"
+  when a quotation can't be priced from the modules.
+- `skip_steps`: 417 without a reason, for a step that isn't the lead's, one already skipped, one
+  with the client or decided ("…can't be skipped, only revised."), a made project, a signed UAT,
+  or a lost lead; 403 for anyone but the lead's owner, a head or a manager. `bring_back_step`:
+  417 for a step that isn't skipped, 403 as for skipping.
+- `create_proposal`: 417 on a lost lead.
 - `save_pricing`, `price_from_modules`: a proposal or a quotation only (417 for an agreement: its
   price is the accepted quotation's, or the accepted proposal's while the proposal is the
   quotation). While the proposal is the quotation a proposal's new quotation starts with the
@@ -197,6 +220,12 @@ user with `acting_user`.
 
 ## Changelog
 
+- **v3.0 (2026-11-14):** a flexible chain (`client-documents.md` §9.1): `skip_steps`,
+  `bring_back_step`; `create_document` takes `lead` (no accepted document before the step) and
+  makes a step out of order for the lead's owner, a head or a manager; the chain's steps carry
+  `skipped`, `implicit`, `actions`, `source`, `prefill`, `in_order`, `create_refused`, and the
+  chain `blocked`, `can_steer`, `note`; `link_project` and `record_uat` work for a project made
+  straight from the lead; the proposal's `changes_asked`.
 - **v2.9 (2026-10-28):** Content / Digital Marketing leads: their chain is Proposal -> Project
   (`get_document_chain`; `create_document` refuses other types), a new proposal defaults to the
   template "Digital Marketing – 6-month strategy", `get_accepted_proposal`, and `link_project` is now `(lead, project, plan?, proposal?, url?)` and

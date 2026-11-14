@@ -1,4 +1,4 @@
-# Client documents after the proposal (living spec, v1.5)
+# Client documents after the proposal (living spec, v1.6)
 
 **Status:** built 2026-10-19/20 (the owner's sales-to-delivery chain of 2026-10-19) in five
 steps: (1) the **Quotation** and the **Project Agreement / Work Order**, (2) the **BRD** with its
@@ -20,7 +20,9 @@ while **the proposal is the quotation** (the default, §1.1); with that switched
   `lead_pipeline/srs.py` (the SRS's sections a module, the FR numbering, its AI calls),
   `lead_pipeline/implementation_plan.py` (the plan's dated sections, the hub's project and UAT),
   `www/questions.py` / `www/questions.html` (the questionnaire page),
-  `lead_pipeline/client_documents.py` (making one, the quotation's ERPNext Quotation, the chain),
+  `lead_pipeline/client_documents.py` (making one, the quotation's ERPNext Quotation, the chain,
+  the next document made when one is accepted), `lead_pipeline/document_steps.py` (steps skipped
+  or not used, the project made straight from the lead, who may steer the chain),
   and the proposal engine they share (`proposals.py`, `www/proposal.html`, `api/proposal_page.py`,
   `api/hub_proposals.py`).
 
@@ -92,13 +94,19 @@ agreed price first.
 naming, so a REST insert can't name itself `WO-…`) and refuses changes to them after
 (`LOCKED_FIELDS`). A revision keeps both.
 
-## 2. Making the next document (`create_document(source, document_type)`)
+## 2. Making the next document (`create_document(source, document_type, lead)`)
 
-Refused (417) unless: the type and every type before it are switched on; `source` is of the type
-it follows, **Accepted** and the latest revision; the person may write its lead. Refused (409)
-while the lead already has one of that type in play (Draft, Sent, Viewed or Accepted, the latest
-revision): open it or revise it. The source's status is read under its row lock, so two
-requests at once can't both make one, and a revision made meanwhile is seen.
+Refused (417) unless: the type and every type before it are switched on; the lead isn't lost
+(§9.1); every document before it in the chain is accepted, skipped or not used (one still a
+draft or with the client: "…Make this once it is accepted, or skip that step first.");
+`source` is the step's `source` in the chain (§9): the **latest accepted document before it**, or
+none, and then `lead` names the lead and the document is made from the lead; the person may write
+its lead. A step that isn't the chain's next one (out of order: further on, or in between) needs
+the lead's owner, a head of its department or a manager (§9.1). Refused (409) while the lead
+already has one of that type in play (Draft, Sent, Viewed or Accepted, the latest revision): open
+it or revise it. Everything is read under the lead's row lock, so two requests at once can't
+both make one, and a revision made meanwhile is seen. Making a skipped step makes it wanted
+again, and the lead's timeline says who made what from what.
 
 It copies from the source: the client profile, the requirements, the scoping answers, the
 modules (the proposal's own lines and prices), the template, solution type, letter head and price
@@ -106,6 +114,33 @@ shown; it is titled "<Type>: <the proposal's title>", valid for `proposal_validi
 section of its type on (the AMC section off when the client didn't choose AMC), and every data
 section built at **zero AI cost** from that data and the libraries. Presales reviews and edits
 it like a proposal (only a draft changes; a sent one through a revision).
+
+Without an accepted document before it, it is filled from the step's `prefill` (the latest
+document before it of any status, such as a skipped draft: copied the same way, but not named as
+its source, so nothing reads it as accepted), else from the lead: its profile
+(`proposal_profile.profile_defaults`), its notes and minutes as the requirements, and the lead
+type's template and default modules. An agreement made with no priced document before it sets
+no price ("This agreement sets no price: the price is agreed separately.") and Send doesn't wait
+for an accepted one.
+
+### 2.1 When the client answers (`client_documents.after_decision`)
+
+Queued after the client's answer is saved (`proposals.decide`), run as the lead's owner:
+
+- **Accepted / signed / approved:** the chain's next step, when it is a client document made from
+  this one, is made at once as a draft (`prepare_next`), so the hub shows one button, *Review and
+  send*. While the proposal isn't the quotation that is the **Quotation**, made from the accepted
+  proposal with its ERPNext Quotation (a revision of the proposal's, §3): the owner is told
+  "Quotation SAL-QTN-… created from the accepted proposal PROP-…: review and send it". While the
+  proposal is the quotation nothing more is priced and the agreement is prepared. A step skipped
+  or already made is left alone; the project is the hub's (*Create project*).
+- **Ask for changes** on an agreement, a BRD, an SRS or a plan (`REVISED_ON_CHANGES`): its
+  revision is made as a draft (once), the owner told with the reason, and the builder shows
+  "Changes asked" with it (`changes_asked`). The client's page says the updated document will
+  follow.
+- A failure (the AI down, a price that can't be made) rolls back, is logged, and the owner is told
+  to make it from the lead's Documents card. A document presales made by hand meanwhile is left
+  as it is, with nothing said.
 
 ## 3. The Quotation
 
@@ -316,20 +351,78 @@ ERP site gives it:
 
 ## 9. The chain on the lead (`client_documents.chain`)
 
-`hub_leads.get_lead` returns `documents` (and `hub_proposals.get_document_chain(lead)` the same):
+`hub_leads.get_lead` returns `documents` (and `hub_proposals.get_document_chain(lead)` the same),
+for the acting user:
 
 ```
-{steps: [{document_type, label, name, title, status, status_label (Signed for an accepted
-  agreement), done, view_count, quotation_status (the ERPNext Quotation's, for a priced one)}],
- next: null | {action: "create_proposal" | "create" | "open", document_type, label,
-  source (create: the accepted document to make it from), name (open)}}
+{steps: [{document_type, label, name, title, document_status, status, status_label (Signed for
+  an accepted agreement; Skipped / Not used), done, view_count, quotation_status, url? (the
+  project), skipped: null | {status, reason, by, by_name, on}, implicit?, wanted,
+  actions: [open, create, skip, bring_back], source, prefill, in_order, create_refused}],
+ next: null | {action: "create_proposal" | "create" | "open" | "create_project" | "uat",
+  document_type, label, source (create: the accepted document to make it from, null: the lead;
+  create_project: the plan or proposal, null: the lead), source_type, name (open, uat)},
+ blocked: null | text, can_steer, note: null | text}
 ```
 
-One step per switched-on type, in order (no Quotation step while the proposal is the quotation), each the lead's accepted document of that type, else its
-newest latest revision; after the plan, the **Project** (done once the hub made it, `url` its
-link) and the **UAT** sign-off (done once Signed). The next actions add `create_project`
-(`source` the approved plan) and `uat` (`name` the hub project). `next` is the one primary action: the first step in progress (open it),
-else make the next document from the accepted one, else none (the chain is done).
+One step per switched-on type, in order (no Quotation step while the proposal is the quotation),
+each the lead's accepted document of that type, else its newest latest revision; after the plan,
+the **Project** (done once the hub made it, `url` its link) and the **UAT** sign-off (done once
+Signed). The project is the plan's (`hub_project`) or, made straight from the lead, the lead's
+Project step's (§9.1).
+
+`next` is the one primary action: the first step that isn't done, skipped or not used. With its
+document a draft it is *Review and send* (open it); with the client, *Open the …*; declined or
+expired, *Revise the …*; without one, *Create …* from the latest accepted document before it (or
+from the lead), *New proposal*, *Create project* or the *UAT sign-off*. None when every step is
+done, skipped or not used, or while the lead is lost (`blocked`); `note` says why when the UAT
+waits for a project that was skipped.
+
+### 9.1 A flexible chain: skip, start anywhere, make one in between, bring back
+
+The chain suggests the next step; nothing is hard-locked.
+
+- **Skip** (`skip_steps(lead, steps, reason)`): any step (a document type, the Project, the UAT)
+  this client doesn't need, with a short reason (required, up to 500 characters). It shows as
+  **Skipped** with who, when and why, and the chain moves on. A step whose document is with the
+  client or decided can't be skipped, only revised; nor a made project or a signed UAT. A draft
+  left on a skipped step stays (openable), and comes back with it.
+- **Start anywhere:** a step further on can be made first (`create_document` with the step's
+  `source`, or from the lead). The steps before the furthest one under way that have nothing show
+  as **Not used** (`implicit`, nothing recorded) and can be marked so in one go with one reason
+  (`skip_steps(…, status="Not used")`), which records them.
+- **Make one in between:** a step skipped or not used can still be made later (the BRD after the
+  SRS started): it is filled from whatever exists and takes its place in the chain; making it
+  clears its skip.
+- **Bring back** (`bring_back_step`): a skipped or not-used step is wanted again (`wanted`; it
+  is no longer taken as not used) and becomes the next step when it is the first left.
+- **Who:** the lead's owner, a head of its department, or a manager (Sales Manager, System
+  Manager) may skip, bring back and work out of order (`can_steer`); anyone else who may write
+  the lead (a BD assigned to it) makes only the next step. A BD steers only their own leads.
+- **A lost lead** (Closed – Lost, Not Interested, Wrong Number, Small Business) moves nothing:
+  `blocked` says so in words, `next` is none and no step offers create, skip or bring back;
+  making a proposal or a document, skipping and bringing back are refused (417). A won lead
+  carries on (accepting the proposal is what wins it).
+- **Stored with the chain:** each skipped, not-used or brought-back step is a **TBO Lead Document
+  Step** (`lead`, `document_type` (a type, Project, UAT), `status` Skipped / Not used / blank,
+  `reason`, `set_by`, `set_on`), one per lead and step, read by the mobile app and the reports
+  (its lead decides who reads it, as for proposals; it is written only through this API, and
+  changing one is a change in the hub's lead feed). Its Project row also carries the **project
+  made straight from the lead** (`hub_project`, `hub_project_url`) and its UAT (`uat_status`,
+  `uat_signed_on`, `uat_signed_by`, `warranty_starts_on`), recorded as on a plan
+  (`link_project(lead, project)` with neither a plan nor a proposal, `record_uat(lead=…)`). A
+  project is made from the lead only while no plan (or, for a content lead, no accepted strategy
+  proposal) makes it: with one approved, `link_project` without it is refused ("This lead's
+  project is made from its implementation plan PIP-…"). Its UAT has no SRS to test against, so
+  the chain doesn't point at it: `note` says so, and the UAT step can be skipped. A project or
+  UAT that goes ahead clears its skip record.
+- **A proposal out of order:** while the chain has moved on without one (the Proposal step
+  skipped or not used), making a proposal needs the lead's owner, a head or a manager too.
+- **The lead's timeline** has a line for every step: made ("<who> made the BRD BRD-… from
+  PROP-…" or "from the lead"), sent ("…sent the agreement … to …") or shared, opened, accepted,
+  signed or approved, changes asked (with the reason), skipped ("Skipped BRD, SRS: <reason>"),
+  marked not used, brought back, prepared after an acceptance, the project made, the UAT signed.
+  Each also notifies the lead's owner, unless the owner did it.
 
 ## 10. What the client sees
 
@@ -393,7 +486,29 @@ BRD; the Sales Order and the Sales Invoice carry the proposal; off keeps the Quo
 proposal's quotation as before. `TestFractionalDays`: 3.5 days on Nos priced as one unit at 3.5 ×
 the day rate (the owner's "Create quotation" case), and kept as 3.5 on Day.
 
+`TestFlexibleChain` (helpers `skip_hub_steps`, `make_hub_document_from_lead`, `decline_as_client`,
+`client_page_html`): three steps skipped in a row (each Skipped with its reason and who, stored,
+on the timeline), the SRS made next from the lead filled from the skipped draft, the BRD brought
+back and made in between; a chain started at the plan (the earlier steps Not used, then marked so
+in one go), approved, then *Create project* from it; a project straight from the lead and its UAT
+signed (the warranty on the lead's Project step; its UAT waits with a note and can be skipped);
+the approved plan's project not made from the lead, a proposal out of order refused for a BD who
+isn't the owner; no project (every step skipped, nothing next; a
+UAT brought back without a project waits with a note); a step with the client can't be skipped,
+a reason is required, a skipped draft comes back with its step, nothing is made past a document
+with the client; a BD assigned to the lead can't skip or work out of order, a manager can; a lost
+lead moves nothing; the Quotation made as a draft when the proposal is accepted (once), the
+agreement prepared while the proposal is the quotation; changes asked make the revision with the
+reason, and the client's page says the update follows.
+
 ## Changelog
+
+- **v1.6 (2026-11-14):** a flexible chain (§9.1): skip a step with a reason, start anywhere
+  (earlier steps Not used), make one in between, bring back; out of order for the lead's owner, a
+  head or a manager; nothing moves on a lost lead; **TBO Lead Document Step**; a project (and its
+  UAT) straight from the lead; the next document made as a draft when one is accepted (the
+  automatic quotation), the revision when the client asks for changes (§2.1); a timeline line and
+  the owner told for every step.
 
 - **v1.5 (2026-10-20):** the proposal is the quotation (§1.1), on by default: Proposal → Project
   Agreement, the proposal's quotation with the default GST, terms and validity, `tbo_proposal`

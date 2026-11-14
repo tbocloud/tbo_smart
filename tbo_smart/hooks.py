@@ -268,6 +268,10 @@ doc_events = {
 		"on_update": "tbo_smart.sales.change_log.activity_changed",
 		"on_trash": "tbo_smart.sales.change_log.activity_changed",
 	},
+	"TBO Lead Document Step": {
+		"on_update": "tbo_smart.sales.change_log.activity_changed",
+		"on_trash": "tbo_smart.sales.change_log.activity_changed",
+	},
 	# BCC logging puts the mail on its lead first, so the AI autopilot reads the lead's email
 	"Communication": {
 		"after_insert": [
@@ -355,6 +359,7 @@ permission_query_conditions = {
 	"TBO Finance Exception": "tbo_smart.finance.access.exception_query_conditions",
 	"TBO Lead Meeting": "tbo_smart.lead_pipeline.meetings.get_permission_query_conditions",
 	"TBO Proposal": "tbo_smart.lead_pipeline.proposals.get_permission_query_conditions",
+	"TBO Lead Document Step": "tbo_smart.lead_pipeline.document_steps.get_permission_query_conditions",
 }
 
 has_permission = {
@@ -363,6 +368,7 @@ has_permission = {
 	"TBO Finance Exception": "tbo_smart.finance.access.has_exception_permission",
 	"TBO Lead Meeting": "tbo_smart.lead_pipeline.meetings.has_permission",
 	"TBO Proposal": "tbo_smart.lead_pipeline.proposals.has_permission",
+	"TBO Lead Document Step": "tbo_smart.lead_pipeline.proposals.has_permission",
 }
 
 # doc_events = {

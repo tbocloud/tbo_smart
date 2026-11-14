@@ -71,7 +71,7 @@
 		{%- if p.status == "Accepted" %}
 		<p class="notice success" role="status"><strong>{{ w.accepted | e }}</strong>&nbsp;{{ w.accepted_note.format(p.decided_by or "", p.decided_on or "") | e }}</p>
 		{%- elif p.status == "Declined" %}
-		<p class="notice danger" role="status"><strong>{{ w.declined | e }}</strong>&nbsp;{{ _("on {0}. Thank you for letting us know.").format(p.decided_on or "") | e }}</p>
+		<p class="notice danger" role="status"><strong>{{ w.declined | e }}</strong>&nbsp;{{ (w.changes_next or _("on {0}. Thank you for letting us know.")).format(p.decided_on or "") | e }}</p>
 		{%- elif p.superseded %}
 		<p class="notice info" role="status"><strong>{{ _("A newer version exists.") }}</strong> {{ _("Ask us for the latest link.") }}</p>
 		{%- elif p.price_unavailable %}
