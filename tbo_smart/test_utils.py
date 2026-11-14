@@ -3074,6 +3074,7 @@ def post_callerdesk_webhook(report: dict, token: str | None = TEST_CALLERDESK_TO
 		method="POST",
 		base_url="https://tbosmart.test",
 		path="/api/method/tbo_smart.api.telephony.callerdesk_webhook",
+		query_string={"token": token} if token else None,
 		data=json.dumps(report),
 		content_type="application/json",
 	).get_environ()
@@ -3081,7 +3082,8 @@ def post_callerdesk_webhook(report: dict, token: str | None = TEST_CALLERDESK_TO
 	frappe.local.request = WerkzeugRequest(environ)
 	frappe.local.request_ip = "127.0.0.1"
 	try:
-		return call_as_guest(telephony.callerdesk_webhook, token=token)
+		# as Frappe calls it for a JSON body: the address's token is not passed as an argument
+		return call_as_guest(telephony.callerdesk_webhook)
 	finally:
 		frappe.local.request, frappe.local.request_ip = previous
 

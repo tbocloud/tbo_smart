@@ -94,9 +94,15 @@ def callerdesk_webhook(token: str | None = None) -> dict:
 	if not telephony_enabled() or provider() != CALLERDESK:
 		frappe.throw(_("Telephony is switched off."), frappe.PermissionError)
 	expected = secret("callerdesk_webhook_token") or ""
-	if not expected or not hmac.compare_digest((token or "").encode(), expected.encode()):
+	# with a JSON body Frappe builds the arguments from the body alone, so the address's
+	# `token` never arrives as an argument: read it from the address itself
+	token = frappe.request.args.get("token") or token or ""
+	if not expected or not hmac.compare_digest(token.encode(), expected.encode()):
 		frappe.throw(_("Not allowed."), frappe.PermissionError)
 	report = frappe.request.get_json(silent=True)
+	if not isinstance(report, dict):
+		# a form-encoded POST carries the same fields
+		report = frappe.request.form.to_dict() or None
 	if not isinstance(report, dict):
 		frappe.throw(_("The body must be JSON."))
 	if callerdesk.is_live(report):
