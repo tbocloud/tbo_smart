@@ -14,7 +14,7 @@ from tbo_smart.sales.call_batches import (
 )
 from tbo_smart.sales.call_batches.fill import build_batch, campaign_of, lock_batches, room_for
 from tbo_smart.sales.call_batches.focus import get_focus
-from tbo_smart.sales.call_batches.plans import slot_size
+from tbo_smart.sales.call_batches.plans import slot_shares, slot_size
 from tbo_smart.sales.call_batches.state import CallQueue
 
 
@@ -118,6 +118,7 @@ def create_next_batch(user: str, queue: CallQueue, department_name: str | None, 
 		slot_size(department, user, slot),
 		campaign_of(department, request, get_focus(user), user),
 		allow_empty=False,
+		shares=slot_shares(department, user, slot),
 	)
 	if not batch:
 		return {"created": False, "reason": _("There are no more leads to call right now.")}

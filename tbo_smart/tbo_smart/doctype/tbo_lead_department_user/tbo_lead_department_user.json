@@ -11,7 +11,8 @@
   "call_product",
   "call_industry",
   "call_district",
-  "slot_sizes"
+  "slot_sizes",
+  "slot_districts"
  ],
  "fields": [
   {
@@ -60,11 +61,17 @@
    "fieldtype": "JSON",
    "label": "Calls per slot",
    "description": "Members only: {slot label: calls}, e.g. {\"Morning\": 50, \"Afternoon\": 50}. A slot left out uses the slot's size; 0 hands out nothing in it."
+  },
+  {
+   "fieldname": "slot_districts",
+   "fieldtype": "JSON",
+   "label": "Calls per slot by district",
+   "description": "Members only: {slot label: [{\"district\": \"Idukki\", \"calls\": 20}, {\"district\": \"\", \"calls\": 10}]}; a blank district is Mixed (any district). Set on the hub's Assign leads page; Calls per slot holds each slot's total."
   }
  ],
  "istable": 1,
  "links": [],
- "modified": "2026-11-12 12:00:00.000000",
+ "modified": "2026-11-14 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Lead Department User",

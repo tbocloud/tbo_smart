@@ -2,7 +2,7 @@
 product they are handed and how many calls each slot (Morning 40, Afternoon 30, Evening 30).
 
 The plan sits on the member's row of the department (`call_product`, `call_industry`,
-`call_district`, `slot_sizes`). The clock and the next batch read it: a slot's size becomes the
+`call_district`, `slot_sizes` and, when a slot is split by district, `slot_districts`). The clock and the next batch read it: a slot's size becomes the
 member's own, the product, industry and district narrow the new leads like a focus that the person
 cannot change, and the day's cap grows to the plan's total.
 A member without a plan is handed batches as before.
@@ -40,12 +40,68 @@ def sizes_of(row) -> dict[str, int]:
 	return {str(label): max(cint(calls), 0) for label, calls in value.items()}
 
 
+def slot_split(row) -> dict[str, list[tuple[str, int]]]:
+	"""{slot label: [(district, calls)]} the member's plan splits by district ("" is Mixed: any
+	district), the named districts first and Mixed last, so Mixed never takes the leads a named
+	district of the slot is waiting for. Empty: no slot is split."""
+	value = row.get("slot_districts") if row else None
+	if isinstance(value, str):
+		try:
+			value = json.loads(value or "{}")
+		except ValueError:
+			value = {}
+	if not isinstance(value, dict):
+		return {}
+	split = {}
+	for label, rows in value.items():
+		shares = [
+			(clean(share.get("district")), max(cint(share.get("calls")), 0))
+			for share in (rows if isinstance(rows, list) else [])
+			if isinstance(share, dict)
+		]
+		split[str(label)] = sorted(
+			(share for share in shares if share[1] > 0), key=lambda share: share[0] == ""
+		)
+	return split
+
+
+def slot_shares(department, user: str, slot) -> list[tuple[str, int]] | None:
+	"""[(district, calls)] the member's plan splits `slot` into ("" is Mixed); None when the slot
+	is not split, so it is filled as one share of the plan's district."""
+	return slot_split(member_row(department, user)).get(slot.label)
+
+
+def day_shares(department, user: str) -> list[tuple[str, int]]:
+	"""[(district, calls a day)] of the member's plan over every slot ("" is Mixed: any district,
+	or the plan's own district when its slots are not split), named districts first. Empty: no
+	plan for the slots."""
+	row = member_row(department, user)
+	if not sizes_of(row):
+		return []
+	split = slot_split(row)
+	whole = plan_district(department, user)
+	totals: dict[str, int] = {}
+	names: dict[str, str] = {}
+	for slot in slots_of(department):
+		shares = split.get(slot.label)
+		if shares is None:
+			shares = [(whole, slot_size(department, user, slot))]
+		for district, calls in shares:
+			key = district.casefold()
+			names.setdefault(key, district)
+			totals[key] = totals.get(key, 0) + calls
+	return sorted(
+		((names[key], calls) for key, calls in totals.items() if calls > 0), key=lambda share: share[0] == ""
+	)
+
+
 def has_plan(department, user: str) -> bool:
 	row = member_row(department, user)
 	return bool(
 		row
 		and (
 			sizes_of(row)
+			or slot_split(row)
 			or (row.get("call_product") or "").strip()
 			or (row.get("call_industry") or "").strip()
 			or (row.get("call_district") or "").strip()
@@ -309,8 +365,9 @@ def serialize(department, day) -> dict:
 	intro_line}], campaign_product, campaign_district, pull_unassigned, unassigned: {product:
 	leads}, industries, unassigned_industries, districts, unassigned_districts
 	(department_districts), auto_assign (settings.auto_assign_rules), members:
-	[{user, full_name, product, industry, district, sizes: {slot: calls}, total, has_plan, today:
-	{size, called}, leads (open leads they own)}]}."""
+	[{user, full_name, product, industry, district, sizes: {slot: calls}, total, slot_districts:
+	{slot: [{district ("" Mixed), calls}]}, has_plan, today: {size, called}, leads (open leads
+	they own)}]}."""
 	from tbo_smart.sales.call_batches.settings import auto_assign_rules
 	from tbo_smart.sales.call_batches.settings import serialize as rules
 
@@ -321,6 +378,8 @@ def serialize(department, day) -> dict:
 	members = []
 	for row in department.members:
 		sizes = sizes_of(row)
+		split = slot_split(row)
+		whole = plan_district(department, row.user) or ""
 		members.append(
 			{
 				"user": row.user,
@@ -330,6 +389,17 @@ def serialize(department, day) -> dict:
 				"district": plan_district(department, row.user) or None,
 				"sizes": {slot["label"]: sizes.get(slot["label"], slot["size"]) for slot in slots},
 				"total": sum(sizes.get(slot["label"], slot["size"]) for slot in slots),
+				# each slot's calls by district ("" is Mixed); a slot not split is one share
+				"slot_districts": {
+					slot["label"]: [
+						{"district": district, "calls": calls}
+						for district, calls in split.get(
+							slot["label"], [(whole, sizes.get(slot["label"], slot["size"]))]
+						)
+						if calls > 0
+					]
+					for slot in slots
+				},
 				"has_plan": has_plan(department, row.user),
 				"today": today.get(row.user, {"size": 0, "called": 0}),
 				"leads": owned.get(row.user, 0),
@@ -376,10 +446,13 @@ def save_call_plan(
 	clear=False,
 	industry: str | None = None,
 	district: str | None = None,
+	slot_districts=None,
 ) -> dict:
 	"""Set the plan of `users` (members of `department`): the `product` they are handed (blank:
 	any of the department's), the `industry` (for a department without products; blank: any), the
-	`district` (blank: any) and `sizes` ({slot label: calls}). `clear` removes their plan.
+	`district` (blank: any) and `sizes` ({slot label: calls}). `slot_districts` ({slot label:
+	[{district, calls}]}, a blank district is Mixed) splits slots by district instead: the slot's
+	size is then their total and the one `district` is not kept. `clear` removes their plan.
 	Returns the department as get_call_plans lists it. Batches already handed out are kept; the
 	plan counts from the next slot (or the next batch asked for)."""
 	doc = planned_department(department)
@@ -400,16 +473,24 @@ def save_call_plan(
 			rows[user].call_industry = None
 			rows[user].call_district = None
 			rows[user].slot_sizes = None
+			rows[user].slot_districts = None
 	else:
 		chosen = clean_product(doc, product)
 		trade = clean_industry(industry)
 		place = clean_district(doc, district)
 		planned = clean_sizes(doc, sizes)
+		split = clean_slot_districts(doc, slot_districts)
+		if split:
+			place = ""
+			planned.update(
+				{label: sum(share["calls"] for share in shares) for label, shares in split.items()}
+			)
 		for user in users:
 			rows[user].call_product = chosen or None
 			rows[user].call_industry = trade or None
 			rows[user].call_district = place or None
 			rows[user].slot_sizes = json.dumps(planned) if planned else None
+			rows[user].slot_districts = json.dumps(split) if split else None
 	doc.save(ignore_permissions=True)  # a head plans their department without editing it
 	return serialize(doc, frappe.utils.getdate())
 
@@ -445,6 +526,43 @@ def clean_product(department, product: str | None) -> str:
 	if locked and locked.lower() != chosen.lower():
 		frappe.throw(_("{0} calls only for {1} (its campaign product).").format(department.name, locked))
 	return chosen
+
+
+def clean_slot_districts(department, value) -> dict[str, list[dict]]:
+	"""{slot label: [{district, calls}]} for the department's own slots: each district once a slot
+	(Mixed, a blank district, too), the department's campaign district the only named one, each
+	slot 0 to MAX_SLOT_CALLS in all. Rows of 0 calls are dropped; a slot left with none hands out
+	nothing."""
+	value = frappe.parse_json(value) if isinstance(value, str) else value or {}
+	if not isinstance(value, dict):
+		frappe.throw(_("Give the calls of each slot by district."))
+	labels = {slot.label for slot in slots_of(department)}
+	unknown = sorted(set(value) - labels)
+	if unknown:
+		frappe.throw(_("{0} is not a call slot of {1}.").format(", ".join(unknown), department.name))
+	cleaned = {}
+	for label, rows in value.items():
+		if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+			frappe.throw(_("Give the calls of the {0} slot by district.").format(label))
+		seen, shares = set(), []
+		for row in rows:
+			place = clean_district(department, row.get("district"))
+			calls = cint(row.get("calls"))
+			if calls < 0 or calls > MAX_SLOT_CALLS:
+				frappe.throw(_("Calls per slot must be between 0 and {0}.").format(MAX_SLOT_CALLS))
+			if place.casefold() in seen:
+				frappe.throw(
+					_("{0} is in the {1} slot twice. Put its calls in one row.").format(
+						place or _("Mixed"), label
+					)
+				)
+			seen.add(place.casefold())
+			if calls:
+				shares.append({"district": place, "calls": calls})
+		if sum(share["calls"] for share in shares) > MAX_SLOT_CALLS:
+			frappe.throw(_("The {0} slot adds up to more than {1} calls.").format(label, MAX_SLOT_CALLS))
+		cleaned[label] = shares
+	return cleaned
 
 
 def clean_sizes(department, sizes) -> dict[str, int]:
