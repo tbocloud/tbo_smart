@@ -35,7 +35,7 @@ Manager outside the hierarchy still see everything.
 ## 4. Hub API (`tbo_smart.api.hub_leads`, same `acting_user` rules)
 
 - `get_options`: adds `departments` (active only: `{name, lead_type, is_active, assignment, stale_after_days,
-  is_head, is_member}` for the acting user) and `lead_types`.
+  is_head, is_viewer, is_member}` for the acting user) and `lead_types`.
 - `list_leads(department=...)`: filters to the department; rows carry `tbo_department` and
   `tbo_lead_type`. `get_lead`'s `lead` carries the same two.
 - `create_lead` / `update_lead`: `data` takes `department` (or `tbo_department`) and `lead_type`

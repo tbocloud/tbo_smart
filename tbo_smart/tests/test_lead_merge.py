@@ -140,9 +140,10 @@ class TestLeadMerge(FrappeTestCase):
 		make_lead_note(self.merge, "Asked for a quote")
 		add_call("Lead", self.merge, "Spoke to Ashraf")
 		call = make_call(BD, self.merge)
+		# ERPNext moves a lead's open tasks onto a deal made out to it: make the deal first
+		deal = make_deal(BD, opportunity_from="Lead", party_name=self.merge)
 		task = make_lead_task(self.merge, frappe.utils.add_days(frappe.utils.nowdate(), 2), BD)
 		meeting = make_lead_meeting(self.merge)
-		deal = make_deal(BD, opportunity_from="Lead", party_name=self.merge)
 		quotation = make_lead_quotation(self.merge)
 		email = make_lead_email(self.merge, "Hello", "Hi")
 		file = make_private_file(

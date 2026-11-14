@@ -128,6 +128,7 @@ class TestLeadDepartments(FrappeTestCase):
 				"stale_after_days": 0,
 				"call_batches_enabled": 0,
 				"is_head": True,
+				"is_viewer": False,
 				"is_member": False,
 				"products": [],
 			},

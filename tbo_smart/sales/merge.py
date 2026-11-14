@@ -156,7 +156,17 @@ def merge_leads(keep: str, merge: str) -> str:
 	# the merged lead still holds its numbers until it is renamed into the kept one
 	kept.flags.merging = merge
 	kept.save()
-	frappe.rename_doc(LEAD, merge, keep, force=True, merge=True, show_alert=False, rebuild_search=False)
+	# check_pair has decided who may merge; a department head has no delete on Lead of their own
+	frappe.rename_doc(
+		LEAD,
+		merge,
+		keep,
+		force=True,
+		merge=True,
+		ignore_permissions=True,
+		show_alert=False,
+		rebuild_search=False,
+	)
 	refresh_name_copies(kept)
 	add_note(LEAD, keep, merge_note(merge, label, moved))
 	return keep
