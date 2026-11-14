@@ -49,6 +49,7 @@ from tbo_smart.telephony import (
 	myoperator,
 	provider,
 	recording_days,
+	secret,
 	setting,
 	summary_enabled,
 	telephony_enabled,
@@ -60,6 +61,11 @@ REFERENCE_KEY = "tbo_smart:telephony:ref:{}"
 REFERENCE_SECONDS = 6 * 60 * 60
 DIAL_LOCK_KEY = "tbo_smart:telephony:dialing:{}"
 DIAL_LOCK_SECONDS = 15
+RECORDING_WAIT_SECONDS = 60 * 60
+RECONCILE_LOCK_KEY = "tbo_smart:telephony:reconcile"
+RECONCILE_LOCK_SECONDS = 5 * 60
+RECONCILE_USER_KEY = "tbo_smart:telephony:refresh:{}"
+RECONCILE_USER_SECONDS = 20
 INCOMING_SECONDS = 60
 LIVE_STATES = {RINGING: "ringing", AGENT_PICKED: "ringing_lead", ON_CALL: "on_call"}
 MAX_RECORDING_BYTES = 50 * 1024 * 1024
@@ -702,6 +708,95 @@ def purge_old_recordings() -> None:
 		frappe.db.set_value(DOCTYPE, name, {"recording": None, "transcript": None})
 
 
+# ---------- missed webhooks (reconcile) ----------
+
+
+def reconcile_callerdesk() -> None:
+	"""Scheduled every 10 minutes: store the calls CallerDesk's call report lists that the
+	webhook never delivered (today's and yesterday's), through the normal `receive` path."""
+	if not telephony_enabled() or provider() != CALLERDESK or not secret("callerdesk_api_key"):
+		return
+	key = frappe.cache.make_key(RECONCILE_LOCK_KEY)
+	locked = frappe.cache.set(key, 1, nx=True, ex=RECONCILE_LOCK_SECONDS)  # nosemgrep
+	if not locked:
+		return
+	try:
+		store_missing_calls(add_days(today(), -1), today())
+	except callerdesk.CallerDeskError as e:
+		frappe.log_error(title="CallerDesk call list", message=str(e))
+
+
+def store_missing_calls(start_date: str, end_date: str) -> int:
+	"""Store every finished call in the window that has no closed TBO Call yet; how many. A call
+	the live webhook stored but the report never closed is completed too."""
+	rows = callerdesk.fetch_call_list(str(start_date), str(end_date))
+	reports = [report for report in map(callerdesk.report_from_row, rows) if report]
+	closed = set(
+		frappe.get_all(
+			DOCTYPE,
+			filters={"call_id": ("in", [r["CallSid"] for r in reports]), "last_event": ("!=", LIVE_EVENT)},
+			pluck="call_id",
+		)
+	)
+	stored = 0
+	for report in reports:
+		if report["CallSid"] not in closed and is_stored(receive(report)):
+			stored += 1
+	return stored
+
+
+def refresh_my_call(reference_id: str) -> dict:
+	"""For the hub's box, when it can no longer see a call: look for the session user's own
+	recent calls in CallerDesk's call report ({stored}). Only the person who placed the call may
+	ask, at most once every RECONCILE_USER_SECONDS."""
+	placed = pending_call(reference_id)
+	if placed.get("user") != frappe.session.user:
+		frappe.throw(_("This isn't your call."), frappe.PermissionError)
+	if not telephony_enabled() or provider() != CALLERDESK:
+		return {"stored": 0}
+	key = frappe.cache.make_key(RECONCILE_USER_KEY.format(frappe.session.user))
+	locked = frappe.cache.set(key, 1, nx=True, ex=RECONCILE_USER_SECONDS)  # nosemgrep
+	if not locked:
+		return {"stored": 0}
+	rows = callerdesk.fetch_call_list(str(add_days(today(), -1)), str(today()))
+	mine = agent_tails(frappe.session.user)
+	cutoff = add_to_date(now_datetime(), seconds=-REFERENCE_SECONDS)
+	recent = [
+		row
+		for row in rows
+		if callerdesk.tail(row.get("member_num")) in mine
+		and (callerdesk.local_time(row.get("startdatetime")) or cutoff) >= cutoff
+	]
+	newest = max(recent, key=lambda row: str(row.get("startdatetime")), default=None)
+	campids = {str(newest["sid_id"]).strip(): reference_id} if newest else {}
+	stored = 0
+	for row in recent:
+		report = callerdesk.report_from_row(row, campids.get(str(row["sid_id"]).strip()))
+		if report and not closed_call(report["CallSid"]) and is_stored(receive(report)):
+			stored += 1
+	return {"stored": stored}
+
+
+def is_stored(answer: dict) -> bool:
+	"""`receive` kept the call (it wasn't ignored or a duplicate)."""
+	return bool(answer.get("ok")) and not answer.get("ignored") and not answer.get("duplicate")
+
+
+def closed_call(call_id: str) -> bool:
+	return bool(frappe.db.exists(DOCTYPE, {"call_id": call_id, "last_event": ("!=", LIVE_EVENT)}))
+
+
+def agent_tails(user: str) -> set[str]:
+	"""The last 10 digits of the numbers one telecaller is reached on."""
+	return {
+		tail
+		for row in agent_rows()
+		if row.user == user
+		for tail in (callerdesk.tail(row.mobile), callerdesk.tail(row.callerdesk_number))
+		if tail
+	}
+
+
 # ---------- click-to-call ----------
 
 
@@ -783,9 +878,10 @@ def lead_number(lead: str, number: str | None) -> str:
 
 
 def call_details(events: list[str]) -> dict:
-	"""{event: {call, duration, direction, status, recording, summary}} for the call Events that
-	came through MyOperator. `recording` is the call's name when it has one (the player asks a
-	permission-checked endpoint for it); the transcript never leaves the server."""
+	"""{event: {call, duration, direction, status, recording, recording_state, summary}} for the
+	call Events that came through a provider. `recording` is the call's name when it has one (the
+	player asks a permission-checked endpoint for it); `recording_state` says saved, pending (the
+	provider has one, the download is still due) or none; the transcript never leaves the server."""
 	if not events:
 		return {}
 	Call = frappe.qb.DocType(DOCTYPE)
@@ -799,6 +895,8 @@ def call_details(events: list[str]) -> dict:
 			Call.direction,
 			Call.status,
 			Call.recording,
+			Call.recording_filename,
+			Call.creation,
 			Call.summary,
 		)
 		.where(Call.event.isin(events))
@@ -810,10 +908,20 @@ def call_details(events: list[str]) -> dict:
 			"direction": row.direction.lower() if row.direction else None,
 			"status": row.status.lower() if row.status else None,
 			"recording": row.name if row.recording else None,
+			"recording_state": recording_state(row),
 			"summary": parse_summary(row.summary),
 		}
 		for row in rows
 	}
+
+
+def recording_state(row) -> str:
+	"""saved, pending (the provider sent a recording that isn't downloaded yet, for up to an hour
+	after the call) or none."""
+	if row.recording:
+		return "saved"
+	recent = row.creation and row.creation > add_to_date(now_datetime(), seconds=-RECORDING_WAIT_SECONDS)
+	return "pending" if row.recording_filename and recent else "none"
 
 
 def parse_summary(value) -> dict | None:

@@ -32,6 +32,9 @@ from tbo_smart.telephony import (
 )
 
 CLICK_TO_CALL_URL = "https://app.callerdesk.io/api/click_to_call_v2"
+CALL_LIST_URL = "https://app.callerdesk.io/api/call_list_v2"
+# call_list_v2 pages hold 25 calls ("set at 25 from backend"); a day never needs more than this
+MAX_LIST_PAGES = 20
 TIMEOUT = 15
 # CallerDesk's panel and every time in its call report are India time
 PANEL_TIMEZONE = "Asia/Kolkata"
@@ -253,3 +256,67 @@ def call_refused(status: int, reason: str | None) -> str:
 	if reason:
 		return _("CallerDesk didn't accept the call: {0}").format(reason)
 	return _("CallerDesk didn't accept the call ({0}). Try again in a minute.").format(status)
+
+
+# ---------- call report (reconcile) ----------
+
+
+def fetch_call_list(start_date: str, end_date: str) -> list[dict]:
+	"""The finished calls between two days (yyyy-mm-dd) from `call_list_v2` (POST form: authcode,
+	start_date, end_date, current_page), page after page until one adds nothing new. [] when
+	CallerDesk answers something else than calls; CallerDeskError when it can't be reached."""
+	rows: dict[str, dict] = {}
+	for page in range(1, MAX_LIST_PAGES + 1):
+		data = {
+			"authcode": secret("callerdesk_api_key") or "",
+			"start_date": start_date,
+			"end_date": end_date,
+			"current_page": page,
+		}
+		try:
+			response = requests.post(CALL_LIST_URL, data=data, timeout=TIMEOUT)
+			answer = response.json() if response.ok else {}
+		except (requests.RequestException, ValueError):
+			# the request carries the key, so nothing of the exception is shown or logged
+			raise CallerDeskError(_("Couldn't read CallerDesk's call list.")) from None
+		found = answer.get("result") if isinstance(answer, dict) else answer
+		fresh = {
+			str(row["sid_id"]).strip(): row
+			for row in (found if isinstance(found, list) else [])
+			if isinstance(row, dict) and str(row.get("sid_id") or "").strip()
+		}
+		fresh = {sid: row for sid, row in fresh.items() if sid not in rows}
+		if not fresh:
+			break
+		rows.update(fresh)
+	return list(rows.values())
+
+
+def report_from_row(row: dict, campid: str | None = None) -> dict | None:
+	"""A `call_list_v2` row as the Call Report the webhook would have sent (so `parse_report`
+	and the normal receive path take it); None while the call has no end (still running) or no
+	`sid_id`. The row's `caller_num` is the customer and `member_num` the telecaller (as the
+	live call's `msisdn` and `member_num`); `callresult` "Click-to-call" and a `channel` of
+	WEBOBD / OBD mean an outgoing call."""
+	sid = str(row.get("sid_id") or "").strip()
+	if not sid or not row.get("enddatetime"):
+		return None
+	flow = str(row.get("channel") or row.get("Flow_type") or "").upper()
+	outgoing = flow in OUTGOING_DIRECTIONS or "click" in str(row.get("callresult") or "").lower()
+	return {
+		"type": REPORT_TYPE,
+		"CallSid": sid,
+		"Direction": "WEBOBD" if outgoing else "IVR",
+		"SourceNumber": row.get("caller_num") or "",
+		"DialWhomNumber": row.get("member_num") or "",
+		"Status": row.get("callstatus") or "",
+		"StartTime": row.get("startdatetime"),
+		"EndTime": row.get("enddatetime"),
+		"CallDuration": row.get("total_duration"),
+		"TalkDuration": row.get("talk_duration"),
+		"CallRecordingUrl": row.get("file") or "",
+		"campid": campid or str(row.get("campid") or ""),
+		"receiver_name": row.get("member_name"),
+		"LegA_Picked_time": row.get("LegA_Picked_time"),
+		"LegB_Picked_time": row.get("LegB_Picked_time"),
+	}

@@ -12,6 +12,8 @@ from tbo_smart.telephony import callerdesk, calls
 from tbo_smart.test_utils import (
 	TEST_CALLERDESK_KEY,
 	TEST_CALLERDESK_TOKEN,
+	callerdesk_list_response,
+	callerdesk_list_row,
 	callerdesk_live,
 	callerdesk_report,
 	clear_dial_locks,
@@ -570,3 +572,142 @@ def calls_events(lead: str) -> list[str]:
 		filters={"reference_doctype": "Lead", "reference_docname": lead, "parenttype": "Event"},
 		pluck="parent",
 	)
+
+
+class TestRecordingState(TestCallerDesk):
+	"""The lead's timeline says whether a call's recording is saved, still coming, or not there."""
+
+	def state_of(self, call_id: str) -> str:
+		return calls.call_details([self.call_of(call_id).event])[self.call_of(call_id).event][
+			"recording_state"
+		]
+
+	def test_saved_pending_and_none(self):
+		post_callerdesk_webhook(callerdesk_report("CD-NONE"))
+		self.assertEqual(self.state_of("CD-NONE"), "none")
+		with patch("tbo_smart.telephony.calls.requests.get", side_effect=requests.ConnectionError("down")):
+			post_callerdesk_webhook(callerdesk_report("CD-WAIT", CallRecordingUrl=RECORDING_URL))
+		self.assertEqual(self.state_of("CD-WAIT"), "pending")
+		with patch(
+			"tbo_smart.telephony.calls.requests.get", return_value=myoperator_response(200, {}, content=AUDIO)
+		):
+			post_callerdesk_webhook(callerdesk_report("CD-OK", CallRecordingUrl=RECORDING_URL))
+		self.assertEqual(self.state_of("CD-OK"), "saved")
+
+	def test_a_download_that_never_worked_stops_saying_pending_after_an_hour(self):
+		with patch("tbo_smart.telephony.calls.requests.get", side_effect=requests.ConnectionError("down")):
+			post_callerdesk_webhook(callerdesk_report("CD-OLD", CallRecordingUrl=RECORDING_URL))
+		frappe.db.set_value(
+			"TBO Call", self.call_of("CD-OLD").name, "creation", frappe.utils.add_to_date(None, hours=-2)
+		)
+		self.assertEqual(self.state_of("CD-OLD"), "none")
+
+
+class TestReconcile(TestCallerDesk):
+	"""Calls whose webhook never arrived are found in CallerDesk's call report."""
+
+	def reconcile(self, *rows: dict):
+		with (
+			patch(
+				"tbo_smart.telephony.callerdesk.requests.post", return_value=callerdesk_list_response(*rows)
+			) as post,
+			patch(
+				"tbo_smart.telephony.calls.requests.get",
+				return_value=myoperator_response(200, {}, content=AUDIO),
+			),
+		):
+			calls.reconcile_callerdesk()
+		return post
+
+	def setUp(self):
+		super().setUp()
+		frappe.cache.delete_value(frappe.cache.make_key(calls.RECONCILE_LOCK_KEY), make_keys=False)
+
+	def test_a_missed_call_lands_on_its_lead_with_its_recording(self):
+		post = self.reconcile(callerdesk_list_row("59884394"))
+		call = self.call_of("59884394")
+		self.assertEqual((call.lead, call.agent, call.status), (self.lead, BDE, "Answered"))
+		self.assertEqual((call.duration, call.talk_seconds, call.direction), (112, 87, "Outgoing"))
+		self.assertTrue(call.event)
+		self.assertTrue(calls.recording_file(call.name).get_content() == AUDIO)
+		sent = post.call_args.kwargs["data"]
+		self.assertEqual(sent["authcode"], TEST_CALLERDESK_KEY)
+		self.assertEqual(sent["current_page"], 1)
+		self.assertEqual(post.call_args.args[0], callerdesk.CALL_LIST_URL)
+
+	def test_a_call_the_webhook_stored_is_not_stored_again(self):
+		post_callerdesk_webhook(callerdesk_report("59884395"))
+		self.reconcile(callerdesk_list_row("59884395"), callerdesk_list_row("59884396"))
+		self.assertEqual(frappe.db.count("TBO Call", {"call_id": ("in", ["59884395", "59884396"])}), 2)
+		frappe.cache.delete_value(frappe.cache.make_key(calls.RECONCILE_LOCK_KEY), make_keys=False)
+		self.reconcile(callerdesk_list_row("59884395"), callerdesk_list_row("59884396"))
+		self.assertEqual(frappe.db.count("TBO Call", {"call_id": ("in", ["59884395", "59884396"])}), 2)
+		self.assertEqual(frappe.db.count("Event", {"subject": ("like", "%Caller Known%")}), 2)
+
+	def test_a_call_stuck_on_live_is_closed_by_its_report(self):
+		self.place_click_to_call()
+		frappe.set_user("Administrator")
+		post_callerdesk_webhook(callerdesk_live("59884397"))
+		self.assertEqual(self.call_of("59884397").last_event, "live")
+		self.reconcile(callerdesk_list_row("59884397"))
+		self.assertEqual(self.call_of("59884397").last_event, "call.summary")
+
+	def test_a_call_that_has_not_ended_is_left_for_later(self):
+		self.reconcile(callerdesk_list_row("59884398", enddatetime=""))
+		self.assertFalse(frappe.db.exists("TBO Call", {"call_id": "59884398"}))
+
+	def test_nothing_runs_for_another_provider_or_without_the_key(self):
+		enable_telephony()
+		with patch("tbo_smart.telephony.callerdesk.requests.post") as post:
+			calls.reconcile_callerdesk()
+		post.assert_not_called()
+
+	def test_a_failing_call_list_logs_without_the_key(self):
+		with (
+			patch(
+				"tbo_smart.telephony.callerdesk.requests.post",
+				side_effect=requests.ConnectionError(
+					f"https://app.callerdesk.io/api?authcode={TEST_CALLERDESK_KEY}"
+				),
+			),
+			patch("tbo_smart.telephony.calls.frappe.log_error") as log,
+		):
+			calls.reconcile_callerdesk()
+		self.assertNotIn(TEST_CALLERDESK_KEY, str(log.call_args))
+
+	def test_the_box_can_look_for_its_own_call_and_it_lands_on_the_click_to_call_lead(self):
+		self.place_click_to_call()
+		frappe.set_user(BDE)
+		recent = callerdesk_list_row(
+			"59884399", startdatetime=datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d %H:%M:%S")
+		)
+		with (
+			patch(
+				"tbo_smart.telephony.callerdesk.requests.post", return_value=callerdesk_list_response(recent)
+			),
+			patch(
+				"tbo_smart.telephony.calls.requests.get",
+				return_value=myoperator_response(200, {}, content=AUDIO),
+			),
+		):
+			self.assertEqual(api.refresh_call("57305000"), {"stored": 1})
+			# once every few seconds at most
+			self.assertEqual(api.refresh_call("57305000"), {"stored": 0})
+		frappe.set_user("Administrator")
+		self.assertEqual(self.call_of("59884399").reference_id, "57305000")
+		self.assertEqual(self.status_of_box()["state"], "ended")
+
+	def status_of_box(self) -> dict:
+		frappe.set_user(BDE)
+		try:
+			return calls.call_status("57305000")
+		finally:
+			frappe.set_user("Administrator")
+
+	def test_only_the_person_who_placed_the_call_may_look(self):
+		self.place_click_to_call()
+		frappe.set_user(BDE2)
+		with patch("tbo_smart.telephony.callerdesk.requests.post") as post:
+			with self.assertRaises(frappe.PermissionError):
+				api.refresh_call("57305000")
+		post.assert_not_called()

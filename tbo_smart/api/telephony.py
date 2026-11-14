@@ -135,6 +135,18 @@ def get_call_status(reference_id: str, acting_user: str | None = None) -> dict:
 		return calls.call_status(reference_id)
 
 
+@frappe.whitelist(methods=["POST"])
+def refresh_call(reference_id: str, acting_user: str | None = None) -> dict:
+	"""For the hub's call box when it can't see a call any more (its webhook may have been
+	missed): look the person's own recent calls up in CallerDesk's call report and store the
+	ones missing. {stored}. Only the person who placed the call may ask; MyOperator: {stored: 0}."""
+	with acting_as(acting_user):
+		try:
+			return calls.refresh_my_call(reference_id)
+		except callerdesk.CallerDeskError as e:
+			frappe.throw(str(e), exc=type(e))
+
+
 @frappe.whitelist()
 def get_incoming_call(acting_user: str | None = None) -> dict:
 	"""{enabled, call: {call, number, lead, lead_name, state} | None}: the call coming in to the
