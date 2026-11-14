@@ -22,6 +22,7 @@ CLOSED_WON = "Closed – Won"
 CLOSED_LOST = "Closed – Lost"
 NOT_INTERESTED = "Not Interested"
 WRONG_NUMBER = "Wrong Number"
+SMALL_BUSINESS = "Small Business"
 
 # (name, type, colour), in pipeline order
 STATUSES = (
@@ -43,6 +44,8 @@ STATUSES = (
 	# picked up and declined / an invalid number: lost without a reason to type
 	(NOT_INTERESTED, "Lost", "red"),
 	(WRONG_NUMBER, "Lost", "gray"),
+	# too small for TBO: not a fit, so closed without a reason to type
+	(SMALL_BUSINESS, "Lost", "gray"),
 )
 STATUS_NAMES = tuple(name for name, _type, _color in STATUSES)
 # a salesperson still works on these: scored, listed on Call today, followed up and triaged
@@ -50,7 +53,11 @@ OPEN_STATUSES = tuple(name for name, kind, _color in STATUSES if kind not in ("W
 WON_STATUSES = (CLOSED_WON,)
 LOST_STATUSES = tuple(name for name, kind, _color in STATUSES if kind == "Lost")
 # the lost reason these stages fill in themselves (Opportunity Lost Reason names)
-AUTO_LOST_REASONS = {NOT_INTERESTED: "Not interested", WRONG_NUMBER: "Wrong number"}
+AUTO_LOST_REASONS = {
+	NOT_INTERESTED: "Not interested",
+	WRONG_NUMBER: "Wrong number",
+	SMALL_BUSINESS: "Small business",
+}
 
 # the stage the Nth meeting's MOM completes
 MEETING_COMPLETED = {1: FIRST_MEETING, 2: SECOND_MEETING, 3: THIRD_MEETING}
@@ -83,8 +90,8 @@ def status_type(status: str | None) -> str | None:
 
 
 def needs_lost_reason(status: str | None) -> bool:
-	"""A Lost-type stage that makes the person say why (Closed – Lost); Not Interested and Wrong
-	Number say it themselves."""
+	"""A Lost-type stage that makes the person say why (Closed – Lost); Not Interested, Wrong
+	Number and Small Business say it themselves."""
 	return status_type(status) == "Lost" and status not in AUTO_LOST_REASONS
 
 

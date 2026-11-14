@@ -198,7 +198,7 @@ for the channel, the user cannot edit it, or already has a live first message on
   counted on the approver); an opt-out line under every email; a send window, Monday to Saturday,
   09:30 to 18:00 site time by default, outside it an approved email waits and the sender (every
   10 minutes) delivers it when the window opens, oldest first, within each approver's cap;
-  an unsubscribed lead and a Lost-type stage (Closed - Lost, Not Interested, Wrong Number) are
+  an unsubscribed lead and a Lost-type stage (Closed - Lost, Not Interested, Wrong Number, Small Business) are
   never written to, also when that happened after approval (the message is then Cancelled);
   one first message per lead per channel (Cancelled and Failed ones may be redrafted).
 

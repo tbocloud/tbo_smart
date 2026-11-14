@@ -1,4 +1,4 @@
-# Lead pipeline: stages, meetings, MOM and quotations on the lead (living spec, v1.7)
+# Lead pipeline: stages, meetings, MOM and quotations on the lead (living spec, v1.9)
 
 **Status:** Phases 1 to 3 built 2026-10-16: the pipeline stages, meetings and minutes of meeting
 (MOM), automatic lead stages, the deal at Closed – Won, quotations on the lead (presets,
@@ -36,7 +36,7 @@ feature updates it in the same pull request. The screens are the TBO Support hub
 
 ### 2.1 The stages (`lead_pipeline/statuses.py`)
 
-A lead's stage is the custom **`Lead.tbo_stage`**, a Select of these 16 names in this order
+A lead's stage is the custom **`Lead.tbo_stage`**, a Select of these 17 names in this order
 (default New Lead). ERPNext's own `Lead.status` is left alone: ERPNext sets it itself (Lead,
 Opportunity, Quotation, Converted…). Each stage has a type, as Frappe CRM's lead statuses had,
 and a colour name for the screens (`stage_options()`, also the hub's `get_options`). The code
@@ -60,6 +60,7 @@ names them in this one module.
 | 14 | Closed – Lost | Lost | no | 0 (closed) |
 | 15 | Not Interested | Lost | no | 0 (closed) |
 | 16 | Wrong Number | Lost | no | 0 (closed) |
+| 17 | Small Business | Lost | no | 0 (closed) |
 
 - **Stage history:** every stage a lead enters is a row of its **`tbo_stage_log`** (TBO Stage
   Change: `stage`, `previous_stage`, `changed_on`, `changed_by`; the insert is the first row),
@@ -76,6 +77,9 @@ names them in this one module.
   Wrong Number sets `tbo_wrong_number`, so neither asks for one (`needs_lost_reason`); a lead
   reopened keeps its reason like a Closed – Lost one. The funnel does not count Not Responding as
   contacted, and scoring treats a move between it and Contacted as sideways.
+- **Small Business:** the lead is too small for TBO, not a fit. Like Not Interested it is a Lost
+  stage that fills its own lost reason ("Small business", made on migrate), so moving a lead
+  there asks for none. It is a side stage, set by hand only; no call outcome leads to it.
 - `OPEN_STATUSES` (every stage that is not Won or Lost) is the single list smart leads
   use for scoring, Call today, the follow-up engine and the triage.
 
@@ -591,6 +595,7 @@ The documents a lead goes through follow its `tbo_lead_type` (`lead-departments.
 
 ## Changelog
 
+- **v1.9 (2026-11-14):** the Small Business stage (§2.1): Lost, fills its own lost reason.
 - **v1.8 (2026-10-28):** the document chain by lead type (§13): Content / Digital Marketing leads
   go Proposal (the 6-month strategy) -> project.
 - **v1.7 (2026-10-20):** `tbo_proposal` on the Quotation, the Sales Order and the Sales Invoice:
