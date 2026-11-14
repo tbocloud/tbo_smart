@@ -240,6 +240,12 @@ class TestClickToCall(TestCallerDesk):
 				"CallerDesk didn't accept the call: Agent number busy",
 			),
 			(
+				# what CallerDesk really sends: a 200 whose `type` says error
+				200,
+				{"type": "error", "message": "Invalid Auth Code!"},
+				"CallerDesk didn't accept the call: Invalid Auth Code!",
+			),
+			(
 				403,
 				{},
 				"CallerDesk didn't accept the call: it refused the API key. Ask an admin to check Settings → Telephony.",
