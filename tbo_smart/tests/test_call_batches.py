@@ -305,6 +305,16 @@ class TestCallBatches(FrappeTestCase):
 		frappe.set_user(BD)
 		self.assertEqual(get_my_calls()["counts"]["pending"], 1)
 
+	def test_callerdesk_busy_counts_busy_and_the_telecallers_own_failure_counts_nothing(self):
+		leads, batch, _items = self.batch_of(3)
+		start = add_to_date(now_datetime(), minutes=1)
+		make_call(BD, leads[0], "Missed", "Outgoing", start, provider_status="Busy")
+		make_call(BD, leads[1], "Missed", "Outgoing", start, provider_status="cancel-Agent")
+		make_call(BD, leads[2], "Missed", "Outgoing", start, provider_status="NOANSWER")
+		self.assertEqual(sync_calls(BD), 2)
+		rows = get_batch_items(batch)
+		self.assertEqual([row.outcome for row in rows[:3]], ["Busy", "", "Not answered"])
+
 	def test_a_lead_connected_on_its_retry_counts_connected(self):
 		leads, _batch, items = self.batch_of(1)
 		self.record(items[0], "Not answered")

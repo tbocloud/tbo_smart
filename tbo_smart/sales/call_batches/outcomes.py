@@ -30,8 +30,8 @@ from tbo_smart.sales.call_batches import (
 	UNREACHED,
 	WRONG_NUMBER,
 )
+from tbo_smart.telephony import AGENT_SIDE_STATUSES, BUSY_STATUSES, OUTGOING
 from tbo_smart.telephony import ANSWERED as CALL_ANSWERED
-from tbo_smart.telephony import OUTGOING
 from tbo_smart.telephony.calls import log_manual_call
 
 # what the call log calls each outcome
@@ -203,10 +203,13 @@ def sync_calls(user: str) -> int:
 				"lead": ("in", list({row.lead for row in rows})),
 				"started_at": (">=", min(get_datetime(row.starts_at) for row in rows)),
 			},
-			fields=["lead", "status", "direction", "started_at"],
+			fields=["lead", "status", "provider_status", "direction", "started_at"],
 			order_by="started_at asc",
 		)
-		if call.direction == OUTGOING or call.status == CALL_ANSWERED
+		# the telecaller's own side failing (CallerDesk cancel-Agent, Agent-Unregistered) never
+		# reached the lead, so it is not an attempt
+		if (call.direction == OUTGOING or call.status == CALL_ANSWERED)
+		and (call.provider_status or "").lower() not in AGENT_SIDE_STATUSES
 	]
 	calls = sorted(
 		calls + stage_contacts(user, list({row.lead for row in rows}), rows, calls),
@@ -270,7 +273,7 @@ def record_calls(batch, calls: list) -> int:
 			continue
 		call = next_call(calls, row.lead, max(since, done.get(row.lead, since)))
 		if call:
-			outcome = CONNECTED if call.status == CALL_ANSWERED else NOT_ANSWERED
+			outcome = call_batch_outcome(call)
 			apply(batch, row, outcome, "", None, call.started_at, call=call.direction != STAGE_MOVE)
 			done[row.lead] = get_datetime(call.started_at)
 			recorded += 1
@@ -292,6 +295,14 @@ def record_calls(batch, calls: list) -> int:
 			done[lead] = get_datetime(call.started_at)
 			recorded += 1
 	return recorded
+
+
+def call_batch_outcome(call) -> str:
+	"""The outcome a logged call gives a batch item: Connected, Busy (CallerDesk's Busy or
+	AgentEngaged) or Not answered."""
+	if call.status == CALL_ANSWERED:
+		return CONNECTED
+	return BUSY if (call.provider_status or "").lower() in BUSY_STATUSES else NOT_ANSWERED
 
 
 def unreached_at_last(batch) -> list[str]:

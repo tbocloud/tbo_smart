@@ -40,6 +40,13 @@ NUMBERS = (NUMBER, OTHER_NUMBER, UNKNOWN_NUMBER)
 AUDIO = b"RIFF\x24\x00\x00\x00WAVEfmt \xff\xfb\x90"
 RECORDING_URL = "https://callrecords.callerdesk.test/incoming/01_rec.wav"
 CLICK_URL = "https://app.callerdesk.io/api/click_to_call_v2"
+# click_to_call_v2's documented success answer
+CLICK_SUCCESS = {
+	"type": "success",
+	"message": "Call to Customer Initiate Successfully..",
+	"campid": 57305000,
+	"callerid": "1200000000",
+}
 AGENTS = [
 	{"user": BDE, "callerdesk_number": "9000000001", "mobile": None},
 	{"user": BDE2, "callerdesk_number": None, "mobile": "+919000000002"},
@@ -75,9 +82,7 @@ class TestCallerDesk(FrappeTestCase):
 
 	def place_click_to_call(self, body: dict | None = None):
 		frappe.set_user(BDE)
-		answer = myoperator_response(
-			200, {"status": "success", "campid": "57305000"} if body is None else body
-		)
+		answer = myoperator_response(200, CLICK_SUCCESS if body is None else body)
 		with patch("tbo_smart.telephony.callerdesk.requests.get", return_value=answer) as get:
 			result = api.click_to_call(self.lead)
 		return result, get
@@ -91,7 +96,7 @@ class TestWebhook(TestCallerDesk):
 			(call.lead, call.agent, call.status, call.direction, call.customer_number),
 			(self.lead, BDE, "Answered", "Incoming", NUMBER),
 		)
-		self.assertEqual((call.duration, call.talk_seconds), (18, 74))
+		self.assertEqual((call.duration, call.talk_seconds), (82, 74))
 		india = datetime(2026, 10, 19, 10, 58, 4, tzinfo=ZoneInfo("Asia/Kolkata"))
 		self.assertEqual(
 			call.started_at, india.astimezone(ZoneInfo(get_system_timezone())).replace(tzinfo=None)
@@ -167,11 +172,87 @@ class TestWebhook(TestCallerDesk):
 		self.assertIsNone(self.call_of("CD-NONE").lead)
 
 
+class TestStatuses(TestCallerDesk):
+	def test_every_documented_status_but_answer_is_missed(self):
+		for status in (
+			"cancel-Agent",
+			"cancel-Customer",
+			"CANCEL",
+			"Congestion",
+			"AgentEngaged",
+			"AbandonedCall",
+			"Agent-Unregistered",
+			"Unavailable",
+			"NOANSWER",
+			"Busy",
+		):
+			sid = f"CD-ST-{status}"
+			post_callerdesk_webhook(callerdesk_report(sid, Status=status, TalkDuration="0"))
+			call = self.call_of(sid)
+			self.assertEqual((call.status, call.provider_status), ("Missed", status))
+		post_callerdesk_webhook(callerdesk_report("CD-ST-OK", Status="ANSWER"))
+		self.assertEqual(self.call_of("CD-ST-OK").status, "Answered")
+
+	def test_call_status_stands_in_when_status_is_missing_or_unknown(self):
+		for sid, fields, expected in (
+			("CD-FB1", {"Status": "", "CallStatus": "Answered"}, "Answered"),
+			("CD-FB2", {"Status": "SomethingNew", "CallStatus": "Answered"}, "Answered"),
+			("CD-FB3", {"Status": "SomethingNew", "CallStatus": "No Answer"}, "Missed"),
+			("CD-FB4", {"Status": "", "CallStatus": ""}, "Missed"),
+			# a documented Status wins over CallStatus
+			("CD-FB5", {"Status": "Busy", "CallStatus": "Answered"}, "Missed"),
+		):
+			post_callerdesk_webhook(callerdesk_report(sid, **fields))
+			self.assertEqual(self.call_of(sid).status, expected, sid)
+
+	def test_a_busy_outgoing_call_is_a_busy_attempt_and_the_telecallers_own_failure_is_none(self):
+		for sid, status in (("CD-BUSY", "Busy"), ("CD-AGENT", "cancel-Agent")):
+			post_callerdesk_webhook(
+				callerdesk_report(
+					sid,
+					Status=status,
+					Direction="WEBOBD",
+					SourceNumber="9876543210",
+					DialWhomNumber="9000000001",
+					TalkDuration="0",
+				)
+			)
+		self.assertEqual(calls.call_outcome("Missed", self.call_of("CD-BUSY").provider_status), "Busy")
+		self.assertIsNone(calls.call_outcome("Missed", self.call_of("CD-AGENT").provider_status))
+		self.assertEqual(calls.call_outcome("Missed", "NOANSWER"), "Missed")
+		self.assertEqual(calls.call_outcome("Answered", None), "Answered")
+		# only the busy attempt reached the lead
+		self.assertEqual(frappe.db.get_value("Lead", self.lead, "tbo_last_call_result"), "Busy")
+
+	def test_a_report_is_told_from_a_live_call_by_its_type(self):
+		report, live = callerdesk_report("CD-T"), callerdesk_live("CD-T")
+		self.assertTrue(callerdesk.is_report(report))
+		self.assertTrue(callerdesk.is_live(live))
+		# the type decides, even for a report that lost its end fields
+		bare = {"type": "call_report", "CallSid": "CD-T"}
+		self.assertTrue(callerdesk.is_report(bare))
+		self.assertTrue(callerdesk.is_live({"type": "live_call", "CallSid": "CD-T", "EndTime": "x"}))
+
+	def test_an_incomplete_talk_duration_is_not_the_whole_call(self):
+		post_callerdesk_webhook(callerdesk_report("CD-TALK0", TalkDuration="0"))
+		call = self.call_of("CD-TALK0")
+		self.assertEqual((call.duration, call.talk_seconds), (82, 0))
+
+
 class TestOutgoing(TestCallerDesk):
+	def test_an_outgoing_report_with_the_numbers_the_other_way_round_is_still_read(self):
+		post_callerdesk_webhook(
+			callerdesk_report(
+				"CD-SWAP", Direction="WEBOBD", SourceNumber="9000000001", DialWhomNumber="9876543210"
+			)
+		)
+		call = self.call_of("CD-SWAP")
+		self.assertEqual((call.customer_number, call.agent), (NUMBER, BDE))
+
 	def test_an_outgoing_call_from_the_agents_phone_finds_the_customer_by_number(self):
 		post_callerdesk_webhook(
 			callerdesk_report(
-				"CD-OUT", Direction="WEBOBD", SourceNumber="9000000001", DialWhomNumber="9876543210"
+				"CD-OUT", Direction="WEBOBD", SourceNumber="9876543210", DialWhomNumber="9000000001"
 			)
 		)
 		call = self.call_of("CD-OUT")
@@ -190,8 +271,8 @@ class TestOutgoing(TestCallerDesk):
 			callerdesk_report(
 				"CD-C2C",
 				Direction="WEBOBD",
-				SourceNumber="9000000001",
-				DialWhomNumber="9800011122",
+				SourceNumber="9800011122",
+				DialWhomNumber="9000000001",
 				campid="57305000",
 			)
 		)
@@ -223,7 +304,7 @@ class TestClickToCall(TestCallerDesk):
 		frappe.set_user(BDE2)
 		with patch(
 			"tbo_smart.telephony.callerdesk.requests.get",
-			return_value=myoperator_response(200, {"status": "success"}),
+			return_value=myoperator_response(200, {k: v for k, v in CLICK_SUCCESS.items() if k != "campid"}),
 		) as get:
 			result = api.click_to_call(lead)
 		params = get.call_args.kwargs["params"]
@@ -252,6 +333,18 @@ class TestClickToCall(TestCallerDesk):
 				"CallerDesk didn't accept the call: it refused the API key. Ask an admin to check Settings → Telephony.",
 			),
 			(500, {}, "CallerDesk didn't accept the call (500). Try again in a minute."),
+			(
+				# no `type` is not a success
+				200,
+				{"campid": "1"},
+				"CallerDesk didn't accept the call (200). Try again in a minute.",
+			),
+			(
+				200,
+				{"type": "error", "message": "Agent on break/Inactive. Call not allowed"},
+				"CallerDesk didn't accept the call: Agent on break/Inactive. Call not allowed "
+				"Ask an admin to add your number as an active member in CallerDesk.",
+			),
 		):
 			clear_dial_locks((BDE,))
 			with self.assertRaises(frappe.ValidationError) as caught:
@@ -355,8 +448,8 @@ class TestLiveCall(TestCallerDesk):
 			callerdesk_report(
 				"CD-L3",
 				Direction="WEBOBD",
-				SourceNumber="9000000001",
-				DialWhomNumber="9876543210",
+				SourceNumber="9876543210",
+				DialWhomNumber="9000000001",
 				campid="57305000",
 				LegB_Picked_time="2026-10-19 10:58:30",
 			)
@@ -364,7 +457,7 @@ class TestLiveCall(TestCallerDesk):
 		status = self.status_of()
 		self.assertEqual(
 			(status["state"], status["answered"], status["duration"], status["talk_seconds"]),
-			("ended", True, 18, 74),
+			("ended", True, 82, 74),
 		)
 		call = self.call_of("CD-L3")
 		self.assertEqual((call.live_status, call.lead, call.agent), ("Ended", self.lead, BDE))
@@ -385,8 +478,8 @@ class TestLiveCall(TestCallerDesk):
 				"CD-L4",
 				Status="NOANSWER",
 				Direction="WEBOBD",
-				SourceNumber="9000000001",
-				DialWhomNumber="9876543210",
+				SourceNumber="9876543210",
+				DialWhomNumber="9000000001",
 				campid="57305000",
 			)
 		)
