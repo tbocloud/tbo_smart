@@ -1,4 +1,4 @@
-# Hub leads API (`tbo_smart.api.hub_leads`), v1.29
+# Hub leads API (`tbo_smart.api.hub_leads`), v1.30
 
 **Status:** built 2026-10-16. The TBO Support hub's lead page (tbocloud/helpdesk) shows and edits
 tboindia's leads through these methods. The leads are ERPNext's own **Lead**
@@ -149,7 +149,7 @@ Quotation = {name, docstatus, tbo_quote_status, transaction_date, valid_till, cu
 
 - `create_lead` needs a name or a company. ERPNext checks the email (unique unless CRM Settings
   allow duplicates, and never the owner's own).
-- `set_stage` to **Closed – Lost** needs `note` (Not Interested and Wrong Number need none, §2.16): a lost reason's name, or free text saved as
+- `set_stage` to **Closed – Lost** needs `note` (Not Interested, Wrong Number and Small Business need none, §2.16): a lost reason's name, or free text saved as
   "Other" with the text as `tbo_lost_notes`. For any other stage `note` is added as a note.
   Closed – Won makes the deal (with the lead pipeline on).
 - `add_note` needs read on the lead (as the app's notes do).
@@ -640,7 +640,9 @@ Three stages say what a call told the salesperson (`lead_pipeline/statuses.py`, 
 
 Lost-type stages count as lost everywhere (funnel, win rate, business, lost reasons) and leave
 the open lists. Setting Not Interested or Wrong Number by hand (`set_stage`, any `note` is
-added as a note) needs no reason; Closed – Lost still does.
+added as a note) needs no reason; Closed – Lost still does. Small Business (Lost, gray) works the
+same way with the reason "Small business": a lead too small for TBO, set by hand only, never by a
+call (`lead-pipeline.md` §2.1).
 
 **One helper, three callers.** `lead_pipeline/call_outcomes.apply_call_outcome` is used by
 `log_call`, a call-batch outcome (and the batch sync) and a MyOperator call (outgoing, or
@@ -1167,6 +1169,9 @@ project set-ups saved by managers only.
 `tbo_smart/tests/test_lead_bank.py`: see `lead-bank.md` §9.
 
 ## Changelog
+
+- **v1.30 (2026-11-14):** the Small Business stage in `get_options` (Lost, gray); `set_stage`
+  to it needs no `note` (§2.16).
 
 - **v1.29 (2026-11-14):** the call box (§2.33): `get_call_status`, `get_incoming_call`.
 

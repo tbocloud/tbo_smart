@@ -16,6 +16,7 @@ from tbo_smart.lead_pipeline.statuses import (
 	NOT_RESPONDING,
 	OPEN_STATUSES,
 	PROGRESS,
+	SMALL_BUSINESS,
 	STATUS_NAMES,
 	WRONG_NUMBER,
 	needs_lost_reason,
@@ -41,8 +42,9 @@ class TestCallOutcomeStages(FrappeTestCase):
 		self.assertEqual(status_type(NOT_RESPONDING), "Ongoing")
 		self.assertEqual((status_type(NOT_INTERESTED), status_type(WRONG_NUMBER)), ("Lost", "Lost"))
 		self.assertIn(NOT_RESPONDING, OPEN_STATUSES)
-		self.assertTrue({CLOSED_LOST, NOT_INTERESTED, WRONG_NUMBER} <= set(LOST_STATUSES))
-		self.assertFalse({NOT_INTERESTED, WRONG_NUMBER} & set(OPEN_STATUSES))
+		self.assertEqual(status_type(SMALL_BUSINESS), "Lost")
+		self.assertTrue({CLOSED_LOST, NOT_INTERESTED, WRONG_NUMBER, SMALL_BUSINESS} <= set(LOST_STATUSES))
+		self.assertFalse({NOT_INTERESTED, WRONG_NUMBER, SMALL_BUSINESS} & set(OPEN_STATUSES))
 		self.assertEqual(PROGRESS[NOT_RESPONDING], PROGRESS[CONTACTED])
 		self.assertEqual(STATUS_NAMES.index(NOT_RESPONDING), STATUS_NAMES.index(CONTACTED) + 1)
 		self.assertEqual(
@@ -50,8 +52,9 @@ class TestCallOutcomeStages(FrappeTestCase):
 				needs_lost_reason(CLOSED_LOST),
 				needs_lost_reason(NOT_INTERESTED),
 				needs_lost_reason(WRONG_NUMBER),
+				needs_lost_reason(SMALL_BUSINESS),
 			),
-			(True, False, False),
+			(True, False, False, False),
 		)
 
 	def test_outcomes_read_from_every_way_of_logging_a_call(self):
@@ -182,6 +185,8 @@ class TestApplyCallOutcome(FrappeTestCase):
 		self.assertEqual(self.value("tbo_lost_reason"), "Not interested")
 		hub.set_stage(self.lead, WRONG_NUMBER, acting_user=BD)
 		self.assertEqual((self.value("tbo_lost_reason"), self.value("tbo_wrong_number")), ("Wrong number", 1))
+		hub.set_stage(self.lead, SMALL_BUSINESS, acting_user=BD)
+		self.assertEqual(self.value("tbo_lost_reason"), "Small business")
 		self.assertRaises(frappe.ValidationError, hub.set_stage, self.lead, CLOSED_LOST, acting_user=BD)
 
 

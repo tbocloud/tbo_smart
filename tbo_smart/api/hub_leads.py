@@ -1216,7 +1216,7 @@ def get_lead_photo(lead: str, file: str, thumb: int | str = 0, acting_user: str 
 
 @frappe.whitelist(methods=["POST"])
 def set_stage(name: str, stage: str, note: str | None = None, acting_user: str | None = None) -> dict:
-	"""Move the lead to `stage`. Closed – Lost needs `note`, its lost reason (Not Interested and Wrong Number fill their own) (a lost reason's name,
+	"""Move the lead to `stage`. Closed – Lost needs `note`, its lost reason (Not Interested, Wrong Number and Small Business fill their own) (a lost reason's name,
 	or free text, saved as "Other" with the text); for any other stage `note` is added as a
 	note."""
 	with acting_as(acting_user):

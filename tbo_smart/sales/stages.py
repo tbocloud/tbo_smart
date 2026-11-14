@@ -64,7 +64,7 @@ class LeadStage:
 			self.doc.tbo_stage = NEW_LEAD
 
 	def fill_lost_reason(self):
-		"""Not Interested and Wrong Number are lost for a known reason: no prompt, no typing."""
+		"""Not Interested, Wrong Number and Small Business are lost for a known reason: no prompt, no typing."""
 		reason = AUTO_LOST_REASONS.get(self.doc.tbo_stage)
 		if not reason or (self.doc.get("tbo_lost_reason") and not self.doc.has_value_changed("tbo_stage")):
 			return
@@ -91,7 +91,7 @@ def validate_lead(doc, method=None):
 
 def set_lead_stage(name: str, stage: str, lost_reason: str | None = None):
 	"""Save a lead's new stage under the session user's permissions; a Lost-type stage that
-	needs one (Closed – Lost) gets a reason (`set_lost_reason`); Not Interested and Wrong Number fill theirs. Returns the lead."""
+	needs one (Closed – Lost) gets a reason (`set_lost_reason`); Not Interested, Wrong Number and Small Business fill theirs. Returns the lead."""
 	if stage not in STATUS_NAMES:
 		frappe.throw(_("{0} is not a lead stage.").format(stage))
 	lead = frappe.get_doc(LEAD, name)
