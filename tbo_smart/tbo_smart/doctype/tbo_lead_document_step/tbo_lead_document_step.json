@@ -1,0 +1,163 @@
+{
+ "actions": [],
+ "autoname": "hash",
+ "creation": "2026-11-14 12:00:00.000000",
+ "description": "A step of a lead's document chain that no client document carries: skipped or not used (with the reason, who and when), or the project the hub made straight from the lead and its UAT sign-off (docs/client-documents.md §9).",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "lead",
+  "document_type",
+  "status",
+  "reason",
+  "column_break_set",
+  "set_by",
+  "set_on",
+  "delivery_section",
+  "hub_project",
+  "hub_project_url",
+  "column_break_delivery",
+  "uat_status",
+  "uat_signed_on",
+  "uat_signed_by",
+  "warranty_starts_on"
+ ],
+ "fields": [
+  {
+   "fieldname": "lead",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Lead",
+   "options": "Lead",
+   "read_only": 1,
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "document_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Step",
+   "options": "Proposal\nQuotation\nWork Order\nBRD\nSRS\nImplementation Plan\nProject\nUAT",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "description": "Skipped: this client doesn't need the step. Not used: the chain started after it. Blank: the step is carried here (the project made straight from the lead).",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "\nSkipped\nNot used",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reason",
+   "fieldtype": "Small Text",
+   "label": "Reason",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_set",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "set_by",
+   "fieldtype": "Link",
+   "label": "By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "set_on",
+   "fieldtype": "Datetime",
+   "label": "On",
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "depends_on": "hub_project",
+   "fieldname": "delivery_section",
+   "fieldtype": "Section Break",
+   "label": "Project and UAT"
+  },
+  {
+   "description": "The project the hub made straight from the lead (no implementation plan).",
+   "fieldname": "hub_project",
+   "fieldtype": "Data",
+   "label": "Hub project",
+   "read_only": 1
+  },
+  {
+   "fieldname": "hub_project_url",
+   "fieldtype": "Data",
+   "label": "Hub project link",
+   "options": "URL",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_delivery",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "uat_status",
+   "fieldtype": "Data",
+   "label": "UAT sign-off",
+   "read_only": 1
+  },
+  {
+   "fieldname": "uat_signed_on",
+   "fieldtype": "Datetime",
+   "label": "UAT signed on",
+   "read_only": 1
+  },
+  {
+   "fieldname": "uat_signed_by",
+   "fieldtype": "Data",
+   "label": "UAT signed by",
+   "read_only": 1
+  },
+  {
+   "fieldname": "warranty_starts_on",
+   "fieldtype": "Date",
+   "label": "Warranty starts on",
+   "read_only": 1
+  }
+ ],
+ "in_create": 1,
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-11-14 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tbo Smart",
+ "name": "TBO Lead Document Step",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "delete": 1,
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager"
+  },
+  {
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales Manager"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Sales User"
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "lead",
+ "track_changes": 1
+}

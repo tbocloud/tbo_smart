@@ -17,6 +17,7 @@ from tbo_smart.api.hub_leads import acting_as
 from tbo_smart.api.quotation_adjustment import request_adjustment
 from tbo_smart.lead_pipeline import brd, presets, rate_card, strategy_project
 from tbo_smart.lead_pipeline import client_documents as documents
+from tbo_smart.lead_pipeline import document_steps as steps
 from tbo_smart.lead_pipeline import document_types as kinds
 from tbo_smart.lead_pipeline import implementation_plan as plan
 from tbo_smart.lead_pipeline import proposal_builder as builder
@@ -144,6 +145,8 @@ def payload(doc) -> dict:
 		"revision_no": cint(doc.revision_no),
 		"is_latest": cint(doc.is_latest),
 		"revisions": p.revisions(doc),
+		# a revision made after the client asked for changes: what they asked
+		"changes_asked": p.changes_asked(doc),
 		"tracking": {field: doc.get(field) for field in TRACKING},
 		"can_write": can_write,
 		"send_blockers": p.send_blockers(doc) if can_write else [],
@@ -293,6 +296,11 @@ def create_proposal(
 	with acting_as(acting_user):
 		p.require_proposals()
 		frappe.has_permission("Lead", "write", lead, throw=True)
+		steps.require_open(lead)
+		first = documents.chain(lead)["steps"]
+		if first and (first[0].get("implicit") or first[0].get("skipped")):
+			# the chain moved on without a proposal: making one now is out of order
+			steps.require_steer(lead)
 		doc, warnings = p.create_proposal(
 			lead,
 			template or None,
@@ -302,17 +310,56 @@ def create_proposal(
 			parse(client_profile) if client_profile else None,
 			parse(chat, list) if chat else None,
 		)
+		# made after all: the step is no longer skipped or not used
+		steps.clear(lead, kinds.PROPOSAL)
+		p.tell_lead_owner(
+			lead,
+			_("{0} made the proposal {1}").format(frappe.utils.get_fullname(frappe.session.user), doc.name),
+		)
 		return {"proposal": payload(doc), "warnings": warnings}
 
 
 @frappe.whitelist(methods=["POST"])
-def create_document(source: str, document_type: str, acting_user: str | None = None) -> dict:
-	"""The next client document (a Quotation from an accepted proposal, a Work Order from an
-	accepted quotation), pre-filled from it. Returns {proposal, warnings}."""
+def create_document(
+	source: str | None = None,
+	document_type: str | None = None,
+	lead: str | None = None,
+	acting_user: str | None = None,
+) -> dict:
+	"""A step's client document, pre-filled: from the accepted `source` before it (a Quotation from
+	an accepted proposal, a Work Order from an accepted quotation), or from the `lead` when no
+	document before it is accepted (a chain started in the middle, or after skipped steps). Out of
+	order needs the lead's owner, a head or a manager. Returns {proposal, warnings}."""
 	with acting_as(acting_user):
 		p.require_proposals()
-		doc, warnings = documents.create_document(source, document_type)
+		doc, warnings = documents.create_document(source or None, document_type, lead or None)
 		return {"proposal": payload(doc), "warnings": warnings}
+
+
+@frappe.whitelist(methods=["POST"])
+def skip_steps(
+	lead: str,
+	document_types: list | str,
+	reason: str,
+	status: str = steps.SKIPPED,
+	acting_user: str | None = None,
+) -> dict:
+	"""Mark the lead's steps Skipped (this client doesn't need them) or Not used (the chain started
+	after them), with the reason (required); the lead's owner, a head or a manager. Returns the
+	chain."""
+	with acting_as(acting_user):
+		p.require_proposals()
+		steps.skip(lead, parse(document_types, list), reason, status)
+		return documents.chain(lead)
+
+
+@frappe.whitelist(methods=["POST"])
+def bring_back_step(lead: str, document_type: str, acting_user: str | None = None) -> dict:
+	"""A skipped or not-used step wanted again. Returns the chain."""
+	with acting_as(acting_user):
+		p.require_proposals()
+		steps.bring_back(lead, document_type)
+		return documents.chain(lead)
 
 
 @frappe.whitelist()
@@ -390,25 +437,75 @@ def link_project(
 	acting_user: str | None = None,
 ) -> dict:
 	"""The hub made the project of the lead's approved `plan` (an ERP / Software lead's) or accepted
-	strategy `proposal` (a Content / Digital Marketing lead's): kept on that document (once). Give
-	one of the two. Returns the chain."""
+	strategy `proposal` (a Content / Digital Marketing lead's): kept on that document (once). With
+	neither, a project made straight from the lead (the steps before it skipped, or a chain started
+	at the project): kept on the lead's Project step. Returns the chain."""
 	with acting_as(acting_user):
-		if bool(plan) == bool(proposal):
+		if plan and proposal:
 			frappe.throw(_("Give the plan or the proposal, not both."))
+		if not (plan or proposal):
+			p.require_proposals()
+			keep_lead_project(lead, project, url)
+			return documents.chain(lead)
 		doc = get_project_doc(plan or proposal)
 		if doc.lead != lead:
 			frappe.throw(_("{0} isn't a document of lead {1}.").format(doc.name, lead))
 		keep_project(doc, project, url)
+		steps.clear(lead, steps.PROJECT)
 		return documents.chain(doc.lead)
 
 
+def keep_lead_project(lead: str, project: str, url: str | None) -> None:
+	"""The project made straight from the lead, on its Project step: only while the chain lets the
+	person make the project (no plan or strategy proposal makes it), or the same project again."""
+	frappe.has_permission("Lead", "write", lead, throw=True)
+	frappe.db.get_value("Lead", lead, "name", for_update=True)
+	row = steps.project_row(lead)
+	if not (row and row.hub_project):
+		found = documents.chain(lead)["steps"]
+		index = next((i for i, step in enumerate(found) if step["document_type"] == steps.PROJECT), None)
+		step = found[index] if index is not None else None
+		made_from = documents.step_action(step, found[:index]) if step else None
+		if made_from and made_from.get("source_type") != "Lead":
+			frappe.throw(
+				_("This lead's project is made from its {0} {1}.").format(
+					kinds.label(made_from["source_type"]).lower(), made_from["source"]
+				)
+			)
+		if not step or "create" not in step["actions"]:
+			frappe.throw(
+				(step and step.get("create_refused"))
+				or _("This lead's project is made from its implementation plan.")
+			)
+		if not step["in_order"]:
+			steps.require_steer(lead)
+	row = row or steps.project_row(lead, create=True)
+	plan.keep_project(row, project, url)
+	steps.clear(lead, steps.PROJECT)
+
+
 @frappe.whitelist(methods=["POST"])
-def record_uat(name: str, status: str, signed_by: str | None = None, acting_user: str | None = None) -> dict:
-	"""The hub's UAT sign-off on the plan's project: its state, and when Signed who signed (the
-	warranty starts the day after). Returns the chain."""
+def record_uat(
+	name: str | None = None,
+	status: str | None = None,
+	signed_by: str | None = None,
+	lead: str | None = None,
+	acting_user: str | None = None,
+) -> dict:
+	"""The hub's UAT sign-off on the project: the plan's (`name`), or the one made straight from the
+	`lead`. Its state, and when Signed who signed (the warranty starts the day after). Returns the
+	chain."""
 	with acting_as(acting_user):
-		doc = get_plan_doc(name)
+		if name:
+			doc = get_plan_doc(name)
+		else:
+			p.require_proposals()
+			frappe.has_permission("Lead", "write", lead, throw=True)
+			doc = steps.project_row(lead)
+			if not doc:
+				frappe.throw(_("There is no project yet."))
 		plan.record_uat(doc, status, signed_by)
+		steps.clear(doc.lead, steps.UAT)
 		return documents.chain(doc.lead)
 
 

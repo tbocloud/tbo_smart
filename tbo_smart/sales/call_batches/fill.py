@@ -226,18 +226,47 @@ def lock_batches(user: str, day) -> bool:
 	return len(frappe.db.get_values(BATCH, filters, "name", for_update=True)) == seen
 
 
+def fill_items(department, user: str, day, room: int, campaign: dict, shares=None) -> list[dict]:
+	"""The batch's items. `shares` [(district, calls)] split the slot by district (§11): each takes
+	up to its calls of its own district, the person's own leads first, then unassigned ones, in
+	order, until `room` is used. A blank district (Mixed) takes any district, or the one `campaign`
+	narrows to. The department's campaign district always wins."""
+	if not shares:
+		return BatchFiller(department, user, day, room, campaign).run()
+	locked = (department.campaign_district or "").strip().lower()
+	items: list[dict] = []
+	for district, calls in shares:
+		left = min(calls, room - len(items))
+		if left <= 0:
+			continue
+		place = locked or district.strip().lower() or campaign.get("district", "")
+		filler = BatchFiller(department, user, day, left, {**campaign, "district": place})
+		filler.taken |= {item["lead"] for item in items}
+		items += filler.run()
+	return items
+
+
 def build_batch(
-	department, user: str, label: str, starts_at, ends_at, size: int, campaign: dict, allow_empty: bool = True
+	department,
+	user: str,
+	label: str,
+	starts_at,
+	ends_at,
+	size: int,
+	campaign: dict,
+	allow_empty: bool = True,
+	shares=None,
 ):
 	"""Insert the batch for `user` and return it; None when the day's cap leaves no room, or
-	(`allow_empty` False) when there is no lead to call."""
+	(`allow_empty` False) when there is no lead to call. `shares`: the slot split by district
+	(fill_items)."""
 	day = getdate(starts_at)
 	if not lock_batches(user, day):
 		return None
 	room = room_for(department, user, day, size)
 	if room <= 0:
 		return None
-	items = BatchFiller(department, user, day, room, campaign).run()
+	items = fill_items(department, user, day, room, campaign, shares)
 	if not items and not allow_empty:
 		return None
 	return frappe.get_doc(

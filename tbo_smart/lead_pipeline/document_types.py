@@ -22,6 +22,8 @@ from tbo_smart.lead_pipeline import setting
 
 PROPOSAL, QUOTATION, WORK_ORDER, BRD, SRS = "Proposal", "Quotation", "Work Order", "BRD", "SRS"
 PLAN = "Implementation Plan"
+# the client's "Ask for changes" on these makes the revision for presales at once
+REVISED_ON_CHANGES = (WORK_ORDER, BRD, SRS, PLAN)
 CLAUSE_LIBRARY = "Agreement Clause"
 
 # The Universal IT Proposal (docs/proposals.md §2): 23 sections in three parts, each with its
@@ -285,6 +287,11 @@ def lineage(doc) -> list:
 	return found
 
 
+def priced_lineage(doc):
+	"""The nearest priced document (quotation or proposal) this one was made from, or None."""
+	return next((row for row in lineage(doc) if row.document_type in (QUOTATION, PROPOSAL)), None)
+
+
 def purpose(doc) -> str:
 	"""What the agreement confirms, with the references of the documents the client accepted."""
 	ours = company_of(doc)
@@ -343,13 +350,15 @@ def agreed_price(doc) -> str:
 	"""The agreed price is the one the client accepted: the quotation's, or the proposal's when the
 	proposal is the quotation (its reference, never the internal ERPNext Quotation's); the notes on
 	what it includes follow."""
-	priced = next((row for row in lineage(doc) if row.document_type in (QUOTATION, PROPOSAL)), None)
+	priced = priced_lineage(doc)
 	lead_in = (
 		_("The price is the one in the {0} {1} the Client accepted.").format(
 			_(priced.document_type).lower(), priced.name
 		)
 		if priced
 		else _("The price is the one the Client accepted.")
+		if doc.get("quotation")
+		else _("This agreement sets no price: the price is agreed separately.")
 	)
 	notes = builder.investment(doc)
 	return "\n\n".join(part for part in (lead_in, notes) if part)
@@ -644,6 +653,7 @@ def words(name: str) -> dict:
 			"accepted_note": _("by {0} on {1}. Thank you, the project starts as planned."),
 			"declined": _("Changes asked for"),
 			"ask_new": _("Ask us for the updated plan."),
+			"changes_next": _("on {0}. Thank you: we'll send you the updated plan with your changes."),
 			"agree_text": _(
 				"By approving below, the client agrees to the phases, the dates and its responsibilities."
 			),
@@ -671,6 +681,7 @@ def words(name: str) -> dict:
 			"accepted_note": _("by {0} on {1}. Thank you, we'll plan the implementation next."),
 			"declined": _("Changes asked for"),
 			"ask_new": _("Ask us for the updated SRS."),
+			"changes_next": _("on {0}. Thank you: we'll send you the updated SRS with your changes."),
 			"agree_text": _("By approving below, the client confirms this is what the system should do."),
 			"accepted_online": _("Approved online"),
 			"email_intro": _(
@@ -696,6 +707,7 @@ def words(name: str) -> dict:
 			"accepted_note": _("by {0} on {1}. Thank you, we'll write the functional specification next."),
 			"declined": _("Changes asked for"),
 			"ask_new": _("Ask us for the updated BRD."),
+			"changes_next": _("on {0}. Thank you: we'll send you the updated BRD with your changes."),
 			"agree_text": _(
 				"By approving below, the client confirms these are its business requirements for the project."
 			),
@@ -723,6 +735,7 @@ def words(name: str) -> dict:
 			"accepted_note": _("by {0} on {1}. Thank you, we'll be in touch to start."),
 			"declined": _("Changes asked for"),
 			"ask_new": _("Ask us for the updated agreement."),
+			"changes_next": _("on {0}. Thank you: we'll send you the updated agreement with your changes."),
 			"agree_text": _(
 				"By signing below, both parties agree to this agreement: its scope, timeline, price, payment milestones and terms."
 			),

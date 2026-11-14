@@ -580,3 +580,126 @@ class TestCallPlans(FrappeTestCase):
 		self.assertRaises(frappe.ValidationError, self.plan, [BD], district="Ernakulam")
 		result = self.plan([BD], district="kannur")
 		self.assertEqual(result["campaign_district"], "Kannur")
+
+	# ---------- each slot split by district ----------
+
+	def split(self, users=(BD,), department=GROWTHX, **slots):
+		"""Save `users`' plan with each slot (keyword: label) as [(district, calls)]; "" is Mixed."""
+		return plans.save_call_plan(
+			department,
+			list(users),
+			slot_districts={
+				label: [{"district": district, "calls": calls} for district, calls in shares]
+				for label, shares in slots.items()
+			},
+		)
+
+	def test_a_slot_split_by_district_is_saved_and_read_back(self):
+		result = self.split(Day=[("", 10), (" Idukki ", 20), ("Kannur", 0)])
+		[member] = [row for row in result["members"] if row["user"] == BD]
+		# Mixed is listed last; a row of 0 calls is dropped; the slot's size is the total
+		self.assertEqual(
+			member["slot_districts"],
+			{"Day": [{"district": "Idukki", "calls": 20}, {"district": "", "calls": 10}]},
+		)
+		self.assertEqual((member["sizes"], member["total"]), ({"Day": 30}, 30))
+		self.assertIsNone(member["district"])
+		self.assertTrue(member["has_plan"])
+		# a member without a plan reads as one Mixed share of the slot's size
+		[other] = [row for row in result["members"] if row["user"] == OTHER_BD]
+		self.assertEqual(other["slot_districts"], {"Day": [{"district": "", "calls": 50}]})
+		# a split replaces the plan's one district
+		self.plan([BD], sizes={"Day": 5}, district="Kannur")
+		self.split(Day=[("Idukki", 5)])
+		department = frappe.get_doc("TBO Lead Department", GROWTHX)
+		self.assertEqual(plans.plan_district(department, BD), "")
+		# kept when the department's people are saved again, gone when the plan is removed
+		departments.save_department({"members": [BD, OTHER_BD]}, GROWTHX)
+		department = frappe.get_doc("TBO Lead Department", GROWTHX)
+		self.assertEqual(plans.slot_shares(department, BD, plans.slots_of(department)[0]), [("Idukki", 5)])
+		members = {row["user"]: row for row in self.plan([BD], clear=1)["members"]}
+		self.assertFalse(members[BD]["has_plan"])
+		self.assertEqual(members[BD]["slot_districts"], {"Day": [{"district": "", "calls": 50}]})
+
+	def test_a_plan_by_district_of_no_calls_hands_out_nothing(self):
+		self.unassigned(2)
+		self.split(Day=[])
+		clock.run_call_batch_clock()
+		self.assertEqual(self.batches_of(BD), [])
+
+	def test_wrong_slot_districts_are_refused(self):
+		for slots in (
+			{"Day": [("Idukki", 5), ("idukki", 5)]},
+			{"Day": [("", 5), ("", 5)]},
+			{"Night": [("Idukki", 5)]},
+			{"Day": [("Idukki", 501)]},
+			{"Day": [("Idukki", 300), ("Kannur", 201)]},
+		):
+			with self.subTest(slots=slots), self.assertRaises(frappe.ValidationError):
+				self.split(**slots)
+		with self.assertRaises(frappe.ValidationError):
+			plans.save_call_plan(GROWTHX, [BD], slot_districts={"Day": "Idukki"})
+		frappe.db.set_value("TBO Lead Department", GROWTHX, "campaign_district", "Kannur")
+		with self.assertRaises(frappe.ValidationError):
+			self.split(Day=[("Idukki", 5)])
+		self.split(Day=[("kannur", 5), ("", 5)])
+
+	def test_the_clock_fills_each_district_of_the_slot_then_mixed(self):
+		ernakulam = self.in_districts()
+		kannur = frappe.get_all(
+			"Lead", filters={"tbo_department": GROWTHX, "tbo_district": "Kannur"}, pluck="name"
+		)
+		mine = make_callable_lead(BD, "Plan Kannur Mine", GROWTHX, tbo_district="Kannur")
+		self.split(Day=[("", 1), ("Kannur", 2)])
+		clock.run_call_batch_clock()
+		[batch] = self.batches_of(BD)
+		leads = self.leads_in(batch)
+		self.assertEqual(len(leads), 3)
+		# Kannur first: their own Kannur lead, then the pool's; Mixed takes one of the rest
+		self.assertEqual(set(leads[:2]), {mine, *kannur})
+		self.assertIn(leads[2], ernakulam)
+
+	def test_the_next_batch_follows_the_slots_districts(self):
+		ernakulam = self.in_districts()
+		self.split(Day=[("Ernakulam", 2)])
+		result = create_next_batch(BD, CallQueue(BD, now_datetime()), GROWTHX, {"district": "Kannur"})
+		self.assertTrue(result["created"])
+		self.assertEqual(result["size"], 2)
+		self.assertTrue(set(self.leads_in(result["batch"])) <= set(ernakulam))
+
+	def test_the_days_shares_add_up_every_slot(self):
+		department = frappe.get_doc("TBO Lead Department", GROWTHX)
+		department.set(
+			"call_slots",
+			[
+				{"label": "Morning", "start_time": "10:00:00", "end_time": "13:00:00", "size": 40},
+				{"label": "Afternoon", "start_time": "14:00:00", "end_time": "18:00:00", "size": 30},
+			],
+		)
+		department.save(ignore_permissions=True)
+		self.split(Morning=[("Kochi", 40)], Afternoon=[("Idukki", 20), ("", 10)])
+		department = frappe.get_doc("TBO Lead Department", GROWTHX)
+		self.assertEqual(plans.day_shares(department, BD), [("Kochi", 40), ("Idukki", 20), ("", 10)])
+		self.assertEqual(plans.plan_total(department, BD), 70)
+		# a slot left out of the split keeps its size, from the plan's one district (none: Mixed)
+		self.split(Afternoon=[("kochi", 10)])
+		department = frappe.get_doc("TBO Lead Department", GROWTHX)
+		self.assertEqual(plans.day_shares(department, BD), [("kochi", 10), ("", 40)])
+
+	def test_auto_assign_tops_up_each_district_then_mixed(self):
+		self.in_districts()
+		make_callable_lead(BD, "Plan Ernakulam Mine", GROWTHX, tbo_district="Ernakulam")
+		make_callable_lead(BD, "Plan Wayanad Mine", GROWTHX, tbo_district="Wayanad")
+		self.split(Day=[("Ernakulam", 2), ("Kannur", 1), ("", 1)])
+		department = frappe.get_doc("TBO Lead Department", GROWTHX)
+		with patch("tbo_smart.sales.call_batches.auto_assign.is_off_today", return_value=None):
+			# Ernakulam: 2 planned, 1 of theirs uncalled; Kannur: 1, none; Mixed: their Wayanad lead
+			self.assertEqual(
+				auto_assign.missing(department, BD, getdate()), [("Ernakulam", 1), ("Kannur", 1)]
+			)
+			done = auto_assign.assign_department(department, getdate())
+		self.assertEqual(done, {BD: 2})
+		owned = frappe.get_all(
+			"Lead", filters={"tbo_department": GROWTHX, "lead_owner": BD}, pluck="tbo_district"
+		)
+		self.assertEqual(sorted(owned), ["Ernakulam", "Ernakulam", "Kannur", "Wayanad"])
