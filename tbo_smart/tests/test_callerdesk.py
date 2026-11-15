@@ -603,6 +603,21 @@ class TestRecordingState(TestCallerDesk):
 		self.assertEqual(self.state_of("CD-OLD"), "none")
 
 
+class TestStatusRecording(TestCallerDesk):
+	def test_the_ended_status_says_whether_the_recording_is_saved(self):
+		self.place_click_to_call()
+		frappe.set_user("Administrator")
+		with patch("tbo_smart.telephony.calls.requests.get", side_effect=requests.ConnectionError("down")):
+			post_callerdesk_webhook(
+				callerdesk_report(
+					"CD-ST", Direction="WEBOBD", campid="57305000", CallRecordingUrl=RECORDING_URL
+				)
+			)
+		frappe.set_user(BDE)
+		self.assertEqual(calls.call_status("57305000")["recording_state"], "pending")
+		frappe.set_user("Administrator")
+
+
 class TestReconcile(TestCallerDesk):
 	"""Calls whose webhook never arrived are found in CallerDesk's call report."""
 
@@ -630,19 +645,55 @@ class TestReconcile(TestCallerDesk):
 		self.assertEqual((call.duration, call.talk_seconds, call.direction), (112, 87, "Outgoing"))
 		self.assertTrue(call.event)
 		self.assertTrue(calls.recording_file(call.name).get_content() == AUDIO)
-		sent = post.call_args.kwargs["data"]
+		sent = post.call_args_list[0].kwargs["data"]
 		self.assertEqual(sent["authcode"], TEST_CALLERDESK_KEY)
 		self.assertEqual(sent["current_page"], 1)
-		self.assertEqual(post.call_args.args[0], callerdesk.CALL_LIST_URL)
+		self.assertEqual(post.call_args_list[0].args[0], callerdesk.CALL_LIST_URL)
+
+	def test_a_call_dialled_from_the_callerdesk_app_lands_as_an_outgoing_call(self):
+		app_row = callerdesk_list_row("77001", callresult="Answered", callstatus="ANSWER")
+
+		def listing(url, data=None, timeout=None):
+			return callerdesk_list_response(*([app_row] if url == callerdesk.APP_CALL_LIST_URL else []))
+
+		with (
+			patch("tbo_smart.telephony.callerdesk.requests.post", side_effect=listing) as post,
+			patch(
+				"tbo_smart.telephony.calls.requests.get",
+				return_value=myoperator_response(200, {}, content=AUDIO),
+			),
+		):
+			calls.reconcile_callerdesk()
+		self.assertIn(callerdesk.APP_CALL_LIST_URL, [c.args[0] for c in post.call_args_list])
+		call = self.call_of("77001")
+		self.assertEqual((call.direction, call.agent, call.lead), ("Outgoing", BDE, self.lead))
+		self.assertTrue(call.event)
+		# the same row again changes nothing
+		frappe.cache.delete_value(frappe.cache.make_key(calls.RECONCILE_LOCK_KEY), make_keys=False)
+		with patch("tbo_smart.telephony.callerdesk.requests.post", side_effect=listing):
+			calls.reconcile_callerdesk()
+		self.assertEqual(frappe.db.count("TBO Call", {"call_id": "77001"}), 1)
+
+	def test_an_app_event_without_a_call_sid_is_ignored_and_logged_once(self):
+		frappe.cache.delete_value(frappe.cache.make_key("tbo_smart:telephony:unknown_event"), make_keys=False)
+		with patch("tbo_smart.telephony.calls.frappe.log_error") as log:
+			self.assertEqual(
+				post_callerdesk_webhook({"type": "app_call_report", "secret": "x"}),
+				{"ok": True, "ignored": True},
+			)
+			post_callerdesk_webhook({"type": "app_call_report"})
+		self.assertEqual(log.call_count, 1)
+		self.assertNotIn("x", log.call_args.kwargs["message"].replace("type", "").replace("secret", ""))
 
 	def test_a_call_the_webhook_stored_is_not_stored_again(self):
 		post_callerdesk_webhook(callerdesk_report("59884395"))
 		self.reconcile(callerdesk_list_row("59884395"), callerdesk_list_row("59884396"))
 		self.assertEqual(frappe.db.count("TBO Call", {"call_id": ("in", ["59884395", "59884396"])}), 2)
+		events = frappe.db.count("Event")
 		frappe.cache.delete_value(frappe.cache.make_key(calls.RECONCILE_LOCK_KEY), make_keys=False)
 		self.reconcile(callerdesk_list_row("59884395"), callerdesk_list_row("59884396"))
 		self.assertEqual(frappe.db.count("TBO Call", {"call_id": ("in", ["59884395", "59884396"])}), 2)
-		self.assertEqual(frappe.db.count("Event", {"subject": ("like", "%Caller Known%")}), 2)
+		self.assertEqual(frappe.db.count("Event"), events)
 
 	def test_a_call_stuck_on_live_is_closed_by_its_report(self):
 		self.place_click_to_call()
@@ -657,7 +708,7 @@ class TestReconcile(TestCallerDesk):
 		self.assertFalse(frappe.db.exists("TBO Call", {"call_id": "59884398"}))
 
 	def test_nothing_runs_for_another_provider_or_without_the_key(self):
-		enable_telephony()
+		enable_telephony(telephony_provider="MyOperator")
 		with patch("tbo_smart.telephony.callerdesk.requests.post") as post:
 			calls.reconcile_callerdesk()
 		post.assert_not_called()
