@@ -15,7 +15,9 @@ from tbo_smart.test_utils import (
 	callerdesk_list_response,
 	callerdesk_list_row,
 	callerdesk_live,
+	callerdesk_outgoing_report,
 	callerdesk_report,
+	callerdesk_time,
 	clear_dial_locks,
 	delete_sales_records,
 	delete_telephony_records,
@@ -572,6 +574,73 @@ def calls_events(lead: str) -> list[str]:
 		filters={"reference_doctype": "Lead", "reference_docname": lead, "parenttype": "Event"},
 		pluck="parent",
 	)
+
+
+class TestOneRecordPerCall(TestCallerDesk):
+	"""The result a telecaller records and CallerDesk's report of the same call are one call."""
+
+	def calls_of_lead(self) -> list[str]:
+		return frappe.get_all("TBO Call", filters={"lead": self.lead}, pluck="call_id")
+
+	def log(self, outcome: str, note: str | None = None, number: str | None = None):
+		frappe.set_user(BDE)
+		try:
+			return calls.log_manual_call(self.lead, outcome, note, number)
+		finally:
+			frappe.set_user("Administrator")
+
+	def test_a_result_recorded_after_the_report_goes_onto_that_call(self):
+		post_callerdesk_webhook(callerdesk_outgoing_report("CD-ONE"))
+		logged = self.log("Connected", "Wants a demo")
+		self.assertEqual(self.calls_of_lead(), ["CD-ONE"])
+		call = self.call_of("CD-ONE")
+		self.assertEqual((logged.name, call.result_recorded, call.talk_seconds), (call.name, 1, 74))
+		self.assertEqual(calls_events(self.lead), [call.event])
+		self.assertEqual(frappe.db.get_value("Event", call.event, "description"), "Wants a demo")
+
+	def test_a_result_recorded_before_the_report_is_taken_over_by_it(self):
+		logged = self.log("Not interested", "Not now")
+		post_callerdesk_webhook(callerdesk_outgoing_report("CD-LATE"))
+		self.assertEqual(self.calls_of_lead(), ["CD-LATE"])
+		call = self.call_of("CD-LATE")
+		self.assertEqual((call.event, call.result_recorded), (logged.event, 1))
+		event = frappe.get_doc("Event", call.event)
+		self.assertEqual(event.description, "Not now")
+		self.assertTrue(event.subject.startswith(f"Call to {NUMBER} ("))
+		# the person's result stands: the provider's "answered" does not set the lead's last call
+		self.assertIsNone(frappe.db.get_value("Lead", self.lead, "tbo_last_call_result"))
+
+	def test_a_second_result_is_a_second_call(self):
+		post_callerdesk_webhook(callerdesk_outgoing_report("CD-TWICE"))
+		self.log("Not answered")
+		self.log("Connected")
+		self.assertEqual(len(self.calls_of_lead()), 2)
+
+	def test_an_older_call_or_another_number_is_not_the_same_call(self):
+		# the sample report is weeks old
+		post_callerdesk_webhook(
+			callerdesk_report(
+				"CD-OLD", Direction="WEBOBD", SourceNumber="9876543210", DialWhomNumber="9000000001"
+			)
+		)
+		self.log("Connected")
+		self.assertEqual(len(self.calls_of_lead()), 2)
+		frappe.db.set_value("Lead", self.lead, "phone", OTHER_NUMBER)
+		post_callerdesk_webhook(callerdesk_outgoing_report("CD-OTHER", SourceNumber="9812345678"))
+		self.assertEqual(len(self.calls_of_lead()), 3)
+
+	def test_a_result_after_a_new_click_to_call_is_not_put_on_the_call_before_it(self):
+		post_callerdesk_webhook(callerdesk_outgoing_report("CD-PREV", StartTime=callerdesk_time(300)))
+		self.place_click_to_call()
+		# the new call's report has not come yet: the result waits for it
+		logged = self.log("Connected", "Send the quote")
+		self.assertEqual(len(self.calls_of_lead()), 2)
+		post_callerdesk_webhook(
+			callerdesk_outgoing_report("CD-NEXT", StartTime=callerdesk_time(5), EndTime=callerdesk_time(0))
+		)
+		self.assertEqual(sorted(self.calls_of_lead()), ["CD-NEXT", "CD-PREV"])
+		self.assertEqual(self.call_of("CD-NEXT").event, logged.event)
+		self.assertEqual(self.call_of("CD-PREV").result_recorded, 0)
 
 
 class TestRecordingState(TestCallerDesk):

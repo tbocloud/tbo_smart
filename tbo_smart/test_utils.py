@@ -2,6 +2,7 @@
 
 import base64
 import contextlib
+import datetime
 import functools
 import io
 import json
@@ -9,6 +10,7 @@ import math
 import random
 import time
 from unittest.mock import MagicMock, patch
+from zoneinfo import ZoneInfo
 
 import erpnext
 import frappe
@@ -3088,6 +3090,26 @@ def callerdesk_report(call_sid: str, **fields) -> dict:
 		"Uniqueid": call_sid,
 		**fields,
 	}
+
+
+def callerdesk_time(seconds_ago: int = 0) -> str:
+	"""A moment `seconds_ago`, written the way CallerDesk writes times (India time)."""
+	moment = datetime.datetime.now(ZoneInfo("Asia/Kolkata")) - datetime.timedelta(seconds=seconds_ago)
+	return moment.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def callerdesk_outgoing_report(call_sid: str, **fields) -> dict:
+	"""A CallerDesk Call Report of a click-to-call that has just ended: the telecaller
+	9000000001 rang the lead 9876543210 a minute ago and they spoke. `fields` override any of it."""
+	return callerdesk_report(
+		call_sid,
+		Direction="WEBOBD",
+		SourceNumber="9876543210",
+		DialWhomNumber="9000000001",
+		StartTime=callerdesk_time(60),
+		EndTime=callerdesk_time(20),
+		**fields,
+	)
 
 
 def callerdesk_live(call_sid: str, **fields) -> dict:

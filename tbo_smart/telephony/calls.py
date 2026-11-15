@@ -17,7 +17,7 @@ import requests
 from frappe import _
 from frappe.query_builder import CustomFunction
 from frappe.query_builder.functions import Coalesce, Count, Sum
-from frappe.utils import add_days, add_to_date, cint, getdate, now_datetime, today
+from frappe.utils import add_days, add_to_date, cint, escape_html, getdate, now_datetime, today
 
 from tbo_smart import lead_source
 from tbo_smart.lead_pipeline.call_outcomes import apply_call_outcome
@@ -62,6 +62,12 @@ REFERENCE_SECONDS = 6 * 60 * 60
 DIAL_LOCK_KEY = "tbo_smart:telephony:dialing:{}"
 DIAL_LOCK_SECONDS = 15
 RECORDING_WAIT_SECONDS = 60 * 60
+MANUAL_EVENT = "manual"
+# a result recorded by hand and the provider's report of the same call arrive this far apart at most
+SAME_CALL_MINUTES = 30
+LAST_DIAL_KEY = "tbo_smart:telephony:last_dial:{}:{}"
+# the provider's clock and ours may differ by this much
+DIAL_SLACK_SECONDS = 30
 RECONCILE_LOCK_KEY = "tbo_smart:telephony:reconcile"
 RECONCILE_LOCK_SECONDS = 5 * 60
 RECONCILE_USER_KEY = "tbo_smart:telephony:refresh:{}"
@@ -267,11 +273,15 @@ def log_manual_call(lead: str, outcome: str, note: str | None = None, number: st
 	"""A call the session user made outside MyOperator, logged by hand: an outgoing TBO Call by
 	them now (answered, missed or voicemail by `outcome`) and its call Event on the lead, as a
 	MyOperator call would leave. `number` is the lead's number that was called (default: its main
-	number). Needs write permission on the lead; no telephony setting."""
+	number). Needs write permission on the lead; no telephony setting. When the provider has
+	already reported this very call, the result goes onto that call: one call, one record."""
 	if outcome not in MANUAL_OUTCOMES:
 		frappe.throw(_("outcome must be one of {0}.").format(", ".join(MANUAL_OUTCOMES)))
 	frappe.has_permission("Lead", "write", lead, throw=True)
 	called = numbers.resolve(lead, number) or frappe.db.get_value("Lead", lead, "mobile_no")
+	reported = reported_call(lead, frappe.session.user, called)
+	if reported:
+		return record_result_on(reported, note)
 	now = now_datetime()
 	doc = frappe.get_doc(
 		{
@@ -286,11 +296,100 @@ def log_manual_call(lead: str, outcome: str, note: str | None = None, number: st
 			"ended_at": now,
 			"duration": 0,
 			"talk_seconds": 0,
-			"last_event": "manual",
+			"last_event": MANUAL_EVENT,
+			"result_recorded": 1,
 		}
 	)
 	doc.event = add_event("Lead", lead, CALL, call_subject(doc), note, starts_on=now).name
 	return doc.insert(ignore_permissions=True)
+
+
+def reported_call(lead: str, user: str, number: str | None) -> str | None:
+	"""The provider's record of the call `user` just made to this number of the lead, when it has
+	no result from them yet: the newest one that ended in the last SAME_CALL_MINUTES, and not one
+	from before their latest click-to-call (that call's report is still on its way)."""
+	digits = normalise_phone(number)
+	if not digits:
+		return None
+	dialled = frappe.cache.get_value(LAST_DIAL_KEY.format(user, lead))
+	earliest = add_to_date(dialled, seconds=-DIAL_SLACK_SECONDS) if dialled else None
+	rows = frappe.get_all(
+		DOCTYPE,
+		filters={
+			"lead": lead,
+			"agent": user,
+			"direction": OUTGOING,
+			"last_event": ("not in", (MANUAL_EVENT, LIVE_EVENT)),
+			"result_recorded": 0,
+			"ended_at": (">=", add_to_date(now_datetime(), minutes=-SAME_CALL_MINUTES)),
+		},
+		fields=["name", "customer_number", "started_at"],
+		order_by="started_at desc",
+	)
+	return next(
+		(
+			row.name
+			for row in rows
+			if same_number(row.customer_number, digits)
+			and not (earliest and row.started_at and row.started_at < earliest)
+		),
+		None,
+	)
+
+
+def record_result_on(call: str, note: str | None):
+	"""The person's result on the provider's own record of the call: their note on its Event."""
+	doc = frappe.get_doc(DOCTYPE, call, for_update=True)
+	doc.result_recorded = 1
+	if note and doc.event:
+		frappe.db.set_value(
+			"Event", doc.event, "description", escape_html(note.strip()), update_modified=False
+		)
+	doc.save(ignore_permissions=True)
+	return doc
+
+
+def hand_logged_call(doc):
+	"""The record the agent made by hand for this very call, before the provider's report came:
+	{name, event}. Theirs when it is the same lead, agent and number, logged after this call
+	started and before their next reported call to the lead."""
+	digits = normalise_phone(doc.customer_number)
+	if not (doc.lead and doc.agent and doc.started_at and digits) or doc.direction != OUTGOING:
+		return None
+	until = add_to_date(doc.ended_at or doc.started_at, minutes=SAME_CALL_MINUTES)
+	mine = [["lead", "=", doc.lead], ["agent", "=", doc.agent], ["started_at", ">=", doc.started_at]]
+	later = frappe.get_all(
+		DOCTYPE,
+		filters=[
+			*mine,
+			["started_at", "<=", until],
+			["last_event", "!=", MANUAL_EVENT],
+			["name", "!=", doc.name],
+		],
+		pluck="started_at",
+		order_by="started_at asc",
+		limit=1,
+	)
+	rows = frappe.get_all(
+		DOCTYPE,
+		filters=[
+			*mine,
+			["started_at", "<=", later[0] if later else until],
+			["last_event", "=", MANUAL_EVENT],
+		],
+		fields=["name", "event", "customer_number"],
+		order_by="started_at asc",
+	)
+	return next((row for row in rows if same_number(row.customer_number, digits)), None)
+
+
+def adopt_hand_logged(doc, manual) -> None:
+	"""The provider's call takes over the hand-made record of the same call: its Event (with the
+	person's note) and the fact that the result is theirs; the hand-made record goes."""
+	doc.event = manual.event
+	doc.result_recorded = 1
+	frappe.delete_doc(DOCTYPE, manual.name, ignore_permissions=True, force=True)
+	update_call_event(doc)
 
 
 def parse_call(event: dict) -> dict | None:
@@ -351,14 +450,18 @@ def process_call(call: str) -> None:
 	if doc.lead:
 		owner = frappe.db.get_value("Lead", doc.lead, "lead_owner")
 		with run_as(doc.agent or owner or "Administrator"):
-			if doc.event:
+			manual = None if doc.event else hand_logged_call(doc)
+			if manual:
+				adopt_hand_logged(doc, manual)
+			elif doc.event:
 				# a call.summary after call.end: the one Event and task follow the final call
 				update_call_event(doc)
 			else:
 				doc.event = log_call_event(doc).name
 			settle_call_back(doc, owner or doc.agent or fallback_owner())
-			# a missed incoming call says nothing about a lead who did not answer us
-			if doc.direction == OUTGOING or doc.status == ANSWERED:
+			# the person's own result stands; a missed incoming call says nothing about a lead
+			# who did not answer us
+			if not doc.result_recorded and (doc.direction == OUTGOING or doc.status == ANSWERED):
 				outcome = call_outcome(doc.status, doc.provider_status)
 				if outcome:
 					apply_call_outcome(doc.lead, outcome, doc.started_at)
@@ -849,6 +952,10 @@ def click_to_call(lead: str, number: str | None = None) -> dict:
 		# no call was placed: the person may try again at once, not after the lock runs out
 		frappe.cache.delete(key)
 		raise
+	# a result recorded next is about this call, not an earlier one to the same lead
+	frappe.cache.set_value(
+		LAST_DIAL_KEY.format(user, lead), now_datetime(), expires_in_sec=SAME_CALL_MINUTES * 60
+	)
 	return {
 		"ok": True,
 		"message": _("{0} is calling your phone…").format(name),
