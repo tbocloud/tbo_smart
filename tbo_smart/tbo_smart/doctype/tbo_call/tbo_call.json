@@ -13,6 +13,7 @@
   "lead",
   "event",
   "call_back",
+  "result_recorded",
   "column_break_who",
   "agent",
   "agent_ref",
@@ -97,6 +98,14 @@
    "fieldtype": "Link",
    "label": "Call back task",
    "options": "ToDo",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "The person recorded how this call went: the provider's status no longer sets the lead's last call",
+   "fieldname": "result_recorded",
+   "fieldtype": "Check",
+   "label": "Result recorded",
    "read_only": 1
   },
   {
@@ -232,7 +241,7 @@
  "in_create": 1,
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-11-14 12:00:00.000000",
+ "modified": "2026-11-15 17:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Call",

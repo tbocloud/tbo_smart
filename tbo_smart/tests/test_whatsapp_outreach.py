@@ -89,6 +89,13 @@ class TestApprovingWhatsApp(WhatsAppCase):
 
 
 class TestTheQueue(WhatsAppCase):
+	def setUp(self):
+		super().setUp()
+		# the queue is tested inside the send window, whatever day the tests run (Sundays are shut)
+		window = patch("tbo_smart.outreach.whatsapp.in_window", return_value=True)
+		window.start()
+		self.addCleanup(window.stop)
+
 	def test_the_queue_hands_out_a_message_once_with_what_the_template_needs(self):
 		name = make_queued_whatsapp(self.lead, SELLER)
 		rows = self.as_integration(chat.get_whatsapp_queue)

@@ -58,6 +58,8 @@ class TestCallPlans(FrappeTestCase):
 		for target in (
 			"tbo_smart.sales.call_batches.next_batch.is_off_today",
 			"tbo_smart.sales.call_batches.clock.is_off_today",
+			# the plans are tested as on a working day, whatever day the tests run
+			"tbo_smart.sales.call_batches.auto_assign.is_off_today",
 		):
 			patcher = patch(target, return_value=None)
 			patcher.start()

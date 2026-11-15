@@ -233,6 +233,26 @@ with `ANSWER` when picked; for an outgoing click-to-call we can't tell which leg
 "On call" starts when it arrives. Incoming Live Call events carry `Direction` `IVR` and the
 caller in `SourceNumber`. If none of this arrives, nothing breaks: the box waits for the report.
 
+### 3.3 One call, one record (`calls.log_manual_call`, `calls.process_call`)
+
+The hub's call box asks the telecaller how the call went (`log_call`, or a call batch outcome), and
+CallerDesk reports the same call. Both used to leave a TBO Call, so every call showed twice on the
+lead (seen on 2026-11-15: the reports came minutes later, through the reconcile). Now:
+
+- **The report is already there** (`reported_call`): the result goes onto that TBO Call
+  (`result_recorded` = 1) and the note onto its Event; no `manual-…` call is made. It must be an
+  outgoing call by the same person to the same number of the lead, ended in the last 30 minutes,
+  with no result yet, and not started before their latest click-to-call to the lead (that call's
+  report is still coming; the dial time is remembered for 30 minutes).
+- **The result came first** (`hand_logged_call`, `adopt_hand_logged`): when the report is
+  processed it takes over the hand-made record: it keeps that record's Event (subject and start
+  become the real call's; the note stays) and the hand-made TBO Call is deleted. The hand-made
+  record must be the same lead, person and number, logged after the call started, at most 30
+  minutes after it ended, and before the person's next reported call to the lead.
+- A call with `result_recorded` keeps the person's result: the provider's status no longer sets
+  the lead's last call.
+- A call dialled on the person's own phone (no provider report) stays a `manual-…` TBO Call.
+
 ## 5. What the owner does
 
 In CallerDesk (app.callerdesk.io):
@@ -270,6 +290,9 @@ never returned by the settings API and shown only to a System Manager; Live Call
 
 ## Changelog
 
+- **v1.5 (2026-11-15):** one call, one record (§3.3): the telecaller's result and CallerDesk's
+  report of the same call no longer leave two TBO Calls. Needs `bench migrate` (new field
+  `result_recorded`).
 - **v1.4 (2026-11-14):** calls dialled from the CallerDesk app: `app_call_list_v2` in the reconcile and the APP Call Report webhook (§3.2).
 - **v1.3 (2026-11-14):** the reconcile (§3.2): a 10-minute job that stores calls whose webhook
   never arrived from `call_list_v2`, and `refresh_call` for the hub's box; questions for

@@ -359,7 +359,9 @@ source of calls) and its call Event on the lead's timeline, and returns
 Answered, Not answered, No answer, Busy and Wrong number as Missed, `Voicemail` as Voicemail,
 with `call_id` `manual-<random>`, no duration and no recording. `stage` is the stage the call
 moved the lead to, else `null` (§2.16). It works with telephony switched off. A connected manual
-call counts in the Scoreboard's `calls` (with no talk time).
+call counts in the Scoreboard's `calls` (with no talk time). When the provider has reported, or later
+reports, this very call, there is one TBO Call for it, the provider's, carrying the note
+(telephony-callerdesk.md §3.3); `name` is then that call's.
 
 ### 2.8 Proposals and money
 
