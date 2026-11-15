@@ -3103,12 +3103,14 @@ def callerdesk_outgoing_report(call_sid: str, **fields) -> dict:
 	9000000001 rang the lead 9876543210 a minute ago and they spoke. `fields` override any of it."""
 	return callerdesk_report(
 		call_sid,
-		Direction="WEBOBD",
-		SourceNumber="9876543210",
-		DialWhomNumber="9000000001",
-		StartTime=callerdesk_time(60),
-		EndTime=callerdesk_time(20),
-		**fields,
+		**{
+			"Direction": "WEBOBD",
+			"SourceNumber": "9876543210",
+			"DialWhomNumber": "9000000001",
+			"StartTime": callerdesk_time(60),
+			"EndTime": callerdesk_time(20),
+			**fields,
+		},
 	)
 
 

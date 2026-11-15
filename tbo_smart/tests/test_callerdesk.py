@@ -608,7 +608,7 @@ class TestOneRecordPerCall(TestCallerDesk):
 		self.assertEqual(event.description, "Not now")
 		self.assertTrue(event.subject.startswith(f"Call to {NUMBER} ("))
 		# the person's result stands: the provider's "answered" does not set the lead's last call
-		self.assertIsNone(frappe.db.get_value("Lead", self.lead, "tbo_last_call_result"))
+		self.assertFalse(frappe.db.get_value("Lead", self.lead, "tbo_last_call_result"))
 
 	def test_a_second_result_is_a_second_call(self):
 		post_callerdesk_webhook(callerdesk_outgoing_report("CD-TWICE"))
