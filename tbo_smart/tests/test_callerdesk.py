@@ -78,6 +78,7 @@ class TestCallerDesk(FrappeTestCase):
 		enable_callerdesk(AGENTS)
 		# no test reaches CallerDesk: its list of calls in progress is empty unless a test says so
 		frappe.cache.delete_value(calls.LIVE_CALLS_KEY)
+		frappe.cache.delete_value(calls.LIVE_SEEN_KEY.format("57305000"))
 		no_live_calls = patch(
 			"tbo_smart.telephony.callerdesk.requests.get",
 			return_value=myoperator_response(200, {"live_calls": [], "type": "success"}),
@@ -702,18 +703,29 @@ class TestEndCall(TestCallerDesk):
 class TestLiveStateWithoutEvents(TestCallerDesk):
 	"""The box learns where a call is from CallerDesk's calls in progress when no webhook comes."""
 
-	def state(self, *live_rows: dict) -> str:
+	def status(self, *live_rows: dict, after: int = 0) -> dict:
+		"""The box's answer with these calls in progress at CallerDesk, `after` seconds from now."""
 		frappe.cache.delete_value(calls.LIVE_CALLS_KEY)
 		self.addCleanup(frappe.cache.delete_value, calls.LIVE_CALLS_KEY)
 		answer = {"total_live_calls": str(len(live_rows)), "live_calls": list(live_rows), "type": "success"}
 		frappe.set_user(BDE)
 		try:
-			with patch(
-				"tbo_smart.telephony.callerdesk.requests.get", return_value=myoperator_response(200, answer)
+			with (
+				patch(
+					"tbo_smart.telephony.callerdesk.requests.get",
+					return_value=myoperator_response(200, answer),
+				),
+				patch(
+					"tbo_smart.telephony.calls.now_datetime",
+					return_value=frappe.utils.add_to_date(None, seconds=after),
+				),
 			):
-				return calls.call_status("57305000")["state"]
+				return calls.call_status("57305000")
 		finally:
 			frappe.set_user("Administrator")
+
+	def state(self, *live_rows: dict, after: int = 0) -> str:
+		return self.status(*live_rows, after=after)["state"]
 
 	def test_the_state_follows_the_live_call(self):
 		self.place_click_to_call()
@@ -723,6 +735,49 @@ class TestLiveStateWithoutEvents(TestCallerDesk):
 		mine = {"sid_id": "57305000", "callstatus": "Transferring Call to Agent"}
 		self.assertEqual(self.state(mine), "ringing_lead")
 		self.assertEqual(self.state({**mine, "callstatus": "Picked"}), "on_call")
+
+	def test_a_call_gone_from_the_list_is_over(self):
+		self.place_click_to_call()
+		mine = {"sid_id": "57305000", "callstatus": "Transferring Call to Agent"}
+		self.assertEqual(self.state(mine), "ringing_lead")
+		# missing once may be CallerDesk between two of its stages
+		self.assertEqual(self.state(), "ringing_lead")
+		self.assertEqual(self.state(after=3), "ringing_lead")
+		self.assertEqual(self.status(after=10), {"state": "ended", "lead": self.lead, "answered": False})
+
+	def test_a_call_last_seen_with_the_customer_on_the_line_ends_answered(self):
+		self.place_click_to_call()
+		mine = {"sid_id": "57305000", "callstatus": "Picked"}
+		self.assertEqual(self.state(mine), "on_call")
+		self.assertEqual(self.state(), "on_call")
+		self.assertTrue(self.status(after=10)["answered"])
+
+	def test_a_call_back_on_the_list_is_not_over(self):
+		self.place_click_to_call()
+		mine = {"sid_id": "57305000", "callstatus": "Transferring Call to Agent"}
+		self.assertEqual(self.state(mine), "ringing_lead")
+		self.assertEqual(self.state(), "ringing_lead")
+		self.assertEqual(self.state(mine, after=10), "ringing_lead")
+		self.assertEqual(self.state(after=12), "ringing_lead")
+
+	def test_a_call_never_picked_up_is_over_once_the_phone_has_stopped_ringing(self):
+		self.place_click_to_call()
+		self.assertEqual(self.state(after=60), "calling")
+		self.assertEqual(self.status(after=80), {"state": "ended", "lead": self.lead, "answered": False})
+
+	def test_a_list_that_cannot_be_read_never_ends_a_call(self):
+		self.place_click_to_call()
+		frappe.cache.delete_value(calls.LIVE_CALLS_KEY)
+		self.addCleanup(frappe.cache.delete_value, calls.LIVE_CALLS_KEY)
+		frappe.set_user(BDE)
+		with (
+			patch("tbo_smart.telephony.callerdesk.requests.get", side_effect=requests.ConnectionError),
+			patch(
+				"tbo_smart.telephony.calls.now_datetime",
+				return_value=frappe.utils.add_to_date(None, seconds=80),
+			),
+		):
+			self.assertEqual(calls.call_status("57305000")["state"], "calling")
 
 	def test_the_list_is_read_once_for_a_few_seconds_and_a_failure_is_no_news(self):
 		self.place_click_to_call()

@@ -259,7 +259,7 @@ lead (seen on 2026-11-15: the reports came minutes later, through the reconcile)
   the lead's last call.
 - A call dialled on the person's own phone (no provider report) stays a `manual-…` TBO Call.
 
-### 4.2 End call and the live state (`calls.end_call`, `calls.live_call_state`)
+### 4.2 End call and the live state (`calls.end_call`, `calls.unreported_call_status`)
 
 CallerDesk support gave the hang-up command on 2026-11-16: `POST
 https://app.callerdesk.io/api/call_disconnect` (form: `authcode`, `callsid`). It answers HTTP 200
@@ -288,11 +288,21 @@ Built on that:
   up on the phone. `{ok: true}` means CallerDesk took the request; the call's report still closes
   the box the usual way.
 - `click_to_call` answers `can_end` (true for CallerDesk).
-- **Live state without the webhook** (`live_call_state`, used by `call_status` while no TBO Call
-  is stored for the reference): the call's row in `live_call_v2` makes the box say *Ringing
-  <lead>* (`ringing_lead`), and *On call* once its `callstatus` contains "pick", "answer" or
-  "connect". No row: still *Calling your phone…*. The list is the whole account's and is read
-  at most once every 3 seconds (cache), whoever asks; a failure to read it changes nothing.
+- **Live state without the webhook** (`unreported_call_status`, used by `call_status` while no
+  TBO Call is stored for the reference): the call's row in `live_call_v2` makes the box say
+  *Ringing <lead>* (`ringing_lead`), and *On call* once its `callstatus` contains "pick",
+  "answer" or "connect". No row: still *Calling your phone…*. The list is the whole account's
+  and is read at most once every 3 seconds (cache, `live_call_rows`), whoever asks; a failure
+  to read it changes nothing.
+- **The box learns the call is over the same way** (the owner, 2026-11-16: the customer did not
+  answer and the box went on ringing, because without the webhook the report came minutes
+  later). The furthest stage a call was listed at is remembered (`LIVE_SEEN_KEY`). A call that
+  was listed and has been off the list for 6 seconds (`LIVE_GONE_SECONDS`; one miss may be
+  CallerDesk between two stages) answers `{state: "ended", answered}`, `answered` being whether
+  it was last seen with the customer on the line. A call never listed 75 seconds after it was
+  placed (`NO_PICKUP_SECONDS`; `remember_call` keeps the time) was never picked up by the
+  telecaller and answers `ended`, not answered. Neither has a `call` yet: the report still
+  stores the TBO Call, and the box asks for it once more a few seconds later.
 - **Not yet confirmed with a real call:** `call_disconnect` on a call in progress (that both
   legs drop), and the exact `callstatus` once the customer has answered (CallerDesk's own sample
   says "Picked").
@@ -337,6 +347,7 @@ never returned by the settings API and shown only to a System Manager; Live Call
 - **v1.7 (2026-11-16):** after a real test call: the campid is the call's id, so End call uses the
   reference itself; a clear message before the telecaller has picked up; the box's live state
   from `live_call_v2` when no webhook comes (§4.2). No migrate needed.
+- **v1.8 (2026-11-16):** the box learns a call is over from `live_call_v2` (§4.2): gone from the list, or never picked up. No migrate needed.
 - **v1.6 (2026-11-16):** End call (§4.2): `call_disconnect`, `end_call`, `can_end`. No migrate needed.
 - **v1.5 (2026-11-15):** one call, one record (§3.3): the telecaller's result and CallerDesk's
   report of the same call no longer leave two TBO Calls. Needs `bench migrate` (new field

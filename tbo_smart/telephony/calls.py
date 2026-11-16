@@ -17,7 +17,16 @@ import requests
 from frappe import _
 from frappe.query_builder import CustomFunction
 from frappe.query_builder.functions import Coalesce, Count, Sum
-from frappe.utils import add_days, add_to_date, cint, escape_html, getdate, now_datetime, today
+from frappe.utils import (
+	add_days,
+	add_to_date,
+	cint,
+	escape_html,
+	getdate,
+	now_datetime,
+	time_diff_in_seconds,
+	today,
+)
 
 from tbo_smart import lead_source
 from tbo_smart.lead_pipeline.call_outcomes import apply_call_outcome
@@ -74,6 +83,11 @@ RECONCILE_USER_KEY = "tbo_smart:telephony:refresh:{}"
 RECONCILE_USER_SECONDS = 20
 LIVE_CALLS_KEY = "tbo_smart:telephony:live_calls"
 LIVE_CALLS_SECONDS = 3
+LIVE_SEEN_KEY = "tbo_smart:telephony:live_seen:{}"
+# CallerDesk's list may miss a call for a moment between two of its stages
+LIVE_GONE_SECONDS = 6
+# a phone rings for well under this long: a call never listed by then was never picked up
+NO_PICKUP_SECONDS = 75
 INCOMING_SECONDS = 60
 LIVE_STATES = {RINGING: "ringing", AGENT_PICKED: "ringing_lead", ON_CALL: "on_call"}
 MAX_RECORDING_BYTES = 50 * 1024 * 1024
@@ -227,8 +241,7 @@ def call_status(reference_id: str) -> dict:
 	if owner != user:
 		frappe.throw(_("This isn't your call."), frappe.PermissionError)
 	if not row:
-		live = live_call_state(reference_id) if provider() == CALLERDESK else None
-		return {"state": LIVE_STATES.get(live, "calling"), "lead": placed.get("lead")}
+		return unreported_call_status(reference_id, placed)
 	ended = row.last_event != LIVE_EVENT
 	state = "ended" if ended else LIVE_STATES.get(row.live_status, "calling")
 	return {
@@ -935,20 +948,49 @@ def end_call(reference_id: str) -> dict:
 	return {"ok": True}
 
 
-def live_call_state(reference_id: str) -> str | None:
-	"""Where CallerDesk says a click-to-call is (its calls in progress, `live_call_v2`), for the
-	box while no webhook event has come: None until the telecaller picks up (CallerDesk lists the
-	call only then) and once it is over. The list is the whole account's, read at most once every
-	LIVE_CALLS_SECONDS whoever asks; a failure to read it is no news, not an error."""
+def unreported_call_status(reference_id: str, placed: dict) -> dict:
+	"""`call_status` of a click-to-call no webhook event or report has come for yet. CallerDesk's
+	calls in progress (`live_call_v2`) say where it is: listed from the moment the telecaller
+	picks up, gone once it is over. So a call that was listed and has been gone for
+	LIVE_GONE_SECONDS is over (answered if it was last seen with the customer on the line), and
+	one never listed NO_PICKUP_SECONDS after it was placed was never picked up. The box then
+	stops ringing at once; the report that follows fills in the rest."""
+	status = {"state": "calling", "lead": placed.get("lead")}
+	rows = live_call_rows() if provider() == CALLERDESK else None
+	if rows is None:
+		return status
+	key = LIVE_SEEN_KEY.format(reference_id)
+	seen = frappe.cache.get_value(key, expires=True) or {}
+	mine = next((row for row in rows if str(row.get("sid_id") or "").strip() == reference_id), None)
+	live = callerdesk.live_state(mine) if mine else None
+	if live:
+		state = ON_CALL if ON_CALL in (live, seen.get("state")) else live
+		if seen != {"state": state}:
+			frappe.cache.set_value(key, {"state": state}, expires_in_sec=REFERENCE_SECONDS)
+		return {**status, "state": LIVE_STATES[state]}
+	now = now_datetime()
+	if seen:
+		if not seen.get("gone_at"):
+			frappe.cache.set_value(key, {**seen, "gone_at": str(now)}, expires_in_sec=REFERENCE_SECONDS)
+		elif time_diff_in_seconds(now, seen["gone_at"]) >= LIVE_GONE_SECONDS:
+			return {**status, "state": "ended", "answered": seen["state"] == ON_CALL}
+		return {**status, "state": LIVE_STATES[seen["state"]]}
+	if placed.get("at") and time_diff_in_seconds(now, placed["at"]) >= NO_PICKUP_SECONDS:
+		return {**status, "state": "ended", "answered": False}
+	return status
+
+
+def live_call_rows() -> list | None:
+	"""CallerDesk's calls in progress, the whole account's, read at most once every
+	LIVE_CALLS_SECONDS whoever asks. None when it couldn't be read: no news, not an error."""
 	rows = frappe.cache.get_value(LIVE_CALLS_KEY, expires=True)
 	if rows is None:
 		try:
 			rows = callerdesk.live_calls()
 		except callerdesk.CallerDeskError:
-			rows = []
+			rows = False
 		frappe.cache.set_value(LIVE_CALLS_KEY, rows, expires_in_sec=LIVE_CALLS_SECONDS)
-	mine = next((row for row in rows if str(row.get("sid_id") or "").strip() == reference_id), None)
-	return callerdesk.live_state(mine) if mine else None
+	return None if rows is False else rows
 
 
 # ---------- click-to-call ----------
@@ -1005,7 +1047,9 @@ def click_to_call(lead: str, number: str | None = None) -> dict:
 def remember_call(reference_id: str, lead: str, user: str) -> None:
 	"""The lead and agent a click-to-call was for, until its call report arrives."""
 	frappe.cache.set_value(
-		REFERENCE_KEY.format(reference_id), {"lead": lead, "user": user}, expires_in_sec=REFERENCE_SECONDS
+		REFERENCE_KEY.format(reference_id),
+		{"lead": lead, "user": user, "at": str(now_datetime())},
+		expires_in_sec=REFERENCE_SECONDS,
 	)
 
 
