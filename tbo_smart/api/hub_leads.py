@@ -20,7 +20,14 @@ from tbo_smart.api.mobile.capabilities import CRM_ROLES, get_capabilities
 from tbo_smart.api.mobile.crm import check_assignee, get_crm_users
 from tbo_smart.api.mobile.utils import get_full_names
 from tbo_smart.lead_pipeline import call_outcomes as lead_calls
-from tbo_smart.lead_pipeline import lead_category, lead_place, rate_card, require_quotations, setting
+from tbo_smart.lead_pipeline import (
+	lead_category,
+	lead_files,
+	lead_place,
+	rate_card,
+	require_quotations,
+	setting,
+)
 from tbo_smart.lead_pipeline.analysis import LeadAnalysis
 from tbo_smart.lead_pipeline.business import build_business, can_view_business
 from tbo_smart.lead_pipeline.client_documents import chain as document_chain
@@ -1246,6 +1253,44 @@ def get_lead_photo(lead: str, file: str, thumb: int | str = 0, acting_user: str 
 	frappe.local.response.filecontent = content
 	frappe.local.response.content_type = mime
 	frappe.local.response.display_content_as = "inline"
+	frappe.local.response.type = "download"
+
+
+@frappe.whitelist()
+def get_lead_files(lead: str, acting_user: str | None = None) -> list[dict]:
+	"""The lead's attachments (every file on it but its photos), newest first: [{name,
+	file_name, file_size, uploaded_by, uploaded_by_name, uploaded_on, can_delete}]. Show one
+	through get_lead_file."""
+	with acting_as(acting_user):
+		return lead_files.get_files(lead)
+
+
+@frappe.whitelist(methods=["POST"])
+def upload_lead_file(lead: str, filename: str, content: str, acting_user: str | None = None) -> dict:
+	"""A file on the lead (`content` base64; at most 10 MB, 50 per lead, of the types
+	lead_files.TYPES lists, told by the name). Needs write on the lead. Returns the file as
+	get_lead_files lists it."""
+	with acting_as(acting_user):
+		return lead_files.add_file(lead, filename, decode(content))
+
+
+@frappe.whitelist(methods=["POST"])
+def delete_lead_file(lead: str, file: str, acting_user: str | None = None) -> dict:
+	"""Delete a file: who added it, the lead's owner or a manager (with write on the lead)."""
+	with acting_as(acting_user):
+		lead_files.remove_file(lead, file)
+		return {"deleted": file}
+
+
+@frappe.whitelist()
+def get_lead_file(lead: str, file: str, acting_user: str | None = None) -> None:
+	"""The file's bytes to anyone who may read the lead; the response is the file, not JSON."""
+	with acting_as(acting_user):
+		content, mime, name = lead_files.file_bytes(lead, file)
+	frappe.local.response.filename = name
+	frappe.local.response.filecontent = content
+	frappe.local.response.content_type = mime
+	frappe.local.response.display_content_as = "attachment"
 	frappe.local.response.type = "download"
 
 

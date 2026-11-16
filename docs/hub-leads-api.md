@@ -1,4 +1,4 @@
-# Hub leads API (`tbo_smart.api.hub_leads`), v1.32
+# Hub leads API (`tbo_smart.api.hub_leads`), v1.33
 
 **Status:** built 2026-10-16. The TBO Support hub's lead page (tbocloud/helpdesk) shows and edits
 tboindia's leads through these methods. The leads are ERPNext's own **Lead**
@@ -1117,6 +1117,34 @@ The hub's call box (hub `docs/leads.md`) follows a click-to-call through two rea
   missing ones (`telephony-callerdesk.md` §3.2). `{stored}`; 403 unless the call is the acting
   user's; at most once every 20 seconds per person; MyOperator answers `{stored: 0}`.
 
+
+### 2.34 Files on a lead
+
+```
+LeadFile = {name (the File), file_name, file_size, uploaded_by (user), uploaded_by_name,
+  uploaded_on (datetime), can_delete}
+```
+
+A requirement sheet, a quotation the client sent, a scanned visiting card (`lead_files.py`):
+
+- A lead's files are **every File attached to the Lead except its photos** (§2.11, marked
+  `tbo_lead_photo`), so a file attached on the desk form is listed too. Folders and links to
+  other sites (a `file_url` not starting with `/`) are left out.
+- `upload_lead_file(lead, filename, content)` (`content` base64): stored **private**. The type is
+  told by the name's extension: PDF, Word (`.doc`, `.docx`), Excel (`.xls`, `.xlsx`), PowerPoint
+  (`.ppt`, `.pptx`), OpenDocument (`.odt`, `.ods`), `.csv`, `.txt`, PNG, JPEG, WebP or ZIP;
+  anything else (HTML, SVG, executables, no extension) is 417. At most **10 MB** each and
+  **50 per lead** (417). The name is cut to 100 characters and stripped of path parts and
+  characters outside letters, digits, spaces and `.()-_`.
+- **Permissions:** `get_lead_files` and `get_lead_file` need read on the lead, `upload_lead_file`
+  and `delete_lead_file` write. Delete is further limited to who added the file, the lead's owner,
+  or a Sales Manager / System Manager (403); `can_delete` on each row says so in advance. A `file`
+  that isn't one of this lead's files (another lead's, or a photo) is 404.
+- `get_lead_file` answers with the bytes as an attachment, typed by the extension
+  (`application/octet-stream` for a desk-attached file of another type); the hub decides what
+  its browser may show inline.
+- No migration: it uses File's `tbo_lead_photo` from §2.11.
+
 ## 3. Links back to the hub
 
 Teams messages, emails and the morning digest link to the lead page when TBO Smart Settings →
@@ -1145,6 +1173,10 @@ options. `tests/test_segment_rate_card.py`: the rate card methods (acting user, 
 coordinate ranges, write permission; photos added, listed, served and thumbnailed, images only,
 size and count limits, privacy, other leads' files and other attachments never served, who may
 delete.
+`tbo_smart/tests/test_lead_files.py`: files added, listed and served as attachments; photos
+never listed and desk attachments listed (served as bytes); only the listed types, the name
+cleaned, size and count limits, the lead permission, another lead's file or a photo never served,
+who may delete.
 `tbo_smart/tests/test_lead_category.py`: the seeded industries, the state list, options, the four
 filters (single, several, JSON), rows and `get_lead`, cleaning on create and update, refusals,
 `add_industry` (idempotent, managers only), `bulk_set_lead_category` and the counts.
@@ -1180,10 +1212,11 @@ project set-ups saved by managers only.
 
 ## Changelog
 
+- **v1.33 (2026-11-16):** files on a lead (§2.34): `get_lead_files`, `upload_lead_file`,
+  `delete_lead_file`, `get_lead_file`.
 - **v1.32 (2026-11-16):** `get_my_calls`' `slots` (the day by slot against the plan, the
   plan's slots not handed out yet included), `counts.stages` and `today.stages`
   (`call-batches.md` §5).
-
 - **v1.31 (2026-11-14):** `refresh_call` (§2.33); `recording_state` on a call entry.
 - **v1.30 (2026-11-14):** the Small Business stage in `get_options` (Lost, gray); `set_stage`
   to it needs no `note` (§2.16).
