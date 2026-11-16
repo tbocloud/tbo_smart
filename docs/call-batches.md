@@ -125,7 +125,15 @@ so does a duplicate handed out before this rule. The call still counts in the da
 **Counts** (Today's calls and the report): `size` and `called` are the batch's own items (retries,
 call backs and called-back items are not counted again); a lead is `connected` when **any** call of
 it in the batch was answered, so Not answered followed by a Connected retry, call back or the
-customer calling back counts connected (`state.reached_leads`). The same goes for the day's total on Today's calls (*Today: 99 of 100 called, 50 contacted*): it is counted over the day's items with their retries and call backs (`CallQueue.today(repeats=True)`), as the report is.
+customer calling back counts connected (`state.reached_leads`). The same goes for the day's total on Today's calls (*Today: 99 of 100 called, 50 contacted*): it is counted over the day's items with their retries and call backs (`CallQueue.today(repeats=True)`), as the report is. `counts` and `today` on Today's calls also bring `stages`: where the called
+leads stand now, `[{stage, count}]` in pipeline order (`state.stage_counts`). `slots` is the
+day by slot (`reads.slot_totals`): `[{slot, department, planned, handed, called, connected,
+stages}]` in slot order, a slot's later batches (*Morning +2*) counted with it, `planned` the
+calls the person's plan hands them in it (`plans.slot_size`; what was handed when the slot was
+renamed since). The slots of the person's plans (departments where they have one) not handed
+out yet are listed too, with nothing handed (*Afternoon: 0 of 50*), but not on their day off; so
+the card can say *Morning: 36 of 50 called · 20 Contacted, 8 Not Responding,
+5 Small Business, 3 Wrong Number*.
 
 ## 6. Reading and the next batch
 

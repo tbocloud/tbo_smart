@@ -1,4 +1,4 @@
-# Hub leads API (`tbo_smart.api.hub_leads`), v1.31
+# Hub leads API (`tbo_smart.api.hub_leads`), v1.32
 
 **Status:** built 2026-10-16. The TBO Support hub's lead page (tbocloud/helpdesk) shows and edits
 tboindia's leads through these methods. The leads are ERPNext's own **Lead**
@@ -530,8 +530,10 @@ With `department`, the lead figures, invoices, receipts and outstanding are narr
 ```
 MyCalls = {enabled, reason?,            # enabled false: none of the person's departments hands out batches
   date, batch: {name, slot, department, starts_at, ends_at, seconds_left, batches: [name]} | null,
-  counts: {size, called, connected, pending, scheduled, overdue},   # size/called/connected: the running batches
-  today: {size, called, connected},                                  # all of today's batches
+  counts: {size, called, connected, stages, pending, scheduled, overdue},   # size/called/connected/stages: the running batches
+  today: {size, called, connected, stages},                                  # all of today's batches
+  slots: [{slot, department, planned, handed, called, connected, stages}],  # the day by slot, in slot order
+  # stages: [{stage, count}], where the called leads stand now, in pipeline order
   pending: [Call], scheduled: [Call], overdue: [Call],
   can_call, next_batch: {allowed, reason}, next_slot: {label, starts_at} | null}
 Call = {item, batch, slot, lead, priority (1-5), reason, is_repeat, retry_at, attempts, batch_ends_at,
@@ -1177,6 +1179,10 @@ project set-ups saved by managers only.
 `tbo_smart/tests/test_lead_bank.py`: see `lead-bank.md` §9.
 
 ## Changelog
+
+- **v1.32 (2026-11-16):** `get_my_calls`' `slots` (the day by slot against the plan, the
+  plan's slots not handed out yet included), `counts.stages` and `today.stages`
+  (`call-batches.md` §5).
 
 - **v1.31 (2026-11-14):** `refresh_call` (§2.33); `recording_state` on a call entry.
 - **v1.30 (2026-11-14):** the Small Business stage in `get_options` (Lost, gray); `set_stage`

@@ -220,11 +220,57 @@ def queue_view(user: str, off_reason: str) -> dict:
 		"counts": counts,
 		# the retries too: a lead not answered first and reached on its retry counts contacted
 		"today": queue.totals(queue.today(repeats=True)),
+		"slots": slot_totals(user, queue),
 		"pending": [serialize_row(row, summaries, calling) for row in queue.pending],
 		"scheduled": [serialize_row(row, summaries, calling) for row in queue.scheduled],
 		"overdue": [serialize_row(row, summaries, calling) for row in queue.overdue],
 		"focus": bd_focus.get_focus(user),
 	}
+
+
+def slot_totals(user: str, queue: CallQueue) -> list[dict]:
+	"""The day by slot, in slot order: [{slot, department, planned, handed, called, connected,
+	stages}]. A slot's batches count together ("Morning" and "Morning +2", handed out when the
+	first was done); `planned` is what the plan hands `user` in it (`plans.slot_size`), `handed`
+	the calls they were given, the rest as `CallQueue.totals` counts them. The slots of their
+	plans not handed out yet are there too, with nothing handed (none on a day off)."""
+	from tbo_smart.sales.call_batches.plans import member_row, sizes_of, slot_size
+
+	groups: dict[tuple, list] = {}
+	for row in queue.today(repeats=True):  # by batch start
+		groups.setdefault((row.department, row.slot.split(" +")[0]), []).append(row)
+	departments = {name: frappe.get_doc(lead_departments.DEPARTMENT, name) for name, _label in groups}
+	if not is_off_today(user, queue.now):
+		for department in batch_departments(user):
+			if sizes_of(member_row(department, user)):
+				departments.setdefault(department.name, department)
+	result = []
+	for name, department in departments.items():
+		slots = {slot.label: slot for slot in slots_of(department)}
+		for label, slot in slots.items():
+			if (name, label) not in groups and slot_size(department, user, slot) > 0:
+				groups[(name, label)] = []
+		for (group_name, label), rows in groups.items():
+			if group_name != name:
+				continue
+			slot = slots.get(label)
+			totals = queue.totals(rows)
+			handed = totals.pop("size")
+			result.append(
+				{
+					"slot": label,
+					"department": name,
+					# a slot renamed since the batch was handed out: what was handed is the plan
+					"planned": slot_size(department, user, slot) if slot else handed,
+					"handed": handed,
+					**totals,
+					"_start": slot.start if slot else get_datetime(rows[0].starts_at).time(),
+				}
+			)
+	result.sort(key=lambda row: row["_start"])
+	for row in result:
+		del row["_start"]
+	return result
 
 
 def set_calling_focus(
