@@ -15,6 +15,7 @@ from tbo_smart.lead_pipeline.statuses import (
 	CONTACTED,
 	FOLLOW_UP_REQUIRED,
 	MEETING_SCHEDULED,
+	NOT_RESPONDING,
 	POSITIVE,
 	SMALL_BUSINESS,
 )
@@ -181,9 +182,9 @@ REACHED_STAGES = (
 	NOT_INTERESTED_STAGE,
 	SMALL_BUSINESS,
 )
-# a lead moved to Wrong Number by hand was called, but the person it is for was not reached: it
-# counts as a Wrong number call (called, not contacted)
-UNREACHED_STAGES = {WRONG_NUMBER_STAGE: WRONG_NUMBER}
+# a lead moved by hand to one of these was called but nobody it is for was reached: it counts as
+# that call (called, not contacted)
+UNREACHED_STAGES = {NOT_RESPONDING: NOT_ANSWERED, WRONG_NUMBER_STAGE: WRONG_NUMBER}
 # a logged call moves the stage itself a moment later: that move is the same contact
 SAME_CONTACT = 120
 # the direction stage_contacts gives a move by hand, which is not a call
@@ -197,8 +198,8 @@ def sync_calls(user: str) -> int:
 	answered (the customer called back, or picked up later), gets a "Called back" item, so the
 	day counts it connected. An incoming call counts only when it was answered. A move by hand to
 	a stage that means they spoke (REACHED_STAGES, e.g. Contacted from the lead page) counts as an
-	answered call too, and one to Wrong Number as a Wrong number call. Returns how many were
-	recorded."""
+	answered call too, and one to Not Responding or Wrong Number as a Not answered or Wrong number
+	call (UNREACHED_STAGES). Returns how many were recorded."""
 	since = add_to_date(getdate(), days=-OVERDUE_DAYS)
 	Batch, Item = frappe.qb.DocType(BATCH), frappe.qb.DocType(ITEM)
 	rows = (
@@ -249,7 +250,7 @@ def sync_calls(user: str) -> int:
 
 def stage_contacts(user: str, leads: list[str], rows: list, calls: list) -> list:
 	"""`user`'s moves of `leads` to a stage that means they spoke, since the earliest batch in
-	`rows`, as answered calls, and to Wrong Number as calls with that `outcome`; a move within
+	`rows`, as answered calls, and to UNREACHED_STAGES as calls with their `outcome`; a move within
 	SAME_CONTACT seconds after one of `calls` on the lead (an answered one, for a stage that means
 	they spoke) is that call's own (logging it moved the stage) and is left out."""
 	moves = frappe.get_all(
