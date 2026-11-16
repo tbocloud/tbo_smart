@@ -407,6 +407,25 @@ class TestCallBatches(FrappeTestCase):
 		# counted once
 		self.assertEqual(sync_calls(BD), 0)
 
+	def test_moving_a_new_lead_to_not_responding_counts_it_called_once(self):
+		# phoned from the person's own phone, nobody picked up, then Move to Not Responding
+		leads, batch, _items = self.batch_of(2)
+		frappe.set_user(BD)
+		set_lead_stage(leads[0], NOT_RESPONDING)
+		counts = get_my_calls()["counts"]
+		self.assertEqual((counts["size"], counts["called"], counts["connected"]), (2, 1, 0))
+		frappe.set_user("Administrator")
+		self.assertEqual(get_batch_items(batch)[0].outcome, "Not answered")
+		# its retry is not counted again
+		self.assertEqual(sync_calls(BD), 0)
+
+	def test_not_answered_from_the_list_and_its_stage_move_count_once(self):
+		leads, batch, items = self.batch_of(1)
+		self.record(items[0], "Not answered")
+		self.assertEqual(frappe.db.get_value("Lead", leads[0], "tbo_stage"), NOT_RESPONDING)
+		self.assertEqual(sync_calls(BD), 0)
+		self.assertEqual([row.outcome for row in get_batch_items(batch)].count("Not answered"), 1)
+
 	def test_a_lead_moved_past_new_lead_leaves_todays_calls(self):
 		# put On Hold from the lead page, or No answer (Not Responding): no longer a new lead to call
 		leads, _batch, items = self.batch_of(3)
