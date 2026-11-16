@@ -3,7 +3,7 @@
 import frappe
 from frappe.utils import add_to_date, get_datetime, getdate, now_datetime
 
-from tbo_smart.lead_pipeline.statuses import NEW_LEAD
+from tbo_smart.lead_pipeline.statuses import NEW_LEAD, STATUS_NAMES
 from tbo_smart.sales.call_batches import ACTIVE, ANSWERED, BATCH, ITEM, OVERDUE_DAYS
 from tbo_smart.sales.duplicates import newer_duplicates
 
@@ -54,6 +54,27 @@ def item_rows(batch_filters: dict, since=None) -> list[frappe._dict]:
 	if since:
 		query = query.where(Batch.batch_date >= getdate(since))
 	return query.run(as_dict=True)
+
+
+def stage_counts(leads: list[str]) -> list[dict]:
+	"""[{stage, count}] of `leads` (one per call: a lead in two batches counts twice), by the
+	stage each is at now, in pipeline order."""
+	if not leads:
+		return []
+	stage_of = dict(
+		frappe.get_all(
+			"Lead", filters={"name": ("in", list(set(leads)))}, fields=["name", "tbo_stage"], as_list=True
+		)
+	)
+	counts = {}
+	for lead in leads:
+		stage = stage_of.get(lead) or NEW_LEAD
+		counts[stage] = counts.get(stage, 0) + 1
+	order = {name: index for index, name in enumerate(STATUS_NAMES)}
+	return [
+		{"stage": stage, "count": count}
+		for stage, count in sorted(counts.items(), key=lambda item: order.get(item[0], len(order)))
+	]
 
 
 class CallQueue:
@@ -139,12 +160,15 @@ class CallQueue:
 		]
 
 	def totals(self, rows: list) -> dict:
-		"""{size, called, connected} of the non-retry rows; a lead is connected when any call of it in
-		the batch was answered (a retry, a call back, or the customer calling back)."""
+		"""{size, called, connected, stages} of the non-retry rows; a lead is connected when any call
+		of it in the batch was answered (a retry, a call back, or the customer calling back).
+		`stages` is where the called leads stand now: [{stage, count}] in pipeline order."""
 		own = [row for row in rows if not row.is_repeat]
 		reached = reached_leads(rows)
+		called = [row for row in own if row.outcome]
 		return {
 			"size": len(own),
-			"called": sum(1 for row in own if row.outcome),
+			"called": len(called),
 			"connected": sum(1 for row in own if (row.batch, row.lead) in reached),
+			"stages": stage_counts([row.lead for row in called]),
 		}

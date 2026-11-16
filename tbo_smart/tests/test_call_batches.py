@@ -11,6 +11,8 @@ from tbo_smart.lead_pipeline.statuses import (
 	FOLLOW_UP_REQUIRED,
 	NOT_RESPONDING,
 	ON_HOLD,
+	SMALL_BUSINESS,
+	WRONG_NUMBER,
 )
 from tbo_smart.sales.activities import next_follow_ups
 from tbo_smart.sales.call_batches import clock
@@ -69,6 +71,7 @@ class TestCallBatches(FrappeTestCase):
 		for target in (
 			"tbo_smart.sales.call_batches.next_batch.is_off_today",
 			"tbo_smart.sales.call_batches.clock.is_off_today",
+			"tbo_smart.sales.call_batches.reads.is_off_today",
 		):
 			patcher = patch(target, return_value=None)
 			patcher.start()
@@ -324,7 +327,10 @@ class TestCallBatches(FrappeTestCase):
 		counts = calls["counts"]
 		self.assertEqual((counts["called"], counts["connected"], counts["pending"]), (1, 1, 0))
 		# the day's total too, not only the running batch (it left the retry out)
-		self.assertEqual(calls["today"], {"size": 1, "called": 1, "connected": 1})
+		self.assertEqual(
+			calls["today"],
+			{"size": 1, "called": 1, "connected": 1, "stages": [{"stage": CONTACTED, "count": 1}]},
+		)
 		frappe.set_user("Administrator")
 		[person] = [p for p in get_call_batches_report()["people"] if p["user"] == BD]
 		self.assertEqual((person["called"], person["connected"]), (1, 1))
@@ -373,6 +379,109 @@ class TestCallBatches(FrappeTestCase):
 			"Lead", leads[0], ["tbo_last_call_result", "tbo_last_call_on"]
 		)
 		self.assertFalse(result or called_on, "a stage move is not a call")
+
+	def test_moving_a_lead_to_small_business_not_responding_or_wrong_number_counts_it_called(self):
+		# moved from the lead page instead of logging a call: each leaves the queue and counts called;
+		# only Small Business (they spoke) counts contacted
+		leads, batch, _items = self.batch_of(4, ends_in_hours=3)
+		frappe.set_user(BD)
+		set_lead_stage(leads[0], SMALL_BUSINESS)
+		set_lead_stage(leads[1], NOT_RESPONDING)
+		set_lead_stage(leads[2], WRONG_NUMBER)
+		calls = get_my_calls()
+		counts = calls["counts"]
+		self.assertEqual((counts["size"], counts["called"], counts["connected"]), (4, 3, 1))
+		self.assertEqual(
+			counts["stages"],
+			[
+				{"stage": NOT_RESPONDING, "count": 1},
+				{"stage": WRONG_NUMBER, "count": 1},
+				{"stage": SMALL_BUSINESS, "count": 1},
+			],
+		)
+		self.assertEqual([row["lead"] for row in calls["pending"]], [leads[3]])
+		frappe.set_user("Administrator")
+		rows = get_batch_items(batch)
+		self.assertEqual([row.outcome for row in rows], ["Connected", "Not answered", "Wrong number", None])
+		# Not Responding by hand is not tried again in the batch
+		self.assertEqual(len(rows), 4)
+		# counted once
+		self.assertEqual(sync_calls(BD), 0)
+
+	def test_the_day_is_counted_by_slot_against_the_plan(self):
+		# the slot's first batch and the one handed out when it was done count together
+		first = [self.lead(f"Calls Slot {number}", owner=BD) for number in range(3)]
+		more = [self.lead(f"Calls Slot More {number}", owner=BD) for number in range(2)]
+		batch = make_call_batch(BD, DEPARTMENT, first, slot="Day", ends_in_hours=3)
+		make_call_batch(BD, DEPARTMENT, more, slot="Day +2", ends_in_hours=3)
+		self.record(get_batch_items(batch)[0], "Connected")
+		frappe.set_user(BD)
+		set_lead_stage(first[1], SMALL_BUSINESS)
+		set_lead_stage(more[0], NOT_RESPONDING)
+		self.assertEqual(
+			get_my_calls()["slots"],
+			[
+				{
+					"slot": "Day",
+					"department": DEPARTMENT,
+					"planned": 50,
+					"handed": 5,
+					"called": 3,
+					"connected": 2,
+					"stages": [
+						{"stage": CONTACTED, "count": 1},
+						{"stage": NOT_RESPONDING, "count": 1},
+						{"stage": SMALL_BUSINESS, "count": 1},
+					],
+				}
+			],
+		)
+		frappe.set_user("Administrator")
+		frappe.db.set_value(
+			"TBO Lead Department User",
+			{"parent": DEPARTMENT, "user": BD},
+			"slot_sizes",
+			frappe.as_json({"Day": 6}),
+		)
+		frappe.set_user(BD)
+		self.assertEqual(get_my_calls()["slots"][0]["planned"], 6)
+		frappe.set_user("Administrator")
+
+	def test_a_planned_slot_not_handed_out_yet_shows_with_nothing_called(self):
+		department = frappe.get_doc("TBO Lead Department", DEPARTMENT)
+		department.call_slots = []
+		for label, start, end in (("Morning", "00:00:00", "11:59:00"), ("Afternoon", "12:00:00", "23:59:00")):
+			department.append(
+				"call_slots", {"label": label, "start_time": start, "end_time": end, "size": 40}
+			)
+		department.save(ignore_permissions=True)
+		frappe.db.set_value(
+			"TBO Lead Department User",
+			{"parent": DEPARTMENT, "user": BD},
+			"slot_sizes",
+			frappe.as_json({"Morning": 50, "Afternoon": 50}),
+		)
+		leads = [self.lead(f"Calls Planned {number}", owner=BD) for number in range(2)]
+		make_call_batch(BD, DEPARTMENT, leads, slot="Morning", ends_in_hours=3)
+		frappe.set_user(BD)
+		slots = get_my_calls()["slots"]
+		frappe.set_user("Administrator")
+		self.assertEqual(
+			[(row["slot"], row["planned"], row["handed"], row["called"]) for row in slots],
+			[("Morning", 50, 2, 0), ("Afternoon", 50, 0, 0)],
+		)
+		self.assertEqual(slots[1]["stages"], [])
+
+	def test_a_not_answered_call_and_its_own_move_to_not_responding_count_once(self):
+		leads, batch, _items = self.batch_of(1, ends_in_hours=1)
+		frappe.set_user(BD)
+		# logging it moves the lead to Not Responding itself
+		hub.log_call(leads[0], "Not answered")
+		self.assertEqual(frappe.db.get_value("Lead", leads[0], "tbo_stage"), NOT_RESPONDING)
+		counts = get_my_calls()["counts"]
+		self.assertEqual((counts["called"], counts["connected"]), (1, 0))
+		frappe.set_user("Administrator")
+		self.assertEqual([row.outcome for row in get_batch_items(batch)], ["Not answered"])
 
 	def test_a_lead_moved_past_new_lead_leaves_todays_calls(self):
 		# put On Hold from the lead page, or No answer (Not Responding): no longer a new lead to call

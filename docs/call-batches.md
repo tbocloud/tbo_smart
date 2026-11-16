@@ -104,10 +104,13 @@ back included) the outcome of their next later call (Answered: Connected; Missed
 answered). An incoming call counts only when it was answered. When the lead's last call of the day
 was Not answered or Busy and nothing of it is left to call (no retry, e.g. the slot ended first),
 a later answered call that day adds a "Called back" item with Connected. A move by hand to a stage that means they spoke (Contacted, Follow-up Required, Positive /
-Interested, Meeting Scheduled, Not Interested: `REACHED_STAGES`), by the person after the call,
+Interested, Meeting Scheduled, Not Interested, Small Business: `REACHED_STAGES`), by the person after the call,
 counts as an answered call the same way, for example Not answered in the batch and then Move
-stage to Contacted on the lead page. The stage move a logged answered call makes itself (within
-2 minutes, `SAME_CONTACT`) is that call's, so it is counted once. A stage move is not a call: the
+stage to Contacted on the lead page. A move by hand to **Not Responding** counts as Not answered
+and one to **Wrong Number** as Wrong number (`STAGE_OUTCOMES`): the lead leaves the queue, so it
+counts as called (not contacted), and Not Responding by hand is not tried again in the batch.
+The stage move a logged call makes itself (within 2 minutes, `SAME_CONTACT`; an answered call's,
+for a `REACHED_STAGES` move) is that call's, so it is counted once. A stage move is not a call: the
 item counts it Connected, but the lead's last call result and time are left as they were
 (`apply(..., call=False)`), so a lead nobody phoned does not read as called. It runs whenever the
 queue is read or a batch asked for.
@@ -121,7 +124,15 @@ so does a duplicate handed out before this rule. The call still counts in the da
 **Counts** (Today's calls and the report): `size` and `called` are the batch's own items (retries,
 call backs and called-back items are not counted again); a lead is `connected` when **any** call of
 it in the batch was answered, so Not answered followed by a Connected retry, call back or the
-customer calling back counts connected (`state.reached_leads`). The same goes for the day's total on Today's calls (*Today: 99 of 100 called, 50 contacted*): it is counted over the day's items with their retries and call backs (`CallQueue.today(repeats=True)`), as the report is.
+customer calling back counts connected (`state.reached_leads`). The same goes for the day's total on Today's calls (*Today: 99 of 100 called, 50 contacted*): it is counted over the day's items with their retries and call backs (`CallQueue.today(repeats=True)`), as the report is. `counts` and `today` on Today's calls also bring `stages`: where the called
+leads stand now, `[{stage, count}]` in pipeline order (`state.stage_counts`). `slots` is the
+day by slot (`reads.slot_totals`): `[{slot, department, planned, handed, called, connected,
+stages}]` in slot order, a slot's later batches (*Morning +2*) counted with it, `planned` the
+calls the person's plan hands them in it (`plans.slot_size`; what was handed when the slot was
+renamed since). The slots of the person's plans (departments where they have one) not handed
+out yet are listed too, with nothing handed (*Afternoon: 0 of 50*), but not on their day off; so
+the card can say *Morning: 36 of 50 called · 20 Contacted, 8 Not Responding,
+5 Small Business, 3 Wrong Number*.
 
 ## 6. Reading and the next batch
 
