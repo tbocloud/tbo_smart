@@ -20,6 +20,7 @@ from tbo_smart.sales.call_batches import is_off_today
 from tbo_smart.sales.call_batches.handout import HANDED_NOTE, hand, has_phone, next_unassigned
 from tbo_smart.sales.call_batches.plans import day_shares, plan_industry, plan_product, plan_total
 from tbo_smart.sales.departments import DEPARTMENT
+from tbo_smart.smart_leads.utils import SUNDAY_ONLY, is_weekly_off, weekly_off_days
 
 AUTO_NOTE = "Assigned to you automatically: nobody handed you leads by the set time"
 DEFAULT_TIME = "11:00:00"
@@ -62,8 +63,12 @@ def is_due(department, now) -> bool:
 
 
 def skips(department, day) -> bool:
-	"""The department does not auto-assign on `day`: a Sunday, or one of the Saturdays it skips."""
+	"""The department does not auto-assign on `day`: a Sunday, or one of the Saturdays it skips.
+	Where the weekend isn't Sunday (Friday and Saturday in Saudi Arabia) those options don't
+	apply: the weekend is skipped."""
 	day = getdate(day)
+	if weekly_off_days() != SUNDAY_ONLY:
+		return is_weekly_off(day)
 	if day.weekday() == 6:
 		return bool(cint(department.auto_assign_skip_sunday))
 	if day.weekday() == 5:

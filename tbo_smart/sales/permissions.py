@@ -15,12 +15,15 @@ Frappe CRM's rule, unchanged, on ERPNext's records (the `has_permission` and
 - and whoever created a lead still reads it (never writes it) after it is handed to someone
   else, so My leads can list what they created.
 
+With "Everyone who may read leads reads every lead and deal" (TBO Smart Settings) on, reading is
+not narrowed at all, as on a plain ERPNext site; writing still is.
+
 ERPNext's role permissions still decide first; this only narrows them.
 """
 
 import frappe
 
-from tbo_smart.sales import DEAL, LEAD, owner_field
+from tbo_smart.sales import DEAL, LEAD, SETTINGS, owner_field
 from tbo_smart.sales.departments import headed_departments
 from tbo_smart.sales.hierarchy import in_hierarchy, team_query
 
@@ -36,8 +39,15 @@ def unrestricted(user: str, doctype: str, ptype: str | None) -> bool:
 	return is_finance_user(user)
 
 
+def everyone_reads_all(ptype: str | None) -> bool:
+	"""The site lets everyone who may read leads and deals read every one (TBO Smart Settings)."""
+	return (ptype or "read") in READ_PTYPES and bool(
+		frappe.db.get_single_value(SETTINGS, "everyone_reads_all_leads", cache=True)
+	)
+
+
 def sees_everything(user: str, doctype: str, ptype: str | None) -> bool:
-	if user == "Administrator":
+	if user == "Administrator" or everyone_reads_all(ptype):
 		return True
 	roles = frappe.get_roles(user)
 	if "System Manager" in roles or unrestricted(user, doctype, ptype):

@@ -8,11 +8,10 @@ from frappe.utils import cint, get_datetime, get_time, now_datetime, today
 
 from tbo_smart.lead_pipeline.statuses import LOST_STATUSES
 from tbo_smart.outreach import APPROVED, EMAIL, LIVE, MESSAGE, SENT, WHATSAPP, daily_cap, setting
-from tbo_smart.smart_leads.utils import INDIA, normalise_phone
+from tbo_smart.smart_leads.utils import is_weekly_off, normalise_phone
 
 DEFAULT_START = "09:30:00"
 DEFAULT_END = "18:00:00"
-SUNDAY = 6
 
 
 def never_contact(lead: str) -> str | None:
@@ -41,8 +40,9 @@ def blocked_reason(lead: str, channel: str) -> str | None:
 	return None
 
 
-def whatsapp_number(row, country: str = INDIA) -> str | None:
-	"""The lead's first usable number (mobile, WhatsApp, then phone) as digits with the country code."""
+def whatsapp_number(row, country: str | None = None) -> str | None:
+	"""The lead's first usable number (mobile, WhatsApp, then phone) as digits with the country code
+	(default: the site's country, see normalise_phone)."""
 	return next(
 		(
 			normalise_phone(number, country)
@@ -66,10 +66,11 @@ def window_times() -> tuple:
 
 
 def in_window(moment: datetime | None = None) -> bool:
-	"""Working hours: Monday to Saturday between the window's start and end, site time."""
+	"""Working hours: a working day (not the site country's weekend: Sunday in India, Friday and
+	Saturday in Saudi Arabia) between the window's start and end, site time."""
 	moment = get_datetime(moment) if moment else now_datetime()
 	start, end = window_times()
-	return moment.weekday() != SUNDAY and start <= moment.time() < end
+	return not is_weekly_off(moment) and start <= moment.time() < end
 
 
 def next_window(moment: datetime | None = None) -> datetime:
@@ -79,9 +80,9 @@ def next_window(moment: datetime | None = None) -> datetime:
 		return moment
 	start, end = window_times()
 	day = moment.date()
-	if moment.time() >= end or moment.weekday() == SUNDAY:
+	if moment.time() >= end or is_weekly_off(day):
 		day = day + timedelta(days=1)
-	while day.weekday() == SUNDAY:
+	while is_weekly_off(day):
 		day = day + timedelta(days=1)
 	return datetime.combine(day, start)
 

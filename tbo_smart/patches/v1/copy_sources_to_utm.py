@@ -1,7 +1,10 @@
 """ERPNext v16 moved a document's source and campaign to Frappe's UTM fields (`source` → `utm_source`,
 `campaign_name`/`campaign` → `utm_campaign`). Its patch `v15_0.migrate_to_utm_analytics` moves the Lead
 Sources and Campaigns themselves but leaves each document's value in the old column, so every lead would
-lose its source. Copy the values across where the new field is still empty. Does nothing on v15."""
+lose its source. Copy the values across where the new field is still empty. Does nothing on v15.
+
+Also run after every migrate (hooks.after_migrate): a site moved to this app on v15 has the patch
+marked done without copying anything, and a later v16 upgrade would never run it again."""
 
 import frappe
 from frappe.query_builder.functions import Coalesce
