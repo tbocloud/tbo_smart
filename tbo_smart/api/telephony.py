@@ -151,6 +151,17 @@ def refresh_call(reference_id: str, acting_user: str | None = None) -> dict:
 			frappe.throw(str(e), exc=type(e))
 
 
+@frappe.whitelist(methods=["POST"])
+def end_call(reference_id: str, acting_user: str | None = None) -> dict:
+	"""End the person's own click-to-call (the `reference_id` click_to_call returned), for the
+	hub's call box: {ok}. CallerDesk only; a refusal says to hang up on the phone."""
+	with acting_as(acting_user):
+		try:
+			return calls.end_call(reference_id)
+		except callerdesk.CallerDeskError as e:
+			frappe.throw(str(e), exc=type(e))
+
+
 @frappe.whitelist()
 def get_incoming_call(acting_user: str | None = None) -> dict:
 	"""{enabled, call: {call, number, lead, lead_name, state} | None}: the call coming in to the

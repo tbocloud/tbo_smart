@@ -57,6 +57,19 @@ AGENTS = [
 ]
 
 
+# live_call_v2's answer: two calls in progress on the first telecaller's number, one on another's
+LIVE_CALLS = {
+	"total_live_calls": "2",
+	"live_calls": [
+		{"sid_id": "59930001", "member_num": "09000000002", "entrydate": "2026-11-16 10:00:00"},
+		{"sid_id": "59930002", "member_num": "09000000001", "entrydate": "2026-11-16 10:00:05"},
+		{"sid_id": "59930003", "member_num": "09000000001", "entrydate": "2026-11-16 10:01:00"},
+	],
+	"type": "success",
+}
+CALL_ENDED = {"type": "success", "message": "Call disconnect request submit successfully"}
+
+
 class TestCallerDesk(FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
@@ -641,6 +654,62 @@ class TestOneRecordPerCall(TestCallerDesk):
 		self.assertEqual(sorted(self.calls_of_lead()), ["CD-NEXT", "CD-PREV"])
 		self.assertEqual(self.call_of("CD-NEXT").event, logged.event)
 		self.assertEqual(self.call_of("CD-PREV").result_recorded, 0)
+
+
+class TestEndCall(TestCallerDesk):
+	"""End call in the call box: CallerDesk's call_disconnect, for the person's own call."""
+
+	def end(self, live: dict | None = None, answer: dict | None = None, user: str = BDE):
+		frappe.set_user(user)
+		try:
+			with (
+				patch(
+					"tbo_smart.telephony.callerdesk.requests.get",
+					return_value=myoperator_response(200, LIVE_CALLS if live is None else live),
+				) as get,
+				patch(
+					"tbo_smart.telephony.callerdesk.requests.post",
+					return_value=myoperator_response(200, CALL_ENDED if answer is None else answer),
+				) as post,
+			):
+				return api.end_call("57305000"), get, post
+		finally:
+			frappe.set_user("Administrator")
+
+	def test_the_persons_newest_live_call_is_ended(self):
+		result, _get = self.place_click_to_call()
+		self.assertTrue(result["can_end"])
+		answer, get, post = self.end()
+		self.assertEqual(answer, {"ok": True})
+		self.assertEqual(get.call_args.args[0], "https://app.callerdesk.io/api/live_call_v2")
+		self.assertEqual(post.call_args.args[0], "https://app.callerdesk.io/api/call_disconnect")
+		self.assertEqual(
+			post.call_args.kwargs["data"], {"authcode": TEST_CALLERDESK_KEY, "callsid": "59930003"}
+		)
+
+	def test_a_call_a_live_event_stored_is_ended_by_its_own_id(self):
+		self.place_click_to_call()
+		frappe.set_user("Administrator")
+		post_callerdesk_webhook(callerdesk_live("CD-LIVE-END"))
+		_answer, get, post = self.end()
+		get.assert_not_called()
+		self.assertEqual(post.call_args.kwargs["data"]["callsid"], "CD-LIVE-END")
+
+	def test_no_live_call_or_a_refusal_says_to_hang_up_on_the_phone(self):
+		self.place_click_to_call()
+		with self.assertRaises(frappe.ValidationError) as none:
+			self.end(live={"total_live_calls": "0", "live_calls": [], "type": "success"})
+		self.assertIn("hang up on your phone", str(none.exception))
+		refusal = {"type": "error", "message": "Their is no call exist using this callsid."}
+		with self.assertRaises(callerdesk.CallerDeskError) as refused:
+			self.end(answer=refusal)
+		self.assertIn("Their is no call exist", str(refused.exception))
+		self.assertNotIn(TEST_CALLERDESK_KEY, str(refused.exception))
+
+	def test_only_the_person_who_placed_the_call_may_end_it(self):
+		self.place_click_to_call()
+		with self.assertRaises(frappe.PermissionError):
+			self.end(user=BDE2)
 
 
 class TestRecordingState(TestCallerDesk):

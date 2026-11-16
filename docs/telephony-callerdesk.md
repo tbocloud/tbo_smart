@@ -59,8 +59,14 @@ click-to-call URL. Read on 2026-11-14.
 - The Live Call payload: its `type`, and the order of its events for one click-to-call.
 - That `Status` of an unanswered click-to-call is one of the listed values.
 - The time zone of the times.
-- Questions for CallerDesk: is there a **hang-up API** (end a running call by `sid_id`)? Their
-  Postman collection (read 2026-11-14) has none, only `hangup_cause` in reports. Is a webhook's
+- CallerDesk support's answers of 2026-11-16: there **is** a hang-up command (§4.2; it is not
+  in their Postman collection). Outgoing calls (click-to-call, their app, browser calling) show
+  the customer the account's DID, 08065117042, never the telecaller's own number. Browser
+  calling (WebRTC: WSS server, SIP domain, a SIP login per member) is possible but **needs a
+  VPN**, and they recommend their softphone instead, so it is not planned. A click-to-call
+  costs 2 OBD coins a minute; their unlimited plan has no coin cap; billing is half-yearly or
+  yearly only.
+- Still to ask: is a webhook's
   `CallSid` the same as `call_list_v2`'s `sid_id` (the first real call's recording file name ends
   in its `sid_id`, 59884394)? Does `call_list_v2` take `current_page` and `start_date` /
   `end_date` as the docs say, and does a row carry `campid` or `channel`?
@@ -253,6 +259,24 @@ lead (seen on 2026-11-15: the reports came minutes later, through the reconcile)
   the lead's last call.
 - A call dialled on the person's own phone (no provider report) stays a `manual-…` TBO Call.
 
+### 4.2 End call (`calls.end_call`, `callerdesk.disconnect`)
+
+CallerDesk support gave the hang-up command on 2026-11-16: `POST
+https://app.callerdesk.io/api/call_disconnect` (form: `authcode`, `callsid`). It answers HTTP 200
+`{"type": "success" | "error", "message"}`; an unknown id is `error` ("Their is no call exist
+using this callsid."), and a call that has already ended still answers `success` (probed
+2026-11-16). `callsid` is the call's `sid_id` / `CallSid`, not the click-to-call's `campid`.
+
+- `end_call(reference_id, acting_user)` (POST, hub's call box): only the person who placed the
+  click-to-call. The id comes from the TBO Call a Live Call event stored for it, else from
+  `live_call_v2` (GET: the account's calls in progress): the newest one on the person's own
+  number (`member_num`). No call in progress, or a refusal, tells the person to hang up on
+  their phone. `{ok: true}` means CallerDesk took the request; the call's report still closes
+  the box the usual way.
+- `click_to_call` answers `can_end` (true for CallerDesk) so the box knows to offer it.
+- **Not yet confirmed with a real call:** that `live_call_v2` lists a click-to-call (WEBOBD)
+  while it rings, and that the command drops both legs.
+
 ## 5. What the owner does
 
 In CallerDesk (app.callerdesk.io):
@@ -290,6 +314,7 @@ never returned by the settings API and shown only to a System Manager; Live Call
 
 ## Changelog
 
+- **v1.6 (2026-11-16):** End call (§4.2): `call_disconnect`, `end_call`, `can_end`. No migrate needed.
 - **v1.5 (2026-11-15):** one call, one record (§3.3): the telecaller's result and CallerDesk's
   report of the same call no longer leave two TBO Calls. Needs `bench migrate` (new field
   `result_recorded`).
