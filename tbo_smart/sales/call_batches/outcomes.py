@@ -11,7 +11,13 @@ from frappe import _
 from frappe.utils import add_to_date, get_datetime, getdate, now_datetime
 
 from tbo_smart.lead_pipeline.call_outcomes import apply_call_outcome, schedule_call_back
-from tbo_smart.lead_pipeline.statuses import CONTACTED, FOLLOW_UP_REQUIRED, MEETING_SCHEDULED, POSITIVE
+from tbo_smart.lead_pipeline.statuses import (
+	CONTACTED,
+	FOLLOW_UP_REQUIRED,
+	MEETING_SCHEDULED,
+	POSITIVE,
+	SMALL_BUSINESS,
+)
 from tbo_smart.lead_pipeline.statuses import NOT_INTERESTED as NOT_INTERESTED_STAGE
 from tbo_smart.sales import numbers
 from tbo_smart.sales.activities import OPEN, add_note
@@ -164,7 +170,15 @@ def close_due_follow_ups(lead: str) -> None:
 
 
 # a lead moved to one of these by hand (Move stage) was spoken to: it counts as an answered call
-REACHED_STAGES = (CONTACTED, FOLLOW_UP_REQUIRED, POSITIVE, MEETING_SCHEDULED, NOT_INTERESTED_STAGE)
+# (Small Business too: only a conversation tells the lead is too small for TBO)
+REACHED_STAGES = (
+	CONTACTED,
+	FOLLOW_UP_REQUIRED,
+	POSITIVE,
+	MEETING_SCHEDULED,
+	NOT_INTERESTED_STAGE,
+	SMALL_BUSINESS,
+)
 # a logged call moves the stage itself a moment later: that move is the same contact
 SAME_CONTACT = 120
 # the direction stage_contacts gives a move by hand, which is not a call
