@@ -104,14 +104,15 @@ back included) the outcome of their next later call (Answered: Connected; Missed
 answered). An incoming call counts only when it was answered. When the lead's last call of the day
 was Not answered or Busy and nothing of it is left to call (no retry, e.g. the slot ended first),
 a later answered call that day adds a "Called back" item with Connected. A move by hand to a stage that means they spoke (Contacted, Follow-up Required, Positive /
-Interested, Meeting Scheduled, Not Interested, Small Business: `REACHED_STAGES`), by the person after the call,
-counts as an answered call the same way, for example Not answered in the batch and then Move
-stage to Contacted on the lead page. A move by hand to **Not Responding** counts as Not answered
-and one to **Wrong Number** as Wrong number (`STAGE_OUTCOMES`): the lead leaves the queue, so it
-counts as called (not contacted), and Not Responding by hand is not tried again in the batch.
-The stage move a logged call makes itself (within 2 minutes, `SAME_CONTACT`; an answered call's,
-for a `REACHED_STAGES` move) is that call's, so it is counted once. A stage move is not a call: the
-item counts it Connected, but the lead's last call result and time are left as they were
+Interested, Meeting Scheduled, Not Interested, Small Business: `REACHED_STAGES`), by the person
+after the call, counts as an answered call the same way, for example Not answered in the batch and
+then Move stage to Contacted on the lead page, or a new lead phoned from the person's own phone and
+moved to Small Business (only a conversation tells a lead is too small for TBO). A move by hand to
+Not Responding or Wrong Number counts as a **Not answered** or **Wrong number** call
+(`UNREACHED_STAGES`): called, not contacted. The
+stage move a logged call makes itself (within 2 minutes, `SAME_CONTACT`; an answered call, for a
+stage that means they spoke) is that call's, so it is counted once. A stage move is not a call: the
+item counts it Connected (Not answered or Wrong number for those stages), but the lead's last call result and time are left as they were
 (`apply(..., call=False)`), so a lead nobody phoned does not read as called. It runs whenever the
 queue is read or a batch asked for.
 

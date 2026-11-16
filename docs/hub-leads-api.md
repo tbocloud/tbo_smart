@@ -1180,9 +1180,10 @@ project set-ups saved by managers only.
 
 ## Changelog
 
-- **v1.32 (2026-11-16):** `get_my_calls`' `slots` (the day by slot against the plan), `counts.stages` and `today.stages`; a lead moved by hand
-  to Small Business counts as contacted, and to Not Responding or Wrong Number as called
+- **v1.32 (2026-11-16):** `get_my_calls`' `slots` (the day by slot against the plan, the
+  plan's slots not handed out yet included), `counts.stages` and `today.stages`
   (`call-batches.md` §5).
+
 - **v1.31 (2026-11-14):** `refresh_call` (§2.33); `recording_state` on a call entry.
 - **v1.30 (2026-11-14):** the Small Business stage in `get_options` (Lost, gray); `set_stage`
   to it needs no `note` (§2.16).

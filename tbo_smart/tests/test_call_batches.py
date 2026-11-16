@@ -380,33 +380,55 @@ class TestCallBatches(FrappeTestCase):
 		)
 		self.assertFalse(result or called_on, "a stage move is not a call")
 
-	def test_moving_a_lead_to_small_business_not_responding_or_wrong_number_counts_it_called(self):
-		# moved from the lead page instead of logging a call: each leaves the queue and counts called;
-		# only Small Business (they spoke) counts contacted
-		leads, batch, _items = self.batch_of(4, ends_in_hours=3)
+	def test_moving_a_new_lead_to_small_business_counts_it_called_and_contacted(self):
+		# phoned from the person's own phone, then Move to Small Business on the lead page
+		leads, batch, _items = self.batch_of(2)
 		frappe.set_user(BD)
 		set_lead_stage(leads[0], SMALL_BUSINESS)
-		set_lead_stage(leads[1], NOT_RESPONDING)
-		set_lead_stage(leads[2], WRONG_NUMBER)
 		calls = get_my_calls()
 		counts = calls["counts"]
-		self.assertEqual((counts["size"], counts["called"], counts["connected"]), (4, 3, 1))
-		self.assertEqual(
-			counts["stages"],
-			[
-				{"stage": NOT_RESPONDING, "count": 1},
-				{"stage": WRONG_NUMBER, "count": 1},
-				{"stage": SMALL_BUSINESS, "count": 1},
-			],
-		)
-		self.assertEqual([row["lead"] for row in calls["pending"]], [leads[3]])
+		self.assertEqual((counts["size"], counts["called"], counts["connected"]), (2, 1, 1))
+		listed = {row["lead"] for row in calls["pending"] + calls["scheduled"] + calls["overdue"]}
+		self.assertEqual(listed, {leads[1]})
 		frappe.set_user("Administrator")
-		rows = get_batch_items(batch)
-		self.assertEqual([row.outcome for row in rows], ["Connected", "Not answered", "Wrong number", None])
-		# Not Responding by hand is not tried again in the batch
-		self.assertEqual(len(rows), 4)
+		self.assertEqual(get_batch_items(batch)[0].outcome, "Connected")
+
+	def test_moving_a_new_lead_to_wrong_number_counts_it_called_not_contacted(self):
+		# phoned from the person's own phone, then Move to Wrong Number on the lead page
+		leads, batch, _items = self.batch_of(2)
+		frappe.set_user(BD)
+		set_lead_stage(leads[0], WRONG_NUMBER)
+		calls = get_my_calls()
+		counts = calls["counts"]
+		self.assertEqual((counts["size"], counts["called"], counts["connected"]), (2, 1, 0))
+		listed = {row["lead"] for row in calls["pending"] + calls["scheduled"] + calls["overdue"]}
+		self.assertEqual(listed, {leads[1]})
+		frappe.set_user("Administrator")
+		self.assertEqual(get_batch_items(batch)[0].outcome, "Wrong number")
+		self.assertFalse(
+			frappe.db.get_value("Lead", leads[0], "tbo_last_call_on"), "a stage move is not a call"
+		)
 		# counted once
 		self.assertEqual(sync_calls(BD), 0)
+
+	def test_moving_a_new_lead_to_not_responding_counts_it_called_once(self):
+		# phoned from the person's own phone, nobody picked up, then Move to Not Responding
+		leads, batch, _items = self.batch_of(2)
+		frappe.set_user(BD)
+		set_lead_stage(leads[0], NOT_RESPONDING)
+		counts = get_my_calls()["counts"]
+		self.assertEqual((counts["size"], counts["called"], counts["connected"]), (2, 1, 0))
+		frappe.set_user("Administrator")
+		self.assertEqual(get_batch_items(batch)[0].outcome, "Not answered")
+		# its retry is not counted again
+		self.assertEqual(sync_calls(BD), 0)
+
+	def test_not_answered_from_the_list_and_its_stage_move_count_once(self):
+		leads, batch, items = self.batch_of(1)
+		self.record(items[0], "Not answered")
+		self.assertEqual(frappe.db.get_value("Lead", leads[0], "tbo_stage"), NOT_RESPONDING)
+		self.assertEqual(sync_calls(BD), 0)
+		self.assertEqual([row.outcome for row in get_batch_items(batch)].count("Not answered"), 1)
 
 	def test_the_day_is_counted_by_slot_against_the_plan(self):
 		# the slot's first batch and the one handed out when it was done count together
@@ -471,17 +493,6 @@ class TestCallBatches(FrappeTestCase):
 			[("Morning", 50, 2, 0), ("Afternoon", 50, 0, 0)],
 		)
 		self.assertEqual(slots[1]["stages"], [])
-
-	def test_a_not_answered_call_and_its_own_move_to_not_responding_count_once(self):
-		leads, batch, _items = self.batch_of(1, ends_in_hours=1)
-		frappe.set_user(BD)
-		# logging it moves the lead to Not Responding itself
-		hub.log_call(leads[0], "Not answered")
-		self.assertEqual(frappe.db.get_value("Lead", leads[0], "tbo_stage"), NOT_RESPONDING)
-		counts = get_my_calls()["counts"]
-		self.assertEqual((counts["called"], counts["connected"]), (1, 0))
-		frappe.set_user("Administrator")
-		self.assertEqual([row.outcome for row in get_batch_items(batch)], ["Not answered"])
 
 	def test_a_lead_moved_past_new_lead_leaves_todays_calls(self):
 		# put On Hold from the lead page, or No answer (Not Responding): no longer a new lead to call
