@@ -72,6 +72,8 @@ RECONCILE_LOCK_KEY = "tbo_smart:telephony:reconcile"
 RECONCILE_LOCK_SECONDS = 5 * 60
 RECONCILE_USER_KEY = "tbo_smart:telephony:refresh:{}"
 RECONCILE_USER_SECONDS = 20
+LIVE_CALLS_KEY = "tbo_smart:telephony:live_calls"
+LIVE_CALLS_SECONDS = 3
 INCOMING_SECONDS = 60
 LIVE_STATES = {RINGING: "ringing", AGENT_PICKED: "ringing_lead", ON_CALL: "on_call"}
 MAX_RECORDING_BYTES = 50 * 1024 * 1024
@@ -225,7 +227,8 @@ def call_status(reference_id: str) -> dict:
 	if owner != user:
 		frappe.throw(_("This isn't your call."), frappe.PermissionError)
 	if not row:
-		return {"state": "calling", "lead": placed.get("lead")}
+		live = live_call_state(reference_id) if provider() == CALLERDESK else None
+		return {"state": LIVE_STATES.get(live, "calling"), "lead": placed.get("lead")}
 	ended = row.last_event != LIVE_EVENT
 	state = "ended" if ended else LIVE_STATES.get(row.live_status, "calling")
 	return {
@@ -921,32 +924,31 @@ def agent_tails(user: str) -> set[str]:
 
 def end_call(reference_id: str) -> dict:
 	"""End the session user's click-to-call from the call box ({ok}). Only the person who placed
-	it may; CallerDesk only (MyOperator has no such command). The call's report still arrives the
-	usual way and closes the box."""
+	it may; CallerDesk only (MyOperator has no such command). CallerDesk's id of the call is the
+	campid the click-to-call answered with, which is our reference. It can end a call only once
+	the telecaller has picked up. The call's report still arrives the usual way and closes the box."""
 	if pending_call(reference_id).get("user") != frappe.session.user:
 		frappe.throw(_("This isn't your call."), frappe.PermissionError)
 	if not telephony_enabled() or provider() != CALLERDESK:
 		frappe.throw(_("Hang up on your phone to end this call."))
-	call_sid = live_call_sid(reference_id, frappe.session.user)
-	if not call_sid:
-		frappe.throw(
-			_("CallerDesk shows no call in progress for you. If you are still on it, hang up on your phone.")
-		)
-	callerdesk.disconnect(call_sid)
+	callerdesk.disconnect(reference_id)
 	return {"ok": True}
 
 
-def live_call_sid(reference_id: str, user: str) -> str | None:
-	"""CallerDesk's id of the call in progress: the one a Live Call event stored for this
-	click-to-call, else the newest call CallerDesk shows in progress on the person's own number
-	(click-to-call answers with a campid, not this id)."""
-	stored = frappe.db.get_value(DOCTYPE, {"reference_id": reference_id, "last_event": LIVE_EVENT}, "call_id")
-	if stored:
-		return stored
-	mine = agent_tails(user)
-	rows = [row for row in callerdesk.live_calls() if callerdesk.tail(row.get("member_num")) in mine]
-	newest = max(rows, key=lambda row: str(row.get("entrydate") or ""), default=None)
-	return (str(newest.get("sid_id") or "").strip() or None) if newest else None
+def live_call_state(reference_id: str) -> str | None:
+	"""Where CallerDesk says a click-to-call is (its calls in progress, `live_call_v2`), for the
+	box while no webhook event has come: None until the telecaller picks up (CallerDesk lists the
+	call only then) and once it is over. The list is the whole account's, read at most once every
+	LIVE_CALLS_SECONDS whoever asks; a failure to read it is no news, not an error."""
+	rows = frappe.cache.get_value(LIVE_CALLS_KEY, expires=True)
+	if rows is None:
+		try:
+			rows = callerdesk.live_calls()
+		except callerdesk.CallerDeskError:
+			rows = []
+		frappe.cache.set_value(LIVE_CALLS_KEY, rows, expires_in_sec=LIVE_CALLS_SECONDS)
+	mine = next((row for row in rows if str(row.get("sid_id") or "").strip() == reference_id), None)
+	return callerdesk.live_state(mine) if mine else None
 
 
 # ---------- click-to-call ----------

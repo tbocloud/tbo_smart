@@ -63,11 +63,22 @@ KNOWN_STATUSES = {
 # `CallStatus` only ever says "Answered" or "No Answer"
 CALL_STATUS_AS_STATUS = {"answered": ANSWER, "no answer": "NOANSWER"}
 AGENT_ON_BREAK = "agent on break"
+# call_disconnect's refusal for an id it has no call for ("Their is no call exist using this callsid.")
+NO_CALL_TO_END = "no call exist"
+# live_call_v2's `callstatus` once the customer has answered contains one of these (its sample
+# says "Picked"); before that it read "Outbound Call", then "Transferring Call to Agent"
+# (seen on a real click-to-call, 2026-11-16)
+LIVE_TALKING_HINTS = ("pick", "answer", "connect")
 AGENT_ON_BREAK_HINT = "Ask an admin to add your number as an active member in CallerDesk."
 
 
 class CallerDeskError(frappe.ValidationError):
 	"""CallerDesk refused or couldn't be reached; the message is for people."""
+
+
+class NoCallToEndError(CallerDeskError):
+	"""CallerDesk has no call with that id to end: the telecaller hasn't picked up yet, or the
+	call is over."""
 
 
 def has_call_sid(event) -> bool:
@@ -281,10 +292,19 @@ def live_calls() -> list[dict]:
 	return [row for row in (rows if isinstance(rows, list) else []) if isinstance(row, dict)]
 
 
+def live_state(row: dict) -> str:
+	"""A `live_call_v2` row of a click-to-call as the call box's live status. The row appears
+	when the telecaller picks up, so it is at least AGENT_PICKED (the customer's phone rings)."""
+	status = str(row.get("callstatus") or "").lower()
+	return ON_CALL if any(hint in status for hint in LIVE_TALKING_HINTS) else AGENT_PICKED
+
+
 def disconnect(call_sid: str) -> None:
 	"""End a call in progress (`call_disconnect`, POST form: authcode, callsid; CallerDesk
-	support, 2026-11-16). It answers HTTP 200 {"type": "success" | "error", "message"}; anything
-	but success is a CallerDeskError with CallerDesk's own reason."""
+	support, 2026-11-16). `callsid` is the call's sid_id, which for a click-to-call is the campid
+	its request answered with. It answers HTTP 200 {"type": "success" | "error", "message"};
+	no call under that id is a NoCallToEndError, anything else but success a CallerDeskError
+	with CallerDesk's own reason."""
 	try:
 		response = requests.post(
 			DISCONNECT_URL,
@@ -298,6 +318,12 @@ def disconnect(call_sid: str) -> None:
 	if str(answer.get("type") or "").strip().lower() != "success":
 		# its success message echoes an internal address; a refusal's is a plain sentence
 		reason = str(answer.get("message") or "")[:200]
+		if NO_CALL_TO_END in reason.lower():
+			raise NoCallToEndError(
+				_(
+					"There is no call to end yet. If your phone is still ringing, decline it there; End call works once you have picked up."
+				)
+			)
 		raise CallerDeskError(
 			_("CallerDesk couldn't end the call: {0} Hang up on your phone.").format(reason)
 			if reason
@@ -351,11 +377,8 @@ def report_from_row(row: dict, campid: str | None = None, app: bool = False) -> 
 	if not sid or not row.get("enddatetime"):
 		return None
 	flow = str(row.get("channel") or row.get("Flow_type") or "").upper()
-	outgoing = (
-		flow in OUTGOING_DIRECTIONS
-		or "click" in str(row.get("callresult") or "").lower()
-		or (app and flow != "IVR")
-	)
+	click = "click" in str(row.get("callresult") or "").lower()
+	outgoing = flow in OUTGOING_DIRECTIONS or click or (app and flow != "IVR")
 	return {
 		"type": REPORT_TYPE,
 		"CallSid": sid,
@@ -368,7 +391,8 @@ def report_from_row(row: dict, campid: str | None = None, app: bool = False) -> 
 		"CallDuration": row.get("total_duration"),
 		"TalkDuration": row.get("talk_duration"),
 		"CallRecordingUrl": row.get("file") or "",
-		"campid": campid or str(row.get("campid") or ""),
+		# a click-to-call's campid is its sid_id (seen on real calls, 2026-11-16)
+		"campid": campid or str(row.get("campid") or "") or (sid if click else ""),
 		"receiver_name": row.get("member_name"),
 		"LegA_Picked_time": row.get("LegA_Picked_time"),
 		"LegB_Picked_time": row.get("LegB_Picked_time"),

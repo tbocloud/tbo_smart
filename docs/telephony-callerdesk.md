@@ -259,23 +259,43 @@ lead (seen on 2026-11-15: the reports came minutes later, through the reconcile)
   the lead's last call.
 - A call dialled on the person's own phone (no provider report) stays a `manual-…` TBO Call.
 
-### 4.2 End call (`calls.end_call`, `callerdesk.disconnect`)
+### 4.2 End call and the live state (`calls.end_call`, `calls.live_call_state`)
 
 CallerDesk support gave the hang-up command on 2026-11-16: `POST
 https://app.callerdesk.io/api/call_disconnect` (form: `authcode`, `callsid`). It answers HTTP 200
-`{"type": "success" | "error", "message"}`; an unknown id is `error` ("Their is no call exist
-using this callsid."), and a call that has already ended still answers `success` (probed
-2026-11-16). `callsid` is the call's `sid_id` / `CallSid`, not the click-to-call's `campid`.
+`{"type": "success" | "error", "message"}`.
+
+What a real click-to-call showed (test call, 2026-11-16):
+
+- **The `campid` click-to-call answers with is the call's `sid_id` / `CallSid`** (60023710 both).
+  So our `reference_id` is the id `call_disconnect` takes, and a `call_list_v2` row of a
+  click-to-call carries its own `sid_id` as the campid (`report_from_row`), which ties a call the
+  reconcile stores to the click-to-call that placed it.
+- **A call can be ended only after the telecaller has picked up.** While their own phone rings,
+  `call_disconnect` answers `error` "Their is no call exist using this callsid." and
+  `live_call_v2` does not list the call. (The owner pressed End call four seconds in and was told
+  there was no call.) An id of a call already over answers `success`.
+- **`live_call_v2`** (GET, the account's calls in progress) lists the call from the moment the
+  telecaller picks up: `callstatus` "Outbound Call", then "Transferring Call to Agent", with
+  `sid_id`, `msisdn` (customer), `member_num` (telecaller), `channel` WEBOBD.
+
+Built on that:
 
 - `end_call(reference_id, acting_user)` (POST, hub's call box): only the person who placed the
-  click-to-call. The id comes from the TBO Call a Live Call event stored for it, else from
-  `live_call_v2` (GET: the account's calls in progress): the newest one on the person's own
-  number (`member_num`). No call in progress, or a refusal, tells the person to hang up on
-  their phone. `{ok: true}` means CallerDesk took the request; the call's report still closes
+  click-to-call; `call_disconnect` with the reference. "No call exist" becomes "There is no call
+  to end yet. If your phone is still ringing, decline it there; End call works once you have
+  picked up." (`NoCallToEndError`); any other refusal gives CallerDesk's reason and says to hang
+  up on the phone. `{ok: true}` means CallerDesk took the request; the call's report still closes
   the box the usual way.
-- `click_to_call` answers `can_end` (true for CallerDesk) so the box knows to offer it.
-- **Not yet confirmed with a real call:** that `live_call_v2` lists a click-to-call (WEBOBD)
-  while it rings, and that the command drops both legs.
+- `click_to_call` answers `can_end` (true for CallerDesk).
+- **Live state without the webhook** (`live_call_state`, used by `call_status` while no TBO Call
+  is stored for the reference): the call's row in `live_call_v2` makes the box say *Ringing
+  <lead>* (`ringing_lead`), and *On call* once its `callstatus` contains "pick", "answer" or
+  "connect". No row: still *Calling your phone…*. The list is the whole account's and is read
+  at most once every 3 seconds (cache), whoever asks; a failure to read it changes nothing.
+- **Not yet confirmed with a real call:** `call_disconnect` on a call in progress (that both
+  legs drop), and the exact `callstatus` once the customer has answered (CallerDesk's own sample
+  says "Picked").
 
 ## 5. What the owner does
 
@@ -314,6 +334,9 @@ never returned by the settings API and shown only to a System Manager; Live Call
 
 ## Changelog
 
+- **v1.7 (2026-11-16):** after a real test call: the campid is the call's id, so End call uses the
+  reference itself; a clear message before the telecaller has picked up; the box's live state
+  from `live_call_v2` when no webhook comes (§4.2). No migrate needed.
 - **v1.6 (2026-11-16):** End call (§4.2): `call_disconnect`, `end_call`, `can_end`. No migrate needed.
 - **v1.5 (2026-11-15):** one call, one record (§3.3): the telecaller's result and CallerDesk's
   report of the same call no longer leave two TBO Calls. Needs `bench migrate` (new field

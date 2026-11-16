@@ -57,16 +57,6 @@ AGENTS = [
 ]
 
 
-# live_call_v2's answer: two calls in progress on the first telecaller's number, one on another's
-LIVE_CALLS = {
-	"total_live_calls": "2",
-	"live_calls": [
-		{"sid_id": "59930001", "member_num": "09000000002", "entrydate": "2026-11-16 10:00:00"},
-		{"sid_id": "59930002", "member_num": "09000000001", "entrydate": "2026-11-16 10:00:05"},
-		{"sid_id": "59930003", "member_num": "09000000001", "entrydate": "2026-11-16 10:01:00"},
-	],
-	"type": "success",
-}
 CALL_ENDED = {"type": "success", "message": "Call disconnect request submit successfully"}
 
 
@@ -86,6 +76,14 @@ class TestCallerDesk(FrappeTestCase):
 		delete_sales_records((BDE, BDE2))
 		disable_smart_leads()
 		enable_callerdesk(AGENTS)
+		# no test reaches CallerDesk: its list of calls in progress is empty unless a test says so
+		frappe.cache.delete_value(calls.LIVE_CALLS_KEY)
+		no_live_calls = patch(
+			"tbo_smart.telephony.callerdesk.requests.get",
+			return_value=myoperator_response(200, {"live_calls": [], "type": "success"}),
+		)
+		no_live_calls.start()
+		self.addCleanup(no_live_calls.stop)
 		# stored the way people type it: spaces and a trunk 0
 		self.lead = make_lead(BDE, "Caller Known", mobile_no="098765 43210")
 
@@ -659,57 +657,90 @@ class TestOneRecordPerCall(TestCallerDesk):
 class TestEndCall(TestCallerDesk):
 	"""End call in the call box: CallerDesk's call_disconnect, for the person's own call."""
 
-	def end(self, live: dict | None = None, answer: dict | None = None, user: str = BDE):
+	def end(self, answer: dict | None = None, user: str = BDE):
 		frappe.set_user(user)
 		try:
-			with (
-				patch(
-					"tbo_smart.telephony.callerdesk.requests.get",
-					return_value=myoperator_response(200, LIVE_CALLS if live is None else live),
-				) as get,
-				patch(
-					"tbo_smart.telephony.callerdesk.requests.post",
-					return_value=myoperator_response(200, CALL_ENDED if answer is None else answer),
-				) as post,
-			):
-				return api.end_call("57305000"), get, post
+			with patch(
+				"tbo_smart.telephony.callerdesk.requests.post",
+				return_value=myoperator_response(200, CALL_ENDED if answer is None else answer),
+			) as post:
+				return api.end_call("57305000"), post
 		finally:
 			frappe.set_user("Administrator")
 
-	def test_the_persons_newest_live_call_is_ended(self):
+	def test_the_call_is_ended_by_the_campid_its_click_to_call_answered_with(self):
 		result, _get = self.place_click_to_call()
 		self.assertTrue(result["can_end"])
-		answer, get, post = self.end()
+		answer, post = self.end()
 		self.assertEqual(answer, {"ok": True})
-		self.assertEqual(get.call_args.args[0], "https://app.callerdesk.io/api/live_call_v2")
 		self.assertEqual(post.call_args.args[0], "https://app.callerdesk.io/api/call_disconnect")
 		self.assertEqual(
-			post.call_args.kwargs["data"], {"authcode": TEST_CALLERDESK_KEY, "callsid": "59930003"}
+			post.call_args.kwargs["data"], {"authcode": TEST_CALLERDESK_KEY, "callsid": "57305000"}
 		)
 
-	def test_a_call_a_live_event_stored_is_ended_by_its_own_id(self):
+	def test_before_the_telecaller_picks_up_there_is_nothing_to_end(self):
 		self.place_click_to_call()
-		frappe.set_user("Administrator")
-		post_callerdesk_webhook(callerdesk_live("CD-LIVE-END"))
-		_answer, get, post = self.end()
-		get.assert_not_called()
-		self.assertEqual(post.call_args.kwargs["data"]["callsid"], "CD-LIVE-END")
-
-	def test_no_live_call_or_a_refusal_says_to_hang_up_on_the_phone(self):
-		self.place_click_to_call()
-		with self.assertRaises(frappe.ValidationError) as none:
-			self.end(live={"total_live_calls": "0", "live_calls": [], "type": "success"})
-		self.assertIn("hang up on your phone", str(none.exception))
 		refusal = {"type": "error", "message": "Their is no call exist using this callsid."}
-		with self.assertRaises(callerdesk.CallerDeskError) as refused:
+		with self.assertRaises(callerdesk.NoCallToEndError) as none:
 			self.end(answer=refusal)
-		self.assertIn("Their is no call exist", str(refused.exception))
+		self.assertIn("decline it there", str(none.exception))
+
+	def test_another_refusal_gives_callerdesks_reason_and_never_the_key(self):
+		self.place_click_to_call()
+		with self.assertRaises(callerdesk.CallerDeskError) as refused:
+			self.end(answer={"type": "error", "message": "Invalid Access."})
+		self.assertIn("Invalid Access.", str(refused.exception))
+		self.assertIn("Hang up on your phone", str(refused.exception))
 		self.assertNotIn(TEST_CALLERDESK_KEY, str(refused.exception))
 
 	def test_only_the_person_who_placed_the_call_may_end_it(self):
 		self.place_click_to_call()
 		with self.assertRaises(frappe.PermissionError):
 			self.end(user=BDE2)
+
+
+class TestLiveStateWithoutEvents(TestCallerDesk):
+	"""The box learns where a call is from CallerDesk's calls in progress when no webhook comes."""
+
+	def state(self, *live_rows: dict) -> str:
+		frappe.cache.delete_value(calls.LIVE_CALLS_KEY)
+		self.addCleanup(frappe.cache.delete_value, calls.LIVE_CALLS_KEY)
+		answer = {"total_live_calls": str(len(live_rows)), "live_calls": list(live_rows), "type": "success"}
+		frappe.set_user(BDE)
+		try:
+			with patch(
+				"tbo_smart.telephony.callerdesk.requests.get", return_value=myoperator_response(200, answer)
+			):
+				return calls.call_status("57305000")["state"]
+		finally:
+			frappe.set_user("Administrator")
+
+	def test_the_state_follows_the_live_call(self):
+		self.place_click_to_call()
+		# CallerDesk lists the call only once the telecaller has picked up
+		self.assertEqual(self.state(), "calling")
+		self.assertEqual(self.state({"sid_id": "99", "callstatus": "Picked"}), "calling")
+		mine = {"sid_id": "57305000", "callstatus": "Transferring Call to Agent"}
+		self.assertEqual(self.state(mine), "ringing_lead")
+		self.assertEqual(self.state({**mine, "callstatus": "Picked"}), "on_call")
+
+	def test_the_list_is_read_once_for_a_few_seconds_and_a_failure_is_no_news(self):
+		self.place_click_to_call()
+		frappe.cache.delete_value(calls.LIVE_CALLS_KEY)
+		self.addCleanup(frappe.cache.delete_value, calls.LIVE_CALLS_KEY)
+		frappe.set_user(BDE)
+		with patch(
+			"tbo_smart.telephony.callerdesk.requests.get", side_effect=requests.ConnectionError
+		) as get:
+			self.assertEqual(calls.call_status("57305000")["state"], "calling")
+			self.assertEqual(calls.call_status("57305000")["state"], "calling")
+		self.assertEqual(get.call_count, 1)
+
+	def test_a_click_to_call_in_the_call_list_carries_its_own_id_as_the_campid(self):
+		row = callerdesk_list_row("60023710", callresult="Click-to-call")
+		self.assertEqual(callerdesk.report_from_row(row)["campid"], "60023710")
+		self.assertEqual(callerdesk.report_from_row(row, "57305000")["campid"], "57305000")
+		self.assertEqual(callerdesk.report_from_row({**row, "callresult": "Incoming"})["campid"], "")
 
 
 class TestRecordingState(TestCallerDesk):
