@@ -11,6 +11,7 @@ from tbo_smart.test_utils import (
 	disable_sales_hierarchy,
 	make_image_base64,
 	make_lead,
+	make_pdf_bytes,
 	make_user,
 )
 
@@ -19,7 +20,8 @@ BDE = "files.bde@tbosmart.test"
 BDE2 = "files.bde2@tbosmart.test"
 MANAGER = "files.manager@tbosmart.test"
 PEOPLE = (BDE, BDE2, MANAGER)
-PDF = base64.b64encode(b"%PDF-1.4 requirement sheet").decode()
+PDF_BYTES = make_pdf_bytes()
+PDF = base64.b64encode(PDF_BYTES).decode()
 
 
 class TestLeadFiles(FrappeTestCase):
@@ -57,7 +59,7 @@ class TestLeadFiles(FrappeTestCase):
 		self.assertEqual(self.listed(), [added["name"]])
 		self.assertTrue(frappe.db.get_value("File", added["name"], "is_private"))
 		hub.get_lead_file(self.lead, added["name"], acting_user=BDE)
-		self.assertEqual(frappe.local.response.filecontent, b"%PDF-1.4 requirement sheet")
+		self.assertEqual(frappe.local.response.filecontent, PDF_BYTES)
 		self.assertEqual(frappe.local.response.content_type, "application/pdf")
 		self.assertEqual(frappe.local.response.display_content_as, "attachment")
 
