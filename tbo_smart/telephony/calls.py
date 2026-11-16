@@ -916,6 +916,39 @@ def agent_tails(user: str) -> set[str]:
 	}
 
 
+# ---------- ending a call ----------
+
+
+def end_call(reference_id: str) -> dict:
+	"""End the session user's click-to-call from the call box ({ok}). Only the person who placed
+	it may; CallerDesk only (MyOperator has no such command). The call's report still arrives the
+	usual way and closes the box."""
+	if pending_call(reference_id).get("user") != frappe.session.user:
+		frappe.throw(_("This isn't your call."), frappe.PermissionError)
+	if not telephony_enabled() or provider() != CALLERDESK:
+		frappe.throw(_("Hang up on your phone to end this call."))
+	call_sid = live_call_sid(reference_id, frappe.session.user)
+	if not call_sid:
+		frappe.throw(
+			_("CallerDesk shows no call in progress for you. If you are still on it, hang up on your phone.")
+		)
+	callerdesk.disconnect(call_sid)
+	return {"ok": True}
+
+
+def live_call_sid(reference_id: str, user: str) -> str | None:
+	"""CallerDesk's id of the call in progress: the one a Live Call event stored for this
+	click-to-call, else the newest call CallerDesk shows in progress on the person's own number
+	(click-to-call answers with a campid, not this id)."""
+	stored = frappe.db.get_value(DOCTYPE, {"reference_id": reference_id, "last_event": LIVE_EVENT}, "call_id")
+	if stored:
+		return stored
+	mine = agent_tails(user)
+	rows = [row for row in callerdesk.live_calls() if callerdesk.tail(row.get("member_num")) in mine]
+	newest = max(rows, key=lambda row: str(row.get("entrydate") or ""), default=None)
+	return (str(newest.get("sid_id") or "").strip() or None) if newest else None
+
+
 # ---------- click-to-call ----------
 
 
@@ -959,6 +992,8 @@ def click_to_call(lead: str, number: str | None = None) -> dict:
 	return {
 		"ok": True,
 		"message": _("{0} is calling your phone…").format(name),
+		# the call box may offer End call (CallerDesk has a command for it)
+		"can_end": name == CALLERDESK,
 		"number": customer,
 		"reference_id": reference_id,
 		"request_id": request_id,

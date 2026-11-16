@@ -35,6 +35,8 @@ CLICK_TO_CALL_URL = "https://app.callerdesk.io/api/click_to_call_v2"
 CALL_LIST_URL = "https://app.callerdesk.io/api/call_list_v2"
 # calls the telecaller dialled from CallerDesk's own mobile app ("Single Leg Call Report")
 APP_CALL_LIST_URL = "https://app.callerdesk.io/api/app_call_list_v2"
+LIVE_CALLS_URL = "https://app.callerdesk.io/api/live_call_v2"
+DISCONNECT_URL = "https://app.callerdesk.io/api/call_disconnect"
 # call_list_v2 pages hold 25 calls ("set at 25 from backend"); a day never needs more than this
 MAX_LIST_PAGES = 20
 TIMEOUT = 15
@@ -258,6 +260,49 @@ def call_refused(status: int, reason: str | None) -> str:
 	if reason:
 		return _("CallerDesk didn't accept the call: {0}").format(reason)
 	return _("CallerDesk didn't accept the call ({0}). Try again in a minute.").format(status)
+
+
+# ---------- ending a call ----------
+
+
+def live_calls() -> list[dict]:
+	"""The account's calls in progress (`live_call_v2`, GET with authcode): rows with `sid_id`
+	(the call's CallSid), `member_num` (the telecaller), `msisdn` (the customer), `entrydate`.
+	CallerDeskError when CallerDesk can't be reached or refuses."""
+	try:
+		response = requests.get(
+			LIVE_CALLS_URL, params={"authcode": secret("callerdesk_api_key") or ""}, timeout=TIMEOUT
+		)
+		answer = response.json() if response.ok else {}
+	except (requests.RequestException, ValueError):
+		# the request's URL carries the key, so nothing of the exception is shown or logged
+		raise CallerDeskError(_("Couldn't reach CallerDesk. Try again in a minute.")) from None
+	rows = answer.get("live_calls") if isinstance(answer, dict) else None
+	return [row for row in (rows if isinstance(rows, list) else []) if isinstance(row, dict)]
+
+
+def disconnect(call_sid: str) -> None:
+	"""End a call in progress (`call_disconnect`, POST form: authcode, callsid; CallerDesk
+	support, 2026-11-16). It answers HTTP 200 {"type": "success" | "error", "message"}; anything
+	but success is a CallerDeskError with CallerDesk's own reason."""
+	try:
+		response = requests.post(
+			DISCONNECT_URL,
+			data={"authcode": secret("callerdesk_api_key") or "", "callsid": call_sid},
+			timeout=TIMEOUT,
+		)
+		answer = response.json() if response.ok else {}
+	except (requests.RequestException, ValueError):
+		raise CallerDeskError(_("Couldn't reach CallerDesk. Hang up on your phone.")) from None
+	answer = answer if isinstance(answer, dict) else {}
+	if str(answer.get("type") or "").strip().lower() != "success":
+		# its success message echoes an internal address; a refusal's is a plain sentence
+		reason = str(answer.get("message") or "")[:200]
+		raise CallerDeskError(
+			_("CallerDesk couldn't end the call: {0} Hang up on your phone.").format(reason)
+			if reason
+			else _("CallerDesk couldn't end the call. Hang up on your phone.")
+		)
 
 
 # ---------- call report (reconcile) ----------
