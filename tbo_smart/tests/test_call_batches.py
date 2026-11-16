@@ -11,6 +11,7 @@ from tbo_smart.lead_pipeline.statuses import (
 	FOLLOW_UP_REQUIRED,
 	NOT_RESPONDING,
 	ON_HOLD,
+	SMALL_BUSINESS,
 )
 from tbo_smart.sales.activities import next_follow_ups
 from tbo_smart.sales.call_batches import clock
@@ -373,6 +374,19 @@ class TestCallBatches(FrappeTestCase):
 			"Lead", leads[0], ["tbo_last_call_result", "tbo_last_call_on"]
 		)
 		self.assertFalse(result or called_on, "a stage move is not a call")
+
+	def test_moving_a_new_lead_to_small_business_counts_it_called_and_contacted(self):
+		# phoned from the person's own phone, then Move to Small Business on the lead page
+		leads, batch, _items = self.batch_of(2)
+		frappe.set_user(BD)
+		set_lead_stage(leads[0], SMALL_BUSINESS)
+		calls = get_my_calls()
+		counts = calls["counts"]
+		self.assertEqual((counts["size"], counts["called"], counts["connected"]), (2, 1, 1))
+		listed = {row["lead"] for row in calls["pending"] + calls["scheduled"] + calls["overdue"]}
+		self.assertEqual(listed, {leads[1]})
+		frappe.set_user("Administrator")
+		self.assertEqual(get_batch_items(batch)[0].outcome, "Connected")
 
 	def test_a_lead_moved_past_new_lead_leaves_todays_calls(self):
 		# put On Hold from the lead page, or No answer (Not Responding): no longer a new lead to call
