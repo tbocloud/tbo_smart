@@ -48,7 +48,7 @@ from tbo_smart.smart_leads import (
 )
 from tbo_smart.smart_leads.facts import LeadFacts, clip
 from tbo_smart.smart_leads.notes import draft_whatsapp
-from tbo_smart.smart_leads.utils import normalise_phone
+from tbo_smart.smart_leads.utils import normalise_phone, phone_tail
 
 AI_AUTHOR = "TBO AI"
 SENTIMENTS = ("Positive", "Neutral", "Negative")
@@ -391,13 +391,13 @@ def lead_health(facts: LeadFacts, lead: str, sentiment: str | None) -> dict:
 
 
 def find_duplicates(lead: str) -> list[dict]:
-	"""Other leads the session user may see with the same mobile (last ten digits), email or
+	"""Other leads the session user may see with the same mobile (last 10 digits, 9 in Saudi Arabia), email or
 	company name: likely the same customer."""
 	row = frappe.db.get_value(
 		"Lead", lead, ["mobile_no", "phone", "whatsapp_no", "email_id", "company_name"], as_dict=True
 	)
 	digits = {
-		normalise_phone(number)[-10:]
+		phone_tail(normalise_phone(number))
 		for number in (row.mobile_no, row.phone, row.whatsapp_no)
 		if normalise_phone(number)
 	}
@@ -432,7 +432,7 @@ def find_duplicates(lead: str) -> list[dict]:
 	for other in rows:
 		why = []
 		other_digits = {
-			normalise_phone(number)[-10:]
+			phone_tail(normalise_phone(number))
 			for number in (other.mobile_no, other.phone)
 			if normalise_phone(number)
 		}

@@ -172,6 +172,8 @@
   "website_lead_department",
   "duplicate_numbers_section",
   "shared_numbers",
+  "lead_visibility_section",
+  "everyone_reads_all_leads",
   "prospecting_section",
   "enable_prospecting",
   "prospect_osm_enabled",
@@ -1247,6 +1249,18 @@
    "fieldtype": "Small Text",
    "label": "Numbers many businesses share",
    "description": "One per line, e.g. a lead portal's virtual number. A number belongs to one lead, except these: they may be on any number of leads."
+  },
+  {
+   "fieldname": "lead_visibility_section",
+   "fieldtype": "Section Break",
+   "label": "Who sees leads"
+  },
+  {
+   "default": "0",
+   "fieldname": "everyone_reads_all_leads",
+   "fieldtype": "Check",
+   "label": "Everyone who may read leads reads every lead and deal",
+   "description": "Off: a salesperson sees the leads and deals they own or are assigned to (their team's too in the sales hierarchy). On: everyone whose role may read Lead or Opportunity reads all of them; changing one still needs owning it or being assigned to it."
   },
   {
    "fieldname": "prospecting_section",

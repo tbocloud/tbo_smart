@@ -21,11 +21,10 @@ from frappe import _
 from frappe.query_builder import CustomFunction
 from frappe.utils import cint, get_fullname, now_datetime
 
-from tbo_smart.smart_leads.utils import normalise_phone, tel_link, whatsapp_link
+from tbo_smart.smart_leads.utils import match_digits, normalise_phone, phone_tail, tel_link, whatsapp_link
 
 NUMBER = "TBO Lead Number"
 FIELD = "tbo_numbers"
-MATCH_DIGITS = 10
 MIN_SEARCH_DIGITS = 5
 MAX_SEARCH_LEADS = 500
 PHONE_TEXT = re.compile(r"[\d\s+\-()]+")
@@ -163,12 +162,12 @@ def resolve(lead: str, number: str | None) -> str | None:
 
 
 def same_digits(first: str | None, second: str | None) -> bool:
-	"""Two normalised numbers are the same: equal, or equal in their last ten digits."""
+	"""Two normalised numbers are the same: equal, or equal in their last `match_digits` digits
+	(10 in India, 9 in Saudi Arabia)."""
 	if not first or not second:
 		return False
-	return first == second or (
-		min(len(first), len(second)) >= MATCH_DIGITS and first[-MATCH_DIGITS:] == second[-MATCH_DIGITS:]
-	)
+	size = match_digits()
+	return first == second or (min(len(first), len(second)) >= size and first[-size:] == second[-size:])
 
 
 def number_criterion(lead_table, key: str):
@@ -189,7 +188,7 @@ def leads_with(number: str | None) -> list[str]:
 	if not digits:
 		return []
 	Row = frappe.qb.DocType(NUMBER)
-	key = digits[-MATCH_DIGITS:]
+	key = phone_tail(digits)
 	return (
 		frappe.qb.from_(Row)
 		.select(Row.parent)

@@ -305,6 +305,8 @@ after_migrate = [
 	"tbo_smart.lead_pipeline.setup.after_migrate",
 	"tbo_smart.sales.call_batches.setup.after_migrate",
 	"tbo_smart.telephony.setup.setup_telephony",
+	# also a patch, but a site moved here on v15 has it marked done before v16 needs it
+	"tbo_smart.patches.v1.copy_sources_to_utm.execute",
 ]
 
 scheduler_events = {

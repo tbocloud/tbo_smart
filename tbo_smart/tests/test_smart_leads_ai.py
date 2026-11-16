@@ -1,10 +1,21 @@
+from unittest.mock import patch
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from tbo_smart import ai
 from tbo_smart.smart_leads.migration import parse_migration_note
 from tbo_smart.smart_leads.notify import teams_url_problem
-from tbo_smart.smart_leads.utils import normalise_phone, tel_link, whatsapp_link
+from tbo_smart.smart_leads.utils import (
+	dialling_code,
+	is_weekly_off,
+	match_digits,
+	normalise_phone,
+	phone_tail,
+	tel_link,
+	weekly_off_days,
+	whatsapp_link,
+)
 from tbo_smart.test_utils import (
 	TEST_OPENAI_KEY,
 	ai_http_response,
@@ -125,6 +136,12 @@ class TestNumberGuard(FrappeTestCase):
 
 
 class TestPhone(FrappeTestCase):
+	def setUp(self):
+		# the tests below are for an Indian site; TestPhoneCountry covers the others
+		patcher = patch("tbo_smart.smart_leads.utils.system_country", return_value="India")
+		patcher.start()
+		self.addCleanup(patcher.stop)
+
 	def test_ten_digits_are_indian(self):
 		self.assertEqual(normalise_phone("98470 12345"), "919847012345")
 		self.assertEqual(normalise_phone("098470-12345"), "919847012345")
@@ -152,6 +169,113 @@ class TestPhone(FrappeTestCase):
 			whatsapp_link("9847012345", "Hello Ajith, can we talk?"),
 			"https://wa.me/919847012345?text=Hello%20Ajith%2C%20can%20we%20talk%3F",
 		)
+
+
+class TestPhoneCountry(FrappeTestCase):
+	"""A number typed without a code gets the site's country's (System Settings → Country)."""
+
+	def country(self, name):
+		return patch("tbo_smart.smart_leads.utils.system_country", return_value=name)
+
+	def test_saudi_site(self):
+		with self.country("Saudi Arabia"):
+			self.assertEqual(normalise_phone("0501234567"), "966501234567")
+			self.assertEqual(normalise_phone("050 123 4567"), "966501234567")
+			self.assertEqual(normalise_phone("501234567"), "966501234567")
+			self.assertEqual(normalise_phone("966501234567"), "966501234567")
+			self.assertEqual(normalise_phone("+966 50 123 4567"), "966501234567")
+			# a number with its own code is kept
+			self.assertEqual(normalise_phone("+91 98470 12345"), "919847012345")
+			self.assertEqual(tel_link("0501234567"), "tel:+966501234567")
+			self.assertEqual(whatsapp_link("0501234567"), "https://wa.me/966501234567")
+
+	def test_india_when_unset_or_unknown(self):
+		for name in (None, "", "Atlantis"):
+			with self.country(name):
+				self.assertEqual(normalise_phone("98470 12345"), "919847012345")
+
+	def test_a_given_country_wins(self):
+		with self.country("Saudi Arabia"):
+			self.assertEqual(normalise_phone("0501234567", "971"), "971501234567")
+
+	def test_dialling_codes(self):
+		self.assertEqual(dialling_code("Saudi Arabia"), "966")
+		self.assertEqual(dialling_code("India"), "91")
+		self.assertEqual(dialling_code("United Arab Emirates"), "971")
+		self.assertEqual(dialling_code(None), "91")
+
+	def test_numbers_match_on_the_national_digits(self):
+		from tbo_smart.sales.duplicates import phone_key
+		from tbo_smart.sales.numbers import same_digits
+		from tbo_smart.telephony.calls import same_number
+
+		with self.country("India"):
+			self.assertEqual(match_digits(), 10)
+			self.assertEqual(phone_key("+91 98470 12345"), "9847012345")
+			# two Indian numbers apart in their first digit stay apart
+			self.assertFalse(same_digits("919847012345", "918847012345"))
+		with self.country("Saudi Arabia"):
+			self.assertEqual(match_digits(), 9)
+			self.assertEqual(phone_tail("966501234567"), "501234567")
+			# however the lead's field holds it, the key is the same
+			for typed in ("050 123 4567", "0501234567", "+966 50 123 4567", "966501234567"):
+				self.assertEqual(phone_key(typed), "501234567")
+			self.assertTrue(same_number("050 123 4567", "966501234567"))
+			self.assertTrue(same_digits("966501234567", "966501234567"))
+			self.assertFalse(same_digits("966501234567", "966551234567"))
+
+
+class TestWeekend(FrappeTestCase):
+	"""The weekend is the site country's: Sunday in India, Friday and Saturday in Saudi Arabia."""
+
+	FRIDAY, SATURDAY, SUNDAY = "2026-11-20", "2026-11-21", "2026-11-22"
+
+	def country(self, name):
+		return patch("tbo_smart.smart_leads.utils.system_country", return_value=name)
+
+	def test_weekly_off_days(self):
+		with self.country("India"):
+			self.assertEqual([is_weekly_off(d) for d in (self.FRIDAY, self.SATURDAY, self.SUNDAY)], [0, 0, 1])
+		with self.country("Saudi Arabia"):
+			self.assertEqual([is_weekly_off(d) for d in (self.FRIDAY, self.SATURDAY, self.SUNDAY)], [1, 1, 0])
+		with self.country(None):
+			self.assertEqual(weekly_off_days(), (6,))
+
+	def test_outreach_window_skips_the_weekend(self):
+		from tbo_smart.outreach.guards import in_window, next_window
+
+		with patch("tbo_smart.outreach.guards.setting", return_value=None):
+			with self.country("Saudi Arabia"):
+				self.assertFalse(in_window(f"{self.FRIDAY} 11:00:00"))
+				self.assertTrue(in_window(f"{self.SUNDAY} 11:00:00"))
+				self.assertEqual(str(next_window(f"{self.FRIDAY} 11:00:00")), f"{self.SUNDAY} 09:30:00")
+			with self.country("India"):
+				self.assertTrue(in_window(f"{self.FRIDAY} 11:00:00"))
+				self.assertFalse(in_window(f"{self.SUNDAY} 11:00:00"))
+
+	def test_auto_assign_skips_the_saudi_weekend(self):
+		from tbo_smart.sales.call_batches.auto_assign import skips
+
+		department = frappe._dict(auto_assign_skip_sunday=1, auto_assign_skip_saturdays=None)
+		with self.country("Saudi Arabia"):
+			self.assertTrue(skips(department, self.FRIDAY))
+			self.assertTrue(skips(department, self.SATURDAY))
+			self.assertFalse(skips(department, self.SUNDAY))
+		with self.country("India"):
+			self.assertFalse(skips(department, self.FRIDAY))
+			self.assertTrue(skips(department, self.SUNDAY))
+
+
+class TestEveryoneReadsAllLeads(FrappeTestCase):
+	def test_setting_opens_reading_only(self):
+		from tbo_smart.sales.permissions import everyone_reads_all
+
+		with patch("frappe.db.get_single_value", return_value=1):
+			self.assertTrue(everyone_reads_all("read"))
+			self.assertTrue(everyone_reads_all(None))
+			self.assertFalse(everyone_reads_all("write"))
+		with patch("frappe.db.get_single_value", return_value=0):
+			self.assertFalse(everyone_reads_all("read"))
 
 
 class TestMigrationNote(FrappeTestCase):

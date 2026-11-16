@@ -1,28 +1,79 @@
 """Phone numbers, working days and leave for the smart lead features (docs/smart-leads.md)."""
 
 import re
+from functools import lru_cache
 from urllib.parse import quote
 
 import erpnext
 import frappe
+from frappe.geo.country_info import get_country_info
 from frappe.utils import add_days, getdate
 
 NON_DIGITS = re.compile(r"\D")
 INDIA = "91"
 
 
-def normalise_phone(phone: str | None, country: str = INDIA) -> str | None:
+def system_country() -> str | None:
+	"""The site's country (System Settings → Country)."""
+	return frappe.db.get_single_value("System Settings", "country")
+
+
+@lru_cache(maxsize=32)
+def dialling_code(country: str | None) -> str:
+	"""The country's dialling code as digits ("Saudi Arabia" → "966"); India's for none or unknown."""
+	isd = get_country_info(country).get("isd") if country else None
+	return NON_DIGITS.sub("", isd or "") or INDIA
+
+
+def default_country_code() -> str:
+	"""The code a number typed without one gets: the site's country's, India's when it has none."""
+	return dialling_code(system_country())
+
+
+# digits of a national number (no country code, no trunk 0), by dialling code; others: 10
+NATIONAL_DIGITS = {"91": 10, "966": 9, "971": 9, "974": 8, "965": 8, "973": 8, "968": 8}
+
+
+def match_digits() -> int:
+	"""How many trailing digits make two numbers the same: the length of a national number in
+	the site's country (India 10, Saudi Arabia and the UAE 9). Then 050 123 4567, 501234567 and
+	+966 50 123 4567 are one number however a lead's fields hold it."""
+	return NATIONAL_DIGITS.get(default_country_code(), 10)
+
+
+def phone_tail(digits: str | None) -> str | None:
+	"""The last `match_digits` digits of a number: the key numbers are matched on."""
+	return digits[-match_digits() :] if digits else None
+
+
+# weekdays off (Monday 0 … Sunday 6), by dialling code; others: Sunday
+WEEKENDS = {"966": (4, 5), "974": (4, 5), "965": (4, 5), "973": (4, 5), "968": (4, 5), "971": (5, 6)}
+SUNDAY_ONLY = (6,)
+
+
+def weekly_off_days() -> tuple[int, ...]:
+	"""The site country's weekend (Friday and Saturday in Saudi Arabia, Sunday in India)."""
+	return WEEKENDS.get(default_country_code(), SUNDAY_ONLY)
+
+
+def is_weekly_off(day) -> bool:
+	return getdate(day).weekday() in weekly_off_days()
+
+
+def normalise_phone(phone: str | None, country: str | None = None) -> str | None:
 	"""International digits without "+", or None when there is no usable number.
 
 	"+" or "00" starts an international number, kept as it is. Otherwise a single trunk 0 is
-	dropped and the default `country` code (India, 91, TBO's market) is added, unless the number
-	already starts with it and is longer than 10 digits ("919847012345").
+	dropped and the `country` code is added (default: the site's country, System Settings →
+	Country; India, 91, when unset), unless the number already starts with it and is longer than
+	10 digits ("919847012345", "966501234567").
 	"""
 	raw = (phone or "").strip()
 	digits = NON_DIGITS.sub("", raw)
 	if raw.startswith("00"):
 		digits = digits[2:]
 	elif not raw.startswith("+"):
+		country = country or default_country_code()
 		digits = digits.removeprefix("0")
 		if len(digits) <= 10 or not digits.startswith(country):
 			digits = country + digits

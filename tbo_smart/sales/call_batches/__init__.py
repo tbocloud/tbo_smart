@@ -13,6 +13,8 @@ from frappe import _
 from frappe.desk.form.assign_to import _add as add_assignment
 from frappe.utils import cint, get_datetime, get_time, getdate
 
+from tbo_smart.smart_leads.utils import is_weekly_off
+
 BATCH = "TBO Call Batch"
 ITEM = "TBO Call Batch Item"
 SLOT = "TBO Call Slot"
@@ -101,11 +103,12 @@ def batch_departments(user: str | None = None) -> list:
 
 def is_off_today(user: str, day) -> str | None:
 	"""Why `user` does not work on `day` (a holiday, a weekly off or approved leave), else None.
-	Without an employee record or a holiday list only Sundays are off."""
+	Without an employee record or a holiday list only the site country's weekend is off (Sunday
+	in India, Friday and Saturday in Saudi Arabia)."""
 	day = getdate(day)
 	employee = frappe.db.get_value("Employee", {"user_id": user, "status": "Active"}, "name")
 	if not employee:
-		return "weekly off" if day.weekday() == 6 else None
+		return "weekly off" if is_weekly_off(day) else None
 	if frappe.db.exists("DocType", "Leave Application") and frappe.db.exists(
 		"Leave Application",
 		{
@@ -122,7 +125,7 @@ def is_off_today(user: str, day) -> str | None:
 
 	holiday_list = get_holiday_list_for_employee(employee, raise_exception=False)
 	if not holiday_list:
-		return "weekly off" if day.weekday() == 6 else None
+		return "weekly off" if is_weekly_off(day) else None
 	if frappe.db.exists("Holiday", {"parent": holiday_list, "holiday_date": day}):
 		return "holiday"
 	return None

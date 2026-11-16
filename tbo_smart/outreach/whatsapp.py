@@ -17,7 +17,7 @@ from tbo_smart.outreach import APPROVED, CANCELLED, FAILED, MESSAGE, SENT, WHATS
 from tbo_smart.outreach.guards import in_window, never_contact, whatsapp_number
 from tbo_smart.prospecting.signals import prospect_of
 from tbo_smart.sales import products
-from tbo_smart.smart_leads.utils import INDIA, normalise_phone
+from tbo_smart.smart_leads.utils import match_digits, normalise_phone
 
 QUEUED = "Queued"
 SENDING = "Sending"
@@ -28,7 +28,6 @@ RANK = {QUEUED: 0, SENDING: 1, SENT: 2, DELIVERED: 3, READ: 4}
 RECEIPTS = {"sent": SENT, "delivered": DELIVERED, "read": READ}
 WINDOW_HOURS = 24
 QUEUE_LIMIT = 20
-MATCH_DIGITS = 10
 MEDIUM = "Chat"
 SUBJECT = "WhatsApp"
 CHAT_MESSAGE_PREFIX = "chat:"
@@ -103,7 +102,6 @@ def pending(country: str | None = None, limit: int = QUEUE_LIMIT) -> list[dict]:
 	whose lead unsubscribed or was lost meanwhile is cancelled instead of handed out."""
 	if not in_window():
 		return []
-	country = country or INDIA
 	names = frappe.get_all(
 		MESSAGE,
 		filters={"channel": WHATSAPP, "status": APPROVED, "via_chat": 1, "chat_status": QUEUED},
@@ -272,7 +270,7 @@ def file_outgoing(lead: str, text: str, message_id=None, who: str | None = None)
 def find_lead(phone: str | None, conversation_id=None) -> str | None:
 	"""The lead a chat belongs to: the one that holds the conversation, else the most recently
 	changed lead with a number (any of its rows, or its mobile, WhatsApp or phone field) that ends
-	in the same ten digits."""
+	in the same last digits (10 in India, 9 in Saudi Arabia: utils.match_digits)."""
 	if conversation_id and (
 		lead := frappe.db.get_value("Lead", {"tbo_chat_conversation_id": str(conversation_id)}, "name")
 	):
@@ -280,7 +278,8 @@ def find_lead(phone: str | None, conversation_id=None) -> str | None:
 	digits = normalise_phone(phone)
 	if not digits:
 		return None
-	tail = digits[-MATCH_DIGITS:]
+	size = match_digits()
+	tail = digits[-size:]
 	rows = frappe.db.sql(
 		"""select name from `tabLead`
 		where right(regexp_replace(ifnull(mobile_no, ''), '[^0-9]', ''), %(n)s) = %(tail)s
@@ -291,7 +290,7 @@ def find_lead(phone: str | None, conversation_id=None) -> str | None:
 				where parenttype = 'Lead' and right(digits, %(n)s) = %(tail)s
 			)
 		order by modified desc limit 1""",
-		{"n": MATCH_DIGITS, "tail": tail},
+		{"n": size, "tail": tail},
 	)
 	return rows[0][0] if rows else None
 

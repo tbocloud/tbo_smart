@@ -36,7 +36,7 @@ from tbo_smart.sales.activities import CALL, CANCELLED, OPEN, add_event, add_fol
 from tbo_smart.sales.call_batches import BUSY
 from tbo_smart.sales.stages import system_save
 from tbo_smart.smart_leads import FOLLOW_UP_TYPE
-from tbo_smart.smart_leads.utils import normalise_phone
+from tbo_smart.smart_leads.utils import match_digits, normalise_phone, phone_tail
 from tbo_smart.telephony import (
 	AGENT_PICKED,
 	AGENT_SIDE_STATUSES,
@@ -641,11 +641,11 @@ def new_caller_lead(number: str | None, owner: str | None) -> str | None:
 
 def find_lead(number: str | None) -> str | None:
 	"""The lead with this number among its number rows, or in its mobile, phone or WhatsApp field
-	(spaces, dashes, +91 and a trunk 0 don't matter): an open one first, then the newest."""
+	(spaces, dashes, the country code and a trunk 0 don't matter): an open one first, then the newest."""
 	digits = normalise_phone(number)
 	if not digits:
 		return None
-	tail = digits[-10:]
+	tail = phone_tail(digits)
 	Lead = frappe.qb.DocType("Lead")
 
 	def bare(field):
@@ -676,7 +676,8 @@ def find_lead(number: str | None) -> str | None:
 
 def same_number(stored: str | None, digits: str) -> bool:
 	other = normalise_phone(stored)
-	return bool(other) and (other == digits or (len(other) >= 10 and other[-10:] == digits[-10:]))
+	size = match_digits()
+	return bool(other) and (other == digits or (len(other) >= size and other[-size:] == digits[-size:]))
 
 
 def agent_rows() -> list:

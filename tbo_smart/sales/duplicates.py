@@ -1,6 +1,6 @@
 """Duplicate leads (docs/lead-departments.md §6): stop two people working the same enquiry.
 
-A lead matches on email (case-insensitive), phone (the last 10 digits, across every number the
+A lead matches on email (case-insensitive), phone (the last 10 digits, 9 in Saudi Arabia, across every number the
 lead has: its number rows, whatever their status, and its mobile, phone and WhatsApp fields) or
 company (case-insensitive, exact). The search covers every lead, whoever may see it, and returns only the fields that say whose work it is: the point is that a
 salesperson learns the lead exists and who owns it, not that they may open it.
@@ -23,9 +23,9 @@ from frappe.utils import get_datetime
 from tbo_smart.api.mobile.crm import any_of, phone_criterion, text_criterion
 from tbo_smart.api.mobile.utils import get_full_names
 from tbo_smart.sales import SETTINGS, numbers
+from tbo_smart.smart_leads.utils import match_digits
 
 MAX_MATCHES = 5
-PHONE_DIGITS = 10
 MIN_PHONE_DIGITS = 7
 PHONE_FIELDS = ("mobile_no", "phone", "whatsapp_no")
 MATCH_FIELDS = ("name", "lead_name", "company_name", "email_id", "mobile_no", "lead_owner", "tbo_stage")
@@ -44,9 +44,10 @@ def match_keys(email: str | None, phone: str | None, company: str | None) -> fra
 
 
 def phone_key(phone: str | None) -> str | None:
-	"""A number's last 10 digits (7 at least), whatever spaces, +91 or trunk 0 it is typed with."""
+	"""A number's last 10 digits (9 in Saudi Arabia, utils.match_digits; 7 at least), whatever
+	spaces, country code or trunk 0 it is typed with."""
 	digits = re.sub(r"\D", "", phone or "")
-	return digits[-PHONE_DIGITS:] if len(digits) >= MIN_PHONE_DIGITS else None
+	return digits[-match_digits() :] if len(digits) >= MIN_PHONE_DIGITS else None
 
 
 def shared_numbers() -> set[str]:
@@ -79,7 +80,7 @@ def newer_duplicates(leads: list[str]) -> set[str]:
 	if not keys:
 		return set()
 	Lead = frappe.qb.DocType("Lead")
-	key = numbers.Right(Row.digits, PHONE_DIGITS)
+	key = numbers.Right(Row.digits, match_digits())
 	holders = (
 		frappe.qb.from_(Row)
 		.join(Lead)
