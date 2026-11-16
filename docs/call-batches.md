@@ -107,9 +107,11 @@ a later answered call that day adds a "Called back" item with Connected. A move 
 Interested, Meeting Scheduled, Not Interested, Small Business: `REACHED_STAGES`), by the person
 after the call, counts as an answered call the same way, for example Not answered in the batch and
 then Move stage to Contacted on the lead page, or a new lead phoned from the person's own phone and
-moved to Small Business (only a conversation tells a lead is too small for TBO). The stage move a logged answered call makes itself (within
-2 minutes, `SAME_CONTACT`) is that call's, so it is counted once. A stage move is not a call: the
-item counts it Connected, but the lead's last call result and time are left as they were
+moved to Small Business (only a conversation tells a lead is too small for TBO). A move by hand to
+Wrong Number counts as a **Wrong number** call (`UNREACHED_STAGES`): called, not contacted. The
+stage move a logged call makes itself (within 2 minutes, `SAME_CONTACT`; an answered call, for a
+stage that means they spoke) is that call's, so it is counted once. A stage move is not a call: the
+item counts it Connected (Wrong number for Wrong Number), but the lead's last call result and time are left as they were
 (`apply(..., call=False)`), so a lead nobody phoned does not read as called. It runs whenever the
 queue is read or a batch asked for.
 
