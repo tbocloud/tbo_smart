@@ -19,6 +19,7 @@ from tbo_smart.lead_pipeline.statuses import (
 	SMALL_BUSINESS,
 )
 from tbo_smart.lead_pipeline.statuses import NOT_INTERESTED as NOT_INTERESTED_STAGE
+from tbo_smart.lead_pipeline.statuses import WRONG_NUMBER as WRONG_NUMBER_STAGE
 from tbo_smart.sales import numbers
 from tbo_smart.sales.activities import OPEN, add_note
 from tbo_smart.sales.call_batches import (
@@ -93,7 +94,8 @@ def apply(
 ):
 	"""Give `row` its outcome and schedule what follows; saves the batch once. Returns when the
 	lead comes back to this batch's queue (a retry or a call back), else None. `call` False: a
-	stage moved by hand, not a call, so the lead's last call and stage are left as they are."""
+	stage moved by hand, not a call, so the lead's last call and stage are left as they are (and a
+	move to Wrong Number has flagged the lead already)."""
 	row.outcome, row.called_at, row.note = outcome, called_at, note or None
 	row.attempts = (row.attempts or 0) + 1
 	lead = row.lead
@@ -108,7 +110,7 @@ def apply(
 		frappe.db.set_value("Lead", lead, "tbo_callback_at", None, update_modified=False)
 	if call:
 		apply_call_outcome(lead, outcome, called_at, number=number)
-	if outcome == WRONG_NUMBER and not numbers.has_usable(lead):
+	if call and outcome == WRONG_NUMBER and not numbers.has_usable(lead):
 		frappe.db.set_value("Lead", lead, "tbo_wrong_number", 1, update_modified=False)
 		add_note("Lead", lead, _("Wrong number, reported from the daily calls."))
 	batch.save(ignore_permissions=True)
@@ -179,6 +181,9 @@ REACHED_STAGES = (
 	NOT_INTERESTED_STAGE,
 	SMALL_BUSINESS,
 )
+# a lead moved to Wrong Number by hand was called, but the person it is for was not reached: it
+# counts as a Wrong number call (called, not contacted)
+UNREACHED_STAGES = {WRONG_NUMBER_STAGE: WRONG_NUMBER}
 # a logged call moves the stage itself a moment later: that move is the same contact
 SAME_CONTACT = 120
 # the direction stage_contacts gives a move by hand, which is not a call
@@ -192,7 +197,8 @@ def sync_calls(user: str) -> int:
 	answered (the customer called back, or picked up later), gets a "Called back" item, so the
 	day counts it connected. An incoming call counts only when it was answered. A move by hand to
 	a stage that means they spoke (REACHED_STAGES, e.g. Contacted from the lead page) counts as an
-	answered call too. Returns how many were recorded."""
+	answered call too, and one to Wrong Number as a Wrong number call. Returns how many were
+	recorded."""
 	since = add_to_date(getdate(), days=-OVERDUE_DAYS)
 	Batch, Item = frappe.qb.DocType(BATCH), frappe.qb.DocType(ITEM)
 	rows = (
@@ -243,31 +249,39 @@ def sync_calls(user: str) -> int:
 
 def stage_contacts(user: str, leads: list[str], rows: list, calls: list) -> list:
 	"""`user`'s moves of `leads` to a stage that means they spoke, since the earliest batch in
-	`rows`, as answered calls; a move within SAME_CONTACT seconds after an answered one of `calls`
-	on the lead is that call's own (logging it moved the stage) and is left out."""
+	`rows`, as answered calls, and to Wrong Number as calls with that `outcome`; a move within
+	SAME_CONTACT seconds after one of `calls` on the lead (an answered one, for a stage that means
+	they spoke) is that call's own (logging it moved the stage) and is left out."""
 	moves = frappe.get_all(
 		"TBO Stage Change",
 		filters={
 			"parenttype": "Lead",
 			"parent": ("in", leads or [""]),
 			"changed_by": user,
-			"stage": ("in", list(REACHED_STAGES)),
+			"stage": ("in", [*REACHED_STAGES, *UNREACHED_STAGES]),
 			"changed_on": (">=", min(get_datetime(row.starts_at) for row in rows)),
 		},
-		fields=["parent", "changed_on"],
+		fields=["parent", "stage", "changed_on"],
 	)
 	contacts = []
 	for move in moves:
 		at = get_datetime(move.changed_on)
+		reached = move.stage in REACHED_STAGES
 		if any(
 			call.lead == move.parent
-			and call.status == CALL_ANSWERED
+			and (call.status == CALL_ANSWERED or not reached)
 			and 0 <= (at - get_datetime(call.started_at)).total_seconds() <= SAME_CONTACT
 			for call in calls
 		):
 			continue
 		contacts.append(
-			frappe._dict(lead=move.parent, status=CALL_ANSWERED, direction=STAGE_MOVE, started_at=at)
+			frappe._dict(
+				lead=move.parent,
+				status=CALL_ANSWERED if reached else None,
+				outcome=None if reached else UNREACHED_STAGES[move.stage],
+				direction=STAGE_MOVE,
+				started_at=at,
+			)
 		)
 	return contacts
 
@@ -313,7 +327,9 @@ def record_calls(batch, calls: list) -> int:
 
 def call_batch_outcome(call) -> str:
 	"""The outcome a logged call gives a batch item: Connected, Busy (CallerDesk's Busy or
-	AgentEngaged) or Not answered."""
+	AgentEngaged) or Not answered; a stage move says its own (`stage_contacts`)."""
+	if call.get("outcome"):
+		return call.outcome
 	if call.status == CALL_ANSWERED:
 		return CONNECTED
 	return BUSY if (call.provider_status or "").lower() in BUSY_STATUSES else NOT_ANSWERED
