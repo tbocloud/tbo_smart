@@ -88,7 +88,10 @@ class CallQueue:
 		since = add_to_date(getdate(self.now), days=-OVERDUE_DAYS)
 		self.rows = item_rows({"user": user}, since=since)
 		self.dropped = self.dropped_leads()
-		self.running = [row for row in self.rows if self.is_running(row) and row.lead not in self.dropped]
+		# a dropped lead's calls already made stay: they still count in the day's size
+		self.running = [
+			row for row in self.rows if self.is_running(row) and (row.outcome or row.lead not in self.dropped)
+		]
 		self.pending = self.due_now()
 		self.scheduled = self.coming_back()
 		queued = {row.lead for row in self.pending + self.scheduled}
