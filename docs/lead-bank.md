@@ -21,9 +21,13 @@ salespeople, so it has to be one big button and a photo.
 ## 2. What happens to a lead (decisions)
 
 - **Made by the system, not the collector.** A designer has no CRM permissions, so the lead is
-  inserted by the integration user with `tbo_collected_by` set; the collector never gets access to
-  the lead. The leads API stays closed to anyone without a sales role; the Lead Bank methods take
-  any enabled System User (§2.22).
+  inserted by the integration user with `tbo_collected_by` set. A collector without a sales role
+  never gets access to the lead: the leads API stays closed to anyone without a sales role; the
+  Lead Bank methods take any enabled System User (§2.22). A collector **with** a sales role (Sales
+  User or Sales Manager, e.g. a salesperson or a division's sales user in the hub) **reads** the
+  leads they collected, as a creator reads what they made (never writes them; the owner works the
+  lead), and finds them in the hub's My leads and *Created by me* (owner's request, 2026-11-17;
+  `tbo_smart.sales.permissions`, `hub_leads.created_by`).
 - **Region** from the phone prefix (+91 / +971 / +966, or 00 for the plus, or a full number; a
   10-digit mobile starting 6 to 9 is India), else from the GPS fix (rough boxes: the UAE first,
   since the KSA's box overlaps it), else the collector picks. The collector's choice wins.
@@ -45,8 +49,8 @@ salespeople, so it has to be one big button and a photo.
 - **Statuses for the collector:** New Lead is New; Meeting Scheduled, the three meetings, Proposal
   Sent and Negotiation are Meeting; Closed – Won is Won; Closed – Lost, Not Interested and Wrong
   Number are Not interested; every other stage is Being called.
-- **What a collector never sees:** the CRM, other leads, the owner, notes, quotations or money. The
-  only money is their own `earned` and `pending`.
+- **What a collector never sees** (without a sales role): the CRM, other leads, the owner, notes,
+  quotations or money. The only money is their own `earned` and `pending`.
 
 ## 3. Referral
 

@@ -196,23 +196,26 @@ def get_leads(
 	one number of the leads overview counts (`tbo_smart.api.mobile.leads.get_overview`), converted
 	ones included, as the hub's list does; `owner` (one person in my sales scope, as the overview
 	takes it) keeps that person's leads. `mine` is the leads I own or created (the ones I created
-	and handed on I may read, not change); `created_by_me` keeps the ones I created; `called`
+	and handed on I may read, not change); `created_by_me` keeps the ones I created or collected
+	through the Lead Bank; `called`
 	keeps the leads called at least once, last called first (`called_from` / `called_to`: last
 	called in those days)."""
 	# hub_leads imports this module, so it is imported when it is needed
-	from tbo_smart.api.hub_leads import called_between, owned_or_created
+	from tbo_smart.api.hub_leads import called_between, created_by, owned_or_created
 
 	capabilities = require_crm()
 	mine = resolve_crm_scope(capabilities, scope) == "mine"
 	filters = {} if mine else scope_filter(capabilities, scope, "lead_owner")
-	if cint(created_by_me):
-		filters["owner"] = frappe.session.user
 	if status:
 		filters["tbo_stage"] = status
 	filters.update(overview_filters(source, temperature, metric, period, owner))
+	keep = []
 	if mine:
-		names = owned_or_created(frappe.session.user)
-		if "name" in filters:  # an overview number's leads: the ones of them that are mine
+		keep.append(owned_or_created(frappe.session.user))
+	if cint(created_by_me):
+		keep.append(created_by(frappe.session.user))
+	for names in keep:
+		if "name" in filters:  # an overview number's leads (or mine): the ones of them kept
 			own = set(names)
 			names = [name for name in filters["name"][1] if name in own]
 		filters["name"] = ("in", names or [""])

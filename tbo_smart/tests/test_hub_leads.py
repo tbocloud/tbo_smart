@@ -69,6 +69,20 @@ class TestHubLeads(FrappeTestCase):
 		self.assertFalse(frappe.has_permission("Lead", "write", created))
 		self.assertFalse(frappe.has_permission("Lead", "read", self.theirs))
 
+	def test_my_leads_lists_what_they_collected_through_the_lead_bank_and_only_reads_it(self):
+		# the Lead Bank inserts as the integration user and gives the lead to someone else
+		frappe.set_user("Administrator")
+		collected = make_lead(BDE2, "Hub Collected")
+		frappe.db.set_value("Lead", collected, "tbo_collected_by", BDE, update_modified=False)
+		frappe.set_user(HUB)
+		mine = hub.list_leads(view="mine", acting_user=BDE)["rows"]
+		self.assertEqual({row["name"] for row in mine}, {self.mine, collected})
+		only = hub.list_leads(view="all", created_by_me=1, acting_user=BDE)["rows"]
+		self.assertEqual([row["name"] for row in only], [collected])
+		frappe.set_user(BDE)
+		self.assertTrue(frappe.has_permission("Lead", "read", collected))
+		self.assertFalse(frappe.has_permission("Lead", "write", collected))
+
 	def test_called_lists_the_leads_called_last_called_first_with_their_counts(self):
 		frappe.set_user("Administrator")
 		older = make_lead(BDE, "Hub Called Before", mobile_no="9847011112")
