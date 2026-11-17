@@ -108,8 +108,9 @@ Frappe CRM's rule, unchanged, now on Lead and Opportunity:
   open or closed but not cancelled) to the user or anyone below them.
 - A Sales Manager outside the hierarchy: everything.
 - Everyone else: what they own (`lead_owner`, `opportunity_owner`) or what is assigned to them.
-- On top of these, whoever created a lead (`owner`) still **reads** it after it is handed to
-  someone else (never writes it), so the hub's My leads can list what they created.
+- On top of these, whoever created a lead (`owner`), or collected it through the Lead Bank
+  (`tbo_collected_by`), still **reads** it after it is handed to someone else (never writes it),
+  so the hub's My leads can list what they created.
 
 ERPNext's own role permissions still apply first (Lead: Sales User, Sales Manager; read for
 Desk User, which this rule narrows to their own).

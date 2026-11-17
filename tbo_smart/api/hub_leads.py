@@ -327,7 +327,8 @@ def list_leads(
 	open follow-up due by today, earliest first) or called (called at least once, last called
 	first; `from_date` and `to_date` without a `metric` keep the leads last called in those
 	days). `mine` keeps any view to the leads they own or created; `created_by_me` to the ones
-	they created (whoever owns them now: they may read, not change, those). `due` (with
+	they created or collected through the Lead Bank (whoever owns them now: they may read, not
+	change, those). `due` (with
 	follow_up) keeps the leads whose earliest open follow-up is overdue, today, tomorrow, in the
 	week after (`week`: 2 to 7 days on) or `later`; without it follow_up is overdue and today.
 	`due_from` and `due_to` (with follow_up or mine; either may be left out) keep the leads whose
@@ -367,7 +368,7 @@ def list_leads(
 		or_filters = search_filters(search)
 		order_by = "modified desc"
 		if cint(created_by_me):
-			filters["owner"] = user
+			filters["name"] = ("in", within(filters, created_by(user)) or [""])
 		if cint(mine) or view == "mine":
 			filters["name"] = ("in", within(filters, owned_or_created(user)) or [""])
 		if view == "called":
@@ -407,7 +408,17 @@ def list_leads(
 
 def owned_or_created(user: str) -> list[str]:
 	"""The leads `user` owns or created (the list query still applies who may see what)."""
-	return frappe.get_all("Lead", or_filters={"lead_owner": user, "owner": user}, pluck="name")
+	return frappe.get_all(
+		"Lead",
+		or_filters={"lead_owner": user, "owner": user, "tbo_collected_by": user},
+		pluck="name",
+	)
+
+
+def created_by(user: str) -> list[str]:
+	"""The leads `user` created: made by them, or collected by them through the Lead Bank, whose
+	leads the integration user inserts (the list query still applies who may see what)."""
+	return frappe.get_all("Lead", or_filters={"owner": user, "tbo_collected_by": user}, pluck="name")
 
 
 def called_between(from_date: str | None, to_date: str | None):

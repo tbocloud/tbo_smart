@@ -12,8 +12,9 @@ Frappe CRM's rule, unchanged, on ERPNext's records (the `has_permission` and
 - everyone else: what they own or what is assigned to them;
 - on top of the last two, the head of an active TBO Lead Department also sees every lead of
   it (sales/departments.py); a lead without a department is unaffected;
-- and whoever created a lead still reads it (never writes it) after it is handed to someone
-  else, so My leads can list what they created.
+- and whoever created a lead, or collected it through the Lead Bank (`tbo_collected_by`), still
+  reads it (never writes it) after it is handed to someone else, so My leads can list what they
+  created; a collector without a sales role stays out, since the role permissions come first.
 
 With "Everyone who may read leads reads every lead and deal" (TBO Smart Settings) on, reading is
 not narrowed at all, as on a plain ERPNext site; writing still is.
@@ -62,7 +63,7 @@ def conditions(user: str, doctype: str, ptype: str | None = "read"):
 		Lead = frappe.qb.DocType(LEAD)
 		criterion = criterion | Lead.tbo_department.isin(headed_departments(user))
 		if (ptype or "read") in READ_PTYPES:
-			criterion = criterion | (Lead.owner == user)
+			criterion = criterion | (Lead.owner == user) | (Lead.tbo_collected_by == user)
 	return criterion
 
 
