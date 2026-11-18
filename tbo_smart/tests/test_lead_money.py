@@ -194,6 +194,20 @@ class TestCollections(LeadMoneyTestCase):
 		# someone else's scope doesn't see it
 		self.assertEqual(self.splits_of(self.money(BDE2), self.lead), [])
 
+	def test_payment_terms_due_on_one_day_dont_stop_the_quotation(self):
+		frappe.set_user("Administrator")
+		same_day = make_payment_terms_template(
+			"TBO Smart Money milestones",
+			[(ADVANCE, 50, 0), (SECOND, 30, 0), ("TBO Smart Money Third split", 20, 0)],
+		)
+		frappe.set_user(HUB)
+		# ERPNext would refuse "duplicate due dates"; the quotation is saved without the template
+		name = save_lead_quotation(self.lead, SERVICE, 100000, payment_terms_template=same_day)["name"]
+		self.assertFalse(frappe.db.get_value("Quotation", name, "payment_terms_template"))
+		# a template with its own day for each term is kept
+		name = save_lead_quotation(self.lead, SERVICE, 100000, payment_terms_template=TERMS)["name"]
+		self.assertEqual(frappe.db.get_value("Quotation", name, "payment_terms_template"), TERMS)
+
 	def test_an_order_settles_its_schedule_with_what_came_in(self):
 		frappe.set_user(BDE)
 		name = save_lead_quotation(self.lead, SERVICE, 100000, payment_terms_template=TERMS)["name"]

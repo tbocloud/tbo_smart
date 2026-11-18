@@ -313,7 +313,11 @@ item at its price, "Customisation: <item>"), the other customisations' days (the
 the day rate) and the additional branches (that many of the service item at the proposal's price
 per branch, else the Branch rate; "Additional branch rollout (5 branches)"; with branches and no
 rate it isn't priced, and the warning says to set one);
-the taxes, extra discount and validity already on the quotation are kept. The manual pricing
+the taxes, extra discount and validity already on the quotation are kept. A payment terms template whose
+terms fall due on the same day (the same basis and credit days, e.g. milestones all at 0 days) is
+left off the quotation with an orange note naming it, since ERPNext refuses a schedule with
+duplicate due dates (`finance.quotation.usable_payment_terms`); the proposal's Payment Terms
+section still shows the milestones. The manual pricing
 dialog still works.
 
 **The proposal is the quotation** (TBO Smart Settings, on by default; `client-documents.md`
@@ -608,7 +612,8 @@ focus ring, 44px targets.
 ## Changelog
 
 - **v2.7 (2026-11-18):** the compact PDF (§5.1: 14 mm margins, the contents on the cover's page,
-  the parts without page breaks, 10 pt text, tighter spacing); the ERPNext + mobile layout from the owner's model proposal (§3.2) and
+  the parts without page breaks, 10 pt text, tighter spacing); a payment terms template with terms
+  due on one day is left off the quotation instead of stopping it; the ERPNext + mobile layout from the owner's model proposal (§3.2) and
   its patch (§3.6); **Change template** on a draft (§4.5); additional branches priced per branch (`branches`, `branch_rate`, the Branch
   rate setting, §4.1); a customisation priced by hand is its own quotation line; the options carry
   the currency and the branch rate for the hub's start page.

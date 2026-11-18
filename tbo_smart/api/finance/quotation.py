@@ -9,7 +9,7 @@ rate, discount, commission, validity, taxes and terms stays in ERPNext ("Open in
 import frappe
 from erpnext.controllers.accounts_controller import get_default_taxes_and_charges
 from frappe import _
-from frappe.utils import add_months, flt, getdate, today
+from frappe.utils import add_months, cint, flt, getdate, today
 
 from tbo_smart.finance import get_default_company
 from tbo_smart.finance.access import require_deal
@@ -218,6 +218,20 @@ def parse_values(values) -> frappe._dict:
 	return values
 
 
+def usable_payment_terms(template: str | None) -> bool:
+	"""ERPNext refuses a payment schedule with two rows due on the same day, so a template whose
+	terms share their basis and credit days (milestones all at 0 days) can't price a quotation."""
+	if not template:
+		return True
+	terms = frappe.get_all(
+		"Payment Terms Template Detail",
+		filters={"parent": template, "parenttype": "Payment Terms Template"},
+		fields=["due_date_based_on", "credit_days", "credit_months"],
+	)
+	keys = [(row.due_date_based_on, cint(row.credit_days), cint(row.credit_months)) for row in terms]
+	return len(keys) == len(set(keys))
+
+
 def apply_values(doc, values: frappe._dict) -> None:
 	"""Only the essentials; everything else on the quotation is left as it is."""
 	if values.get("company") and doc.is_new():
@@ -241,7 +255,18 @@ def apply_values(doc, values: frappe._dict) -> None:
 		"payment_terms_template"
 	):
 		# ERPNext rebuilds the schedule from the template on validate
-		doc.payment_terms_template = values.get("payment_terms_template") or None
+		template = values.get("payment_terms_template") or None
+		if not usable_payment_terms(template):
+			frappe.msgprint(
+				_(
+					"Payment terms template {0} has terms due on the same day, which ERPNext refuses, so "
+					"the quotation is saved without it. Give each term its own credit days there."
+				).format(template),
+				indicator="orange",
+				alert=True,
+			)
+			template = None
+		doc.payment_terms_template = template
 		doc.set("payment_schedule", [])
 	doc.set("items", [])
 	for row in values["items"]:
