@@ -484,6 +484,78 @@ def create_proposal(
 	return doc, warnings
 
 
+def change_template(doc, template: str, scoping=None) -> dict:
+	"""A draft proposal moved to another template, keeping its number, client, requirements and
+	quotation: the template's sections in its order, a section edited by hand (or the AI's
+	narrative, so no AI call is spent) kept by type and occurrence, every other section built
+	again; `scoping` (the modules the new template brings) replaces the answers, with the module
+	lines already on the proposal kept as they are (a price set by hand stays); the timeline and
+	payment terms go back to the new template's defaults; repriced. A title that was the automatic
+	one follows the new solution. Returns {warnings, kept: [the headings kept from before]}."""
+	require_draft(doc)
+	if kinds.of(doc).name != kinds.PROPOSAL:
+		frappe.throw(_("Only a proposal's template can be changed."))
+	if not frappe.db.exists(TEMPLATE, {"name": template, "enabled": 1}):
+		frappe.throw(_("Template {0} not found.").format(template), frappe.DoesNotExistError)
+	tpl = template_payload(template)
+	solution = tpl["solution_type"] or tpl["template_name"]
+	client = client_label(doc.lead)
+	if doc.title == clean(_("{0} for {1}").format(doc.solution_type or _("Proposal"), client), MAX_HEADING):
+		doc.title = clean(_("{0} for {1}").format(solution, client), MAX_HEADING)
+	answers = builder.scoping_answers(doc.scoping if scoping is None else scoping, solution)
+	if scoping is not None and not answers["modules"]:
+		answers["modules"] = list(tpl["default_modules"])
+	for key, name in builder.IMPLIED_MODULES.items():
+		if answers.get(key) and name not in answers["modules"]:
+			answers["modules"].append(name)
+	answers["timeline_template"] = answers["payment_terms"] = None
+	doc.template = template
+	doc.solution_type = solution
+	doc.scoping = frappe.as_json(answers)
+	doc.set(
+		"modules",
+		builder.module_rows(
+			doc, answers["modules"], keep=[builder.module_line(row.as_dict()) for row in doc.modules]
+		),
+	)
+	kept = carry_sections(doc, tpl["sections"])
+	pick_templates(doc, answers)
+	for row in doc.sections:
+		if cint(row.edited) or row.section_type in kinds.of(doc).ai_sections:
+			continue
+		text = builder.rebuilt_body(doc, row)
+		if text is not None:
+			row.body = text or None
+	doc.save()
+	return {"warnings": price_new_proposal(doc), "kept": kept}
+
+
+CARRIED = ("body", "edited", "image", "image_alt", "image_caption", "image_size")
+
+
+def carry_sections(doc, template_sections: list) -> list[str]:
+	"""The new template's sections, each taking the proposal's section of the same type and
+	occurrence when that was edited by hand or written by the AI. Returns the kept headings."""
+	before: dict[tuple, object] = {}
+	seen: dict[str, int] = {}
+	for row in doc.sections:
+		seen[row.section_type] = seen.get(row.section_type, 0) + 1
+		before[(row.section_type, seen[row.section_type])] = row
+	rows, kept, seen = [], [], {}
+	for template_row in template_sections:
+		values = section_row(template_row)
+		kind = values["section_type"]
+		seen[kind] = seen.get(kind, 0) + 1
+		old = before.get((kind, seen[kind]))
+		if old is not None and (cint(old.edited) or kind in kinds.of(doc).ai_sections):
+			values.update({field: old.get(field) for field in CARRIED})
+			if cint(old.edited):
+				kept.append(old.heading or _(kind))
+		rows.append(values)
+	doc.set("sections", rows)
+	return kept
+
+
 def default_template(lead: str) -> str | None:
 	"""The template a lead's type starts a proposal from when none is chosen (its enabled one, if
 	the editors haven't switched it off)."""

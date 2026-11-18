@@ -46,6 +46,7 @@ otherwise) and count against the day's limit (417 "Today's AI proposal runs are 
 | `finalise_proposal` | POST | `name`, `ready` (1: Mark ready, 0: Reopen), `acting_user` | `Proposal` (`ready_on` set or cleared) |
 | `regenerate_section` | POST | `name`, `index`, `force` (0/1), `acting_user` | `{proposal, warnings, confirm}`: `confirm` (a question) when the section was edited by hand and `force` wasn't given; nothing changed then |
 | `regenerate_proposal` | POST | `name`, `force` (0/1), `acting_user` | `{proposal, warnings, kept: [headings kept because edited by hand]}` |
+| `change_template` | POST | `name`, `template`, `scoping?` (the answers the new template brings: its modules and add-ons; blank: the proposal's), `acting_user` | `{proposal, warnings, kept}`: a draft proposal (not marked ready) moved to another enabled template, same number; refused for other document types |
 | `chat_edit` | POST | `name`, `message`, `acting_user` | `{proposal, reply, changes: [text], warnings}`: one small structured call; the transcript kept |
 | `price_from_modules` | POST | `name`, `acting_user` | `Proposal` (the quotation's lines from the modules and the customisation days) |
 | `share_proposal` | POST | `name`, `acting_user` | `{proposal, url}`: a draft goes out as Send does but without an email (refused with the reasons while anything blocks it); a sent one just gives its link |
@@ -251,7 +252,7 @@ user with `acting_user`.
   `accept`'s `designation`.
 - **v2.0 (2026-10-19):** the Universal IT Proposal: `get_client_profile`, `read_client_website`,
   `get_requirements_from_lead`, `extract_requirements`, `regenerate_section`,
-  `regenerate_proposal`, `chat_edit`, `price_from_modules`, `share_proposal`,
+  `regenerate_proposal`, `change_template`, `chat_edit`, `price_from_modules`, `share_proposal`,
   `use_library_image`, the library methods and `draft_library_module`; `create_proposal` takes
   the scoping, requirements, client profile and chat; `Proposal` gains the profile, scoping,
   requirements, chat, modules, pricing mode, section flags, `share_blockers` and `ai`; one theme

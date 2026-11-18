@@ -1735,3 +1735,43 @@ class TestErpMobileLayout(ProposalTestCase):
 			),
 			1,
 		)
+
+	def test_a_draft_changes_template(self):
+		proposal = make_hub_proposal(self.lead, BDE, TEMPLATE, 0, {"modules": ["Accounts", "Buying"]})
+		modules = proposal["modules"]
+		modules[0].update(rate=90000, rate_overridden=1)
+		sections = proposal["sections"]
+		summary = next(row for row in sections if row["section_type"] == "Executive Summary")
+		summary["body"] = "Our own summary."
+		hub.save_proposal(
+			proposal["name"], json.dumps({"modules": modules, "sections": sections}), acting_user=BDE
+		)
+		changed = hub.change_template(
+			proposal["name"],
+			seed.ERP_MOBILE,
+			json.dumps({"modules": ["Accounts", "Flutter Mobile App"], "mobile_app": 1}),
+			acting_user=BDE,
+		)
+		moved = changed["proposal"]
+		self.assertEqual((moved["name"], moved["template"]), (proposal["name"], seed.ERP_MOBILE))
+		self.assertTrue(moved["title"].startswith(seed.ERP_MOBILE))
+		on = [row["heading"] for row in moved["sections"] if row["enabled"]]
+		self.assertIn("Solution Overview", on)
+		self.assertIn("Security, Hosting & Data Ownership", on)
+		self.assertNotIn("Company Overview", on)
+		kept = next(row for row in moved["sections"] if row["section_type"] == "Executive Summary")
+		self.assertEqual(kept["body"], "Our own summary.")
+		self.assertIn("Executive Summary", changed["kept"])
+		lines = {row["module_name"]: row for row in moved["modules"]}
+		self.assertEqual(set(lines), {"Accounts", "Flutter Mobile App"})
+		self.assertEqual((lines["Accounts"]["rate"], lines["Accounts"]["rate_overridden"]), (90000, 1))
+		self.assertEqual(moved["scoping"]["payment_terms"], "50 / 30 / 20")
+		# not to a template that isn't there
+		self.assertRaises(
+			frappe.DoesNotExistError,
+			hub.change_template,
+			proposal["name"],
+			"No Such Template",
+			None,
+			acting_user=BDE,
+		)

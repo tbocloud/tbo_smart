@@ -394,6 +394,17 @@ written over only with `force`. **Regenerate proposal** (`regenerate_proposal`):
 again, and with the AI on the narrative and customisations in one call; edited sections are kept
 (their headings returned) unless `force`.
 
+**Change template** (`change_template`): a draft proposal (not marked ready) moved to another
+enabled template, keeping its number, client, requirements and quotation. Its sections become the
+new template's, in its order; the section of the same type and occurrence is carried over when it
+was edited by hand or is the AI's narrative (so no AI call is spent; *Regenerate* rewrites it),
+and every other section is built again (a Custom one takes the template's fixed text). The
+scoping sent (the new template's modules and add-ons) replaces the answers; module lines already
+on the proposal are kept as they are, a price set by hand included. The timeline and payment
+terms go back to the new template's defaults (the ERPNext + mobile one's 50 / 30 / 20). A title
+that was the automatic one follows the new solution. It is repriced as a new proposal is, and
+returns the headings it kept. Other document types refuse it.
+
 Editors see the AI's runs, tokens and estimated cost on the proposal (from the usage log), and
 about how many tokens a full regenerate costs (the brief at four characters a token plus about
 250 a section).
@@ -569,7 +580,9 @@ focus ring, 44px targets.
   milestones by default (another template keeps its own), its assumptions and exclusions; branches
   priced per branch at the setting's rate and at a price set on the proposal, with the branch note
   in the Commercials; branches without a rate not priced, with the warning; the patch leaves an
-  edited template and adds its library rows once.
+  edited template and adds its library rows once; a draft changes template (same number, the new
+  sections, a hand-edited section and a hand price kept, the new default payment terms, an unknown
+  template refused).
 - **Master** (`TestMaster`): modules price the quotation (named lines, customisation days at the
   day rate, a customisation priced by hand as its own line, a hand price kept, list price restored); timeline, payment and AMC templates (and
   their validation); the suggested timeline follows the effort; the profile is required; Share
@@ -591,7 +604,7 @@ focus ring, 44px targets.
 ## Changelog
 
 - **v2.7 (2026-11-18):** the ERPNext + mobile layout from the owner's model proposal (§3.2) and
-  its patch (§3.6); additional branches priced per branch (`branches`, `branch_rate`, the Branch
+  its patch (§3.6); **Change template** on a draft (§4.5); additional branches priced per branch (`branches`, `branch_rate`, the Branch
   rate setting, §4.1); a customisation priced by hand is its own quotation line; the options carry
   the currency and the branch rate for the hub's start page.
 
