@@ -1,4 +1,4 @@
-# Hub leads API (`tbo_smart.api.hub_leads`), v1.33
+# Hub leads API (`tbo_smart.api.hub_leads`), v1.34
 
 **Status:** built 2026-10-16. The TBO Support hub's lead page (tbocloud/helpdesk) shows and edits
 tboindia's leads through these methods. The leads are ERPNext's own **Lead**
@@ -1145,6 +1145,42 @@ A requirement sheet, a quotation the client sent, a scanned visiting card (`lead
   its browser may show inline.
 - No migration: it uses File's `tbo_lead_photo` from §2.11.
 
+### 2.35 Expense claims (`tbo_smart.api.hub_expenses`)
+
+```
+Claim = {name, expense_type, amount, sanctioned_amount, date, description,
+  status (Pending / Approved / Rejected / Paid), approver, approver_id, receipt (file name or null)}
+Approval = {id, kind ("expense"), ref (the claim), who, employee, title (first expense type),
+  detail ("3 expense lines" or ""), from_date, to_date (the posting date), amount, submitted,
+  can_reject, receipt (file name or null), ...}
+```
+
+The hub's Expenses page, for the people the hub acts for (§1: an enabled user with a sales
+role). Every method takes `acting_user` and goes through the TBO Smart app's own expense paths
+(`api/mobile/ess.py`, `api/mobile/manager.py`), so the hub, the app and the desk agree:
+
+- **`get_expenses(page=1)`** (GET): `{employee, can_approve, currency, types, claims, approvals}`.
+  `employee` is whether an active Employee is linked to the user (`user_id`); without one,
+  `claims` is null and `types` empty, and they can't claim. `claims` is `{data: [Claim], page,
+  has_more}`, their own, newest first, 50 a page. `can_approve` is the app's `approve_expense`
+  capability (HR Manager / HR User, a named expense approver of an employee or department, or a
+  role that can take the Expense Claim workflow's approve or reject step); `approvals` are the
+  claims waiting for them (`manager.get_expense_approvals`: HRMS's own approval query, their own
+  claims left out), empty without the capability. Lists are the user's `frappe.get_list`, so
+  their User Permissions apply: an Employee User Permission that applies to all document types
+  keeps them to that employee's claims.
+- **`create_expense_claim(expense_type, amount, expense_date, description?, receipt_filename?,
+  receipt_base64?)`** (POST): a draft claim of one expense for their Employee, routed to their
+  expense approver (`ess.create_expense_claim`); returns the Claim. The receipt is stored
+  private; only a PDF, PNG, JPEG or WebP of at most 10 MB (417); its name is cleaned as a lead
+  file's (§2.34).
+- **`decide_expense(name, approve, reason?)`** (POST): approve (1) or reject (0) a claim
+  (`manager.decide_approval`): the workflow's action when Expense Claim has one, else the named
+  approver or an HR Manager / HR User sets the status and submits. A rejection needs `reason`
+  (417), added as a comment. Returns `{kind, name, status, docstatus}`. Not their approver: 403.
+- **`get_expense_receipt(name)`** (GET): the claim's receipt (its first attached file) as an
+  attachment, to anyone who may read the claim; none is 404.
+
 ## 3. Links back to the hub
 
 Teams messages, emails and the morning digest link to the lead page when TBO Smart Settings →
@@ -1208,10 +1244,17 @@ projects and earners, splits, own slabs, pooled and per-project basis, Unattribu
 in the next month, statements (draft, refresh, approve, freeze, paid), who sees whom, and plans and
 project set-ups saved by managers only.
 
+`tbo_smart/tests/test_hub_expenses.py`: a salesperson claims (with a receipt) and sees their own;
+their approver sees it with its receipt, opens the receipt and approves it; a rejection needs a
+reason; only PDFs and pictures up to 10 MB; a claim without a receipt serves none; someone
+without a sales role isn't acted for.
+
 `tbo_smart/tests/test_lead_bank.py`: see `lead-bank.md` §9.
 
 ## Changelog
 
+- **v1.34 (2026-11-18):** expense claims (§2.35, `tbo_smart.api.hub_expenses`): `get_expenses`,
+  `create_expense_claim`, `decide_expense`, `get_expense_receipt`.
 - **v1.33 (2026-11-16):** files on a lead (§2.34): `get_lead_files`, `upload_lead_file`,
   `delete_lead_file`, `get_lead_file`.
 - **v1.32 (2026-11-16):** `get_my_calls`' `slots` (the day by slot against the plan, the

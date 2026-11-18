@@ -374,22 +374,27 @@ def get_approvals() -> list[dict]:
 	user = frappe.session.user
 	employee = frappe.db.get_value("Employee", {"user_id": user, "status": "Active"}, "name") or ""
 	approver_id = None if is_hr_approver() else user
-	leaves, claims = [], []
+	leaves = []
 	if capabilities.approve_leave:
 		leaves = get_leave_applications(
 			employee, approver_id=approver_id, for_approval=True, limit=APPROVALS_LIMIT
 		)
-	if capabilities.approve_expense:
-		claims = get_expense_claims(
-			employee, approver_id=approver_id, for_approval=True, limit=APPROVALS_LIMIT
-		)
+	claims = get_expense_approvals(employee) if capabilities.approve_expense else []
 	advances = get_advance_approvals(employee) if capabilities.approve_advance else []
 	approvals = (
 		[serialize_leave_approval(row) for row in leaves]
-		+ [serialize_claim_approval(row) for row in claims]
+		+ claims
 		+ [serialize_advance_approval(row) for row in advances]
 	)
 	return sorted(approvals, key=lambda row: str(row["submitted"]), reverse=True)
+
+
+def get_expense_approvals(employee: str) -> list[dict]:
+	"""Expense Claims waiting for the session user (`employee`: their own, left out), as approval
+	rows, through the HRMS PWA query; the hub's expenses page uses it too (hub_expenses)."""
+	approver_id = None if is_hr_approver() else frappe.session.user
+	claims = get_expense_claims(employee, approver_id=approver_id, for_approval=True, limit=APPROVALS_LIMIT)
+	return [serialize_claim_approval(row) for row in claims]
 
 
 @frappe.whitelist(methods=["POST"])
