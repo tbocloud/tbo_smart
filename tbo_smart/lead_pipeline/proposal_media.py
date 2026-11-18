@@ -29,11 +29,11 @@ LETTER_HEAD = "Letter Head"
 NO_IMAGE = ("Investment", "Acceptance")
 IMAGE_SIZES = ("Full", "Half")
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
-# the PDF's page: A4 less 18 mm on each side; a letter head image spans the content width, and
+# the PDF's page: A4 less 14 mm on each side; a letter head image spans the content width, and
 # one taller than HEADER_MAX_MM is narrowed instead, so it is never clipped
-CONTENT_WIDTH_MM = 174
+CONTENT_WIDTH_MM = 182
 HEADER_MAX_MM = 30
-# a footer picture is a band about 6:1 (29 mm at the content width): allow that much before narrowing
+# a footer picture is a band about 6:1 (30 mm at the content width): allow that much before narrowing
 FOOTER_MAX_MM = 30
 # Geist (SIL OFL, public/fonts/OFL.txt), cut to Latin with tabular figures as the default, because
 # wkhtmltopdf can't switch the tnum feature on and can't load Google Fonts at render time. Two

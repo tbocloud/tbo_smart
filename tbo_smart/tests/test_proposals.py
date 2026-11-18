@@ -856,10 +856,10 @@ class TestLetterHead(ProposalTestCase):
 			doc = frappe.get_doc(p.DOCTYPE, name)
 			footer = p.page_context(doc, pdf=True)["letter_head"]["footer"]
 			self.assertTrue(footer["image"].startswith("data:image/png;base64,"))
-			self.assertEqual(footer["height"], 29)  # 174 mm wide at 6:1
+			self.assertEqual(footer["height"], 30)  # 6:1 at 182 mm is 30.3 mm: held at the 30 mm cap
 			pdf_html = p.render_html(doc, pdf=True)
 			self.assertIn("running-foot picture", pdf_html)
-			self.assertIn('style="height: 29.0mm"', pdf_html)
+			self.assertIn('style="height: 30.0mm"', pdf_html)
 			self.assertNotIn("From TBO", pdf_html)
 			self.assertNotIn("From TBO", p.render_html(doc, preview=True))
 			# the web page serves it through the token
@@ -1109,25 +1109,24 @@ class TestMaster(ProposalTestCase):
 		fonts = [font.get_object()["/BaseFont"] for font in pages[1]["/Resources"]["/Font"].values()]
 		self.assertIn("/Geist-Regular", fonts)  # the page's own font, embedded
 
-	def test_the_pdf_page_is_a4_with_18_mm_margins(self):
+	def test_the_pdf_page_is_a4_with_14_mm_margins(self):
 		self.assertEqual(
 			p.pdf_page({"header": {"image": "data:", "height": 14.5}}),
-			{"header": 14.5, "footer": None, "top": 40.5, "bottom": 27, "number": 18, "cover": 227.5},
+			{"header": 14.5, "footer": None, "top": 33.5, "bottom": 23, "number": 14},
 		)
 		self.assertEqual(p.pdf_page(None)["top"], p.MARGIN_MM + p.BRAND_HEADER_MM + p.HEADER_GAP_MM)
 		options = p.pdf_options(p.pdf_page(None))
 		self.assertEqual(
-			(options["page-size"], options["margin-bottom"], options["margin-left"]), ("A4", "27mm", "0mm")
+			(options["page-size"], options["margin-bottom"], options["margin-left"]), ("A4", "23mm", "0mm")
 		)
 
 	def test_a_footer_picture_takes_its_own_height_under_the_page_number(self):
 		page = p.pdf_page(
 			{"header": {"image": "data:", "height": 14.5}, "footer": {"image": "data:", "height": 29}}
 		)
-		# 18 mm margin + the picture + the page number's line + the gap above it
-		self.assertEqual((page["footer"], page["bottom"], page["number"]), (29, 55, 48.5))
-		self.assertEqual(page["cover"], 297 - 40.5 - 55 - 2)
-		self.assertEqual(p.pdf_options(page)["margin-bottom"], "55mm")
+		# 14 mm margin + the picture + the page number's line + the gap above it
+		self.assertEqual((page["footer"], page["bottom"], page["number"]), (29, 51, 44.5))
+		self.assertEqual(p.pdf_options(page)["margin-bottom"], "51mm")
 
 	def test_the_page_number_is_right_aligned_above_a_footer_picture(self):
 		from pypdf import PdfReader, PdfWriter

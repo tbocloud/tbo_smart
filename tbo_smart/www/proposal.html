@@ -82,8 +82,8 @@
 		</div>
 		{%- endif %}
 
-		{#- the cover: the title in its upper third, the facts at its foot, then its own footer line
-		    (in the PDF it fills the first page, which has no running footer) #}
+		{#- the cover: the title, the facts, then its own footer line; in the PDF the contents follow
+		    on the same first page, which has no running footer #}
 		{%- set facts = [
 			(_("Client"), p.client),
 			(_("Prepared for"), p.cover.contact),
@@ -93,7 +93,7 @@
 			(_("Reference"), p.cover.reference),
 		] | selectattr(1) | list %}
 		<section class="cover pad" aria-labelledby="proposal-title">
-			<table class="cover-grid" role="presentation"{% if pdf %} style="height: {{ p.page.cover }}mm"{% endif %}>
+			<table class="cover-grid" role="presentation">
 				<tr><td class="top">
 					{%- if p.logo and lh %}<img class="logo" src="{{ p.logo | e }}" alt="{{ (p.company or '') | e }}">{% endif %}
 					<p class="kicker">{{ (p.cover.solution or w.kicker) | e }}</p>

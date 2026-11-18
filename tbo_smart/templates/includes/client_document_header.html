@@ -10,7 +10,7 @@
 		{%- endmacro %}
 		{%- if pdf %}
 		{#- Frappe's get_pdf lifts #header-html out and repeats what is inside it on every page, in the
-		    top margin (proposals.pdf_page): 18 mm from the edges, at the content's width #}
+		    top margin (proposals.pdf_page): 14 mm from the edges, at the content's width #}
 		<header id="header-html">
 			<div class="letter-head running-head{% if head and head.align %} align-{{ head.align | e }}{% endif %}">
 				<div class="in" style="height: {{ p.page.header }}mm">{% if head %}{{ head_part() }}{% else %}{{ brand() }}{% endif %}</div>

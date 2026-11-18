@@ -1767,15 +1767,15 @@ def render_page(context: dict, pdf: bool) -> str:
 	)
 
 
-# The PDF's page, in mm: A4 with 18 mm on every side. The letter head sits inside the top margin and
+# The PDF's page, in mm: A4 with 14 mm on every side (the compact layout of 2026-11-18). The letter head sits inside the top margin and
 # its footer inside the bottom one (Frappe's get_pdf repeats #header-html and #footer-html on every
 # page): a footer picture at the content's width with the page number on a line above it, else a
 # footer line with the page number at its right end. The ivory, the page numbers and the cover's
 # blank footer line are drawn after (on_ivory): wkhtmltopdf's own text footer doesn't render
 # beside an HTML one.
 A4_MM = (210, 297)
-MARGIN_MM = 18
-HEADER_GAP_MM = 8  # under the letter head: its rule and the space before the content
+MARGIN_MM = 14
+HEADER_GAP_MM = 5  # under the letter head: its rule and the space before the content
 FOOTER_MM = 9  # the footer line, above the bottom margin
 FOOTER_GAP_MM = 3  # between the content and a footer picture's page number line
 NUMBER_LINE_MM = 5  # the page number's line above a footer picture
@@ -1789,8 +1789,7 @@ MUTED = (103 / 255, 98 / 255, 90 / 255)
 
 def pdf_page(letter_head: dict | None) -> dict:
 	"""The page frame in mm: the letter head's height, the footer picture's (None for a footer
-	line), the top and bottom margins, the page number's baseline from the bottom edge, and the
-	cover's height (it fills its page)."""
+	line), the top and bottom margins and the page number's baseline from the bottom edge."""
 	header = (letter_head or {}).get("header")
 	height = (header.get("height") or HTML_HEADER_MM) if header else BRAND_HEADER_MM
 	footer = (letter_head or {}).get("footer") or {}
@@ -1807,12 +1806,11 @@ def pdf_page(letter_head: dict | None) -> dict:
 		"top": top,
 		"bottom": bottom,
 		"number": number,
-		"cover": A4_MM[1] - top - bottom - 2,
 	}
 
 
 def pdf_options(page: dict) -> dict:
-	"""wkhtmltopdf's options: full bleed at the sides (the 18 mm are padding in the page, so the
+	"""wkhtmltopdf's options: full bleed at the sides (the 14 mm are padding in the page, so the
 	ivory reaches the edges), the letter head and the footer line in the top and bottom margins."""
 	return {
 		"page-size": "A4",

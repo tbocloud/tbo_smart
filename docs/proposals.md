@@ -489,17 +489,20 @@ only for section numbers, the headings' rule, the timeline bar and the module ca
 no other colours, no gradients; nothing depends on colour alone, so it reads in grayscale. The
 colours are written out in the CSS (wkhtmltopdf's WebKit has no CSS variables).
 
-**The PDF** (`render_pdf`), A4 on one grid:
+**The PDF** (`render_pdf`), A4 on one grid, **compact** (the owner's ask of 2026-11-18: fewer
+pages; every client document's PDF and the web page's print):
 
-- **The page frame** (`pdf_page`, `pdf_options`): 18 mm from every edge on every page. The top
-  margin holds the letter head (18 mm + its height + 8 mm). The bottom one holds a footer picture
-  under a 5 mm line for the page number (18 mm + its height + 5 mm + 3 mm), else the footer line
-  (18 mm + 9 mm); the sides are full bleed with 18 mm of padding, so the ivory reaches the edges.
-- **The cover** fills page 1: the kicker and the title in its upper third, then the facts grid
-  (client, prepared for — the lead's contact when the client is a company —, prepared by, date,
-  valid till, reference) and its own footer line (company, version). It has no running footer
-  line or page number; a footer picture shows there as on every page.
-- **The contents** on page 2, with dot leaders to each section's page. The PDF is rendered
+- **The page frame** (`pdf_page`, `pdf_options`): 14 mm from every edge on every page. The top
+  margin holds the letter head (14 mm + its height + 5 mm). The bottom one holds a footer picture
+  under a 5 mm line for the page number (14 mm + its height + 5 mm + 3 mm), else the footer line
+  (14 mm + 9 mm); the sides are full bleed with 14 mm of padding, so the ivory reaches the edges.
+  The content is 182 mm wide (`proposal_media.CONTENT_WIDTH_MM`).
+- **The cover** opens page 1: the kicker and the title, then the facts grid (client, prepared
+  for — the lead's contact when the client is a company —, prepared by, date, valid till,
+  reference) and its own footer line (company, version). Page 1 has no running footer line or
+  page number; a footer picture shows there as on every page.
+- **The contents** follow on page 1 under the cover (onto page 2 only when they don't fit), with
+  dot leaders to each section's page. The PDF is rendered
   twice: `number_contents` finds each section's page in the first render (its number and heading,
   after the contents), and the second render prints them; the numbers move nothing. In the PDF
   the contents carry no links (they would open the web page).
@@ -508,15 +511,16 @@ colours are written out in the CSS (wkhtmltopdf's WebKit has no CSS variables).
   nor switch the `tnum` feature on), in Regular and SemiBold only (its WebKit takes 500 for 400,
   so a Medium face would replace Regular). The PDF embeds them as data URIs (`font_faces`;
   wkhtmltopdf runs with local file access off); the web page loads the same files from
-  `/assets/tbo_smart/fonts/`. Body 10.5 pt at 1.45, the title 22 pt, section headings 14.5 pt,
-  subheadings 12 pt, tables 9.5 pt; numbers right-aligned; section, subsection and contents
-  numbers in one 12 mm column.
-- **Breaks:** each part starts a new page; a heading is kept with the first thing under it;
+  `/assets/tbo_smart/fonts/`. Body 10 pt at 1.4, the title 20 pt, section headings 13 pt,
+  subheadings 11 pt, tables 9 pt with 1.4 mm row padding, 5 mm between sections; numbers
+  right-aligned; section, subsection and contents numbers in one 10 mm column.
+- **Breaks:** the sections start on the page after the contents; the parts flow on without new
+  pages (each with its title); a heading is kept with the first thing under it;
   cards, rows and the signature block don't split; a long table breaks between rows and repeats
   its header.
 - **After rendering**, `on_ivory` lays every page on an ivory sheet (wkhtmltopdf paints white
   below the content of the last page), paints over the cover's running footer line, and prints
-  "n / N" in Geist (embedded) right-aligned at the 18 mm margin of every other page: on its own
+  "n / N" in Geist (embedded) right-aligned at the 14 mm margin of every other page: on its own
   line above a footer picture, else at the right end of the footer line, on the same baseline as
   the letter head's footer on the left. The browser's print keeps the ivory
 (`print-color-adjust: exact`) and the same page breaks. Responsive on a phone (one column), dark
@@ -588,7 +592,7 @@ focus ring, 44px targets.
   their validation); the suggested timeline follows the effort; the profile is required; Share
   link (blocked until approved, no email needed, link then works); the page's numbering, parts,
   contents, cards, payment amounts, share card without prices, favicon, acceptance filled on
-  accept; the ivory PDF with page numbers in Geist, its 18 mm frame, the contents' page numbers
+  accept; the ivory PDF with page numbers in Geist, its 14 mm frame, the contents' page numbers
   and dot leaders; libraries for editors only; Draft with AI saves
   nothing; library images picked by tag and served; the website read guarded (schemes, private
   addresses, a redirect to a private address) and kept on the lead; the v1.0 patch; the assistant
@@ -603,7 +607,8 @@ focus ring, 44px targets.
 
 ## Changelog
 
-- **v2.7 (2026-11-18):** the ERPNext + mobile layout from the owner's model proposal (§3.2) and
+- **v2.7 (2026-11-18):** the compact PDF (§5.1: 14 mm margins, the contents on the cover's page,
+  the parts without page breaks, 10 pt text, tighter spacing); the ERPNext + mobile layout from the owner's model proposal (§3.2) and
   its patch (§3.6); **Change template** on a draft (§4.5); additional branches priced per branch (`branches`, `branch_rate`, the Branch
   rate setting, §4.1); a customisation priced by hand is its own quotation line; the options carry
   the currency and the branch rate for the hub's start page.

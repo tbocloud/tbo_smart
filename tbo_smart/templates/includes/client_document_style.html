@@ -156,70 +156,73 @@
 	.question label { font-weight: 500; color: #1c1b19; }
 	.save-bar { position: sticky; bottom: 0; padding: 12px 0; background: #fffdf7; border-top: 1px solid #e3ddcd; }
 	.saved { color: #1f6b45; font-size: 14px; }
-	/* the PDF: A4, 18 mm on every side (proposals.pdf_page); body 10.5 pt, headings 22/14.5/12 pt,
-	   tables 9.5 pt; one grid: the numbers of headings and contents in one 12 mm column */
-	.pdf body { font-size: 10.5pt; line-height: 1.45; }
+	/* the PDF, compact (2026-11-18): A4, 14 mm on every side (proposals.pdf_page); the cover and
+	   the contents share the first page, the parts flow on without new pages; body 10 pt, headings
+	   20/13/11 pt, tables 9 pt; one grid: the numbers of headings and contents in one 10 mm column */
+	.pdf body { font-size: 10pt; line-height: 1.4; }
 	.pdf .wrap { max-width: none; padding: 0; }
 	.pdf .sheet { background: transparent; border: 0; border-radius: 0; }
-	.pdf .pad { padding-left: 18mm; padding-right: 18mm; }
-	.pdf p, .pdf ul { margin-bottom: 2.5mm; }
-	.pdf li { margin-bottom: 1mm; }
-	.pdf .n { display: inline-block; width: 12mm; margin-right: 0; }
-	.pdf .cover { padding-top: 0; padding-bottom: 0; page-break-after: always; }
+	.pdf .pad { padding-left: 14mm; padding-right: 14mm; }
+	.pdf p, .pdf ul { margin-bottom: 2mm; }
+	.pdf li { margin-bottom: .6mm; }
+	.pdf .n { display: inline-block; width: 10mm; margin-right: 0; }
+	.pdf .cover { padding-top: 0; padding-bottom: 0; }
 	.pdf .cover td { padding: 0; }
-	.pdf .cover-grid td.top { padding-top: 34mm; }
-	.pdf .cover-grid td.bottom { padding-top: 10mm; }
-	.pdf .cover .logo { max-height: 14mm; margin-bottom: 10mm; }
-	.pdf .kicker { margin-bottom: 4mm; font-size: 9pt; }
-	.pdf .cover h1 { font-size: 22pt; line-height: 1.2; }
-	.pdf .cover .rule { width: 16mm; height: 1.5pt; margin-top: 7mm; }
-	.pdf .cover .tagline p { margin-top: 7mm; font-size: 11pt; line-height: 1.45; }
-	.pdf .cover figure { margin-top: 8mm; }
-	.pdf .cover figure img { width: auto; max-width: 100%; max-height: 80mm; }
-	.pdf .cover .facts td { padding: 3mm 4mm 3mm 0; }
-	.pdf .facts .label { font-size: 8pt; }
-	.pdf .facts .value { margin-top: .5mm; font-size: 10.5pt; }
-	.pdf .cover .cover-foot { margin-top: 8mm; }
-	.pdf .cover .cover-foot td { padding-top: 2.5mm; font-size: 8pt; }
-	.pdf .toc { border-top: 0; padding-top: 0; padding-bottom: 0; page-break-after: always; }
-	.pdf .toc h2 { margin-bottom: 4mm; font-size: 14.5pt; line-height: 1.3; }
-	.pdf .toc .part-title { margin: 6mm 0 1.5mm; font-size: 9pt; }
-	.pdf .toc li { margin: 0; padding: 0; border-bottom: 0; font-size: 10.5pt; line-height: 1.95; overflow: hidden; }
+	.pdf .cover-grid td.top { padding-top: 4mm; }
+	.pdf .cover-grid td.bottom { padding-top: 6mm; }
+	.pdf .cover .logo { max-height: 12mm; margin-bottom: 6mm; }
+	.pdf .kicker { margin-bottom: 3mm; font-size: 8.5pt; }
+	.pdf .cover h1 { font-size: 20pt; line-height: 1.2; }
+	.pdf .cover .rule { width: 16mm; height: 1.5pt; margin: 5mm 0; }
+	.pdf .cover .tagline p { margin-top: 4mm; font-size: 10.5pt; line-height: 1.4; }
+	.pdf .cover figure { margin-top: 5mm; }
+	.pdf .cover figure img { width: auto; max-width: 100%; max-height: 50mm; }
+	.pdf .cover .facts td { padding: 2mm 4mm 2mm 0; }
+	.pdf .facts .label { font-size: 7.5pt; }
+	.pdf .facts .value { margin-top: .5mm; font-size: 10pt; }
+	.pdf .cover .cover-foot { margin-top: 4mm; }
+	.pdf .cover .cover-foot td { padding-top: 2mm; font-size: 8pt; }
+	.pdf .toc { border-top: 0; padding-top: 8mm; padding-bottom: 0; page-break-after: always; }
+	.pdf .toc h2 { margin-bottom: 2.5mm; font-size: 13pt; line-height: 1.3; }
+	.pdf .toc .part-title { margin: 3.5mm 0 1mm; font-size: 8.5pt; }
+	.pdf .toc li { margin: 0; padding: 0; border-bottom: 0; font-size: 9.5pt; line-height: 1.6; overflow: hidden; }
 	/* dot leaders: a row of dots behind the heading and the page number, each on the paper colour */
 	.leaders li:before { float: left; width: 0; white-space: nowrap; color: #b4ab95; content: ". . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . ."; }
 	.leaders .t { padding-right: 1.5mm; background: #fbf8ef; }
 	.leaders .pg { float: right; position: relative; z-index: 1; padding-left: 1.5mm; background: #fbf8ef; color: #1c1b19; }
-	.pdf .part { padding-top: 0; padding-bottom: 0; border-top: 0; page-break-before: always; }
-	.pdf .part p { font-size: 9pt; }
-	.pdf section.block { padding-top: 7mm; padding-bottom: 0; }
-	.pdf section.block h2 { margin-bottom: 4mm; padding-bottom: 2mm; border-bottom-width: 1.5pt; font-size: 14.5pt; line-height: 1.3; }
-	.pdf h3 { margin: 5mm 0 2mm; font-size: 12pt; line-height: 1.3; }
-	.pdf table { margin-top: 2mm; margin-bottom: 4mm; font-size: 9.5pt; }
-	.pdf th { padding: 1.5mm 3mm 1.5mm 0; font-size: 9.5pt; letter-spacing: 0; text-transform: none; }
-	.pdf td { padding: 2mm 3mm 2mm 0; }
+	.pdf .part { padding-top: 7mm; padding-bottom: 0; border-top: 0; }
+	.pdf .part p { font-size: 8.5pt; }
+	.pdf section.block { padding-top: 5mm; padding-bottom: 0; }
+	.pdf section.block h2 { margin-bottom: 3mm; padding-bottom: 1.5mm; border-bottom-width: 1.2pt; font-size: 13pt; line-height: 1.3; }
+	.pdf h3 { margin: 3.5mm 0 1.5mm; font-size: 11pt; line-height: 1.3; }
+	.pdf table { margin-top: 1.5mm; margin-bottom: 3mm; font-size: 9pt; }
+	.pdf th { padding: 1.2mm 3mm 1.2mm 0; font-size: 9pt; letter-spacing: 0; text-transform: none; }
+	.pdf td { padding: 1.4mm 3mm 1.4mm 0; }
 	.pdf th.num, .pdf td.num { padding-left: 3mm; padding-right: 0; }
-	.pdf td .desc { font-size: 9.5pt; }
-	.pdf .totals td { padding: 1.2mm 0; }
-	.pdf .totals tr.grand td { padding-top: 3mm; font-size: 12pt; }
-	.pdf .words { font-size: 9.5pt; }
-	.pdf .card { font-size: 9.5pt; }
-	.pdf .card .in { min-height: 0; padding: 3.5mm 4mm; }
-	.pdf .card .about, .pdf .card ul { font-size: 9.5pt; }
-	.pdf .card .fit { font-size: 8pt; }
-	.pdf .step { padding: 1.5mm 2.5mm; font-size: 9.5pt; }
-	.pdf .arrow { width: 6mm; font-size: 10pt; }
-	.pdf .timeline td { padding: 1.5mm 3mm 1.5mm 0; }
-	.pdf figcaption { font-size: 9pt; }
-	.pdf .sign td { padding: 4mm 5mm; }
+	.pdf td .desc { font-size: 9pt; }
+	.pdf .totals td { padding: 1mm 0; }
+	.pdf .totals tr.grand td { padding-top: 2.5mm; font-size: 11.5pt; }
+	.pdf .words { font-size: 9pt; }
+	.pdf .cards { margin: 1mm -1.5mm 2mm; }
+	.pdf .card { padding: 1.5mm; font-size: 9pt; }
+	.pdf .card .in { min-height: 0; padding: 2.5mm 3mm; }
+	.pdf .card .about, .pdf .card ul { margin-top: 1.5mm; font-size: 9pt; }
+	.pdf .card .fit { font-size: 7.5pt; }
+	.pdf .step { padding: 1.2mm 2.2mm; font-size: 9pt; }
+	.pdf .arrow { width: 5mm; font-size: 9.5pt; }
+	.pdf .timeline td { padding: 1.2mm 3mm 1.2mm 0; }
+	.pdf figure { margin-bottom: 3mm; }
+	.pdf figcaption { font-size: 8.5pt; }
+	.pdf .sign td { padding: 3mm 4mm; }
 	.pdf .sign .who { font-size: 8pt; }
-	.pdf .sign .filled { margin-top: 4mm; font-size: 10.5pt; }
+	.pdf .sign .filled { margin-top: 3mm; font-size: 10pt; }
 	.pdf .sign .line { font-size: 8pt; }
 	/* the running header and footer: Frappe's get_pdf renders them as pages of their own, without
 	   the pdf class; its own rules pull .letter-head and .letter-head-footer up by the body's 15 mm */
-	.running-head { margin: 0 18mm; padding: 18mm 0 3mm; border-bottom: 1px solid #cfc7b3; }
+	.running-head { margin: 0 14mm; padding: 14mm 0 2.5mm; border-bottom: 1px solid #cfc7b3; }
 	.running-head img { max-width: 100%; max-height: none; }
 	.running-head .company { font-size: 11pt; font-weight: 600; color: #3d3a34; }
-	.running-foot { margin: 0 18mm; padding-top: 3.2mm; border-top: 0; color: #67625a; font-size: 8pt; line-height: 1.3; }
+	.running-foot { margin: 0 14mm; padding-top: 3.2mm; border-top: 0; color: #67625a; font-size: 8pt; line-height: 1.3; }
 	.running-foot .in { padding: 2.5mm 22mm 0 0; border-top: 1px solid #cfc7b3; overflow: hidden; white-space: nowrap; text-align: left; }
 	.running-foot .in * { margin: 0 !important; color: #67625a !important; font-size: 8pt !important; text-align: left !important; }
 	.running-foot img { max-width: 100%; max-height: 8mm; }
@@ -245,8 +248,8 @@
 		html, body, .wrap { background: #fbf8ef; padding: 0; }
 		.sheet { border: 0; background: transparent; }
 		.decision, .no-print, .notice.preview { display: none; }
-		.cover, .toc { page-break-after: always; }
-		.part { page-break-before: always; }
+		/* compact, as the PDF: the contents follow the cover; the parts flow on */
+		.toc { page-break-after: always; }
 	}
 	@media (prefers-reduced-motion: no-preference) { button { transition: background-color .15s; } }
 </style>
