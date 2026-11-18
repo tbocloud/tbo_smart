@@ -118,6 +118,7 @@
   "proposal_letter_head",
   "proposal_service_item",
   "proposal_day_rate",
+  "proposal_branch_rate",
   "proposal_ai_daily_limit",
   "client_documents_section",
   "proposal_is_quotation",
@@ -944,6 +945,13 @@
    "description": "Customisation and change requests, per person-day."
   },
   {
+   "fieldname": "proposal_branch_rate",
+   "fieldtype": "Currency",
+   "label": "Branch rate",
+   "depends_on": "eval:doc.enable_proposals",
+   "description": "Each additional branch rolled out (one-time), unless a proposal sets its own price per branch."
+  },
+  {
    "fieldname": "proposal_ai_daily_limit",
    "fieldtype": "Int",
    "label": "AI proposal runs a day",
@@ -1498,7 +1506,7 @@
  "index_web_pages_for_search": 0,
  "issingle": 1,
  "links": [],
- "modified": "2026-11-13 12:00:00.000000",
+ "modified": "2026-11-18 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Smart Settings",

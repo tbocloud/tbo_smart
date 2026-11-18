@@ -46,6 +46,7 @@ otherwise) and count against the day's limit (417 "Today's AI proposal runs are 
 | `finalise_proposal` | POST | `name`, `ready` (1: Mark ready, 0: Reopen), `acting_user` | `Proposal` (`ready_on` set or cleared) |
 | `regenerate_section` | POST | `name`, `index`, `force` (0/1), `acting_user` | `{proposal, warnings, confirm}`: `confirm` (a question) when the section was edited by hand and `force` wasn't given; nothing changed then |
 | `regenerate_proposal` | POST | `name`, `force` (0/1), `acting_user` | `{proposal, warnings, kept: [headings kept because edited by hand]}` |
+| `change_template` | POST | `name`, `template`, `scoping?` (the answers the new template brings: its modules and add-ons; blank: the proposal's), `acting_user` | `{proposal, warnings, kept}`: a draft proposal (not marked ready) moved to another enabled template, same number; refused for other document types |
 | `chat_edit` | POST | `name`, `message`, `acting_user` | `{proposal, reply, changes: [text], warnings}`: one small structured call; the transcript kept |
 | `price_from_modules` | POST | `name`, `acting_user` | `Proposal` (the quotation's lines from the modules and the customisation days) |
 | `share_proposal` | POST | `name`, `acting_user` | `{proposal, url}`: a draft goes out as Send does but without an email (refused with the reasons while anything blocks it); a sent one just gives its link |
@@ -78,7 +79,8 @@ Options = {enabled: true, ai, can_edit_templates,
   hosting: ["Frappe Cloud", "On-premise", "Client's cloud", "TBO hosting"],
   profile_required: ["industry", "pain_points"],
   timelines: [{title, days}], payment_terms: [titles], amc_plans: [titles],
-  catalogue: [Module], images: [{name, title, alt_text, sections, solution_types, url}],
+  catalogue: [Module], currency (the default company's, for the start page's module prices),
+  branch_rate (TBO Smart Settings' Branch rate; 0: not set), images: [{name, title, alt_text, sections, solution_types, url}],
   letter_heads: [{name, is_default}], default_letter_head, proposal_letter_head,
   document_types: [DocumentType] (the switched-on ones, in the chain's order),
   proposal_is_quotation (true: no Quotation step, the proposal's price is final;
@@ -121,9 +123,10 @@ Module = {name, module_name, solution_types (one a line), description, features,
 Profile = {name, website, about, industry, size, locations, current_software, key_processes,
   pain_points}
 
-Scoping = {modules: [names], customisation, customisations: [{item, days, detail}], mobile_app,
+Scoping = {modules: [names], customisation, customisations: [{item, days, detail, price}] (price: set by hand, null: its days at the day rate), mobile_app,
   web_app, integrations, data_migration, users and companies (each a number, 0: not said, or
-  "Unlimited"), hosting, amc, timeline_weeks, source_code,
+  "Unlimited"), branches (additional branches, 0-1000), branch_rate (a price per branch; null: the
+  Branch rate setting), hosting, amc, timeline_weeks, source_code,
   architecture ("Simple" / "Detailed"), timeline_template, payment_terms, amc_plan}
 
 ChatLine = {role: "presales" | "assistant", text, at?}
@@ -249,7 +252,7 @@ user with `acting_user`.
   `accept`'s `designation`.
 - **v2.0 (2026-10-19):** the Universal IT Proposal: `get_client_profile`, `read_client_website`,
   `get_requirements_from_lead`, `extract_requirements`, `regenerate_section`,
-  `regenerate_proposal`, `chat_edit`, `price_from_modules`, `share_proposal`,
+  `regenerate_proposal`, `change_template`, `chat_edit`, `price_from_modules`, `share_proposal`,
   `use_library_image`, the library methods and `draft_library_module`; `create_proposal` takes
   the scoping, requirements, client profile and chat; `Proposal` gains the profile, scoping,
   requirements, chat, modules, pricing mode, section flags, `share_blockers` and `ai`; one theme

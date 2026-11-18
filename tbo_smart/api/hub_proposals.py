@@ -235,6 +235,9 @@ def get_proposal_options(acting_user: str | None = None) -> dict:
 			"payment_terms": [row.title for row in builder.library("Payment Terms")],
 			"amc_plans": [row.title for row in builder.library("AMC Plan")],
 			"catalogue": builder.catalogue(),
+			# what the start page shows its module prices in
+			"currency": builder.default_currency(),
+			"branch_rate": flt(p.setting("proposal_branch_rate")),
 			"images": [
 				{
 					"name": row.name,
@@ -612,6 +615,20 @@ def regenerate_proposal(name: str, force: int | str = 0, acting_user: str | None
 	with acting_as(acting_user):
 		doc = get_doc(name, "write")
 		result = p.regenerate_all(doc, bool(cint(force)))
+		return {"proposal": payload(doc), **result}
+
+
+@frappe.whitelist(methods=["POST"])
+def change_template(
+	name: str, template: str, scoping: dict | str | None = None, acting_user: str | None = None
+) -> dict:
+	"""A draft proposal moved to another `template` (with the `scoping` it brings: its modules
+	and add-ons): its sections follow the template, hand edits and the AI's narrative kept; the
+	timeline and payment terms go back to the template's defaults; repriced. Returns {proposal,
+	warnings, kept}."""
+	with acting_as(acting_user):
+		doc = get_doc(name, "write")
+		result = p.change_template(doc, template, parse(scoping) if scoping else None)
 		return {"proposal": payload(doc), **result}
 
 
