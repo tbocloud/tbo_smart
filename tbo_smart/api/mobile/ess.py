@@ -540,17 +540,7 @@ def serialize_claims(claims: list) -> list[dict]:
 	for line in lines:
 		first_line.setdefault(line.parent, line)
 
-	File = frappe.qb.DocType("File")
-	files = (
-		frappe.qb.from_(File)
-		.select(File.attached_to_name, File.file_name)
-		.where((File.attached_to_doctype == "Expense Claim") & (File.attached_to_name.isin(names)))
-		.orderby(File.creation)
-	).run(as_dict=True)
-	receipts = {}
-	for file in files:
-		receipts.setdefault(file.attached_to_name, file.file_name)
-
+	receipts = {name: file.file_name for name, file in claim_receipts(names).items()}
 	approvers = get_full_names({claim.expense_approver for claim in claims})
 	result = []
 	for claim in claims:
@@ -570,6 +560,24 @@ def serialize_claims(claims: list) -> list[dict]:
 			}
 		)
 	return result
+
+
+def claim_receipts(names: list[str]) -> dict:
+	"""The receipt of each Expense Claim in `names` that has one: its first attached File
+	({claim: {name, file_name}}), in one query."""
+	if not names:
+		return {}
+	File = frappe.qb.DocType("File")
+	files = (
+		frappe.qb.from_(File)
+		.select(File.name, File.attached_to_name, File.file_name)
+		.where((File.attached_to_doctype == "Expense Claim") & (File.attached_to_name.isin(names)))
+		.orderby(File.creation)
+	).run(as_dict=True)
+	receipts = {}
+	for file in files:
+		receipts.setdefault(file.attached_to_name, file)
+	return receipts
 
 
 def claim_status(claim) -> str:
