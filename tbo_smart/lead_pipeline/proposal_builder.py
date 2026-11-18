@@ -90,6 +90,10 @@ def scoping_answers(raw, solution_type: str | None = None) -> dict:
 		"data_migration": bool(cint(raw.get("data_migration"))),
 		"users": headcount(raw.get("users")),
 		"companies": headcount(raw.get("companies")),
+		# branches rolled out beyond the head office and the first branch, each at the branch
+		# rate (`branch_rate` set on the proposal, else TBO Smart Settings' rate)
+		"branches": min(max(cint(raw.get("branches")), 0), MAX_BRANCHES),
+		"branch_rate": max(flt(raw.get("branch_rate")), 0) or None,
 		"hosting": raw.get("hosting") if raw.get("hosting") in HOSTING else None,
 		"amc": bool(cint(raw.get("amc"))),
 		"timeline_weeks": max(cint(raw.get("timeline_weeks")), 0),
@@ -107,6 +111,7 @@ def scoping_answers(raw, solution_type: str | None = None) -> dict:
 
 
 UNLIMITED = "Unlimited"
+MAX_BRANCHES = 1000
 
 
 def headcount(value) -> int | str:
@@ -134,7 +139,8 @@ def scale_text(answers: dict) -> str:
 
 
 def customisation_rows(value) -> list[dict]:
-	"""Customisations as [{item, days}], from a list or from "item | days" lines."""
+	"""Customisations as [{item, days, detail, price}], from a list or from "item | days" lines.
+	`price` is a price set by hand (None: priced by its days at the day rate)."""
 	if isinstance(value, str):
 		value = [line for line in value.splitlines() if line.strip()]
 	rows = []
@@ -150,6 +156,7 @@ def customisation_rows(value) -> list[dict]:
 				"days": max(flt(row.get("days")), 0),
 				# what the AI wrote about it (the per-proposal call), editable after
 				"detail": str(row.get("detail") or "").strip()[:600] or None,
+				"price": max(flt(row.get("price")), 0) or None,
 			}
 		)
 	return rows[:MAX_CUSTOMISATIONS]
@@ -168,6 +175,8 @@ def conditions(doc) -> set[str]:
 		met.add("Web app")
 	if answers["customisations"]:
 		met.add("Customisation")
+	if answers["branches"]:
+		met.add("Additional branches")
 	if answers["integrations"] or IMPLIED_MODULES["integrations"] in names:
 		met.add("Integrations")
 	if answers["source_code"]:
@@ -669,11 +678,18 @@ def pricing_values(doc) -> dict:
 				"description": row.module_name if code == service else None,
 			}
 		)
-	days = sum(row["days"] for row in scoping_answers(doc.scoping, doc.solution_type)["customisations"])
+	customisations = scoping_answers(doc.scoping, doc.solution_type)["customisations"]
+	priced = [row for row in customisations if row["price"]]
+	days = sum(row["days"] for row in customisations if not row["price"])
+	if (priced or days) and not service:
+		frappe.throw(_("Set the proposal service item in TBO Smart Settings to price the customisation."))
+	# a customisation priced by hand is a line of its own; the rest are their days at the day rate
+	items.extend(priced_customisation_line(service, row) for row in priced)
 	if days:
-		if not service:
-			frappe.throw(_("Set the proposal service item in TBO Smart Settings to price the customisation."))
 		items.append(customisation_line(service, days))
+	branches = branch_line(service, scoping_answers(doc.scoping, doc.solution_type))
+	if branches:
+		items.append(branches)
 	if not items:
 		frappe.throw(_("Add a module to price the proposal from."))
 	values = {"items": items}
@@ -694,6 +710,36 @@ def pricing_values(doc) -> dict:
 			}
 		)
 	return values
+
+
+def branch_line(service: str | None, answers: dict) -> dict | None:
+	"""The additional branches: that many of the service item at the branch rate (the proposal's,
+	else TBO Smart Settings')."""
+	if not answers["branches"]:
+		return None
+	rate = flt(answers["branch_rate"]) or flt(setting("proposal_branch_rate"))
+	if not service:
+		frappe.throw(_("Set the proposal service item in TBO Smart Settings to price the branches."))
+	if not rate:
+		frappe.throw(_("Set the branch rate in TBO Smart Settings, or a price per branch on the proposal."))
+	return {
+		"item_code": service,
+		"qty": answers["branches"],
+		"price_list_rate": rate,
+		"discount_percentage": 0,
+		"description": _("Additional branch rollout ({0} branches)").format(answers["branches"]),
+	}
+
+
+def priced_customisation_line(service: str, row: dict) -> dict:
+	"""A customisation priced by hand: one unit of the service item at its price, named by it."""
+	return {
+		"item_code": service,
+		"qty": 1,
+		"price_list_rate": flt(row["price"]),
+		"discount_percentage": 0,
+		"description": _("Customisation: {0}").format(row["item"]),
+	}
 
 
 def customisation_line(service: str, days: float) -> dict:

@@ -235,6 +235,9 @@ def get_proposal_options(acting_user: str | None = None) -> dict:
 			"payment_terms": [row.title for row in builder.library("Payment Terms")],
 			"amc_plans": [row.title for row in builder.library("AMC Plan")],
 			"catalogue": builder.catalogue(),
+			# what the start page shows its module prices in
+			"currency": builder.default_currency(),
+			"branch_rate": flt(p.setting("proposal_branch_rate")),
 			"images": [
 				{
 					"name": row.name,

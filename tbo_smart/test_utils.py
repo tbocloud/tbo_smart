@@ -1600,6 +1600,41 @@ CLIENT_PROFILE = {
 }
 
 
+def set_old_erp_mobile_template() -> dict:
+	"""The ERPNext + mobile template as the first seed made it (every master section on, in
+	order, the questions without branches), as a site has it before the model-proposal layout.
+	Returns its earlier values, for `restore_template`."""
+	from tbo_smart.lead_pipeline import proposal_templates as seed
+	from tbo_smart.lead_pipeline.proposals import MASTER_SECTIONS, QUESTIONS
+
+	doc = frappe.get_doc("TBO Proposal Template", seed.ERP_MOBILE)
+	before = {"questions": doc.questions, "sections": [row.as_dict() for row in doc.sections]}
+	doc.questions = "\n".join(q for q in QUESTIONS if q != "branches")
+	doc.set(
+		"sections",
+		[
+			{"section_type": kind, "enabled": 1, "heading": heading, "guidance": seed.GUIDANCE.get(kind)}
+			for kind, heading in MASTER_SECTIONS
+		],
+	)
+	doc.save(ignore_permissions=True)
+	return before
+
+
+def restore_template(name: str, before: dict) -> None:
+	"""Put a template's questions and sections back as `set_old_erp_mobile_template` found them."""
+	doc = frappe.get_doc("TBO Proposal Template", name)
+	doc.questions = before["questions"]
+	doc.set(
+		"sections",
+		[
+			{key: row.get(key) for key in ("section_type", "enabled", "heading", "guidance", "body")}
+			for row in before["sections"]
+		],
+	)
+	doc.save(ignore_permissions=True)
+
+
 def make_hub_proposal(
 	lead: str, acting_user: str, template: str | None = None, ai_draft: int = 0, scoping: dict | None = None
 ) -> dict:

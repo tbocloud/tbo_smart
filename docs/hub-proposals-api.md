@@ -78,7 +78,8 @@ Options = {enabled: true, ai, can_edit_templates,
   hosting: ["Frappe Cloud", "On-premise", "Client's cloud", "TBO hosting"],
   profile_required: ["industry", "pain_points"],
   timelines: [{title, days}], payment_terms: [titles], amc_plans: [titles],
-  catalogue: [Module], images: [{name, title, alt_text, sections, solution_types, url}],
+  catalogue: [Module], currency (the default company's, for the start page's module prices),
+  branch_rate (TBO Smart Settings' Branch rate; 0: not set), images: [{name, title, alt_text, sections, solution_types, url}],
   letter_heads: [{name, is_default}], default_letter_head, proposal_letter_head,
   document_types: [DocumentType] (the switched-on ones, in the chain's order),
   proposal_is_quotation (true: no Quotation step, the proposal's price is final;
@@ -121,9 +122,10 @@ Module = {name, module_name, solution_types (one a line), description, features,
 Profile = {name, website, about, industry, size, locations, current_software, key_processes,
   pain_points}
 
-Scoping = {modules: [names], customisation, customisations: [{item, days, detail}], mobile_app,
+Scoping = {modules: [names], customisation, customisations: [{item, days, detail, price}] (price: set by hand, null: its days at the day rate), mobile_app,
   web_app, integrations, data_migration, users and companies (each a number, 0: not said, or
-  "Unlimited"), hosting, amc, timeline_weeks, source_code,
+  "Unlimited"), branches (additional branches, 0-1000), branch_rate (a price per branch; null: the
+  Branch rate setting), hosting, amc, timeline_weeks, source_code,
   architecture ("Simple" / "Detailed"), timeline_template, payment_terms, amc_plan}
 
 ChatLine = {role: "presales" | "assistant", text, at?}

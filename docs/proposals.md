@@ -1,4 +1,4 @@
-# Proposals to a lead (living spec, v2.6)
+# Proposals to a lead (living spec, v2.7)
 
 **Status:** built 2026-10-19 (Phases 3 and 4 of the sales flow the owner approved on 2026-10-16;
 the Universal IT Proposal the owner set on 2026-10-19). Presales starts a proposal in the TBO
@@ -33,6 +33,7 @@ of their own type, on the same engine: `client-documents.md`. The hub's contract
 | `proposal_letter_head` | blank | The Letter Head every proposal uses unless it picks another (§2.2). Blank: the Letter Head marked default. Also set from the hub (`set_default_letter_head`, preset editors). |
 | `proposal_service_item` | blank | The quotation line's Item for a module without an Item of its own (named by the module) and for customisation days. |
 | `proposal_day_rate` | 0 | Customisation and change requests, a person-day (the Out of Scope section quotes it). |
+| `proposal_branch_rate` | 0 | Each additional branch rolled out, one-time, unless a proposal sets its own price per branch (§4.1). |
 | `proposal_ai_daily_limit` | 50 | At most this many AI proposal writes a day (whole drafts and single sections), so the cost stays capped. |
 
 ## 2. The proposal (TBO Proposal, `PROP-YYYY-#####`, track changes)
@@ -171,12 +172,16 @@ fields as they are. The data, in order:
    the template, modules (only catalogue names), customisation bullets, mobile app, web app,
    integrations, data migration, users, hosting, AMC, target weeks, source code. Nothing is saved.
 3. **Scoping form**, confirmed by presales: `modules`, `customisation` and `customisations`
-   (`[{item, days, detail}]`: one-line bullets; `detail` is what the AI writes, §4.2),
+   (`[{item, days, detail, price}]`: one-line bullets; `detail` is what the AI writes, §4.2;
+   `price` a price set by hand, blank: priced by its days at the day rate),
    `mobile_app`, `web_app`, `integrations`, `data_migration`, `users` and `companies` (each a
    number, 0 when not said, or **"Unlimited"**; shown as "Unlimited users, up to 3 companies" in
    the Proposed Solution's table, the Investment notes and the Assumptions), `hosting` (Frappe Cloud,
-   On-premise, Client's cloud, TBO hosting), `amc`, `timeline_weeks`, `source_code`,
-   `architecture` (Simple / Detailed). The template decides which questions are asked.
+   On-premise, Client's cloud, TBO hosting), `branches` (additional branches beyond the head
+   office and the first branch, 0 to 1,000; asked by the ERPNext templates only) and
+   `branch_rate` (a price per branch set on the proposal; blank: the Branch rate setting), `amc`,
+   `timeline_weeks`, `source_code`, `architecture` (Simple / Detailed). The template decides
+   which questions are asked.
 4. **Templates:** `timeline_template` (suggested: the shortest one of at least 1.6 calendar days
    a person-day of module and customisation effort, or the target weeks if longer; presales
    picks), `payment_terms` (the first by default), `amc_plan` (the plan to recommend; blank: none).
@@ -199,6 +204,30 @@ new proposal), `sections` (**TBO Proposal Template Section**: `section_type`, `e
 **Seeded** (§3.6): ERPNext Implementation, ERPNext + Flutter Mobile App, Flutter Mobile App, Web
 Application, Custom Software Development, Frappe HR / HRMS, Helpdesk, CRM, Website / Digital, AMC
 / Support. Edited by the roles that edit presets and prices, in the hub or the desk.
+
+**The ERPNext + mobile layout** (the owner's model proposal of 2026-11-18, an AI-integrated
+retail and distribution platform): the *ERPNext + Flutter Mobile App* preset has its own order,
+headings and guidance (`ERP_MOBILE_LAYOUT`, through `preset(layout=…)`). On: Cover, Executive
+Summary (a "The proposal in brief" list a module or app, then "Why this approach"),
+**Understanding the Requirement** (Client Background: a "Requirement | Why it matters to the
+business | How the platform responds" table of the client's stated needs), **Solution Overview**
+(Proposed Solution: the layers, then a "Component | Role in the solution" table), **How It Works**
+(Proposed Workflow), Modules & Features, **Technology Stack & Architecture**, a Custom **Security,
+Hosting & Data Ownership** (fixed text), Implementation Plan, Project Timeline, **Commercials**
+(Investment), **Payment Milestones** (Payment Terms), a Custom **Annual Maintenance Contract
+(AMC)** (fixed text: no charge for three years from implementation, then 5% a year of the total
+branch rollout cost, billed yearly), Assumptions, **Exclusions** (Out of Scope) and **Acceptance &
+Next Steps**. Off, for presales to switch on: Company Overview, Business Challenges, Scope of
+Work, Deliverables, Project Team, Warranty & Support, the AMC plans table, Risks & Mitigation,
+Terms & Conditions. It asks `branches` and no AMC plan. Its library rows (`solution_types` the
+preset only): the **50 / 30 / 20** payment terms (advance on signing, UAT sign-off, go-live; first,
+so its default), four assumptions (master data in the agreed templates, third-party accounts in
+the client's name, scope limited to the proposal with a change register, business-hours support)
+and three exclusions (gateway, telephony, SMS, WhatsApp and cloud charges; statutory
+registrations and legal or tax advice; marketing content beyond the system's own messages); and
+for any proposal with branches, an Investment note on what a branch covers (`condition`
+"Additional branches"). The model's client-specific content (its industry, outlet counts, region)
+is not in the preset: the AI and the libraries write that for each client.
 
 ### 3.3 The module catalogue (TBO Proposal Module), written once, reused everywhere
 
@@ -264,7 +293,12 @@ the same name is rewritten to the master structure and Helpdesk / Support, Custo
 Digital Marketing are disabled. The patch `proposal_master_sections` moves v1.0 block types to
 their master sections (About us → Company Overview, Challenge → Business Challenges, Solution →
 Proposed Solution, Scope → Scope of Work, Timeline → Project Timeline, Pricing → Investment, Terms
-→ Terms & Conditions) and every proposal to the Ivory theme.
+→ Terms & Conditions) and every proposal to the Ivory theme. The patch `proposal_erp_mobile_layout`
+(`setup.update_erp_mobile_preset`) brings the ERPNext + mobile layout (§3.2) to a seeded site: its
+library rows are added where missing (by library and title), and the template takes the new
+sections and questions only while it is still the first seed's (every master section on, in
+order, with its heading and guidance, and the questions without branches); a template the editors
+changed is left for them.
 
 ## 4. Building it
 
@@ -274,7 +308,11 @@ The Investment is the lead's own ERPNext **Quotation**, made and changed through
 builder (`lead_quotation.save_quotation`), so the segment's price list and discount band apply,
 and the discount and commission control applies (*Request approval* above the limit).
 `price_from_modules` writes its lines from the modules (a line each at its price, an Item's or the
-service item named by the module) and the customisation days (the service item at the day rate);
+service item named by the module), each customisation priced by hand (one unit of the service
+item at its price, "Customisation: <item>"), the other customisations' days (the service item at
+the day rate) and the additional branches (that many of the service item at the proposal's price
+per branch, else the Branch rate; "Additional branch rollout (5 branches)"; with branches and no
+rate it isn't priced, and the warning says to set one);
 the taxes, extra discount and validity already on the quotation are kept. The manual pricing
 dialog still works.
 
@@ -389,7 +427,7 @@ A save (`save_content`) that changes the **modules** (price, days, fit, added or
   edited by hand is kept until *Reset to library* (`regenerate_section` with `force`);
 - a timeline that was the suggestion follows the new effort (`suggest_timeline`); one picked by
   hand stays (picking the suggested one counts as following it);
-- when the quotation's lines changed (a module's name, Item or price, or the customisation days)
+- when the quotation's lines changed (a module's name, Item or price, a customisation's price, the customisation days, or the branches and their price)
   the draft's quotation is priced again (`price_new_proposal`), so the page's Investment and the
   payment amounts follow; what stops it comes back as `warnings` on the save. The AI's sections
   are never rewritten on save.
@@ -502,7 +540,8 @@ focus ring, 44px targets.
 3. TBO Smart Settings: Quotations on the lead and **Proposals** on; **AI proposal drafts** with an
    AI provider; the **Proposal service item** (an Item for module and customisation lines; e.g. a
    service Item "Implementation Services", in the UOM **Day** with *Must be Whole Number* off, §4.1)
-   and the **Day rate**; **The proposal is the quotation** stays on (`client-documents.md` §1.1).
+   and the **Day rate**, and the **Branch rate** for proposals with additional branches; **The
+   proposal is the quotation** stays on (`client-documents.md` §1.1).
    A **default Sales Taxes and Charges Template** (GST) for the company, and the quotation terms
    and payment terms template, so the proposal's price carries them.
 4. **Prices:** in hub Settings → Rates and proposals → Module catalogue, set each module's default
@@ -525,8 +564,14 @@ focus ring, 44px targets.
   shown to editors only; regenerate asks before writing over an edit and then does, a data
   section resets with no AI; regenerate all keeps hand edits; the requirements box fills the form
   (catalogue names only); an AI failure still makes the proposal; the daily limit; AI off.
+- **ERPNext + mobile layout** (`TestErpMobileLayout`): a proposal from it has the model's
+  sections on in order with their headings, the rest off, the two fixed sections, the 50 / 30 / 20
+  milestones by default (another template keeps its own), its assumptions and exclusions; branches
+  priced per branch at the setting's rate and at a price set on the proposal, with the branch note
+  in the Commercials; branches without a rate not priced, with the warning; the patch leaves an
+  edited template and adds its library rows once.
 - **Master** (`TestMaster`): modules price the quotation (named lines, customisation days at the
-  day rate, a hand price kept, list price restored); timeline, payment and AMC templates (and
+  day rate, a customisation priced by hand as its own line, a hand price kept, list price restored); timeline, payment and AMC templates (and
   their validation); the suggested timeline follows the effort; the profile is required; Share
   link (blocked until approved, no email needed, link then works); the page's numbering, parts,
   contents, cards, payment amounts, share card without prices, favicon, acceptance filled on
@@ -544,6 +589,11 @@ focus ring, 44px targets.
   question and a Malayalam answer read (mocked).
 
 ## Changelog
+
+- **v2.7 (2026-11-18):** the ERPNext + mobile layout from the owner's model proposal (§3.2) and
+  its patch (§3.6); additional branches priced per branch (`branches`, `branch_rate`, the Branch
+  rate setting, §4.1); a customisation priced by hand is its own quotation line; the options carry
+  the currency and the branch rate for the hub's start page.
 
 - **v2.6 (2026-10-20):** the proposal is the quotation (on by default): a proposal's new
   quotation gets the default GST, terms, payment terms template and the proposal's validity

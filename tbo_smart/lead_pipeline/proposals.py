@@ -534,6 +534,7 @@ QUESTIONS = (
 	"data_migration",
 	"users",
 	"companies",
+	"branches",
 	"hosting",
 	"amc",
 	"timeline_weeks",
@@ -678,11 +679,14 @@ def follow_state(doc) -> dict:
 
 
 def pricing_signature(doc) -> tuple:
-	"""The module lines and customisation days the quotation is priced from."""
+	"""The module lines, customisation prices and days, and the branches the quotation is priced
+	from."""
 	answers = builder.scoping_answers(doc.scoping, doc.solution_type)
 	return (
 		tuple((row.module_name, row.item, flt(row.rate)) for row in doc.modules),
-		sum(flt(row["days"]) for row in answers["customisations"]),
+		tuple((row["item"], flt(row["price"])) for row in answers["customisations"] if row["price"]),
+		sum(flt(row["days"]) for row in answers["customisations"] if not row["price"]),
+		(answers["branches"], flt(answers["branch_rate"])),
 	)
 
 

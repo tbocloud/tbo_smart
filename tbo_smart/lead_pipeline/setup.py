@@ -4,6 +4,7 @@ docs/erpnext-lead-cutover.md §2.1). Nothing on a site without ERPNext."""
 
 import frappe
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
+from frappe.utils import cint
 
 from tbo_smart import lead_source
 from tbo_smart.lead_pipeline import lead_category
@@ -674,6 +675,47 @@ def add_strategy_preset() -> None:
 	template = next(row for row in seed.templates() if row["template_name"] == seed.STRATEGY)
 	if not frappe.db.exists("TBO Proposal Template", template["template_name"]):
 		frappe.get_doc({"doctype": "TBO Proposal Template", **template}).insert(ignore_permissions=True)
+
+
+def update_erp_mobile_preset() -> None:
+	"""The ERPNext + mobile proposal laid out as the owner's model proposal (a patch; a new site gets
+	it with the first seed): its library rows (the 50 / 30 / 20 milestones, assumptions,
+	exclusions, the branch note) are added where missing, and the site's template takes the new
+	layout and questions only while it is still the old preset, so nothing the editors changed is
+	overwritten."""
+	from tbo_smart.lead_pipeline import proposal_templates as seed
+
+	library = "TBO Proposal Library Item"
+	for row in seed.LIBRARY:
+		new = row.get("solution_types") == seed.ERP_MOBILE or row.get("condition") == "Additional branches"
+		if new and not frappe.db.exists(library, {"library": row["library"], "title": row["title"]}):
+			frappe.get_doc({"doctype": library, **row}).insert(ignore_permissions=True)
+	name = "TBO Proposal Template"
+	template = next(row for row in seed.templates() if row["template_name"] == seed.ERP_MOBILE)
+	if not frappe.db.exists(name, seed.ERP_MOBILE):
+		frappe.get_doc({"doctype": name, **template}).insert(ignore_permissions=True)
+		return
+	doc = frappe.get_doc(name, seed.ERP_MOBILE)
+	if not is_old_erp_mobile_preset(doc):
+		return
+	doc.questions = template["questions"]
+	doc.set("sections", template["sections"])
+	doc.save(ignore_permissions=True)
+
+
+def is_old_erp_mobile_preset(doc) -> bool:
+	"""The template is still as the first seed made it: every master section on, in order, with its
+	heading and guidance, and the questions of then (no branches)."""
+	from tbo_smart.lead_pipeline import proposal_templates as seed
+	from tbo_smart.lead_pipeline.proposals import MASTER_SECTIONS, QUESTIONS
+
+	old_questions = [q for q in QUESTIONS if q != "branches"]
+	old_sections = [(kind, 1, heading, seed.GUIDANCE.get(kind), None) for kind, heading in MASTER_SECTIONS]
+	sections = [
+		(row.section_type, cint(row.enabled), row.heading or None, row.guidance or None, row.body or None)
+		for row in doc.sections
+	]
+	return sections == old_sections and [q for q in (doc.questions or "").splitlines() if q] == old_questions
 
 
 CLAUSES_SEEDED = "tbo_agreement_clauses_seeded"

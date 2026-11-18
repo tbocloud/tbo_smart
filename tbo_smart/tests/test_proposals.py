@@ -14,8 +14,10 @@ from tbo_smart.api import proposal_page as page
 from tbo_smart.api.quotation_adjustment import decide_adjustment, get_pending_approvals
 from tbo_smart.lead_pipeline import proposal_builder as builder
 from tbo_smart.lead_pipeline import proposal_media as media
+from tbo_smart.lead_pipeline import proposal_templates as seed
 from tbo_smart.lead_pipeline import proposals as p
 from tbo_smart.lead_pipeline import quotations as q
+from tbo_smart.lead_pipeline import setup as smart_setup
 from tbo_smart.lead_pipeline.statuses import CLOSED_WON, PROPOSAL_SENT
 from tbo_smart.sales.opportunity import lead_opportunity
 from tbo_smart.test_utils import (
@@ -49,9 +51,11 @@ from tbo_smart.test_utils import (
 	pdf_text_positions,
 	price_hub_proposal,
 	proposal_token,
+	restore_template,
 	save_lead_quotation,
 	send_hub_proposal,
 	set_leaf_customer_group,
+	set_old_erp_mobile_template,
 	set_proposal_values,
 	set_segment_rates,
 	set_smart_lead_settings,
@@ -941,6 +945,32 @@ class TestMaster(ProposalTestCase):
 		html = p.render_html(frappe.get_doc(p.DOCTYPE, proposal["name"]))
 		self.assertIn("HR &amp; Payroll", html)  # a service-item line is named by its module
 
+	def test_a_customisation_priced_by_hand_is_its_own_line(self):
+		frappe.set_user("Administrator")
+		set_smart_lead_settings(proposal_service_item=SERVICE, proposal_day_rate=6000)
+		frappe.set_user(HUB)
+		scoping = {
+			"modules": ["Accounts"],
+			"customisation": 1,
+			"customisations": [
+				{"item": "Salary slip in our format", "days": 2, "price": 25000},
+				{"item": "Sales dashboard", "days": 3},
+			],
+		}
+		proposal = make_hub_proposal(self.lead, BDE, TEMPLATE, 0, scoping)
+		lines = [
+			(row["description"], row["qty"], row["price_list_rate"]) for row in proposal["quotation"]["items"]
+		][1:]
+		self.assertEqual(
+			lines,
+			[
+				("Customisation: Salary slip in our format", 1, 25000),
+				("Customisation (3 person-days)", 3, 6000),
+			],
+		)
+		self.assertEqual(proposal["scoping"]["customisations"][0]["price"], 25000)
+		self.assertIsNone(proposal["scoping"]["customisations"][1]["price"])
+
 	def test_templates_timeline_payment_terms_and_amc(self):
 		proposal = make_hub_proposal(
 			self.lead, BDE, TEMPLATE, 0, {"timeline_template": "45 days", "amc": 1, "amc_plan": "Premium"}
@@ -1598,3 +1628,110 @@ class TestLiveFeedback(ProposalTestCase):
 		self.assertEqual(read["profile"]["pain_points"], "Manual payroll\nGST filing is slow")
 		self.assertTrue(read["scoping"]["customisation"])
 		self.assertEqual(read["scoping"]["customisations"][0]["item"], "Salary slip in our format")
+
+
+class TestErpMobileLayout(ProposalTestCase):
+	"""The ERPNext + mobile proposal laid out as the owner's model proposal: its order, headings,
+	fixed sections and terms; the additional branches priced per branch; the patch that brings the
+	layout to a site and keeps an edited template."""
+
+	def setUp(self):
+		super().setUp()
+		frappe.set_user("Administrator")
+		self.before = set_old_erp_mobile_template()
+		self.addCleanup(restore_template, seed.ERP_MOBILE, self.before)
+		smart_setup.update_erp_mobile_preset()
+		frappe.set_user(HUB)
+
+	def test_the_proposal_follows_the_model(self):
+		proposal = make_hub_proposal(self.lead, BDE, seed.ERP_MOBILE, 0, {"modules": ["Accounts"]})
+		on = [(row["section_type"], row["heading"]) for row in proposal["sections"] if row["enabled"]]
+		self.assertEqual(
+			on,
+			[
+				("Cover", "Cover"),
+				("Executive Summary", "Executive Summary"),
+				("Client Background", "Understanding the Requirement"),
+				("Proposed Solution", "Solution Overview"),
+				("Proposed Workflow", "How It Works"),
+				("Modules & Features", "Modules & Features"),
+				("Technical Architecture", "Technology Stack & Architecture"),
+				("Custom", "Security, Hosting & Data Ownership"),
+				("Implementation Plan", "Implementation Plan"),
+				("Project Timeline", "Project Timeline"),
+				("Investment", "Commercials"),
+				("Payment Terms", "Payment Milestones"),
+				("Custom", "Annual Maintenance Contract (AMC)"),
+				("Assumptions", "Assumptions"),
+				("Out of Scope", "Exclusions"),
+				("Acceptance", "Acceptance & Next Steps"),
+			],
+		)
+		# the sections the model has no use for are there, off, for presales to switch on
+		off = {row["section_type"] for row in proposal["sections"] if not row["enabled"]}
+		self.assertIn("Terms & Conditions", off)
+		bodies = {row["heading"]: row["body"] or "" for row in proposal["sections"]}
+		self.assertIn("belong to the client", bodies["Security, Hosting & Data Ownership"])
+		self.assertIn("5% of the total branch rollout cost", bodies["Annual Maintenance Contract (AMC)"])
+		self.assertEqual(proposal["scoping"]["payment_terms"], "50 / 30 / 20")
+		self.assertIn("On UAT sign-off | 30%", bodies["Payment Milestones"])
+		self.assertIn("Payment gateway, telephony", bodies["Exclusions"])
+		self.assertIn("change register", bodies["Assumptions"])
+		# another template keeps its own terms
+		other = make_hub_proposal(self.lead, BDE, TEMPLATE, 0, {"modules": ["Accounts"]})
+		self.assertNotEqual(other["scoping"]["payment_terms"], "50 / 30 / 20")
+
+	def test_branches_are_priced_per_branch(self):
+		frappe.set_user("Administrator")
+		set_smart_lead_settings(proposal_service_item=SERVICE, proposal_branch_rate=40000)
+		self.addCleanup(set_smart_lead_settings, proposal_branch_rate=0)
+		frappe.set_user(HUB)
+		scoping = {"modules": ["Accounts"], "branches": 5}
+		proposal = make_hub_proposal(self.lead, BDE, seed.ERP_MOBILE, 0, scoping)
+		line = proposal["quotation"]["items"][-1]
+		self.assertEqual(
+			(line["description"], line["qty"], line["price_list_rate"]),
+			("Additional branch rollout (5 branches)", 5, 40000),
+		)
+		commercials = next(row["body"] for row in proposal["sections"] if row["heading"] == "Commercials")
+		self.assertIn("Each additional branch covers", commercials)
+		# a price per branch set on the proposal wins over the settings' rate
+		saved = hub.save_proposal(
+			proposal["name"], json.dumps({"scoping": {**scoping, "branch_rate": 35000}}), acting_user=BDE
+		)
+		self.assertEqual(saved["quotation"]["items"][-1]["price_list_rate"], 35000)
+
+	def test_branches_without_a_rate_are_not_priced(self):
+		frappe.set_user("Administrator")
+		set_smart_lead_settings(proposal_service_item=SERVICE, proposal_branch_rate=0)
+		frappe.set_user(HUB)
+		made = hub.create_proposal(
+			self.lead,
+			seed.ERP_MOBILE,
+			0,
+			json.dumps({"modules": ["Accounts"], "branches": 2}),
+			None,
+			json.dumps(CLIENT_PROFILE),
+			acting_user=BDE,
+		)
+		self.assertIn("Set the branch rate", " ".join(made["warnings"]))
+
+	def test_the_patch_keeps_an_edited_template(self):
+		frappe.set_user("Administrator")
+		set_old_erp_mobile_template()
+		doc = frappe.get_doc("TBO Proposal Template", seed.ERP_MOBILE)
+		doc.sections[1].heading = "Our summary"
+		doc.save(ignore_permissions=True)
+		smart_setup.update_erp_mobile_preset()
+		doc.reload()
+		self.assertEqual(doc.sections[1].heading, "Our summary")
+		self.assertEqual(len(doc.sections), len(p.MASTER_SECTIONS))
+		self.assertNotIn("branches", doc.questions)
+		# its library rows are added all the same, once
+		smart_setup.update_erp_mobile_preset()
+		self.assertEqual(
+			frappe.db.count(
+				"TBO Proposal Library Item", {"library": "Payment Terms", "title": "50 / 30 / 20"}
+			),
+			1,
+		)

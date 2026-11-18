@@ -25,10 +25,13 @@ def preset(
 	questions: tuple,
 	modules: tuple = (),
 	sections: dict | None = None,
+	layout: tuple | None = None,
 ) -> dict:
 	"""A solution type's preset: its scoping questions and default modules. Every new proposal
 	starts with all the master sections on; presales turns off what doesn't fit. `sections`
-	(section type -> {enabled, heading, guidance}) is for a preset that differs from that."""
+	(section type -> {enabled, heading, guidance}) is for a preset that differs from that;
+	`layout` ((section type, {enabled, heading, guidance, body}), …) for one with its own order
+	and Custom sections."""
 	sections = sections or {}
 	from tbo_smart.lead_pipeline.proposals import MASTER_SECTIONS
 
@@ -46,7 +49,9 @@ def preset(
 		"page_guide": page_guide,
 		"questions": "\n".join(questions),
 		"default_modules": "\n".join(modules),
-		"sections": [
+		"sections": layout_rows(layout)
+		if layout
+		else [
 			{
 				"section_type": kind,
 				"enabled": 1,
@@ -57,6 +62,25 @@ def preset(
 			for kind, heading in MASTER_SECTIONS
 		],
 	}
+
+
+def layout_rows(layout: tuple) -> list[dict]:
+	"""A preset's sections in its own order; a master section's heading and guidance are the
+	defaults, and every master section is listed (off where the preset has no use for it), so
+	presales can still switch it on."""
+	from tbo_smart.lead_pipeline.proposals import MASTER_SECTIONS
+
+	headings = dict(MASTER_SECTIONS)
+	return [
+		{
+			"section_type": kind,
+			"enabled": 1,
+			"heading": headings.get(kind),
+			"guidance": GUIDANCE.get(kind),
+			**values,
+		}
+		for kind, values in layout
+	]
 
 
 STRATEGY_MODULES = ("Content Strategy & Planning", "Content Creation & Publishing", "Reporting & Review")
@@ -93,24 +117,116 @@ STRATEGY_SECTIONS = {
 
 ERP_MODULES = ("Accounts", "Selling & CRM", "Buying", "Stock & Inventory", "Reports & Dashboards", "Training")
 
+ERP_MOBILE = "ERPNext + Flutter Mobile App"
+OFF = {"enabled": 0}
+# the ERPNext + mobile proposal laid out as the owner's model proposal of 2026-11-18 (an
+# AI-integrated retail and distribution platform): its order, headings and guidance; the
+# sections it has no use for are off
+ERP_MOBILE_LAYOUT = (
+	("Cover", {}),
+	(
+		"Executive Summary",
+		{
+			"guidance": "One page. The client's business and where it is heading, the two or three "
+			"pressures that make one system necessary now, and what we propose: ERPNext as the one "
+			"system of record with the Flutter apps for the field. Then 'The proposal in brief' as a "
+			"list, one line per module or app the proposal covers, each starting with its name and a "
+			"colon. End with 'Why this approach': one short paragraph on one open-source framework, "
+			"one database and one permission model, and one Flutter codebase for Android and iOS. "
+			"Only what the client told us; no figures they didn't give.",
+		},
+	),
+	("Company Overview", OFF),
+	(
+		"Client Background",
+		{
+			"heading": "Understanding the Requirement",
+			"guidance": "What we heard, restated as requirements we can be held to: a table "
+			"'Requirement | Why it matters to the business | How the platform responds', one row for "
+			"each need the client stated. Only their needs and their reasons; nothing invented.",
+		},
+	),
+	("Business Challenges", OFF),
+	(
+		"Proposed Solution",
+		{
+			"heading": "Solution Overview",
+			"guidance": "The platform as layers in one paragraph: the devices in the field, the "
+			"Flutter apps, the ERPNext core holding the master data, transactions and permissions, and "
+			"any intelligence on top. Then a table 'Component | Role in the solution', one row for "
+			"ERPNext and for each app, service or integration the proposal includes.",
+		},
+	),
+	("Proposed Workflow", {"heading": "How It Works"}),
+	("Scope of Work", OFF),
+	("Modules & Features", {"heading": "Modules & Features"}),
+	("Technical Architecture", {"heading": "Technology Stack & Architecture"}),
+	(
+		"Custom",
+		{
+			"heading": "Security, Hosting & Data Ownership",
+			"guidance": None,
+			"body": "- Data ownership: the database, the code extensions and all business data "
+			"belong to the client. TBO claims no right over the data.\n"
+			"- Access control: role-based permissions by branch, region and function; maker-checker "
+			"on pricing, discounts, write-offs and payments; a full audit trail on every document.\n"
+			"- Field device security: a login per device, remote session termination, and no offline "
+			"storage of customer data beyond what a transaction needs.\n"
+			"- Hosting: cloud hosting with daily backups, encrypted transport and a documented "
+			"disaster-recovery procedure. Cloud accounts in the client's name are preferred, so the "
+			"infrastructure stays under the client's control.\n"
+			"- Compliance: data handling designed to support GST invoicing, the client's record "
+			"keeping and applicable data-protection practice.",
+		},
+	),
+	("Deliverables", OFF),
+	("Implementation Plan", {}),
+	("Project Timeline", {}),
+	("Project Team", OFF),
+	("Investment", {"heading": "Commercials"}),
+	("Payment Terms", {"heading": "Payment Milestones"}),
+	("Warranty & Support", OFF),
+	("AMC", OFF),
+	(
+		"Custom",
+		{
+			"heading": "Annual Maintenance Contract (AMC)",
+			"guidance": None,
+			"body": "- First three years: no AMC charge for the first three years from the date of "
+			"implementation.\n"
+			"- From the fourth year: a yearly AMC charge of 5% of the total branch rollout cost, "
+			"billed yearly.",
+		},
+	),
+	("Assumptions", {"heading": "Assumptions"}),
+	("Out of Scope", {"heading": "Exclusions"}),
+	("Risks & Mitigation", OFF),
+	("Terms & Conditions", OFF),
+	("Acceptance", {"heading": "Acceptance & Next Steps"}),
+)
+
 
 def templates() -> tuple:
-	from tbo_smart.lead_pipeline.proposals import QUESTIONS as ALL_QUESTIONS
+	from tbo_smart.lead_pipeline.proposals import QUESTIONS as ERP_QUESTIONS
 
+	# additional branches are an ERP rollout's; the other solutions don't ask
+	ALL_QUESTIONS = tuple(q for q in ERP_QUESTIONS if q != "branches")
 	return (
 		preset(
 			"ERPNext Implementation",
 			"ERPNext set up for the client: modules, data migration, training, go-live and support.",
 			"ERP (10–15 pages)",
-			ALL_QUESTIONS,
+			ERP_QUESTIONS,
 			ERP_MODULES,
 		),
 		preset(
-			"ERPNext + Flutter Mobile App",
+			ERP_MOBILE,
 			"ERPNext with a Flutter mobile app for the field team or customers, on one backend.",
 			"ERP + mobile (15–25 pages)",
-			ALL_QUESTIONS,
+			# its AMC terms are its own section, so no AMC plan is asked
+			tuple(q for q in ERP_QUESTIONS if q != "amc"),
 			(*ERP_MODULES, "Flutter Mobile App"),
+			layout=ERP_MOBILE_LAYOUT,
 		),
 		preset(
 			"Flutter Mobile App",
@@ -880,7 +996,21 @@ LIBRARY = (
 		sort_order=2,
 	),
 	item("Investment Note", "Travel outside Kochi, if needed, is billed at actuals.", sort_order=3),
-	# 16. Payment terms presets
+	item(
+		"Investment Note",
+		"Each additional branch covers its company and territory set-up, master data, user roles, "
+		"device and printer set-up, opening stock and staff training.",
+		condition="Additional branches",
+		sort_order=4,
+	),
+	# 16. Payment terms presets (the ERP + mobile proposal's first, so it is its default)
+	item(
+		"Payment Terms",
+		"50 / 30 / 20",
+		"Advance on signing | 50\nOn UAT sign-off | 30\nOn go-live | 20",
+		solution_types=ERP_MOBILE,
+		sort_order=0,
+	),
 	item(
 		"Payment Terms",
 		"30 / 30 / 30 / 10",
@@ -930,10 +1060,36 @@ LIBRARY = (
 	# 19. Assumptions
 	item("Assumption", "The client names a project owner who can take decisions.", sort_order=1),
 	item("Assumption", "Key users are available for workshops, testing and training.", sort_order=2),
+	*(
+		item("Assumption", title, solution_types=ERP_MOBILE, sort_order=order)
+		for order, title in enumerate(
+			(
+				"Master data (items, price lists, branches, employees, opening stock and balances) is "
+				"provided by the client in the agreed templates.",
+				"Third-party accounts (telephony, SMS and WhatsApp, payment gateway, cloud hosting) are "
+				"opened in the client's name.",
+				"Scope is limited to this proposal; anything beyond it goes through a change register.",
+				"Support is in business hours, India time; support outside them is under a separate "
+				"agreement.",
+			),
+			start=3,
+		)
+	),
 	# 20. Out of scope
 	item("Out of Scope", "Hardware, networking and office IT.", sort_order=1),
 	item("Out of Scope", "Features not listed in this proposal.", sort_order=2),
 	item("Out of Scope", "Entering transactions beyond opening balances.", sort_order=3),
+	*(
+		item("Out of Scope", title, solution_types=ERP_MOBILE, sort_order=order)
+		for order, title in enumerate(
+			(
+				"Payment gateway, telephony, SMS, WhatsApp and cloud subscription charges.",
+				"Statutory registrations, licences, and legal or tax advice.",
+				"Marketing content and campaigns beyond the system's own SMS and WhatsApp messages.",
+			),
+			start=4,
+		)
+	),
 	# 21. Risks
 	item(
 		"Risk",
