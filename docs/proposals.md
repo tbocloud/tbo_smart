@@ -93,7 +93,7 @@ doesn't fit (off sections are kept, not shown). The part titles show in the cont
 | 15 | Investment | C — Commercial Proposal | Library **Investment Note** + the quotation (itemised or consolidated) |
 | 16 | Payment Terms | C | The picked **Payment Terms** template ("milestone \| %", adding up to 100); amounts computed from the total |
 | 17 | Warranty & Post-Implementation Support | C | Library **Warranty** |
-| 18 | AMC | C | Library **AMC Plan** (Basic / Premium / Enterprise, features and yearly price): a comparison table, its price separate from the project; the recommended plan named. The page and the PDF draw it as plan cards (`amc_plans`): a card a plan, side by side, its yearly fee and what it includes (✓, a detail under it; "–" not included, greyed; "Yes" a ✓ alone), the recommended plan outlined in teal with a **Recommended** tag; the table is hidden, the note above it stays |
+| 18 | AMC | C | Library **AMC Plan** (Basic / Premium / Enterprise, features and yearly price): a comparison table, its price separate from the project; the recommended plan named. The page and the PDF draw it as plan cards (`amc_plans`): a card a plan, side by side: a header band with its name and yearly fee (teal with white text, a **Recommended** tag and a soft shadow for the recommended plan; light gray for the others), a **Coverage** bar with "n of m" (`included`, the features it includes), then what it includes, each with a round mark (✓ in a teal circle, a detail under it; "–" not included, greyed; "Yes" a ✓ alone); the table is hidden, the note above it stays |
 | 19 | Assumptions & Dependencies | C | Library **Assumption** + the modules' |
 | 20 | Out of Scope | C | Library **Out of Scope** + the modules', and the change-request day rate |
 | 21 | Risks & Mitigation | C | Library **Risk** by rules (conditions; the first three on small projects) |
@@ -496,9 +496,9 @@ it was.
 - **Download PDF** (`download_pdf`), **Images** (`image(token, file)`), **rate limits** per IP:
   views 60, accept and decline 10, PDF 30, images 600 an hour.
 
-### 5.1 One theme: ivory, premium, print-ready
+### 5.1 One theme: white, premium, print-ready
 
-One theme, **Ivory**: warm ivory paper (#FBF8EF), dark ink (#1C1B19), the TBO teal (#3A748D)
+One theme: white paper (#FFFFFF; it was a warm ivory until Nov 2026), dark ink (#1C1B19), the TBO teal (#3A748D)
 only for section numbers, the headings' rule, the timeline bar, the module cards' top edge and
 the recommended AMC plan's outline, tag and ticks;
 no other colours, no gradients; nothing depends on colour alone, so it reads in grayscale. The

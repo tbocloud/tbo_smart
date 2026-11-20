@@ -32,10 +32,16 @@
 {%- macro amc_plans(plans) -%}
 <div class="plans plans-{{ [plans | length, 4] | min }}" role="list" aria-label="{{ _('AMC plans') }}">
 	{%- for plan in plans -%}
+	{%- set covered = (100 * plan.included / plan.features | length) | round | int if plan.features else 0 %}
 	<div class="plan" role="listitem"><div class="in{% if plan.recommended %} pick{% endif %}">
-		{%- if plan.recommended %}<span class="tag">{{ _("Recommended") }}</span>{% endif %}
-		<span class="name">{{ plan.name | e }}</span>
-		{%- if plan.fee %}<span class="fee">{{ plan.fee | e }}</span><span class="per">{{ _("a year") }}</span>{% endif %}
+		<div class="head">
+			{%- if plan.recommended %}<span class="tag">{{ _("Recommended") }}</span>{% endif %}
+			<span class="name">{{ plan.name | e }}</span>
+			{%- if plan.fee %}<span class="fee">{{ plan.fee | e }} <span class="per">{{ _("a year") }}</span></span>{% endif %}
+		</div>
+		<div class="cover"><span class="label">{{ _("Coverage") }}</span><span class="count">{{ _("{0} of {1}").format(plan.included, plan.features | length) }}</span>
+			<div class="meter" role="img" aria-label="{{ _('{0} of {1} services included').format(plan.included, plan.features | length) }}"><div class="fill" style="width: {{ covered }}%"></div></div>
+		</div>
 		<ul>{% for f in plan.features %}<li class="{{ 'on' if f.on else 'off' }}"><span class="mark" aria-hidden="true">{{ "✓" if f.on else "–" }}</span><span class="sr-only">{{ _("Included") if f.on else _("Not included") }}: </span>{{ f.label | e }}{% if f.detail %}<span class="detail">{{ f.detail | e }}</span>{% endif %}</li>{% endfor %}</ul>
 	</div></div>
 	{%- endfor %}

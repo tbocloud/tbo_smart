@@ -1079,6 +1079,7 @@ class TestMaster(ProposalTestCase):
 		self.assertEqual(next(plan for plan in plans if plan["recommended"])["name"], "Premium")
 		self.assertTrue(all(plan["fee"] for plan in plans))
 		self.assertNotIn("Yearly fee", [f["label"] for plan in plans for f in plan["features"]])
+		self.assertTrue(all(plan["included"] == sum(f["on"] for f in plan["features"]) for plan in plans))
 		self.assertIn('class="plans', p.render_html(frappe.get_doc(p.DOCTYPE, proposal["name"])))
 		# the milestones add up to 100
 		sections = proposal["sections"]
