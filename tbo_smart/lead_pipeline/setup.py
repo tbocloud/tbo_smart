@@ -677,6 +677,23 @@ def add_strategy_preset() -> None:
 		frappe.get_doc({"doctype": "TBO Proposal Template", **template}).insert(ignore_permissions=True)
 
 
+def add_company_figures() -> None:
+	"""The Company Overview's figures and leadership rows (drawn as big-number tiles) added where
+	missing (a patch; a new site gets them with the first seed); nothing an editor wrote is
+	changed."""
+	from tbo_smart.lead_pipeline import proposal_templates as seed
+
+	library = "TBO Proposal Library Item"
+	for row in seed.LIBRARY:
+		if row["library"] != "Company Overview" or row["title"] not in (
+			seed.COMPANY_FIGURES,
+			seed.COMPANY_LEADERSHIP,
+		):
+			continue
+		if not frappe.db.exists(library, {"library": row["library"], "title": row["title"]}):
+			frappe.get_doc({"doctype": library, **row}).insert(ignore_permissions=True)
+
+
 def update_erp_mobile_preset() -> None:
 	"""The ERPNext + mobile proposal laid out as the owner's model proposal (a patch; a new site gets
 	it with the first seed): its library rows (the 50 / 30 / 20 milestones, assumptions,

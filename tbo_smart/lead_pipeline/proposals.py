@@ -1512,6 +1512,8 @@ def page_context(doc, preview: bool = False, pdf: bool = False) -> dict:
 	pricing = pricing_table(doc.quotation) if doc.quotation else None
 	price_gone = spec.priced and doc.status in WITH_CLIENT and price_unavailable(doc)
 	blocks = numbered_blocks(doc, pricing, pdf)
+	if pricing:
+		pricing["breakdown"] = investment_breakdown(pricing, doc.get("pricing_mode") == "Consolidated")
 	letter_head = media.letter_head_context(doc, pdf)
 	logo = get_url(company.company_logo) if (company.company_logo or "").startswith("/files/") else None
 	cover = next((row for row in doc.sections if row.section_type == "Cover" and cint(row.enabled)), None)
@@ -1540,6 +1542,7 @@ def page_context(doc, preview: bool = False, pdf: bool = False) -> dict:
 			"version": cint(doc.revision_no) + 1,
 		},
 		"toc": table_of_contents(blocks) if spec.contents else [],
+		"glance": at_a_glance(doc, blocks, pricing) if spec.name == kinds.PROPOSAL else [],
 		"status": doc.status,
 		"preview": preview,
 		"superseded": not cint(doc.is_latest),
@@ -1662,14 +1665,21 @@ def page_block(doc, row, pdf: bool, pricing: dict | None = None) -> dict:
 		# an ID column (the SRS's FR numbers) never wraps
 		if part["kind"] == "table" and part["header"] and part["header"][0] == _("ID"):
 			part["ids"] = True
+	block["parts"] = parts = draw_parts(parts, row.section_type)
 	if row.section_type == "Project Timeline":
 		block["timeline"] = timeline(parts)
 	elif row.section_type == "Modules & Features":
-		block["modules"] = module_cards(parts)
+		block["modules"] = module_cards(parts, doc)
+		block["effort"] = sum(card["days"] for card in block["modules"] or [])
 	elif row.section_type == "Payment Terms":
 		add_payment_amounts(parts, pricing)
+		block["milestones"] = milestones(parts)
+		block["milestones_total"] = pricing["grand_total"] if pricing and block["milestones"] else None
+	elif row.section_type == "Implementation Plan":
+		block["phases"] = phases(parts)
 	elif row.section_type == "AMC":
 		block["amc"] = amc_plans(parts, builder.scoping_answers(doc.scoping, doc.solution_type)["amc_plan"])
+		block["free_months"] = free_support_months(doc) if block["amc"] else None
 	return block
 
 
@@ -1703,9 +1713,10 @@ def timeline(parts: list[dict]) -> dict | None:
 	return {"bars": bars, "total": f"{total:g}", "unit": found["header"][1]}
 
 
-def module_cards(parts: list[dict]) -> list[dict] | None:
+def module_cards(parts: list[dict], doc=None) -> list[dict] | None:
 	"""The modules table ("module | fit | what it covers | key features") as cards: the module
-	map."""
+	map, each with its effort in days (a bar against the largest) and, when the proposal spans
+	more than one app (ERPNext, the mobile app, the website), grouped and labelled by app."""
 	found = first_table(parts)
 	if not found or len(found["header"]) < 2:
 		return None
@@ -1716,7 +1727,7 @@ def module_cards(parts: list[dict]) -> list[dict] | None:
 		return "" if value == "–" else value
 
 	features_at = 3 if len(found["header"]) > 3 else 2
-	return [
+	cards = [
 		{
 			"name": cell(cells, 0),
 			"fit": cell(cells, 1),
@@ -1725,6 +1736,27 @@ def module_cards(parts: list[dict]) -> list[dict] | None:
 		}
 		for cells in found["rows"]
 	]
+	days = {row.module_name: flt(row.effort_days) for row in (doc.get("modules") if doc else None) or []}
+	most = max(days.values(), default=0)
+	for index, card in enumerate(cards):
+		card["tone"] = tone(index)
+		card["days"] = days.get(card["name"], 0)
+		card["bar"] = round(card["days"] / most * 100, 2) if most else 0
+	groups = builder.app_groups([card["name"] for card in cards])
+	if len(groups) > 1:
+		labels = {"main": app_label(doc), "mobile": _("Mobile app"), "website": _("Website")}
+		order = {name: index for index, (_key, names) in enumerate(groups) for name in names}
+		app = {name: labels[key] for key, names in groups for name in names}
+		cards.sort(key=lambda card: order[card["name"]])
+		for card in cards:
+			card["app"] = app[card["name"]]
+	return cards
+
+
+def app_label(doc) -> str:
+	"""What the modules other than the mobile app and the website are grouped as."""
+	solution = (doc.get("solution_type") if doc else "") or ""
+	return _("ERPNext") if "ERPNext" in solution else _("Modules")
 
 
 AMC_INCLUDED = {"yes", "✓", "included"}
@@ -1784,10 +1816,245 @@ def add_payment_amounts(parts: list[dict], pricing: dict | None) -> None:
 	found["numeric"] = True
 
 
+TONES = 4
+
+
+def tone(index: int) -> str:
+	"""The accent a card, tile or step takes, in turn: teal, green, orange, red (the TBO palette)."""
+	return f"t{index % TONES}"
+
+
+FIGURE = "Figure"
+NUMBERED = ("Out of Scope", "Assumptions")
+SHORT_TEXT = 240
+
+
+def draw_parts(parts: list[dict], section_type: str) -> list[dict]:
+	"""The parts drawn as graphics where their shape allows: a "Figure | label | detail" table as
+	big-number tiles; two or more short subsections in a row (a heading and one short paragraph)
+	as a grid of cards; the deliverables as cards; out of scope and assumptions as numbered rows
+	with their lead words in bold."""
+	drawn: list[dict] = []
+	index = 0
+	while index < len(parts):
+		part = parts[index]
+		if part["kind"] == "table" and part["header"] and part["header"][0].strip() in (FIGURE, _(FIGURE)):
+			drawn.append(stat_tiles(part))
+		elif short_subsection(parts, index):
+			cards = []
+			while short_subsection(parts, index):
+				cards.append({"title": parts[index]["text"], "text": " ".join(parts[index + 1]["lines"])})
+				index += 2
+			if len(cards) > 1:
+				drawn.append({"kind": "cards", "items": toned(cards)})
+			else:
+				drawn.extend(parts[index - 2 : index])
+			continue
+		elif part["kind"] == "list" and section_type == "Deliverables":
+			drawn.append({"kind": "cards", "items": toned([lead_and_text(item) for item in part["items"]])})
+		elif part["kind"] == "list" and section_type in NUMBERED:
+			drawn.append(
+				{
+					"kind": "numbered",
+					"items": [
+						{"number": n, **lead_and_text(item)} for n, item in enumerate(part["items"], 1)
+					],
+				}
+			)
+		else:
+			drawn.append(part)
+		index += 1
+	return drawn
+
+
+def short_subsection(parts: list[dict], index: int) -> bool:
+	return (
+		index + 1 < len(parts)
+		and parts[index]["kind"] == "heading"
+		and parts[index + 1]["kind"] == "text"
+		and len(" ".join(parts[index + 1]["lines"])) <= SHORT_TEXT
+		and (index + 2 >= len(parts) or parts[index + 2]["kind"] == "heading")
+	)
+
+
+def lead_and_text(item: str) -> dict:
+	""" "Lead words: the rest" split so the lead can be bold; a plain line is all lead."""
+	lead, sep, rest = item.partition(": ")
+	return (
+		{"title": lead.strip(), "text": rest.strip()}
+		if sep and len(lead) <= 60
+		else {"title": item, "text": ""}
+	)
+
+
+def toned(items: list[dict]) -> list[dict]:
+	return [{**item, "tone": tone(index)} for index, item in enumerate(items)]
+
+
+def stat_tiles(part: dict) -> dict:
+	"""A "Figure | label | detail" table as big-number tiles (10 · Years in the market)."""
+	return {
+		"kind": "stats",
+		"items": toned(
+			[
+				{
+					"figure": cells[0],
+					"label": cells[1] if len(cells) > 1 else "",
+					"detail": cells[2] if len(cells) > 2 else "",
+				}
+				for cells in part["rows"]
+				if cells and cells[0]
+			]
+		),
+	}
+
+
+def phases(parts: list[dict]) -> list[dict] | None:
+	"""The implementation plan's phases table ("phase | activities") as numbered markers on a
+	line, in order; the table hidden."""
+	found = first_table(parts)
+	if not found or not found["rows"]:
+		return None
+	found["hidden"] = True
+	return [
+		{
+			"number": index + 1,
+			"name": cells[0],
+			"text": cells[1] if len(cells) > 1 else "",
+			"tone": tone(index),
+		}
+		for index, cells in enumerate(found["rows"])
+	]
+
+
+def free_support_months(doc) -> int | None:
+	"""The free support period after go-live, read from the Warranty & Support text ("six months
+	of free support", "6-month free support"), for the AMC's go-live → AMC line."""
+	text = " ".join(
+		row.body or ""
+		for row in doc.sections
+		if row.section_type == "Warranty & Support" and cint(row.enabled)
+	).lower()
+	words = {"one": 1, "two": 2, "three": 3, "four": 4, "six": 6, "nine": 9, "twelve": 12}
+	found = re.search(r"\b(\d{1,2}|" + "|".join(words) + r")[\s-]*months?\b", text)
+	if found:
+		value = found.group(1)
+		return int(value) if value.isdigit() else words[value]
+	# "90 days after go-live": whole months only
+	found = re.search(r"\b(\d{2,3})[\s-]*days?\b", text)
+	days = int(found.group(1)) if found else 0
+	return days // 30 if days and days % 30 == 0 else None
+
+
+def milestones(parts: list[dict]) -> list[dict] | None:
+	"""The payment terms table ("milestone | share | amount") as one bar split by each share,
+	numbered in order; none unless the shares add up to 100%. The bar and its steps say it all,
+	so the table is hidden."""
+	found = first_table(parts)
+	if not found:
+		return None
+	steps, start = [], 0.0
+	for number, cells in enumerate(found["rows"], start=1):
+		share = flt(str(cells[1] if len(cells) > 1 else 0).replace("%", ""))
+		if share <= 0:
+			return None
+		steps.append(
+			{
+				"number": f"{number:02d}",
+				"label": cells[0],
+				"tone": f"s{(number - 1) % 4}",
+				"share": f"{share:g}%",
+				"amount": cells[2] if len(cells) > 2 else None,
+				"left": round(start, 2),
+				"width": round(share, 2),
+			}
+		)
+		start += share
+	if round(start, 2) != 100:
+		return None
+	found["hidden"] = True
+	return steps
+
+
+BREAKDOWN_SHOWN = 5
+
+
+def investment_breakdown(pricing: dict, consolidated: bool) -> list[dict] | None:
+	"""How the total splits, for a stacked bar: each quotation line (the largest few; the rest as
+	"Other"), or the project alone when the price is shown consolidated, then the taxes. Each part
+	is its share of the grand total, after any discount."""
+	net, taxes = flt(pricing["net_total_value"]), flt(pricing["tax_value"])
+	lines = [
+		(line["item"], flt(line["amount_value"]))
+		for line in pricing["lines"]
+		if flt(line["amount_value"]) > 0
+	]
+	listed = sum(amount for _item, amount in lines)
+	if consolidated or not listed:
+		lines, listed = [(_("Project"), net)], net
+	if net + taxes <= 0 or not listed:
+		return None
+	lines.sort(key=lambda line: line[1], reverse=True)
+	if len(lines) > BREAKDOWN_SHOWN:
+		rest = lines[BREAKDOWN_SHOWN - 1 :]
+		lines = [
+			*lines[: BREAKDOWN_SHOWN - 1],
+			(_("Other ({0})").format(len(rest)), sum(a for _i, a in rest)),
+		]
+	whole = net + taxes
+	parts = [
+		{"label": item, "value": amount * net / listed, "tone": f"c{index}"}
+		for index, (item, amount) in enumerate(lines)
+	]
+	if taxes:
+		parts.append({"label": _("Taxes"), "value": taxes, "tone": "tax"})
+	for part in parts:
+		value = part.pop("value")
+		part["amount"] = frappe.utils.fmt_money(value, currency=pricing["currency"])
+		part["width"] = round(value / whole * 100, 2)
+		part["share"] = f"{round(value / whole * 100):g}%"
+	return parts
+
+
+def at_a_glance(doc, blocks: list[dict], pricing: dict | None) -> list[dict]:
+	"""The proposal in four figures, before its first section: the modules in scope, the
+	timeline, the total investment and the AMC plan recommended (else how long it is valid)."""
+	timeline = next((block["timeline"] for block in blocks if block.get("timeline")), None)
+	plan = next(
+		(plan["name"] for block in blocks for plan in block.get("amc") or [] if plan["recommended"]), None
+	)
+	modules = len(doc.get("modules") or [])
+	tiles = [
+		{"label": _("Modules"), "value": str(modules), "note": _("in scope")} if modules else None,
+		{"label": _("Timeline"), "value": timeline["total"], "note": timeline["unit"].lower()}
+		if timeline
+		else None,
+		{
+			"label": _("Investment"),
+			"value": pricing["grand_total"],
+			"note": _("with taxes") if pricing["taxes"] else _("in total"),
+		}
+		if pricing
+		else None,
+		{"label": _("Support"), "value": plan, "note": _("AMC plan")}
+		if plan
+		else {
+			"label": _("Valid till"),
+			"value": frappe.utils.formatdate(doc.valid_till, "d MMM yyyy"),
+			"note": "",
+		}
+		if doc.valid_till
+		else None,
+	]
+	tiles = toned([tile for tile in tiles if tile])
+	return tiles if len(tiles) > 1 else []
+
+
 def text_parts(body: str | None) -> list[dict]:
 	"""Plain text as the page lays it out, for the template to escape: a blank line starts a
 	part; "## " a subheading; lines starting "- " a list; lines with " | " a table (the first its
-	header); a line with " → " a chain of steps; anything else a paragraph."""
+	header); a line with " → " a chain of steps; lines starting "> " a highlight (its first line
+	the title, "title | tag" for a tag such as "Special offer"); anything else a paragraph."""
 	parts = []
 	for chunk in re.split(r"\n\s*\n", (body or "").strip()):
 		lines = [line.strip() for line in chunk.splitlines() if line.strip()]
@@ -1795,7 +2062,11 @@ def text_parts(body: str | None) -> list[dict]:
 			parts.append({"kind": "heading", "text": lines.pop(0)[3:].strip(), "number": None})
 		if not lines:
 			continue
-		if all(line.startswith(("- ", "• ")) for line in lines):
+		if all(line.startswith(">") for line in lines):
+			said = [line.lstrip(">").strip() for line in lines]
+			title, _sep, tag = said[0].partition(" | ")
+			parts.append({"kind": "callout", "title": title.strip(), "tag": tag.strip(), "lines": said[1:]})
+		elif all(line.startswith(("- ", "• ")) for line in lines):
 			parts.append({"kind": "list", "items": [line[2:].strip() for line in lines]})
 		elif len(lines) > 1 and all(" | " in line for line in lines):
 			rows = [[cell.strip() for cell in line.split(" | ")] for line in lines]
@@ -1825,6 +2096,8 @@ def pricing_table(quotation: str) -> dict | None:
 		"discount": money(doc.discount_amount) if doc.discount_amount else None,
 		"net_total": money(doc.net_total),
 		"taxes": [{"label": row.description, "amount": money(row.tax_amount)} for row in doc.taxes],
+		"tax_value": flt(doc.total_taxes_and_charges),
+		"net_total_value": flt(doc.net_total),
 		"grand_total": money(doc.grand_total),
 		"grand_total_value": flt(doc.grand_total),
 		"currency": doc.currency,
@@ -1854,6 +2127,7 @@ def pricing_line(row, money, service_item: str | None = None) -> dict:
 		"qty": frappe.utils.fmt_money(row.qty, precision=0) if row.qty == int(row.qty) else row.qty,
 		"rate": money(row.rate),
 		"amount": money(row.amount),
+		"amount_value": flt(row.amount),
 	}
 
 

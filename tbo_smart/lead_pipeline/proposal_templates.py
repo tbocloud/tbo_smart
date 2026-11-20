@@ -771,6 +771,8 @@ def item(library: str, title: str, body: str = "", **values) -> dict:
 
 SCOPE = "Scope of Work"
 ERP_LINE = "ERPNext Implementation\nERPNext + Flutter Mobile App"
+COMPANY_FIGURES = "In numbers"
+COMPANY_LEADERSHIP = "Our leadership"
 LIBRARY = (
 	# 3. Company Overview (boilerplate, not regenerated)
 	item(
@@ -795,6 +797,27 @@ LIBRARY = (
 		"- Open-source platforms: no per-user licence lock-in\n"
 		"- A local team, quick to respond and clear to work with",
 		sort_order=3,
+	),
+	# drawn as big-number tiles on the page ("Figure | label | detail", proposals.stat_tiles)
+	item(
+		"Company Overview",
+		COMPANY_FIGURES,
+		"Figure | What it means | More\n"
+		"10 | Years in the market | Founded in Saudi Arabia, then India\n"
+		"3 | Countries | Saudi Arabia, UAE, India\n"
+		"100+ | Implementations | and support delivered\n"
+		"15–20% | Productivity gain | at a major client since go-live",
+		sort_order=4,
+	),
+	item(
+		"Company Overview",
+		COMPANY_LEADERSHIP,
+		"Figure | Role | What they bring\n"
+		"25+ yrs | Managing Director | Guides our clients to the right solutions\n"
+		"CA | Chief Financial Officer | Experienced financial leadership\n"
+		"15 yrs | Project Director | 100+ implementations and support\n"
+		"10+ yrs | Sales Director | Builds the strategies that grow your business",
+		sort_order=5,
 	),
 	# 6. Proposed Solution: the component table
 	item(

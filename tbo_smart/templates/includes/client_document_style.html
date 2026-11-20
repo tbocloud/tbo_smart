@@ -130,6 +130,108 @@
 	.plan li .detail { display: block; font-size: 12px; color: #67625a; }
 	@media (max-width: 640px) { .plan, .plans-3 .plan, .plans-4 .plan { width: 100%; } }
 
+	/* at a glance: the proposal in four figures */
+	.glance { padding-top: 8px; padding-bottom: 8px; }
+	.tiles { margin: 0 -6px; font-size: 0; }
+	.tile { display: inline-block; vertical-align: top; width: 25%; padding: 6px; font-size: 14px; }
+	.tiles-2 .tile { width: 50%; }
+	.tiles-3 .tile { width: 33.33%; }
+	.tile .in { border: 1px solid #e3ddcd; border-top: 4px solid #3a748d; border-radius: 8px; padding: 12px 14px; }
+	.tile .label { display: block; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #67625a; }
+	.tile .value { display: block; margin-top: 6px; font-size: 22px; font-weight: 700; color: #1c1b19; font-variant-numeric: tabular-nums; word-wrap: break-word; }
+	.tile .note { display: block; font-size: 12px; color: #67625a; }
+	@media (max-width: 640px) { .tile, .tiles-3 .tile { width: 50%; } }
+
+	/* a stacked bar: the investment's split */
+	.stack { height: 14px; border-radius: 999px; overflow: hidden; background: #e5e7eb; font-size: 0; white-space: nowrap; }
+	.stack .seg { display: inline-block; height: 14px; vertical-align: top; }
+	.c0 { background: #2c5d72; } .c1 { background: #3a748d; } .c2 { background: #6595aa; }
+	.c3 { background: #93b6c5; } .c4 { background: #bfd4dd; } .tax { background: #9ca3af; }
+	.split { margin: 8px 0 18px; }
+	.split .legend { margin-top: 10px; }
+	.split .legend td { border: 0; padding: 4px 0; font-size: 13px; }
+	.split .legend .pc { width: 52px; color: #67625a; }
+	.split .sw { display: inline-block; width: 10px; height: 10px; margin-right: 8px; border-radius: 2px; vertical-align: baseline; }
+
+	/* the TBO palette for cards, tiles and steps, in turn: teal, green, orange, red */
+	.t0 { border-top-color: #3a748d !important; } .t1 { border-top-color: #0b7d6b !important; }
+	.t2 { border-top-color: #e8962a !important; } .t3 { border-top-color: #c4452f !important; }
+	.t0 .fig, .t0 .mark-ink { color: #2c5d72; } .t1 .fig { color: #0b7d6b; }
+	.t2 .fig { color: #a85a0c; } .t3 .fig { color: #b03a26; }
+
+	/* big-number tiles ("Figure | label | detail") */
+	.stats { margin: 10px -6px 14px; font-size: 0; }
+	.stat { display: inline-block; vertical-align: top; width: 25%; padding: 6px; font-size: 14px; }
+	.stats-1 .stat { width: 100%; } .stats-2 .stat { width: 50%; } .stats-3 .stat { width: 33.33%; }
+	.stat .in { min-height: 120px; padding: 14px 16px; background: #f3f4f6; border-top: 4px solid #3a748d; border-radius: 4px; }
+	.stat .fig { display: block; font-size: 34px; font-weight: 800; line-height: 1.05; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+	.stat .label { display: block; margin-top: 8px; font-size: 13px; font-weight: 600; color: #1c1b19; }
+	.stat .detail { display: block; margin-top: 2px; font-size: 12px; color: #67625a; }
+
+	/* short subsections and deliverables as cards */
+	.tcards { margin: 8px -6px 12px; font-size: 0; }
+	.tcard { display: inline-block; vertical-align: top; width: 33.33%; padding: 6px; font-size: 14px; }
+	.tcards-1 .tcard { width: 100%; } .tcards-2 .tcard { width: 50%; }
+	.tcard .in { min-height: 96px; padding: 14px 16px; background: #f3f4f6; border-top: 4px solid #3a748d; border-radius: 4px; }
+	.tcard .title { display: block; font-size: 15px; font-weight: 600; color: #1c1b19; }
+	.tcard .text { display: block; margin-top: 6px; font-size: 13px; color: #3d3a34; }
+
+	/* numbered rows (out of scope, assumptions) */
+	.numbered { list-style: none; margin: 8px 0 12px; padding: 0; }
+	.numbered li { position: relative; padding: 8px 0 8px 40px; border-bottom: 1px solid #ece9e1; font-size: 14px; }
+	.numbered li:last-child { border-bottom: 0; }
+	.numbered .no { position: absolute; left: 0; top: 7px; width: 26px; height: 26px; line-height: 26px; border-radius: 50%; background: #3a748d; color: #fff; font-size: 12px; font-weight: 700; text-align: center; }
+
+	/* a highlight ("> " lines) */
+	.callout { margin: 12px 0; padding: 14px 18px; background: #e8f3f0; border-left: 4px solid #0b7d6b; border-radius: 4px; }
+	.callout .title { margin: 0; font-size: 16px; font-weight: 600; color: #1c1b19; }
+	.callout .tag { display: inline-block; margin-left: 8px; padding: 1px 9px; border-radius: 999px; background: #0b7d6b; color: #fff; font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; vertical-align: middle; }
+	.callout p { margin: 6px 0 0; font-size: 14px; color: #3d3a34; }
+
+	/* the implementation plan: numbered markers on a line */
+	.phases { list-style: none; margin: 14px -6px 8px; padding: 0; font-size: 0; }
+	.phases li { display: inline-block; vertical-align: top; width: 25%; padding: 0 6px 16px; font-size: 14px; text-align: center; position: relative; }
+	.phases li:before { content: ""; position: absolute; left: 0; right: 0; top: 18px; border-top: 2px solid #c9ced6; }
+	.phases .mark { position: relative; display: inline-block; width: 36px; height: 36px; line-height: 36px; border-radius: 4px; color: #fff; font-size: 16px; font-weight: 800; background: #3a748d; }
+	.phases .t1 .mark { background: #0b7d6b; } .phases .t2 .mark { background: #e8962a; color: #1c1b19; } .phases .t3 .mark { background: #c4452f; }
+	.phases .name { display: block; margin-top: 10px; font-weight: 700; color: #1c1b19; }
+	.phases .text { display: block; margin-top: 4px; font-size: 12px; color: #67625a; }
+
+	/* payment milestones as columns, the amount in a band */
+	.paycols { width: 100%; margin: 12px 0 4px; border-collapse: separate; border-spacing: 6px 0; table-layout: fixed; }
+	.paycols td { vertical-align: top; padding: 0; border: 0; background: #f3f4f6; }
+	.paycols .band { padding: 16px 10px; color: #fff; font-size: 18px; font-weight: 800; text-align: center; font-variant-numeric: tabular-nums; }
+	.paycols .s0 { background: #1d3f52; } .paycols .s1 { background: #2c5d72; } .paycols .s2 { background: #3a748d; } .paycols .s3 { background: #6595aa; }
+	.paycols .what { padding: 12px 12px 16px; }
+	.paycols .no { display: block; font-size: 11px; font-weight: 700; letter-spacing: .06em; color: #2c5d72; text-transform: uppercase; }
+	.paycols .label { display: block; margin-top: 6px; font-size: 14px; color: #1c1b19; }
+	.paytotal { margin: 14px 0 0; padding-top: 12px; border-top: 2px solid #c9ced6; text-align: right; font-size: 26px; font-weight: 800; color: #1c1b19; font-variant-numeric: tabular-nums; }
+	.paytotal span { margin-right: 10px; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #67625a; }
+
+	/* the AMC: free support after go-live, then the optional AMC */
+	.supportline { width: 100%; margin: 10px 0 6px; border-collapse: separate; border-spacing: 4px 0; table-layout: fixed; }
+	.supportline td { padding: 0; border: 0; vertical-align: top; }
+	.supportline .when { display: block; margin-bottom: 4px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #67625a; }
+	.supportline .paid .when { color: #2c5d72; }
+	.supportline .bar { display: block; padding: 9px 12px; color: #fff; font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+	.supportline .free .bar { background: #0b7d6b; }
+	.supportline .paid .bar { background: #3a748d; }
+
+	@media (max-width: 640px) {
+		.stat, .stats-3 .stat, .tcard { width: 50%; }
+		.phases li { width: 50%; }
+		.paycols, .paycols tbody, .paycols tr, .paycols td { display: block; width: 100% !important; }
+		.paycols td { margin-bottom: 6px; }
+	}
+
+	/* a module card's app and effort */
+	.effort-total { color: #67625a; font-size: 13px; }
+	.card .app { display: block; margin-bottom: 4px; font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #3a748d; }
+	.card .effort { margin-top: 10px; }
+	.card .effort .d { display: block; font-size: 12px; color: #67625a; font-variant-numeric: tabular-nums; }
+	.card .effort .track { height: 6px; margin-top: 4px; border-radius: 999px; background: #e5e7eb; overflow: hidden; }
+	.card .effort .fill { height: 6px; border-radius: 999px; background: #3a748d; }
+
 	/* the workflow chain */
 	.chain { margin: 8px 0 16px; font-size: 0; }
 	.step { display: inline-block; white-space: nowrap; vertical-align: middle; margin: 4px 0; padding: 8px 12px; border: 1px solid #cfc7b3; border-radius: 4px; background: #ffffff; font-size: 13px; font-weight: 500; color: #1c1b19; }
