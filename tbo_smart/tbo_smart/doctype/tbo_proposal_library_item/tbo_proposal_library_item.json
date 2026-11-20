@@ -55,7 +55,7 @@
    "fieldtype": "Select",
    "label": "Only when",
    "in_list_view": 1,
-   "options": "\nData migration\nMobile app\nWeb app\nCustomisation\nIntegrations\nSource code\nHosting\nLarge project\nDetailed architecture"
+   "options": "\nData migration\nMobile app\nWeb app\nCustomisation\nAdditional branches\nIntegrations\nSource code\nHosting\nLarge project\nDetailed architecture"
   },
   {
    "fieldname": "weeks",
@@ -92,7 +92,7 @@
   }
  ],
  "links": [],
- "modified": "2026-10-23 12:00:00.000000",
+ "modified": "2026-11-20 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Proposal Library Item",
