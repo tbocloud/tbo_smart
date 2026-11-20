@@ -526,6 +526,82 @@ class TestSending(ProposalTestCase):
 		self.assertFalse(frappe.db.exists("Quotation", quotation))
 		self.assertTrue(frappe.db.exists("TBO AI Usage Log", {"reference_name": proposal["name"]}))
 
+	def test_the_page_draws_the_proposal_as_graphics(self):
+		proposal = make_hub_proposal(self.lead, BDE, TEMPLATE, 0, {"amc": 1, "amc_plan": "Premium"})
+		price_hub_proposal(proposal["name"], BDE, SERVICE)
+		doc = frappe.get_doc(p.DOCTYPE, proposal["name"])
+		context = p.page_context(doc)
+		blocks = {block["type"]: block for block in context["blocks"]}
+		# at a glance: the modules, the timeline, the investment and the recommended plan
+		self.assertEqual(
+			[tile["label"] for tile in context["glance"]], ["Modules", "Timeline", "Investment", "Support"]
+		)
+		self.assertEqual(context["glance"][0]["value"], str(len(doc.modules)))
+		# the investment split adds up to the whole, the taxes last
+		split = context["pricing"]["breakdown"]
+		self.assertAlmostEqual(sum(part["width"] for part in split), 100, delta=0.1)
+		if context["pricing"]["taxes"]:
+			self.assertEqual(split[-1]["tone"], "tax")
+		# the payment milestones as columns, numbered, the total under them; the table hidden
+		steps = blocks["Payment Terms"]["milestones"]
+		self.assertEqual(sum(step["width"] for step in steps), 100)
+		self.assertEqual(steps[0]["number"], "01")
+		self.assertEqual(blocks["Payment Terms"]["milestones_total"], context["pricing"]["grand_total"])
+		self.assertTrue(p.first_table(blocks["Payment Terms"]["parts"])["hidden"])
+		# each module card's effort, the largest a full bar
+		cards = blocks["Modules & Features"]["modules"]
+		self.assertEqual(max(card["bar"] for card in cards), 100)
+		self.assertEqual(blocks["Modules & Features"]["effort"], sum(row.effort_days for row in doc.modules))
+		html = p.render_html(doc)
+		for drawn in ('class="glance', 'class="split', 'class="paycols', 'class="effort'):
+			self.assertIn(drawn, html)
+
+	def test_text_shapes_are_drawn_as_graphics(self):
+		body = (
+			"## In numbers\nFigure | What it means | More\n10 | Years | Founded\n3 | Countries | KSA\n\n"
+			"## A\nShort a\n\n## B\nShort b\n\n"
+			"> Six months of free support | Special offer\n> Then the optional AMC."
+		)
+		parts = p.draw_parts(p.text_parts(body), "Company Overview")
+		self.assertEqual([part["kind"] for part in parts], ["heading", "stats", "cards", "callout"])
+		self.assertEqual(parts[1]["items"][0]["figure"], "10")
+		self.assertEqual([card["tone"] for card in parts[2]["items"]], ["t0", "t1"])
+		self.assertEqual(
+			(parts[3]["title"], parts[3]["tag"]), ("Six months of free support", "Special offer")
+		)
+		# a single short subsection stays as it is
+		self.assertEqual(
+			[part["kind"] for part in p.draw_parts(p.text_parts("## A\nShort a"), "Terms & Conditions")],
+			["heading", "text"],
+		)
+		# out of scope as numbered rows, the lead words split off
+		rows = p.draw_parts(
+			p.text_parts("- Extra integrations: not in the agreement\n- Hosting"), "Out of Scope"
+		)
+		self.assertEqual(
+			rows[0]["items"][0], {"number": 1, "title": "Extra integrations", "text": "not in the agreement"}
+		)
+		self.assertEqual(rows[0]["items"][1]["title"], "Hosting")
+		# the implementation plan's phases as markers
+		plan = p.text_parts("Phase | Activities\nRequirements | Analysis\nBuild | Configuration")
+		self.assertEqual([phase["name"] for phase in p.phases(plan)], ["Requirements", "Build"])
+		self.assertTrue(plan[0]["hidden"])
+
+	def test_free_support_months_come_from_the_warranty(self):
+		doc = frappe.get_doc(p.DOCTYPE, make_hub_proposal(self.lead, BDE, TEMPLATE)["name"])
+		warranty = next((row for row in doc.sections if row.section_type == "Warranty & Support"), None)
+		if not warranty:
+			warranty = doc.append("sections", {"section_type": "Warranty & Support", "enabled": 1})
+		warranty.enabled = 1
+		for text, months in (
+			("Six months of free support after go-live.", 6),
+			("A 3-month warranty.", 3),
+			("We fix defects for 90 days after go-live.", 3),
+			("Defects are fixed on request.", None),
+		):
+			warranty.body = text
+			self.assertEqual(p.free_support_months(doc), months)
+
 	def test_a_sent_proposal_stays_and_a_deleted_revision_gives_back_latest(self):
 		proposal = make_hub_proposal(self.lead, BDE, TEMPLATE)
 		price_hub_proposal(proposal["name"], BDE, SERVICE)

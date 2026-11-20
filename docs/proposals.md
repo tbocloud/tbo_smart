@@ -500,16 +500,49 @@ it was.
 
 One theme: white paper (#FFFFFF; it was a warm ivory until Nov 2026), dark ink (#1C1B19), the TBO teal (#3A748D)
 only for section numbers, the headings' rule, the timeline bar, the module cards' top edge and
-the recommended AMC plan's outline, tag and ticks;
-no other colours, no gradients; nothing depends on colour alone, so it reads in grayscale. The
+the recommended AMC plan's outline, tag and ticks. The graphics below take the TBO palette in
+turn, as in the owner's model deck (2026-11-20): teal #3A748D, green #0B7D6B, orange #E8962A, red
+#C4452F (`.t0`–`.t3`; big numbers in their darker inks), the payment bands in teal shades
+(`.s0`–`.s3`), the taxes gray; no gradients; every colour carries a word or number with it, so
+it reads in grayscale. The
 colours are written out in the CSS (wkhtmltopdf's WebKit has no CSS variables).
+
+**Graphics from the proposal's own data** (`page_context`, `page_block`; the hub preview draws
+the same):
+
+- **At a glance** (`at_a_glance`, a proposal only): tiles before section 1 — the modules in
+  scope, the timeline's total, the grand total ("with taxes"), and the recommended AMC plan, else
+  the valid-till date; left out with fewer than two.
+- **Modules & Features** (`module_cards`): each card's effort days (the proposal's module rows)
+  as a bar against the largest; a "n modules · d days of effort" line above the cards; when the
+  modules span more than one app (`builder.app_groups`), the cards grouped and each labelled
+  (ERPNext or Modules, Mobile app, Website).
+- **Payment Terms** (`milestones`): a column per milestone, its width by its share, the amount
+  (else the share) in a band, darkest first, then "01 · 50%" and its label; the grand total
+  under them (`milestones_total`); the table hidden. Only when every share is above 0 and they
+  add up to 100%.
+- **Implementation Plan** (`phases`): the "phase | activities" table as numbered markers on a
+  line, four to a row, each in its accent; the table hidden.
+- **AMC** (`free_support_months`): when the Warranty & Support text names a free period ("six
+  months of free support", "6-month", "90 days" in whole months), a go-live → "Month n+1
+  onwards · optional AMC" line above the plan cards.
+- **Any section** (`draw_parts`): a "Figure | label | detail" table as big-number tiles (the
+  Company Overview's *In numbers* and *Our leadership*, seeded and added by the patch
+  `proposal_company_figures` where missing); two or more short subsections in a row (a heading
+  and one paragraph of up to 240 characters) as a card grid; Deliverables as cards; Out of Scope
+  and Assumptions as numbered rows, "Lead words: the rest" with the lead in bold; "> " lines as a
+  highlight box ("> Title | Tag" then its text, e.g. "> 6-month free support | Special offer").
+- **Investment** (`investment_breakdown`, on `pricing["breakdown"]`): a stacked bar and legend
+  over the quotation's lines — the largest four and "Other (n)", or the project alone when the
+  price is shown consolidated, so no line amounts show — then the taxes; each a share of the
+  grand total, the lines scaled for any discount. Its `aria-label` lists every part and share.
 
 **The PDF** (`render_pdf`), A4 on one grid:
 
 - **The page frame** (`pdf_page`, `pdf_options`): 18 mm from every edge on every page. The top
   margin holds the letter head (18 mm + its height + 8 mm). The bottom one holds a footer picture
   under a 5 mm line for the page number (18 mm + its height + 5 mm + 3 mm), else the footer line
-  (18 mm + 9 mm); the sides are full bleed with 18 mm of padding, so the ivory reaches the edges.
+  (18 mm + 9 mm); the sides are full bleed with 18 mm of padding, so the paper reaches the edges.
 - **The cover** fills page 1: the kicker and the title in its upper third, then the facts grid
   (client, prepared for — the lead's contact when the client is a company —, prepared by, date,
   valid till, reference) and its own footer line (company, version). It has no running footer

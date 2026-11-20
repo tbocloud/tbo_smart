@@ -16,15 +16,27 @@
 <div class="chain" role="list" aria-label="{{ _('Workflow') }}">{% for step in part.steps %}<span class="step" role="listitem">{{ step | e }}</span>{% if not loop.last %}<span class="arrow" aria-hidden="true">→</span>{% endif %}{% endfor %}</div>
 {%- elif part.kind == "text" %}
 <p>{% for line in part.lines %}{{ line | e }}{% if not loop.last %}<br>{% endif %}{% endfor %}</p>
+{%- elif part.kind == "stats" %}
+<div class="stats stats-{{ [part["items"] | length, 4] | min }}" role="list">{% for item in part["items"] %}<div class="stat" role="listitem"><div class="in {{ item.tone }}"><span class="fig">{{ item.figure | e }}</span>{% if item.label %}<span class="label">{{ item.label | e }}</span>{% endif %}{% if item.detail %}<span class="detail">{{ item.detail | e }}</span>{% endif %}</div></div>{% endfor %}</div>
+{%- elif part.kind == "cards" %}
+<div class="tcards tcards-{{ [part["items"] | length, 3] | min }}" role="list">{% for item in part["items"] %}<div class="tcard" role="listitem"><div class="in {{ item.tone }}"><span class="title">{{ item.title | e }}</span>{% if item.text %}<span class="text">{{ item.text | e }}</span>{% endif %}</div></div>{% endfor %}</div>
+{%- elif part.kind == "numbered" %}
+<ol class="numbered">{% for item in part["items"] %}<li><span class="no" aria-hidden="true">{{ item.number }}</span><span class="body">{% if item.text %}<b>{{ item.title | e }}:</b> {{ item.text | e }}{% else %}{{ item.title | e }}{% endif %}</span></li>{% endfor %}</ol>
+{%- elif part.kind == "callout" %}
+<div class="callout"><p class="title">{{ part.title | e }}{% if part.tag %} <span class="tag">{{ part.tag | e }}</span>{% endif %}</p>{% for line in part.lines %}<p>{{ line | e }}</p>{% endfor %}</div>
 {%- endif %}
 {%- endmacro -%}
 {%- macro cards(modules) -%}
 <div class="cards">
 	{%- for card in modules -%}
-	<div class="card"><div class="in">
+	<div class="card"><div class="in {{ card.tone }}">
+		{%- if card.app %}<span class="app">{{ card.app | e }}</span>{% endif %}
 		<span class="name">{{ card.name | e }}</span>{% if card.fit %}<span class="fit">{{ card.fit | e }}</span>{% endif %}
 		{%- if card.description %}<p class="about">{{ card.description | e }}</p>{% endif %}
 		{%- if card.features %}<ul>{% for f in card.features %}<li>{{ f | e }}</li>{% endfor %}</ul>{% endif %}
+		{%- if card.days %}
+		<div class="effort"><span class="d">{{ _("{0} days").format(card.days | int if card.days == card.days | int else card.days) }}</span><div class="track" aria-hidden="true"><div class="fill" style="width: {{ card.bar }}%"></div></div></div>
+		{%- endif %}
 	</div></div>
 	{%- endfor %}
 </div>
@@ -46,6 +58,36 @@
 	</div></div>
 	{%- endfor %}
 </div>
+{%- endmacro -%}
+{%- macro glance(tiles) -%}
+<section class="glance pad" aria-label="{{ _('At a glance') }}">
+	<div class="tiles tiles-{{ tiles | length }}" role="list">
+		{%- for tile in tiles %}<div class="tile" role="listitem"><div class="in {{ tile.tone }}"><span class="label">{{ tile.label | e }}</span><span class="value">{{ tile.value | e }}</span>{% if tile.note %}<span class="note">{{ tile.note | e }}</span>{% endif %}</div></div>{% endfor %}
+	</div>
+</section>
+{%- endmacro -%}
+{%- macro breakdown(parts) -%}
+<div class="split" role="img" aria-label="{{ _('How the total splits') }}: {% for part in parts %}{{ part.label | e }} {{ part.share }}{% if not loop.last %}, {% endif %}{% endfor %}">
+	<div class="stack" aria-hidden="true">{% for part in parts %}<span class="seg {{ part.tone }}" style="width: {{ part.width }}%"></span>{% endfor %}</div>
+	<table class="legend" role="presentation">
+		{%- for part in parts %}<tr><td><span class="sw {{ part.tone }}"></span>{{ part.label | e }}</td><td class="num">{{ part.amount | e }}</td><td class="num pc">{{ part.share }}</td></tr>{% endfor %}
+	</table>
+</div>
+{%- endmacro -%}
+{%- macro payment_steps(steps, total) -%}
+<table class="paycols" role="presentation"><tr>
+	{%- for step in steps %}<td style="width: {{ [step.width, 100 / (steps | length) * 0.6] | max }}%"><div class="band {{ step.tone }}">{{ (step.amount or step.share) | e }}</div><div class="what"><span class="no">{{ step.number }} · {{ step.share }}</span><span class="label">{{ step.label | e }}</span></div></td>{% endfor %}
+</tr></table>
+{%- if total %}<p class="paytotal"><span>{{ _("Total") }}</span> {{ total | e }}</p>{% endif %}
+{%- endmacro -%}
+{%- macro phase_line(items) -%}
+<ol class="phases">{% for item in items %}<li class="{{ item.tone }}"><span class="mark" aria-hidden="true">{{ item.number }}</span><span class="name">{{ item.name | e }}</span>{% if item.text %}<span class="text">{{ item.text | e }}</span>{% endif %}</li>{% endfor %}</ol>
+{%- endmacro -%}
+{%- macro support_line(months) -%}
+<table class="supportline" role="presentation"><tr>
+	<td class="free" style="width: 48%"><span class="when">{{ _("Go-live") }}</span><span class="bar">{{ _("{0} months free support").format(months) }}</span></td>
+	<td class="paid"><span class="when">{{ _("Month {0} onwards").format(months + 1) }}</span><span class="bar">{{ _("Optional AMC · annual plan") }}</span></td>
+</tr></table>
 {%- endmacro -%}
 {%- macro timeline(t) -%}
 <table class="timeline" aria-label="{{ _('Timeline') }}">
@@ -153,6 +195,8 @@
 		</nav>
 		{%- endif %}
 
+		{%- if p.glance %}{{ glance(p.glance) }}{% endif %}
+
 		{%- for block in p.blocks %}
 		{%- if block.part %}
 		<div class="part pad"><p>{{ block.part | e }}</p></div>
@@ -169,12 +213,14 @@
 			</figure>
 			{%- endif %}
 			{%- if block.timeline %}{{ timeline(block.timeline) }}
-			{%- elif block.modules %}{{ cards(block.modules[:2]) }}
-			{%- elif block.amc %}{% for part in shown %}{{ render_part(part) }}{% endfor %}{{ amc_plans(block.amc) }}
+			{%- elif block.modules %}{% if block.effort %}<p class="effort-total">{{ _("{0} modules · {1} days of effort").format(block.modules | length, block.effort | int if block.effort == block.effort | int else block.effort) }}</p>{% endif %}{{ cards(block.modules[:2]) }}
+			{%- elif block.amc %}{% for part in shown %}{{ render_part(part) }}{% endfor %}{% if block.free_months %}{{ support_line(block.free_months) }}{% endif %}{{ amc_plans(block.amc) }}
+			{%- elif block.phases %}{% for part in shown %}{{ render_part(part) }}{% endfor %}{{ phase_line(block.phases) }}
+			{%- elif block.milestones %}{% for part in shown %}{{ render_part(part) }}{% endfor %}{{ payment_steps(block.milestones, block.milestones_total) }}
 			{%- else %}{% for part in shown[:lead] %}{{ render_part(part) }}{% endfor %}{% endif %}
 			</div>
 			{%- if block.modules and block.modules | length > 2 %}{{ cards(block.modules[2:]) }}{% endif %}
-			{%- set rest = [] if block.amc else shown if (block.timeline or block.modules) else shown[lead:] %}
+			{%- set rest = [] if (block.amc or block.milestones or block.phases) else shown if (block.timeline or block.modules) else shown[lead:] %}
 			{%- for part in rest %}
 			{#- a heading opens a keep-together wrapper closed by what follows it; a heading right after
 			    another closes the earlier one first #}
@@ -185,6 +231,7 @@
 
 			{%- if block.type == "Investment" and p.pricing %}
 			{%- set pr = p.pricing %}
+			{%- if pr.breakdown %}{{ breakdown(pr.breakdown) }}{% endif %}
 			{%- if p.consolidated %}
 			<table>
 				<thead><tr><th scope="col">{{ _("Project") }}</th><th scope="col" class="num">{{ _("Amount") }}</th></tr></thead>
