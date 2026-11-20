@@ -1305,6 +1305,12 @@ class TestMaster(ProposalTestCase):
 			frappe.db.get_value("TBO Proposal Module", "Assets", "description"), "Fixed assets."
 		)
 
+	def test_every_preset_condition_is_an_option(self):
+		# a preset row whose "Only when" the field doesn't list fails its insert (and the migrate)
+		options = set(frappe.get_meta("TBO Proposal Library Item").get_options("condition").split("\n"))
+		used = {row["condition"] for row in seed.LIBRARY if row.get("condition")}
+		self.assertEqual(used - options, set())
+
 	def test_library_images_are_picked_by_tag(self):
 		frappe.set_user("Administrator")
 		image = make_library_image("Kochi team", "Cover\nProject Team")
