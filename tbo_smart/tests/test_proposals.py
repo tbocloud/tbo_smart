@@ -8,6 +8,7 @@ import requests
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, get_url, nowdate
 
+from tbo_smart import ai
 from tbo_smart.api import hub_leads
 from tbo_smart.api import hub_proposals as hub
 from tbo_smart.api import proposal_page as page
@@ -514,11 +515,16 @@ class TestSending(ProposalTestCase):
 		proposal = make_hub_proposal(self.lead, BDE, TEMPLATE)
 		priced = price_hub_proposal(proposal["name"], BDE, SERVICE)
 		quotation = priced["quotation"]["name"]
+		# an AI run on it: its usage log (the cost history) doesn't stop the delete, and stays
+		ai.write_usage_log(
+			{"feature": "Proposal draft", "reference_doctype": p.DOCTYPE, "reference_name": proposal["name"]}
+		)
 		self.assertEqual(
 			hub.delete_proposal(proposal["name"], acting_user=BDE), {"deleted": proposal["name"]}
 		)
 		self.assertFalse(frappe.db.exists(p.DOCTYPE, proposal["name"]))
 		self.assertFalse(frappe.db.exists("Quotation", quotation))
+		self.assertTrue(frappe.db.exists("TBO AI Usage Log", {"reference_name": proposal["name"]}))
 
 	def test_a_sent_proposal_stays_and_a_deleted_revision_gives_back_latest(self):
 		proposal = make_hub_proposal(self.lead, BDE, TEMPLATE)
