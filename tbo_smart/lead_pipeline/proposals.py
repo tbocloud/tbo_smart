@@ -509,6 +509,7 @@ def change_template(doc, template: str, scoping=None) -> dict:
 		if answers.get(key) and name not in answers["modules"]:
 			answers["modules"].append(name)
 	answers["timeline_template"] = answers["payment_terms"] = None
+	answers["timeline_days"], answers["payment_milestones"] = 0, []
 	doc.template = template
 	doc.solution_type = solution
 	doc.scoping = frappe.as_json(answers)
@@ -751,14 +752,15 @@ def follow_state(doc) -> dict:
 
 
 def pricing_signature(doc) -> tuple:
-	"""The module lines, customisation prices and days, and the branches the quotation is priced
-	from."""
+	"""The module lines, the price basis and its prices, customisation prices and days, and the
+	branches the quotation is priced from."""
 	answers = builder.scoping_answers(doc.scoping, doc.solution_type)
 	return (
 		tuple((row.module_name, row.item, flt(row.rate)) for row in doc.modules),
 		tuple((row["item"], flt(row["price"])) for row in answers["customisations"] if row["price"]),
 		sum(flt(row["days"]) for row in answers["customisations"] if not row["price"]),
 		(answers["branches"], flt(answers["branch_rate"])),
+		(answers["price_basis"], tuple(sorted(answers["app_prices"].items())), answers["custom_price"]),
 	)
 
 
@@ -1000,6 +1002,60 @@ def create_revision(doc):
 		if row.name != revision.name:
 			frappe.db.set_value(DOCTYPE, row.name, "is_latest", 0, update_modified=False)
 	return revision
+
+
+def delete_draft(doc) -> None:
+	"""A draft deleted for good: one that went out (sent, viewed, accepted…) stays on the lead's
+	record, and so does one a later document was made from. Its quotation goes with it when it is
+	a draft no other version prices from; else it stays, pointing at the version that now prices
+	from it. A deleted latest revision makes the one before it the latest again."""
+	if doc.status != DRAFT:
+		frappe.throw(
+			_("Only a draft can be deleted. A proposal that is {0} stays on the lead's record.").format(
+				_(doc.status)
+			)
+		)
+	if frappe.db.exists(DOCTYPE, {"source_document": doc.name}):
+		frappe.throw(_("A document was made from this one. Delete that first."))
+	family, was_latest = doc.proposal_family, cint(doc.is_latest)
+	drop_quotation(doc)
+	frappe.delete_doc(DOCTYPE, doc.name, ignore_permissions=True)
+	if family and was_latest:
+		previous = frappe.get_all(
+			DOCTYPE,
+			or_filters={"proposal_family": family, "name": family},
+			order_by="revision_no desc",
+			pluck="name",
+			limit=1,
+		)
+		if previous:
+			frappe.db.set_value(DOCTYPE, previous[0], "is_latest", 1, update_modified=False)
+
+
+def drop_quotation(doc) -> None:
+	"""The draft's quotation unlinked from it, and deleted when it is a draft no other version
+	prices from (anything else linking to it keeps it)."""
+	quotation = doc.quotation
+	if not quotation or not frappe.db.exists("Quotation", quotation):
+		return
+	others = frappe.get_all(
+		DOCTYPE,
+		filters={"quotation": quotation, "name": ["!=", doc.name]},
+		order_by="revision_no desc",
+		pluck="name",
+	)
+	frappe.db.set_value(DOCTYPE, doc.name, "quotation", None, update_modified=False)
+	if frappe.db.get_value("Quotation", quotation, "tbo_proposal") == doc.name:
+		frappe.db.set_value(
+			"Quotation", quotation, "tbo_proposal", others[0] if others else None, update_modified=False
+		)
+	if others or frappe.db.get_value("Quotation", quotation, "docstatus") != 0:
+		return
+	try:
+		frappe.delete_doc("Quotation", quotation, ignore_permissions=True)
+	except frappe.LinkExistsError:
+		# an approval or another record points at it: it stays, unlinked
+		pass
 
 
 def changes_asked(doc) -> dict | None:
@@ -1612,6 +1668,8 @@ def page_block(doc, row, pdf: bool, pricing: dict | None = None) -> dict:
 		block["modules"] = module_cards(parts)
 	elif row.section_type == "Payment Terms":
 		add_payment_amounts(parts, pricing)
+	elif row.section_type == "AMC":
+		block["amc"] = amc_plans(parts, builder.scoping_answers(doc.scoping, doc.solution_type)["amc_plan"])
 	return block
 
 
@@ -1667,6 +1725,48 @@ def module_cards(parts: list[dict]) -> list[dict] | None:
 		}
 		for cells in found["rows"]
 	]
+
+
+AMC_INCLUDED = {"yes", "✓", "included"}
+
+
+def amc_plans(parts: list[dict], recommended: str | None) -> list[dict] | None:
+	"""The AMC table ("what you get | plan…", the yearly fee its last row) as a card a plan, side
+	by side: its yearly fee and what it includes ("–" not included; "Yes" included, no detail),
+	the recommended plan marked."""
+	found = first_table(parts)
+	if not found or len(found["header"]) < 2 or not found["rows"]:
+		return None
+	found["hidden"] = True
+	rows = found["rows"]
+	fees = rows[-1] if rows[-1] and rows[-1][0].strip() == _("Yearly fee") else None
+	features = rows[:-1] if fees else rows
+
+	def cell(cells, index):
+		return cells[index].strip() if len(cells) > index else ""
+
+	plans = []
+	for index, name in enumerate(found["header"][1:], start=1):
+		included = []
+		for cells in features:
+			value = cell(cells, index)
+			on = value not in ("", "–", "-")
+			included.append(
+				{
+					"label": cell(cells, 0),
+					"on": on,
+					"detail": value if on and value.casefold() not in AMC_INCLUDED else "",
+				}
+			)
+		plans.append(
+			{
+				"name": name,
+				"fee": cell(fees, index) if fees else "",
+				"recommended": bool(recommended) and name == recommended,
+				"features": included,
+			}
+		)
+	return plans
 
 
 def add_payment_amounts(parts: list[dict], pricing: dict | None) -> None:

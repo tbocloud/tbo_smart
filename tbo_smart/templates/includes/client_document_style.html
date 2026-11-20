@@ -103,6 +103,26 @@
 	.card .about { margin: 8px 0 0; font-size: 13px; color: #3d3a34; }
 	.card ul { margin: 8px 0 0; font-size: 13px; }
 
+	/* the AMC plans: a card each, side by side (inline blocks: the PDF's renderer has no grid) */
+	.plans { margin: 12px -6px 4px; font-size: 0; }
+	.plan { display: inline-block; vertical-align: top; width: 50%; padding: 6px; font-size: 14px; page-break-inside: avoid; }
+	.plans-1 .plan { width: 100%; }
+	.plans-3 .plan { width: 33.33%; }
+	.plans-4 .plan { width: 25%; }
+	.plan .in { position: relative; border: 1px solid #e3ddcd; border-radius: 6px; background: #fffdf7; padding: 18px 16px 14px; min-height: 180px; }
+	.plan .in.pick { border: 2px solid #3a748d; padding: 17px 15px 13px; }
+	.plan .tag { position: absolute; top: -10px; left: 14px; padding: 1px 10px; border-radius: 999px; background: #3a748d; color: #fff; font-size: 11px; font-weight: 600; letter-spacing: .02em; }
+	.plan .name { display: block; font-weight: 600; font-size: 16px; color: #1c1b19; }
+	.plan .fee { display: block; margin-top: 8px; font-size: 22px; font-weight: 700; color: #1c1b19; font-variant-numeric: tabular-nums; }
+	.plan .per { display: block; font-size: 12px; color: #67625a; }
+	.plan ul { list-style: none; margin: 12px 0 0; padding: 12px 0 0; border-top: 1px solid #e3ddcd; font-size: 13px; }
+	.plan li { margin: 0 0 6px; padding-left: 20px; position: relative; color: #3d3a34; }
+	.plan li .mark { position: absolute; left: 0; top: 0; width: 14px; text-align: center; font-weight: 700; color: #3a748d; }
+	.plan li.off { color: #8c867b; }
+	.plan li.off .mark { color: #b5ae9f; font-weight: 400; }
+	.plan li .detail { display: block; font-size: 12px; color: #67625a; }
+	@media (max-width: 640px) { .plan, .plans-3 .plan, .plans-4 .plan { width: 100%; } }
+
 	/* the workflow chain */
 	.chain { margin: 8px 0 16px; font-size: 0; }
 	.step { display: inline-block; white-space: nowrap; vertical-align: middle; margin: 4px 0; padding: 8px 12px; border: 1px solid #cfc7b3; border-radius: 4px; background: #fffdf7; font-size: 13px; font-weight: 500; color: #1c1b19; }

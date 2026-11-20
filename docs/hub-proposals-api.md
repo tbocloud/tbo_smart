@@ -43,6 +43,7 @@ otherwise) and count against the day's limit (417 "Today's AI proposal runs are 
 | `apply_answers` | POST | `name`, `acting_user` | `{proposal, sections: [headings rebuilt], warnings}` (417 with no new answers) |
 | `get_proposal` | GET | `name`, `acting_user` | `Proposal` |
 | `save_proposal` | POST | `name`, `data` (JSON: any of `title`, `letter_head` (blank: the default), `pricing_mode`, `valid_till`, `requirements`, `client_profile`, `scoping`, `modules`, `sections`, `start_date` (an agreement's); `theme` is ignored), `acting_user` | `Proposal` with `warnings: [text]` (why the quotation couldn't be priced again) |
+| `delete_proposal` | POST | `name`, `acting_user` | `{deleted: name}`. A **draft** only (refused once it went out, or when a later document was made from it), deleted for good with its quotation when that is a draft no other version prices from (else the quotation stays, linked to the version that prices from it); a deleted latest revision makes the one before it the latest again (`proposals.delete_draft`) |
 | `finalise_proposal` | POST | `name`, `ready` (1: Mark ready, 0: Reopen), `acting_user` | `Proposal` (`ready_on` set or cleared) |
 | `regenerate_section` | POST | `name`, `index`, `force` (0/1), `acting_user` | `{proposal, warnings, confirm}`: `confirm` (a question) when the section was edited by hand and `force` wasn't given; nothing changed then |
 | `regenerate_proposal` | POST | `name`, `force` (0/1), `acting_user` | `{proposal, warnings, kept: [headings kept because edited by hand]}` |

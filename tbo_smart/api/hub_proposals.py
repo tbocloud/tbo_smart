@@ -573,6 +573,16 @@ def save_proposal(name: str, data: dict | str, acting_user: str | None = None) -
 
 
 @frappe.whitelist(methods=["POST"])
+def delete_proposal(name: str, acting_user: str | None = None) -> dict:
+	"""A draft deleted for good, with its draft quotation (p.delete_draft); one that went out is
+	refused. Returns {deleted: name}."""
+	with acting_as(acting_user):
+		doc = get_doc(name, "write")
+		p.delete_draft(doc)
+		return {"deleted": name}
+
+
+@frappe.whitelist(methods=["POST"])
 def finalise_proposal(name: str, ready: int | str = 1, acting_user: str | None = None) -> dict:
 	"""Mark the draft ready to send (`ready` 1: refused while anything stops it going out; its
 	content and numbers are then fixed) or reopen it for changes (`ready` 0)."""

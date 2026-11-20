@@ -29,6 +29,18 @@
 	{%- endfor %}
 </div>
 {%- endmacro -%}
+{%- macro amc_plans(plans) -%}
+<div class="plans plans-{{ [plans | length, 4] | min }}" role="list" aria-label="{{ _('AMC plans') }}">
+	{%- for plan in plans -%}
+	<div class="plan" role="listitem"><div class="in{% if plan.recommended %} pick{% endif %}">
+		{%- if plan.recommended %}<span class="tag">{{ _("Recommended") }}</span>{% endif %}
+		<span class="name">{{ plan.name | e }}</span>
+		{%- if plan.fee %}<span class="fee">{{ plan.fee | e }}</span><span class="per">{{ _("a year") }}</span>{% endif %}
+		<ul>{% for f in plan.features %}<li class="{{ 'on' if f.on else 'off' }}"><span class="mark" aria-hidden="true">{{ "✓" if f.on else "–" }}</span><span class="sr-only">{{ _("Included") if f.on else _("Not included") }}: </span>{{ f.label | e }}{% if f.detail %}<span class="detail">{{ f.detail | e }}</span>{% endif %}</li>{% endfor %}</ul>
+	</div></div>
+	{%- endfor %}
+</div>
+{%- endmacro -%}
 {%- macro timeline(t) -%}
 <table class="timeline" aria-label="{{ _('Timeline') }}">
 	<thead><tr><th scope="col" class="phase">{{ _("Phase") }}</th><th scope="col">{{ _("{0} 0 to {1}").format(t.unit, t.total) }}</th><th scope="col" class="num weeks">{{ t.unit | e }}</th></tr></thead>
@@ -152,10 +164,11 @@
 			{%- endif %}
 			{%- if block.timeline %}{{ timeline(block.timeline) }}
 			{%- elif block.modules %}{{ cards(block.modules[:2]) }}
+			{%- elif block.amc %}{% for part in shown %}{{ render_part(part) }}{% endfor %}{{ amc_plans(block.amc) }}
 			{%- else %}{% for part in shown[:lead] %}{{ render_part(part) }}{% endfor %}{% endif %}
 			</div>
 			{%- if block.modules and block.modules | length > 2 %}{{ cards(block.modules[2:]) }}{% endif %}
-			{%- set rest = shown if (block.timeline or block.modules) else shown[lead:] %}
+			{%- set rest = [] if block.amc else shown if (block.timeline or block.modules) else shown[lead:] %}
 			{%- for part in rest %}
 			{#- a heading opens a keep-together wrapper closed by what follows it; a heading right after
 			    another closes the earlier one first #}

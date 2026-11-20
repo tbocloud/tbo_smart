@@ -52,6 +52,11 @@ IMPLIED_MODULES = {
 	"integrations": "Integrations",
 	"mobile_app": "Flutter Mobile App",
 }
+WEBSITE_MODULE = "Website & Portal"
+# how the quotation prices the modules: a line each, a line per app, or one line for them all
+PRICE_BASES = ("Module", "App", "Custom")
+# the apps a proposal's modules group into, as the hub's Price card shows them
+APPS = ("main", "mobile", "website")
 MODULE_TEXT = ("description", "features", "scope", "deliverables", "assumptions", "out_of_scope", "workflow")
 DEFAULT_DAILY_LIMIT = 50
 # every proposal AI call, counted against the daily limit
@@ -102,16 +107,65 @@ def scoping_answers(raw, solution_type: str | None = None) -> dict:
 		# the templates picked at the start (titles in the Timeline, Payment Terms and AMC Plan
 		# libraries; blank: the suggested timeline, the first payment terms, no plan marked)
 		"timeline_template": str(raw.get("timeline_template") or "").strip()[:140] or None,
+		# a custom period in calendar days (0: none), over the templates (chosen_timeline)
+		"timeline_days": min(max(cint(raw.get("timeline_days")), 0), MAX_TIMELINE_DAYS),
 		"payment_terms": str(raw.get("payment_terms") or "").strip()[:140] or None,
+		# custom milestones [{label, share}] adding up to 100%, over the template (payment_terms)
+		"payment_milestones": custom_milestones(raw.get("payment_milestones")),
 		"amc_plan": str(raw.get("amc_plan") or "").strip()[:140] or None,
+		# the price basis (module_items): by App, `app_prices` by app (one not given: its modules
+		# added up); Custom, `custom_price` (blank: the modules added up)
+		"price_basis": raw.get("price_basis") if raw.get("price_basis") in PRICE_BASES else "Module",
+		"app_prices": app_prices(raw.get("app_prices")),
+		"custom_price": price_or_none(raw.get("custom_price")),
 	}
 	if not answers["customisation"]:
 		answers["customisations"] = []
 	return answers
 
 
+def price_or_none(value) -> float | None:
+	"""A price typed, 0 included; blank is None."""
+	if value is None or str(value).strip() == "":
+		return None
+	return max(flt(value), 0)
+
+
+def app_prices(value) -> dict:
+	"""{app: price} for the apps given a price (APPS)."""
+	value = value if isinstance(value, dict) else {}
+	return {key: price for key in APPS if (price := price_or_none(value.get(key))) is not None}
+
+
+def app_groups(names: list[str]) -> list[tuple[str, list[str]]]:
+	"""The modules by app: the main line, the mobile app, the website; an app with none left out."""
+	mobile = IMPLIED_MODULES["mobile_app"]
+	groups = (
+		("main", [name for name in names if name not in (mobile, WEBSITE_MODULE)]),
+		("mobile", [name for name in names if name == mobile]),
+		("website", [name for name in names if name == WEBSITE_MODULE]),
+	)
+	return [(key, group) for key, group in groups if group]
+
+
+def custom_milestones(value) -> list[dict]:
+	"""Payment milestones set on the proposal, [{label, share}] (share in %, above 0), refused
+	unless they add up to 100%; none (an empty list) is the payment terms template."""
+	rows = []
+	for row in value if isinstance(value, list) else []:
+		if isinstance(row, dict) and str(row.get("label") or "").strip() and flt(row.get("share")) > 0:
+			rows.append({"label": str(row["label"]).strip()[:140], "share": flt(row["share"], 2)})
+	rows = rows[:MAX_MILESTONES]
+	total = sum(row["share"] for row in rows)
+	if rows and round(total, 2) != 100:
+		frappe.throw(_("The payment milestones add up to {0}%, not 100%.").format(f"{total:g}"))
+	return rows
+
+
 UNLIMITED = "Unlimited"
 MAX_BRANCHES = 1000
+MAX_MILESTONES = 12
+MAX_TIMELINE_DAYS = 1000
 
 
 def headcount(value) -> int | str:
@@ -433,10 +487,33 @@ def suggest_timeline(doc) -> str | None:
 
 
 def chosen_timeline(doc):
-	"""The timeline template the proposal picked (else the suggested one), or None."""
+	"""The timeline template the proposal picked (else the suggested one), or None. A custom
+	period (`timeline_days`) is the shortest template at least that long (else the longest) with
+	its phases scaled to it."""
 	answers = scoping_answers(doc.scoping, doc.solution_type)
 	options = {row.title: row for row in timeline_templates()}
+	if answers["timeline_days"]:
+		return custom_timeline(answers["timeline_days"], list(options.values()))
 	return options.get(answers["timeline_template"] or "") or options.get(suggest_timeline(doc) or "")
+
+
+def custom_timeline(days: int, templates: list) -> frappe._dict:
+	"""A timeline of `days` calendar days, as a template reads (title, weeks: its days, body:
+	"phase | days" lines): the phases of the shortest template at least that long, else the
+	longest, scaled to it in whole days (at least one each, the last taking what is left); with
+	no template, one Implementation phase."""
+	base = next((row for row in templates if flt(row.weeks) >= days), templates[-1] if templates else None)
+	rows = milestone_rows(base.body) if base else []
+	total = sum(length for _name, length in rows)
+	if not total or len(rows) > days:
+		rows, total = [(_("Implementation"), days)], days
+	scaled, left = [], days
+	for index, (name, length) in enumerate(rows):
+		later = len(rows) - index - 1
+		part = left if not later else min(max(round(length * days / total), 1), left - later)
+		scaled.append(f"{name} | {part:g}")
+		left -= part
+	return frappe._dict(title=_("{0} days").format(days), weeks=days, body="\n".join(scaled))
 
 
 def project_timeline(doc) -> str:
@@ -464,16 +541,18 @@ def investment(doc) -> str:
 
 
 def payment_terms(doc) -> str:
-	"""The picked payment terms template (the first by default); the page adds each amount."""
-	presets = library("Payment Terms", doc)
-	if not presets:
-		return ""
-	picked = scoping_answers(doc.scoping, doc.solution_type)["payment_terms"]
-	chosen = next((row for row in presets if row.title == picked), presets[0])
-	return table(
-		(_("Milestone"), _("Share")),
-		[(label, f"{flt(share):g}%") for label, share in milestone_rows(chosen.body)],
-	)
+	"""The proposal's own milestones, else the picked payment terms template (the first by
+	default); the page adds each amount."""
+	answers = scoping_answers(doc.scoping, doc.solution_type)
+	if answers["payment_milestones"]:
+		rows = [(row["label"], row["share"]) for row in answers["payment_milestones"]]
+	else:
+		presets = library("Payment Terms", doc)
+		if not presets:
+			return ""
+		chosen = next((row for row in presets if row.title == answers["payment_terms"]), presets[0])
+		rows = milestone_rows(chosen.body)
+	return table((_("Milestone"), _("Share")), [(label, f"{flt(share):g}%") for label, share in rows])
 
 
 def milestone_rows(text: str | None) -> list[tuple[str, float]]:
@@ -656,29 +735,13 @@ def module_line(row) -> dict:
 
 
 def pricing_values(doc) -> dict:
-	"""The quotation's values from the modules and the customisation days: one line each, at
-	the module's price (the segment's, or the one set by hand). The discount band and the
-	approvals apply as for any quotation."""
+	"""The quotation's values from the modules (by the price basis: module_items) and the
+	customisations and branches. The discount band and the approvals apply as for any
+	quotation."""
 	service = setting("proposal_service_item")
-	items = []
-	for row in doc.modules:
-		code = row.item or service
-		if not code:
-			frappe.throw(
-				_(
-					"{0} has no Item. Link it to one in the module catalogue, or set the proposal service item in TBO Smart Settings."
-				).format(row.module_name)
-			)
-		items.append(
-			{
-				"item_code": code,
-				"qty": 1,
-				"price_list_rate": flt(row.rate),
-				"discount_percentage": 0,
-				"description": row.module_name if code == service else None,
-			}
-		)
-	customisations = scoping_answers(doc.scoping, doc.solution_type)["customisations"]
+	answers = scoping_answers(doc.scoping, doc.solution_type)
+	items = module_items(doc, answers, service)
+	customisations = answers["customisations"]
 	priced = [row for row in customisations if row["price"]]
 	days = sum(row["days"] for row in customisations if not row["price"])
 	if (priced or days) and not service:
@@ -687,7 +750,7 @@ def pricing_values(doc) -> dict:
 	items.extend(priced_customisation_line(service, row) for row in priced)
 	if days:
 		items.append(customisation_line(service, days))
-	branches = branch_line(service, scoping_answers(doc.scoping, doc.solution_type))
+	branches = branch_line(service, answers)
 	if branches:
 		items.append(branches)
 	if not items:
@@ -710,6 +773,57 @@ def pricing_values(doc) -> dict:
 			}
 		)
 	return values
+
+
+def module_items(doc, answers: dict, service: str | None) -> list[dict]:
+	"""The modules' quotation lines by the price basis: by Module a line each (its Item, else the
+	service item); by App a line per app, by Custom one line, each on the service item, named by
+	the modules it covers, at the price typed, else those modules' prices added up."""
+	if answers["price_basis"] == "Module":
+		return [module_line_item(row, service) for row in doc.modules]
+	if not doc.modules:
+		return []
+	if not service:
+		frappe.throw(
+			_(
+				"Set the proposal service item in TBO Smart Settings to price the modules by app or as one price."
+			)
+		)
+	rates = {row.module_name: flt(row.rate) for row in doc.modules}
+	if answers["price_basis"] == "Custom":
+		groups, typed = [("all", list(rates))], {"all": answers["custom_price"]}
+	else:
+		groups, typed = app_groups(list(rates)), answers["app_prices"]
+	return [
+		{
+			"item_code": service,
+			"qty": 1,
+			"price_list_rate": typed[key]
+			if typed.get(key) is not None
+			else sum(rates[name] for name in names),
+			"discount_percentage": 0,
+			"description": ", ".join(names),
+		}
+		for key, names in groups
+	]
+
+
+def module_line_item(row, service: str | None) -> dict:
+	"""One module's quotation line at its price: its Item, else the service item named by it."""
+	code = row.item or service
+	if not code:
+		frappe.throw(
+			_(
+				"{0} has no Item. Link it to one in the module catalogue, or set the proposal service item in TBO Smart Settings."
+			).format(row.module_name)
+		)
+	return {
+		"item_code": code,
+		"qty": 1,
+		"price_list_rate": flt(row.rate),
+		"discount_percentage": 0,
+		"description": row.module_name if code == service else None,
+	}
 
 
 def branch_line(service: str | None, answers: dict) -> dict | None:
@@ -1279,8 +1393,11 @@ def edit_state(doc) -> dict:
 		"catalogue": [row.module_name for row in catalogue(doc.solution_type)],
 		"customisations": [row["item"] for row in answers["customisations"]],
 		"timeline_template": answers["timeline_template"],
+		# a custom period, in days, over the template (0: none)
+		"timeline_days": answers["timeline_days"],
 		"timelines": [row.title for row in timeline_templates()],
 		"payment_terms": answers["payment_terms"],
+		"payment_milestones": answers["payment_milestones"],
 		"payment_templates": [row.title for row in library("Payment Terms")],
 		"amc": answers["amc"],
 		"amc_plan": answers["amc_plan"],
@@ -1339,8 +1456,12 @@ def apply_edit(doc, ops: dict) -> list[str]:
 		("amc_plan", state["amc_plans"], _("AMC plan")),
 		("hosting", state["hostings"], _("Hosting")),
 	):
-		if ops.get(key) in choices and ops[key] != answers.get(key):
+		# a template picked in words replaces a custom period or custom milestones
+		custom = {"timeline_template": "timeline_days", "payment_terms": "payment_milestones"}.get(key)
+		if ops.get(key) in choices and (ops[key] != answers.get(key) or (custom and answers[custom])):
 			answers[key] = ops[key]
+			if custom:
+				answers[custom] = [] if custom == "payment_milestones" else 0
 			done.append(_("{0}: {1}").format(label, ops[key]))
 	for key, label in (
 		("amc", _("AMC")),

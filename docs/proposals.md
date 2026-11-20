@@ -62,7 +62,7 @@ of their own type, on the same engine: `client-documents.md`. The hub's contract
 may read its lead under the sales rules; changing it needs write on the lead; only a System
 Manager deletes one.
 
-**Editing:** only a Draft changes. A sent one is changed through a revision. The controller
+**Editing:** only a Draft changes. A sent one is changed through a revision. Only a Draft can be deleted (`delete_draft`, the hub's *Delete draft*): its draft quotation goes with it unless another version prices from it, and a deleted latest revision gives *latest* back to the version before it. The controller
 enforces it for every path (REST, `set_value`): `status`, `quotation`, the revision fields, the
 link token and the tracking fields change only through this module's workflow (a new proposal
 starts as a fresh draft whatever a caller sends), a sent proposal's content not at all, and
@@ -93,7 +93,7 @@ doesn't fit (off sections are kept, not shown). The part titles show in the cont
 | 15 | Investment | C — Commercial Proposal | Library **Investment Note** + the quotation (itemised or consolidated) |
 | 16 | Payment Terms | C | The picked **Payment Terms** template ("milestone \| %", adding up to 100); amounts computed from the total |
 | 17 | Warranty & Post-Implementation Support | C | Library **Warranty** |
-| 18 | AMC | C | Library **AMC Plan** (Basic / Premium / Enterprise, features and yearly price): a comparison table, its price separate from the project; the recommended plan named |
+| 18 | AMC | C | Library **AMC Plan** (Basic / Premium / Enterprise, features and yearly price): a comparison table, its price separate from the project; the recommended plan named. The page and the PDF draw it as plan cards (`amc_plans`): a card a plan, side by side, its yearly fee and what it includes (✓, a detail under it; "–" not included, greyed; "Yes" a ✓ alone), the recommended plan outlined in teal with a **Recommended** tag; the table is hidden, the note above it stays |
 | 19 | Assumptions & Dependencies | C | Library **Assumption** + the modules' |
 | 20 | Out of Scope | C | Library **Out of Scope** + the modules', and the change-request day rate |
 | 21 | Risks & Mitigation | C | Library **Risk** by rules (conditions; the first three on small projects) |
@@ -180,11 +180,22 @@ fields as they are. The data, in order:
    On-premise, Client's cloud, TBO hosting), `branches` (additional branches beyond the head
    office and the first branch, 0 to 1,000; asked by the ERPNext templates only) and
    `branch_rate` (a price per branch set on the proposal; blank: the Branch rate setting), `amc`,
-   `timeline_weeks`, `source_code`, `architecture` (Simple / Detailed). The template decides
-   which questions are asked.
+   `timeline_weeks`, `source_code`, `architecture` (Simple / Detailed), and the **price basis**
+   (the hub's Price card): `price_basis` (**Module**, the default: a quotation line per module;
+   **App**: a line per app, `app_prices` {main, mobile, website}, an app without one at its
+   modules' prices added up; **Custom**: one line for all the modules at `custom_price`, blank:
+   their prices added up). The template decides which questions are asked.
 4. **Templates:** `timeline_template` (suggested: the shortest one of at least 1.6 calendar days
    a person-day of module and customisation effort, or the target weeks if longer; presales
-   picks), `payment_terms` (the first by default), `amc_plan` (the plan to recommend; blank: none).
+   picks), `timeline_days` (a **custom period** in calendar days, 0 to 1,000, 0: none: it wins over
+   the template, `chosen_timeline`, with the phases of the shortest template at least that long,
+   else the longest, scaled to it in whole days, the last phase taking what is left; with no
+   template, one Implementation phase; a template picked through the assistant clears it),
+   `payment_terms` (the first by default), `payment_milestones` (**custom milestones** for this
+   proposal, [{label, share}], at most 12, refused unless they add up to 100%; they replace the
+   template in the Payment Terms section, so the amounts and the quotation's payment schedule
+   follow; a template picked through the assistant clears them; changing the proposal's template
+   clears them and the custom period with the other picks), `amc_plan` (the plan to recommend; blank: none).
 5. **Generate:** the proposal is made with all 23 sections; data mobile app / integrations / data
    migration bring their module (Flutter Mobile App, Integrations, Data Migration); the modules are
    copied in and priced for the lead's segment; every data section is built (§2.1); library
@@ -307,8 +318,11 @@ changed is left for them.
 The Investment is the lead's own ERPNext **Quotation**, made and changed through the quotation
 builder (`lead_quotation.save_quotation`), so the segment's price list and discount band apply,
 and the discount and commission control applies (*Request approval* above the limit).
-`price_from_modules` writes its lines from the modules (a line each at its price, an Item's or the
-service item named by the module), each customisation priced by hand (one unit of the service
+`price_from_modules` writes its lines from the modules by the price basis (`module_items`: by
+Module a line each at its price, an Item's or the service item named by the module; by App a line
+per app and by Custom one line, each on the service item named by the modules it covers, e.g.
+"Accounts, Buying"; the main line is every module but the Flutter Mobile App and the Website &
+Portal), each customisation priced by hand (one unit of the service
 item at its price, "Customisation: <item>"), the other customisations' days (the service item at
 the day rate) and the additional branches (that many of the service item at the proposal's price
 per branch, else the Branch rate; "Additional branch rollout (5 branches)"; with branches and no
@@ -438,7 +452,7 @@ A save (`save_content`) that changes the **modules** (price, days, fit, added or
   edited by hand is kept until *Reset to library* (`regenerate_section` with `force`);
 - a timeline that was the suggestion follows the new effort (`suggest_timeline`); one picked by
   hand stays (picking the suggested one counts as following it);
-- when the quotation's lines changed (a module's name, Item or price, a customisation's price, the customisation days, or the branches and their price)
+- when the quotation's lines changed (a module's name, Item or price, the price basis or its prices, a customisation's price, the customisation days, or the branches and their price)
   the draft's quotation is priced again (`price_new_proposal`), so the page's Investment and the
   payment amounts follow; what stops it comes back as `warnings` on the save. The AI's sections
   are never rewritten on save.
@@ -457,7 +471,7 @@ it was.
 - **Shown:** the letter head; the **cover** (§2.1 #1); the **contents** with the part titles; the
   numbered sections that are on and not empty (the Investment and the Acceptance always), each
   part's title before its first section, subheadings numbered n.1, n.2…; tables, workflow
-  chains, the module cards, the timeline bar, payment amounts; the quotation's lines (itemised or
+  chains, the module cards, the timeline bar, the AMC plan cards, payment amounts; the quotation's lines (itemised or
   consolidated), discount, taxes, total and total in words; the acceptance block. **Nothing
   else:** no emails (the accepted block shows the accepting client's email masked, e.g.
   a•••@client.example), owners, notes, lead or quotation names, internal statuses. Everything is
@@ -485,7 +499,8 @@ it was.
 ### 5.1 One theme: ivory, premium, print-ready
 
 One theme, **Ivory**: warm ivory paper (#FBF8EF), dark ink (#1C1B19), the TBO teal (#3A748D)
-only for section numbers, the headings' rule, the timeline bar and the module cards' top edge;
+only for section numbers, the headings' rule, the timeline bar, the module cards' top edge and
+the recommended AMC plan's outline, tag and ticks;
 no other colours, no gradients; nothing depends on colour alone, so it reads in grayscale. The
 colours are written out in the CSS (wkhtmltopdf's WebKit has no CSS variables).
 
