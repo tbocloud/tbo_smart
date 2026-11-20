@@ -510,6 +510,31 @@ class TestSending(ProposalTestCase):
 		)
 		self.assertRaises(frappe.ValidationError, hub.send_proposal, proposal["name"], acting_user=BDE)
 
+	def test_a_draft_is_deleted_with_its_quotation(self):
+		proposal = make_hub_proposal(self.lead, BDE, TEMPLATE)
+		priced = price_hub_proposal(proposal["name"], BDE, SERVICE)
+		quotation = priced["quotation"]["name"]
+		self.assertEqual(
+			hub.delete_proposal(proposal["name"], acting_user=BDE), {"deleted": proposal["name"]}
+		)
+		self.assertFalse(frappe.db.exists(p.DOCTYPE, proposal["name"]))
+		self.assertFalse(frappe.db.exists("Quotation", quotation))
+
+	def test_a_sent_proposal_stays_and_a_deleted_revision_gives_back_latest(self):
+		proposal = make_hub_proposal(self.lead, BDE, TEMPLATE)
+		price_hub_proposal(proposal["name"], BDE, SERVICE)
+		send_hub_proposal(proposal["name"], BDE)
+		self.assertRaises(frappe.ValidationError, hub.delete_proposal, proposal["name"], acting_user=BDE)
+		revision = hub.create_revision(proposal["name"], acting_user=BDE)
+		hub.delete_proposal(revision["name"], acting_user=BDE)
+		self.assertFalse(frappe.db.exists(p.DOCTYPE, revision["name"]))
+		self.assertEqual(
+			frappe.db.get_value(p.DOCTYPE, proposal["name"], ["is_latest", "status"]), (1, p.SENT)
+		)
+		# the sent quotation stays with the sent proposal
+		quotation = frappe.db.get_value(p.DOCTYPE, proposal["name"], "quotation")
+		self.assertTrue(frappe.db.exists("Quotation", quotation))
+
 
 class TestClientPage(ProposalTestCase):
 	def test_a_draft_or_bad_link_shows_nothing(self):
@@ -971,6 +996,70 @@ class TestMaster(ProposalTestCase):
 		self.assertEqual(proposal["scoping"]["customisations"][0]["price"], 25000)
 		self.assertIsNone(proposal["scoping"]["customisations"][1]["price"])
 
+	def test_the_price_basis_prices_the_modules_by_app_or_as_one(self):
+		frappe.set_user("Administrator")
+		set_smart_lead_settings(proposal_service_item=SERVICE)
+		frappe.set_user(HUB)
+		modules = ["Accounts", "Buying", "Flutter Mobile App"]
+		scoping = {"modules": modules, "mobile_app": 1, "price_basis": "App", "app_prices": {"main": 200000}}
+		proposal = make_hub_proposal(self.lead, BDE, seed.ERP_MOBILE, 0, scoping)
+		rates = {row["module_name"]: row["rate"] for row in proposal["modules"]}
+		lines = [
+			(row["description"], row["qty"], row["price_list_rate"]) for row in proposal["quotation"]["items"]
+		]
+		# an app without a price of its own is its modules added up
+		self.assertEqual(
+			lines,
+			[("Accounts, Buying", 1, 200000), ("Flutter Mobile App", 1, rates["Flutter Mobile App"])],
+		)
+		self.assertEqual(proposal["scoping"]["app_prices"], {"main": 200000})
+		# one price for them all, kept on the proposal and priced again on save
+		saved = hub.save_proposal(
+			proposal["name"],
+			json.dumps({"scoping": {**scoping, "price_basis": "Custom", "custom_price": 350000}}),
+			acting_user=BDE,
+		)
+		lines = [
+			(row["description"], row["qty"], row["price_list_rate"]) for row in saved["quotation"]["items"]
+		]
+		self.assertEqual(lines, [("Accounts, Buying, Flutter Mobile App", 1, 350000)])
+		self.assertEqual(
+			(saved["scoping"]["price_basis"], saved["scoping"]["custom_price"]), ("Custom", 350000)
+		)
+		# anything else is by module
+		self.assertEqual(builder.scoping_answers({"price_basis": "Other"})["price_basis"], "Module")
+
+	def test_a_custom_timeline_scales_the_template_phases(self):
+		proposal = make_hub_proposal(
+			self.lead, BDE, TEMPLATE, 0, {"timeline_template": "45 days", "timeline_days": 75}
+		)
+		self.assertEqual(proposal["scoping"]["timeline_days"], 75)
+		body = next(row["body"] for row in proposal["sections"] if row["section_type"] == "Project Timeline")
+		self.assertIn("Planned over 75 days.", body)
+		chosen = builder.chosen_timeline(frappe.get_doc(p.DOCTYPE, proposal["name"]))
+		self.assertEqual((chosen.title, chosen.weeks), ("75 days", 75))
+		# the 90-day template's phases, scaled to 75 whole days
+		self.assertEqual(sum(days for _name, days in builder.milestone_rows(chosen.body)), 75)
+		# without a template, one phase
+		only = builder.custom_timeline(10, [])
+		self.assertEqual(builder.milestone_rows(only.body), [("Implementation", 10)])
+
+	def test_custom_payment_milestones_replace_the_template(self):
+		milestones = [{"label": "Advance", "share": 40}, {"label": "Go-live", "share": 60}]
+		proposal = make_hub_proposal(
+			self.lead, BDE, TEMPLATE, 0, {"payment_terms": "50 / 30 / 20", "payment_milestones": milestones}
+		)
+		self.assertEqual(proposal["scoping"]["payment_milestones"], milestones)
+		body = next(row["body"] for row in proposal["sections"] if row["section_type"] == "Payment Terms")
+		self.assertIn("Advance | 40%", body)
+		self.assertIn("Go-live | 60%", body)
+		# they add up to 100%
+		self.assertRaises(
+			frappe.ValidationError,
+			builder.scoping_answers,
+			{"payment_milestones": [{"label": "Advance", "share": 40}]},
+		)
+
 	def test_templates_timeline_payment_terms_and_amc(self):
 		proposal = make_hub_proposal(
 			self.lead, BDE, TEMPLATE, 0, {"timeline_template": "45 days", "amc": 1, "amc_plan": "Premium"}
@@ -984,6 +1073,13 @@ class TestMaster(ProposalTestCase):
 		)
 		self.assertEqual((timeline["total"], timeline["unit"]), ("45", "Days"))
 		self.assertEqual(timeline["bars"][0]["left"], 0)
+		# the AMC plans as cards, the recommended one marked, the fee row not a feature
+		plans = next(block["amc"] for block in context["blocks"] if block["type"] == "AMC")
+		self.assertEqual([plan["recommended"] for plan in plans].count(True), 1)
+		self.assertEqual(next(plan for plan in plans if plan["recommended"])["name"], "Premium")
+		self.assertTrue(all(plan["fee"] for plan in plans))
+		self.assertNotIn("Yearly fee", [f["label"] for plan in plans for f in plan["features"]])
+		self.assertIn('class="plans', p.render_html(frappe.get_doc(p.DOCTYPE, proposal["name"])))
 		# the milestones add up to 100
 		sections = proposal["sections"]
 		terms = next(row for row in sections if row["section_type"] == "Payment Terms")
