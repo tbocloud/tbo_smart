@@ -436,8 +436,9 @@ before_tests = "tbo_smart.test_utils.before_tests"
 # -----------------------------------------------------------
 
 # ignore_links_on_delete = ["Communication", "ToDo"]
-# A draft quotation can still be deleted; its adjustment audit trail stays.
-ignore_links_on_delete = ["TBO Quotation Adjustment"]
+# A draft quotation can still be deleted; its adjustment audit trail stays. So can a draft
+# proposal: its AI usage log (the AI cost history) stays.
+ignore_links_on_delete = ["TBO Quotation Adjustment", "TBO AI Usage Log"]
 
 # meta_lead_integration: a Meta lead ads enquiry from someone who is already a lead goes on that
 # lead instead of making a second one (docs/lead-departments.md §6)

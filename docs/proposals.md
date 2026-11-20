@@ -62,7 +62,7 @@ of their own type, on the same engine: `client-documents.md`. The hub's contract
 may read its lead under the sales rules; changing it needs write on the lead; only a System
 Manager deletes one.
 
-**Editing:** only a Draft changes. A sent one is changed through a revision. Only a Draft can be deleted (`delete_draft`, the hub's *Delete draft*): its draft quotation goes with it unless another version prices from it, and a deleted latest revision gives *latest* back to the version before it. The controller
+**Editing:** only a Draft changes. A sent one is changed through a revision. Only a Draft can be deleted (`delete_draft`, the hub's *Delete draft*): its draft quotation goes with it unless another version prices from it, and a deleted latest revision gives *latest* back to the version before it. Its AI usage log rows stay (the AI cost history), pointing at the deleted name: `TBO AI Usage Log` is in `ignore_links_on_delete`. The controller
 enforces it for every path (REST, `set_value`): `status`, `quotation`, the revision fields, the
 link token and the tracking fields change only through this module's workflow (a new proposal
 starts as a fresh draft whatever a caller sends), a sent proposal's content not at all, and
