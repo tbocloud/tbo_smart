@@ -998,8 +998,8 @@ LIBRARY = (
 	item("Investment Note", "Travel outside Kochi, if needed, is billed at actuals.", sort_order=3),
 	item(
 		"Investment Note",
-		"Each additional branch covers its company and territory set-up, master data, user roles, "
-		"device and printer set-up, opening stock and staff training.",
+		"Each additional branch covers its company set-up, master data, user roles, devices and "
+		"printers, opening stock and staff training.",
 		condition="Additional branches",
 		sort_order=4,
 	),
