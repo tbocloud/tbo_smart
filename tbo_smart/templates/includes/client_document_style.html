@@ -3,18 +3,18 @@
 	{%- for face in p.fonts or [] %}
 	@font-face { font-family: Geist; font-style: normal; font-weight: {{ face.weight }}; src: url("{{ face.src }}"); }
 	{%- endfor %}
-	/* One theme: ivory paper (#fbf8ef), dark ink (#1c1b19), the TBO teal (#3a748d) only for
+	/* One theme: ivory paper (#ffffff), dark ink (#1c1b19), the TBO teal (#3a748d) only for
 	   numbers, the headings' rule and the timeline. Readable in grayscale: nothing depends on the
 	   colour alone. Colours are written out, not CSS variables: wkhtmltopdf's WebKit has none, nor
 	   flexbox or grid. One font, Geist, bundled with tabular figures (docs/proposals.md §5.1). */
 	* { box-sizing: border-box; }
-	html { background: #fbf8ef; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+	html { background: #ffffff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 	body {
-		margin: 0; background: #fbf8ef; color: #1c1b19;
+		margin: 0; background: #ffffff; color: #1c1b19;
 		font: 15px/1.65 Geist, "Helvetica Neue", Helvetica, Arial, sans-serif;
 	}
 	.wrap { max-width: 880px; margin: 0 auto; padding: 32px 16px 64px; }
-	.sheet { background: #fffdf7; border: 1px solid #e3ddcd; border-radius: 4px; }
+	.sheet { background: #ffffff; border: 1px solid #e3ddcd; border-radius: 4px; }
 	.pad { padding-left: 56px; padding-right: 56px; }
 
 	/* letter head */
@@ -97,7 +97,7 @@
 	/* the module map */
 	.cards { margin: 4px -6px 12px; font-size: 0; }
 	.card { display: inline-block; vertical-align: top; width: 50%; padding: 6px; font-size: 14px; page-break-inside: avoid; }
-	.card .in { border: 1px solid #e3ddcd; border-top: 3px solid #3a748d; border-radius: 4px; background: #fffdf7; padding: 14px 16px; min-height: 128px; }
+	.card .in { border: 1px solid #e3ddcd; border-top: 3px solid #3a748d; border-radius: 4px; background: #ffffff; padding: 14px 16px; min-height: 128px; }
 	.card .name { font-weight: 600; color: #1c1b19; }
 	.card .fit { display: inline-block; margin-left: 6px; padding: 0 8px; border: 1px solid #cfc7b3; border-radius: 999px; font-size: 11px; color: #67625a; }
 	.card .about { margin: 8px 0 0; font-size: 13px; color: #3d3a34; }
@@ -109,7 +109,7 @@
 	.plans-1 .plan { width: 100%; }
 	.plans-3 .plan { width: 33.33%; }
 	.plans-4 .plan { width: 25%; }
-	.plan .in { position: relative; border: 1px solid #e3ddcd; border-radius: 6px; background: #fffdf7; padding: 18px 16px 14px; min-height: 180px; }
+	.plan .in { position: relative; border: 1px solid #e3ddcd; border-radius: 6px; background: #ffffff; padding: 18px 16px 14px; min-height: 180px; }
 	.plan .in.pick { border: 2px solid #3a748d; padding: 17px 15px 13px; }
 	.plan .tag { position: absolute; top: -10px; left: 14px; padding: 1px 10px; border-radius: 999px; background: #3a748d; color: #fff; font-size: 11px; font-weight: 600; letter-spacing: .02em; }
 	.plan .name { display: block; font-weight: 600; font-size: 16px; color: #1c1b19; }
@@ -125,7 +125,7 @@
 
 	/* the workflow chain */
 	.chain { margin: 8px 0 16px; font-size: 0; }
-	.step { display: inline-block; white-space: nowrap; vertical-align: middle; margin: 4px 0; padding: 8px 12px; border: 1px solid #cfc7b3; border-radius: 4px; background: #fffdf7; font-size: 13px; font-weight: 500; color: #1c1b19; }
+	.step { display: inline-block; white-space: nowrap; vertical-align: middle; margin: 4px 0; padding: 8px 12px; border: 1px solid #cfc7b3; border-radius: 4px; background: #ffffff; font-size: 13px; font-weight: 500; color: #1c1b19; }
 	.arrow { display: inline-block; vertical-align: middle; width: 22px; text-align: center; color: #3a748d; font-size: 14px; }
 
 	/* the timeline bar */
@@ -174,7 +174,7 @@
 	.questionnaire .progress { font-family: "Geist Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; color: #67625a; }
 	.question { margin: 0 0 20px; }
 	.question label { font-weight: 500; color: #1c1b19; }
-	.save-bar { position: sticky; bottom: 0; padding: 12px 0; background: #fffdf7; border-top: 1px solid #e3ddcd; }
+	.save-bar { position: sticky; bottom: 0; padding: 12px 0; background: #ffffff; border-top: 1px solid #e3ddcd; }
 	.saved { color: #1f6b45; font-size: 14px; }
 	/* the PDF: A4, 18 mm on every side (proposals.pdf_page); body 10.5 pt, headings 22/14.5/12 pt,
 	   tables 9.5 pt; one grid: the numbers of headings and contents in one 12 mm column */
@@ -207,8 +207,8 @@
 	.pdf .toc li { margin: 0; padding: 0; border-bottom: 0; font-size: 10.5pt; line-height: 1.95; overflow: hidden; }
 	/* dot leaders: a row of dots behind the heading and the page number, each on the paper colour */
 	.leaders li:before { float: left; width: 0; white-space: nowrap; color: #b4ab95; content: ". . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . ."; }
-	.leaders .t { padding-right: 1.5mm; background: #fbf8ef; }
-	.leaders .pg { float: right; position: relative; z-index: 1; padding-left: 1.5mm; background: #fbf8ef; color: #1c1b19; }
+	.leaders .t { padding-right: 1.5mm; background: #ffffff; }
+	.leaders .pg { float: right; position: relative; z-index: 1; padding-left: 1.5mm; background: #ffffff; color: #1c1b19; }
 	.pdf .part { padding-top: 0; padding-bottom: 0; border-top: 0; page-break-before: always; }
 	.pdf .part p { font-size: 9pt; }
 	.pdf section.block { padding-top: 7mm; padding-bottom: 0; }
@@ -262,7 +262,7 @@
 		.sign td + td { border-left: 1px solid #cfc7b3; border-top: 0; }
 	}
 	@media print {
-		html, body, .wrap { background: #fbf8ef; padding: 0; }
+		html, body, .wrap { background: #ffffff; padding: 0; }
 		.sheet { border: 0; background: transparent; }
 		.decision, .no-print, .notice.preview { display: none; }
 		.cover, .toc { page-break-after: always; }

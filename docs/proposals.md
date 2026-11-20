@@ -496,9 +496,9 @@ it was.
 - **Download PDF** (`download_pdf`), **Images** (`image(token, file)`), **rate limits** per IP:
   views 60, accept and decline 10, PDF 30, images 600 an hour.
 
-### 5.1 One theme: ivory, premium, print-ready
+### 5.1 One theme: white, premium, print-ready
 
-One theme, **Ivory**: warm ivory paper (#FBF8EF), dark ink (#1C1B19), the TBO teal (#3A748D)
+One theme: white paper (#FFFFFF; it was a warm ivory until Nov 2026), dark ink (#1C1B19), the TBO teal (#3A748D)
 only for section numbers, the headings' rule, the timeline bar, the module cards' top edge and
 the recommended AMC plan's outline, tag and ticks;
 no other colours, no gradients; nothing depends on colour alone, so it reads in grayscale. The
