@@ -1763,6 +1763,7 @@ def amc_plans(parts: list[dict], recommended: str | None) -> list[dict] | None:
 				"name": name,
 				"fee": cell(fees, index) if fees else "",
 				"recommended": bool(recommended) and name == recommended,
+				"included": sum(1 for f in included if f["on"]),
 				"features": included,
 			}
 		)

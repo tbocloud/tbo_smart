@@ -109,17 +109,24 @@
 	.plans-1 .plan { width: 100%; }
 	.plans-3 .plan { width: 33.33%; }
 	.plans-4 .plan { width: 25%; }
-	.plan .in { position: relative; border: 1px solid #e3ddcd; border-radius: 6px; background: #ffffff; padding: 18px 16px 14px; min-height: 180px; }
-	.plan .in.pick { border: 2px solid #3a748d; padding: 17px 15px 13px; }
-	.plan .tag { position: absolute; top: -10px; left: 14px; padding: 1px 10px; border-radius: 999px; background: #3a748d; color: #fff; font-size: 11px; font-weight: 600; letter-spacing: .02em; }
-	.plan .name { display: block; font-weight: 600; font-size: 16px; color: #1c1b19; }
-	.plan .fee { display: block; margin-top: 8px; font-size: 22px; font-weight: 700; color: #1c1b19; font-variant-numeric: tabular-nums; }
-	.plan .per { display: block; font-size: 12px; color: #67625a; }
-	.plan ul { list-style: none; margin: 12px 0 0; padding: 12px 0 0; border-top: 1px solid #e3ddcd; font-size: 13px; }
-	.plan li { margin: 0 0 6px; padding-left: 20px; position: relative; color: #3d3a34; }
-	.plan li .mark { position: absolute; left: 0; top: 0; width: 14px; text-align: center; font-weight: 700; color: #3a748d; }
+	.plan .in { border: 1px solid #e3ddcd; border-radius: 10px; background: #fff; overflow: hidden; }
+	.plan .in.pick { border: 2px solid #3a748d; box-shadow: 0 6px 18px rgba(58, 116, 141, .18); }
+	.plan .head { padding: 14px 16px 16px; background: #f3f4f6; color: #1c1b19; }
+	.plan .pick .head { background: #3a748d; color: #fff; }
+	.plan .tag { float: right; margin: 1px 0 0 8px; padding: 1px 8px; border: 1px solid currentColor; border-radius: 999px; font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+	.plan .name { display: block; font-weight: 600; font-size: 16px; }
+	.plan .fee { display: block; margin-top: 8px; font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
+	.plan .per { font-size: 12px; font-weight: 400; color: #67625a; }
+	.plan .pick .per { color: #fff; opacity: .85; }
+	.plan .cover { padding: 12px 16px 0; font-size: 12px; color: #67625a; }
+	.plan .cover .count { float: right; color: #3d3a34; font-variant-numeric: tabular-nums; }
+	.plan .meter { clear: both; height: 6px; margin-top: 6px; border-radius: 999px; background: #e5e7eb; overflow: hidden; }
+	.plan .meter .fill { height: 6px; border-radius: 999px; background: #3a748d; }
+	.plan ul { list-style: none; margin: 0; padding: 12px 16px 14px; font-size: 13px; }
+	.plan li { margin: 0 0 8px; padding-left: 24px; position: relative; color: #3d3a34; }
+	.plan li .mark { position: absolute; left: 0; top: 1px; width: 16px; height: 16px; line-height: 16px; border-radius: 50%; text-align: center; font-size: 10px; font-weight: 700; background: #e3eef2; color: #2c5d72; }
 	.plan li.off { color: #8c867b; }
-	.plan li.off .mark { color: #b5ae9f; font-weight: 400; }
+	.plan li.off .mark { background: #f1f2f4; color: #b5ae9f; font-weight: 400; }
 	.plan li .detail { display: block; font-size: 12px; color: #67625a; }
 	@media (max-width: 640px) { .plan, .plans-3 .plan, .plans-4 .plan { width: 100%; } }
 
