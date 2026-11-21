@@ -562,13 +562,22 @@ the same):
 - **Breaks:** each part starts a new page; a heading is kept with the first thing under it;
   cards, rows and the signature block don't split; a long table breaks between rows and repeats
   its header.
-- **After rendering**, `on_ivory` lays every page on an ivory sheet (wkhtmltopdf paints white
-  below the content of the last page), paints over the cover's running footer line, and prints
+- **After rendering**, `on_paper` lays every page on a white sheet to its edges (the same white
+  as the page, under the footer too; it was ivory until Nov 2026 and left an ivory band under
+  every page's footer once the page went white), paints over the cover's running footer line, and prints
   "n / N" in Geist (embedded) right-aligned at the 18 mm margin of every other page: on its own
   line above a footer picture, else at the right end of the footer line, on the same baseline as
-  the letter head's footer on the left. The browser's print keeps the ivory
+  the letter head's footer on the left.
+- **Side by side in the PDF:** the at-a-glance tiles, stat tiles, deliverable cards, the
+  implementation plan's phases, the payment milestones and the AMC plans keep their columns in
+  the PDF. Their one-column phone rules are `@media screen and (max-width: 640px)` only:
+  wkhtmltopdf renders with print media and a viewport narrow enough to match a bare
+  `max-width: 640px`, which stacked them (plans and milestones full width, tiles two to a row).
+  A tile without a note keeps its note line, so the tiles in a row are one height.
+
+The browser's print keeps the white
 (`print-color-adjust: exact`) and the same page breaks. Responsive on a phone (one column), dark
-mode follows the page's own ivory (the document is paper), keyboard reachable with a visible
+mode follows the page's own white (the document is paper), keyboard reachable with a visible
 focus ring, 44px targets.
 
 ## 6. Sending
