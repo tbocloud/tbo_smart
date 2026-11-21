@@ -512,7 +512,9 @@ the same):
 
 - **At a glance** (`at_a_glance`, a proposal only): tiles before section 1 — the modules in
   scope, the timeline's total, the grand total ("with taxes"), and the recommended AMC plan, else
-  the valid-till date; left out with fewer than two.
+  the valid-till date; left out with fewer than two. In the PDF they sit on the cover, above its
+  facts, so they don't take a page of their own after the contents (most of it empty); with a
+  cover picture, which takes that room, they stay after the contents.
 - **Modules & Features** (`module_cards`): each card's effort days (the proposal's module rows)
   as a bar against the largest; a "n modules · d days of effort" line above the cards; when the
   modules span more than one app (`builder.app_groups`), the cards grouped and each labelled
