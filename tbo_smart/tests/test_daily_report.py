@@ -235,19 +235,42 @@ class TestMyCallCounts(DailyReportTestCase):
 		make_call(BDE, status="Answered", started_at=add_days(today, -400))
 		make_call(BDE2, status="Answered", started_at=today)
 		counts = hub.get_my_call_counts(acting_user=BDE)
-		self.assertEqual(counts["today"], {"calls": 2, "connected": 1})
-		self.assertEqual(counts["all_time"], {"calls": 4, "connected": 3})
+		self.assertEqual(counts["today"], {"calls": 2, "connected": 1, "contacted": 0})
+		self.assertEqual(counts["all_time"], {"calls": 4, "connected": 3, "contacted": 0})
 		self.assertEqual(
 			counts["days"][:2],
 			[
-				{"date": nowdate(), "calls": 2, "connected": 1},
-				{"date": str(getdate(self.three_days_ago)), "calls": 1, "connected": 1},
+				{"date": nowdate(), "calls": 2, "connected": 1, "contacted": 0},
+				{"date": str(getdate(self.three_days_ago)), "calls": 1, "connected": 1, "contacted": 0},
 			],
 		)
 		# the day-by-day list stops at `days`; the 400-day-old call is only in all time
 		self.assertEqual(len(counts["days"]), 2)
 		week = 2 + (1 if getdate(self.three_days_ago) >= week_start(nowdate()) else 0)
 		self.assertEqual(counts["week"]["calls"], week)
+
+	def test_contacted_counts_leads_moved_without_a_call_once_each(self):
+		frappe.set_user("Administrator")
+		by_hand = self.old_lead(BDE, "Moved by hand")
+		change_lead_stage(by_hand, CONTACTED)
+		called = self.old_lead(BDE, "Called and moved")
+		make_call(BDE, lead=called, status="Answered")
+		change_lead_stage(called, CONTACTED)
+		earlier = self.old_lead(BDE, "Moved earlier")
+		change_lead_stage(earlier, CONTACTED)
+		set_stage_log_time(earlier, 2, self.three_days_ago)
+		untouched = self.old_lead(BDE, "Never contacted")
+		theirs = self.old_lead(BDE2, "Someone else's")
+		change_lead_stage(theirs, CONTACTED)
+		frappe.set_user(HUB)
+		counts = hub.get_my_call_counts(acting_user=BDE)
+		self.assertEqual(counts["today"], {"calls": 1, "connected": 1, "contacted": 2})
+		self.assertEqual(counts["all_time"]["contacted"], 3)
+		self.assertEqual(
+			[(day["date"], day["calls"], day["contacted"]) for day in counts["days"]],
+			[(nowdate(), 1, 2), (str(getdate(self.three_days_ago)), 0, 1)],
+		)
+		self.assertTrue(untouched)
 
 
 class TestLogCall(DailyReportTestCase):

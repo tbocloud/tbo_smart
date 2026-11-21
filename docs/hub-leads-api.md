@@ -1,4 +1,4 @@
-# Hub leads API (`tbo_smart.api.hub_leads`), v1.34
+# Hub leads API (`tbo_smart.api.hub_leads`), v1.35
 
 **Status:** built 2026-10-16. The TBO Support hub's lead page (tbocloud/helpdesk) shows and edits
 tboindia's leads through these methods. The leads are ERPNext's own **Lead**
@@ -314,11 +314,15 @@ never one query per lead.
 
 ### 2.5.2 My calls
 
-`get_my_call_counts(days?, acting_user?)` is the acting user's own calls for the hub's My leads,
-counted exactly as the daily report counts `calls_total` and `calls_connected` (every TBO Call they
-made or took; connected: the answered ones): `{today, week (from Monday), month, all_time: {calls,
-connected}, days: [{date, calls, connected}]}`, `days` being the days with calls in the last
-`days` days (default 60, at most 366), newest first.
+`get_my_call_counts(days?, acting_user?)` is the acting user's own calls and contacts for the hub's
+My leads, counted as the daily report counts them: `calls` and `connected` as `calls_total` and
+`calls_connected` (every TBO Call they made or took; connected: the answered ones), and
+`contacted` as its contacted leads (`fresh_leads` + `follow_up_leads`): the distinct leads they
+reached by a call, a stage move on a lead they own, or a follow-up they completed. A lead moved to
+Contacted by hand counts though no call was logged; a lead reached twice in a period counts once.
+`{today, week (from Monday), month, all_time: {calls, connected, contacted}, days: [{date, calls,
+connected, contacted}]}`, `days` being the days with calls or contacts in the last `days` days
+(default 60, at most 366), newest first.
 
 ### 2.6 AI runs leads
 
@@ -1253,6 +1257,9 @@ without a sales role isn't acted for.
 
 ## Changelog
 
+- **v1.35 (2026-11-21):** `get_my_call_counts` adds `contacted` to each period and day: the
+  distinct leads reached by a call, a stage move or a completed follow-up (§2.5.2), so leads moved
+  to Contacted without a logged call count.
 - **v1.34 (2026-11-18):** expense claims (§2.35, `tbo_smart.api.hub_expenses`): `get_expenses`,
   `create_expense_claim`, `decide_expense`, `get_expense_receipt`.
 - **v1.33 (2026-11-16):** files on a lead (§2.34): `get_lead_files`, `upload_lead_file`,
