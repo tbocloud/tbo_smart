@@ -2142,9 +2142,9 @@ def render_page(context: dict, pdf: bool) -> str:
 	)
 
 
-# The PDF's page, in mm: A4 with 18 mm on every side. The letter head sits inside the top margin and
-# its footer inside the bottom one (Frappe's get_pdf repeats #header-html and #footer-html on every
-# page): a footer picture at the content's width with the page number on a line above it, else a
+# The PDF's page, in mm: A4 with 18 mm on every side, but a footer picture sits at the page's foot.
+# The letter head sits inside the top margin and its footer inside the bottom one (Frappe's get_pdf
+# repeats #header-html and #footer-html on every page): a footer picture at the content's width with the page number on a line above it, else a
 # footer line with the page number at its right end. The paper, the page numbers and the cover's
 # blank footer line are drawn after (on_paper): wkhtmltopdf's own text footer doesn't render
 # beside an HTML one.
@@ -2153,6 +2153,7 @@ MARGIN_MM = 18
 HEADER_GAP_MM = 8  # under the letter head: its rule and the space before the content
 FOOTER_MM = 9  # the footer line, above the bottom margin
 FOOTER_GAP_MM = 3  # between the content and a footer picture's page number line
+FOOTER_EDGE_MM = 6  # under a footer picture: at the page's foot, clear of printers' unprintable edge
 NUMBER_LINE_MM = 5  # the page number's line above a footer picture
 HTML_HEADER_MM = 20  # a letter head written in HTML, whose height isn't known before rendering
 BRAND_HEADER_MM = 10  # no letter head: the company's logo or name
@@ -2172,8 +2173,8 @@ def pdf_page(letter_head: dict | None) -> dict:
 	picture = (footer.get("height") or media.FOOTER_MAX_MM) if footer.get("image") else None
 	top = MARGIN_MM + height + HEADER_GAP_MM
 	if picture:
-		bottom = MARGIN_MM + picture + NUMBER_LINE_MM + FOOTER_GAP_MM
-		number = MARGIN_MM + picture + 1.5
+		bottom = FOOTER_EDGE_MM + picture + NUMBER_LINE_MM + FOOTER_GAP_MM
+		number = FOOTER_EDGE_MM + picture + 1.5
 	else:
 		bottom, number = MARGIN_MM + FOOTER_MM, MARGIN_MM
 	return {

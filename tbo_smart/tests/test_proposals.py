@@ -1303,10 +1303,10 @@ class TestMaster(ProposalTestCase):
 		page = p.pdf_page(
 			{"header": {"image": "data:", "height": 14.5}, "footer": {"image": "data:", "height": 29}}
 		)
-		# 18 mm margin + the picture + the page number's line + the gap above it
-		self.assertEqual((page["footer"], page["bottom"], page["number"]), (29, 55, 48.5))
-		self.assertEqual(page["cover"], 297 - 40.5 - 55 - 2)
-		self.assertEqual(p.pdf_options(page)["margin-bottom"], "55mm")
+		# 6 mm from the bottom edge + the picture + the page number's line + the gap above it
+		self.assertEqual((page["footer"], page["bottom"], page["number"]), (29, 43, 36.5))
+		self.assertEqual(page["cover"], 297 - 40.5 - 43 - 2)
+		self.assertEqual(p.pdf_options(page)["margin-bottom"], "43mm")
 
 	def test_the_page_number_is_right_aligned_above_a_footer_picture(self):
 		from pypdf import PdfReader, PdfWriter
