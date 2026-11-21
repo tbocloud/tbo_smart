@@ -376,6 +376,15 @@
 		.decision, .no-print, .notice.preview { display: none; }
 		.cover, .toc { page-break-after: always; }
 		.part { page-break-before: always; }
+		/* the PDF (wkhtmltopdf prints) and the browser's print: four tiles a row leave about 94 pt
+		   for a figure, so the sizes are what fits one line ("₹ 1,25,00,000.00", "15–20%", a
+		   20% payment column); the AMC plans move to the next page as one row, not one by one */
+		.tile .in { padding: 9pt 7.5pt; }
+		.tile .value { font-size: 12pt; white-space: nowrap; }
+		.stat .fig { font-size: 20pt; }
+		.paycols .band { padding: 9pt 4.5pt; font-size: 11pt; white-space: nowrap; }
+		.plans { page-break-inside: avoid; }
+		th.num, td.num { padding-left: 3mm; }  /* the quotation's Qty, Rate and Amount apart */
 	}
 	@media (prefers-reduced-motion: no-preference) { button { transition: background-color .15s; } }
 </style>

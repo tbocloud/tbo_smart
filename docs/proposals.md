@@ -576,6 +576,12 @@ the same):
   wkhtmltopdf renders with print media and a viewport narrow enough to match a bare
   `max-width: 640px`, which stacked them (plans and milestones full width, tiles two to a row).
   A tile without a note keeps its note line, so the tiles in a row are one height.
+- **Figures on one line in print** (`@media print`, so the PDF and the browser's Print): four
+  tiles a row leave about 94 pt for a figure, so a tile's value is 12 pt (it fits
+  "₹ 1,25,00,000.00"), a stat's figure 20 pt ("15–20%" doesn't break at the dash) and a payment
+  band 11 pt with narrow padding (fits a 20% column); none of them wraps. The AMC plans row
+  moves to the next page whole instead of leaving a plan behind. The quotation's number columns
+  (Qty, Rate, Amount) keep 3 mm between them in the browser's print too, as in the PDF.
 
 The browser's print keeps the white
 (`print-color-adjust: exact`) and the same page breaks. Responsive on a phone (one column), dark
