@@ -539,10 +539,12 @@ the same):
 
 **The PDF** (`render_pdf`), A4 on one grid:
 
-- **The page frame** (`pdf_page`, `pdf_options`): 18 mm from every edge on every page. The top
-  margin holds the letter head (18 mm + its height + 8 mm). The bottom one holds a footer picture
-  under a 5 mm line for the page number (18 mm + its height + 5 mm + 3 mm), else the footer line
-  (18 mm + 9 mm); the sides are full bleed with 18 mm of padding, so the paper reaches the edges.
+- **The page frame** (`pdf_page`, `pdf_options`): 18 mm from every edge on every page, but a
+  footer picture sits at the page's foot. The top margin holds the letter head (18 mm + its
+  height + 8 mm). The bottom one holds a footer picture under a 5 mm line for the page number
+  (6 mm + its height + 5 mm + 3 mm: 6 mm from the bottom edge, not 18, since Nov 2026, so the
+  footer is at the bottom of the page and clear of printers' unprintable edge), else the footer
+  line (18 mm + 9 mm); the sides are full bleed with 18 mm of padding, so the paper reaches the edges.
 - **The cover** fills page 1: the kicker and the title in its upper third, then the facts grid
   (client, prepared for — the lead's contact when the client is a company —, prepared by, date,
   valid till, reference) and its own footer line (company, version). It has no running footer
