@@ -36,41 +36,104 @@ def week_start(day):
 
 
 def my_calls(user: str, today=None, days: int = 60) -> dict:
-	"""`user`'s own calls, counted as the day's report counts them (every TBO Call they made or
-	took; connected: the answered ones): {today, week (from Monday), month, all_time: {calls,
-	connected}, days: [{date, calls, connected}] for the days with calls in the last `days` days,
-	newest first}."""
+	"""`user`'s own calls and contacts, counted as the day's report counts them: {today, week (from
+	Monday), month, all_time: {calls, connected, contacted}, days: [{date, calls, connected,
+	contacted}] for the days with calls or contacts in the last `days` days, newest first}. Calls
+	are every TBO Call they made or took, connected the answered ones; contacted is the distinct
+	leads they reached (a call, a stage move on a lead they own, a follow-up they completed), so a
+	lead moved to Contacted by hand counts though no call was logged."""
 	today = getdate(today)
 	days = min(max(cint(days) or 60, 1), MY_CALL_DAYS)
-	Call = frappe.qb.DocType(CALL)
-	day = SqlDate(Call.started_at)
-	rows = [
-		(getdate(on), cint(calls), cint(connected))
-		for on, calls, connected in (
-			frappe.qb.from_(Call)
-			.select(day, Count(Call.name), Sum(Case().when(Call.status == ANSWERED, 1).else_(0)))
-			.where((Call.agent == user) & (Call.started_at < f"{add_days(today, 1)} 00:00:00"))
-			.groupby(day)
-			.orderby(day, order=frappe.qb.desc)
-		).run()
-		if on
-	]
+	until = f"{add_days(today, 1)} 00:00:00"
+	calls = call_days(user, until)
+	contacts = contacted_leads(user, until)
 
 	def total(since=None) -> dict:
-		kept = [row for row in rows if since is None or row[0] >= since]
-		return {"calls": sum(row[1] for row in kept), "connected": sum(row[2] for row in kept)}
+		kept = [row for on, row in calls.items() if since is None or on >= since]
+		return {
+			"calls": sum(row[0] for row in kept),
+			"connected": sum(row[1] for row in kept),
+			"contacted": len({lead for on, lead in contacts if since is None or on >= since}),
+		}
 
 	first = add_days(today, -(days - 1))
+	by_day = {}
+	for on, lead in contacts:
+		by_day.setdefault(on, set()).add(lead)
 	return {
 		"today": total(today),
 		"week": total(week_start(today)),
 		"month": total(get_first_day(today)),
 		"all_time": total(),
 		"days": [
-			{"date": str(on), "calls": calls, "connected": connected}
-			for on, calls, connected in rows
+			{
+				"date": str(on),
+				"calls": calls.get(on, (0, 0))[0],
+				"connected": calls.get(on, (0, 0))[1],
+				"contacted": len(by_day.get(on, ())),
+			}
+			for on in sorted(set(calls) | set(by_day), reverse=True)
 			if on >= first
 		],
+	}
+
+
+def call_days(user: str, until: str) -> dict:
+	"""{day: (calls, answered)}: the TBO Calls `user` took before `until`, by day."""
+	Call = frappe.qb.DocType(CALL)
+	day = SqlDate(Call.started_at)
+	return {
+		getdate(on): (cint(calls), cint(connected))
+		for on, calls, connected in (
+			frappe.qb.from_(Call)
+			.select(day, Count(Call.name), Sum(Case().when(Call.status == ANSWERED, 1).else_(0)))
+			.where((Call.agent == user) & (Call.started_at < until))
+			.groupby(day)
+		).run()
+		if on
+	}
+
+
+def contacted_leads(user: str, until: str) -> set:
+	"""{(day, lead)} `user` contacted before `until`, as the day's report's contacted leads: their
+	calls on a lead, stage moves on leads they own (not the first log row, the lead coming in), and
+	follow-ups they completed."""
+	Call, Log, Lead = (
+		frappe.qb.DocType(CALL),
+		frappe.qb.DocType("TBO Stage Change"),
+		frappe.qb.DocType("Lead"),
+	)
+	ToDo = frappe.qb.DocType("ToDo")
+	by_call = (
+		frappe.qb.from_(Call)
+		.select(SqlDate(Call.started_at), Call.lead)
+		.distinct()
+		.where((Call.agent == user) & (IfNull(Call.lead, "") != "") & (Call.started_at < until))
+	)
+	by_move = (
+		frappe.qb.from_(Log)
+		.join(Lead)
+		.on((Log.parenttype == "Lead") & (Log.parent == Lead.name))
+		.select(SqlDate(Log.changed_on), Lead.name)
+		.distinct()
+		.where((Lead.lead_owner == user) & (Log.idx > 1) & (Log.changed_on < until))
+	)
+	by_follow_up = (
+		frappe.qb.from_(ToDo)
+		.select(SqlDate(ToDo.modified), ToDo.reference_name)
+		.distinct()
+		.where(
+			(ToDo.reference_type == "Lead")
+			& (ToDo.status == DONE)
+			& (ToDo.allocated_to == user)
+			& (ToDo.modified < until)
+		)
+	)
+	return {
+		(getdate(on), lead)
+		for query in (by_call, by_move, by_follow_up)
+		for on, lead in query.run()
+		if on and lead
 	}
 
 
