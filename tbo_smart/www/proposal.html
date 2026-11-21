@@ -152,6 +152,9 @@
 			(_("Valid till"), p.valid_till),
 			(_("Reference"), p.cover.reference),
 		] | selectattr(1) | list %}
+		{#- in the PDF the at-a-glance tiles sit in the cover's empty middle, not on a page of their own
+		    (a cover picture takes that room, so they stay after the contents then) #}
+		{%- set glance_on_cover = pdf and p.glance and not p.cover.image %}
 		<section class="cover pad" aria-labelledby="proposal-title">
 			<table class="cover-grid" role="presentation"{% if pdf %} style="height: {{ p.page.cover }}mm"{% endif %}>
 				<tr><td class="top">
@@ -167,6 +170,7 @@
 					{%- endif %}
 				</td></tr>
 				<tr><td class="bottom">
+					{%- if glance_on_cover %}{{ glance(p.glance) }}{% endif %}
 					<table class="facts" role="presentation">
 						{%- for row in facts | batch(3) %}
 						<tr>{% for label, value in row %}<td><span class="label">{{ label }}</span><span class="value">{{ value | e }}</span></td>{% endfor %}{% for _n in range(3 - row | length) %}<td></td>{% endfor %}</tr>
@@ -195,7 +199,7 @@
 		</nav>
 		{%- endif %}
 
-		{%- if p.glance %}{{ glance(p.glance) }}{% endif %}
+		{%- if p.glance and not glance_on_cover %}{{ glance(p.glance) }}{% endif %}
 
 		{%- for block in p.blocks %}
 		{%- if block.part %}
