@@ -2145,8 +2145,8 @@ def render_page(context: dict, pdf: bool) -> str:
 # The PDF's page, in mm: A4 with 18 mm on every side. The letter head sits inside the top margin and
 # its footer inside the bottom one (Frappe's get_pdf repeats #header-html and #footer-html on every
 # page): a footer picture at the content's width with the page number on a line above it, else a
-# footer line with the page number at its right end. The ivory, the page numbers and the cover's
-# blank footer line are drawn after (on_ivory): wkhtmltopdf's own text footer doesn't render
+# footer line with the page number at its right end. The paper, the page numbers and the cover's
+# blank footer line are drawn after (on_paper): wkhtmltopdf's own text footer doesn't render
 # beside an HTML one.
 A4_MM = (210, 297)
 MARGIN_MM = 18
@@ -2158,7 +2158,7 @@ HTML_HEADER_MM = 20  # a letter head written in HTML, whose height isn't known b
 BRAND_HEADER_MM = 10  # no letter head: the company's logo or name
 PT_PER_MM = 72 / 25.4
 PAGE_NUMBER_PT = 8
-IVORY = (251 / 255, 248 / 255, 239 / 255)
+PAPER = (1, 1, 1)  # white, as the page (docs/proposals.md §5.1)
 MUTED = (103 / 255, 98 / 255, 90 / 255)
 
 
@@ -2188,7 +2188,7 @@ def pdf_page(letter_head: dict | None) -> dict:
 
 def pdf_options(page: dict) -> dict:
 	"""wkhtmltopdf's options: full bleed at the sides (the 18 mm are padding in the page, so the
-	ivory reaches the edges), the letter head and the footer line in the top and bottom margins."""
+	paper reaches the edges), the letter head and the footer line in the top and bottom margins."""
 	return {
 		"page-size": "A4",
 		"margin-top": f"{page['top']}mm",
@@ -2208,7 +2208,7 @@ def render_pdf(doc) -> bytes:
 	pdf = get_pdf(render_page(context, True), dict(options))
 	if context["toc"] and number_contents(context["toc"], pdf):
 		pdf = get_pdf(render_page(context, True), dict(options))
-	return on_ivory(pdf, context["page"])
+	return on_paper(pdf, context["page"])
 
 
 def number_contents(toc: list[dict], pdf: bytes) -> bool:
@@ -2236,9 +2236,9 @@ def number_contents(toc: list[dict], pdf: bytes) -> bool:
 	return found
 
 
-def on_ivory(pdf: bytes, frame: dict) -> bytes:
-	"""Every page on ivory paper to its edges (wkhtmltopdf paints white below the content of the
-	last page), with "n / N" in Geist on every page but the cover, right-aligned at `frame`'s
+def on_paper(pdf: bytes, frame: dict) -> bytes:
+	"""Every page on the page's white paper to its edges (one colour to the bottom, under the
+	footer too), with "n / N" in Geist on every page but the cover, right-aligned at `frame`'s
 	number baseline (pdf_page). The cover has a footer line of its own, so a running footer line
 	is painted over there; a footer picture stays."""
 	import io
@@ -2250,7 +2250,7 @@ def on_ivory(pdf: bytes, frame: dict) -> bytes:
 	writer = PdfWriter()
 	scratch = PdfWriter()
 	font, width_of = page_number_font(scratch)
-	ivory = f"{IVORY[0]:.4f} {IVORY[1]:.4f} {IVORY[2]:.4f} rg"
+	paper = f"{PAPER[0]:.4f} {PAPER[1]:.4f} {PAPER[2]:.4f} rg"
 	muted = f"{MUTED[0]:.4f} {MUTED[1]:.4f} {MUTED[2]:.4f} rg"
 	margin = MARGIN_MM * PT_PER_MM
 	baseline = frame["number"] * PT_PER_MM
@@ -2268,12 +2268,12 @@ def on_ivory(pdf: bytes, frame: dict) -> bytes:
 	for number, page in enumerate(pages, start=1):
 		width, height = float(page.mediabox.width), float(page.mediabox.height)
 		sheet = writer.add_blank_page(width, height)
-		sheet.merge_page(layer(width, height, f"{ivory} 0 0 {width} {height} re f"))
+		sheet.merge_page(layer(width, height, f"{paper} 0 0 {width} {height} re f"))
 		sheet.merge_page(page)
 		if number == 1:
 			if not frame["footer"]:
 				footer = frame["bottom"] * PT_PER_MM
-				sheet.merge_page(layer(width, height, f"{ivory} 0 0 {width} {footer:.1f} re f"))
+				sheet.merge_page(layer(width, height, f"{paper} 0 0 {width} {footer:.1f} re f"))
 			continue
 		label = f"{number} / {len(pages)}"
 		x = width - margin - width_of(label, PAGE_NUMBER_PT)

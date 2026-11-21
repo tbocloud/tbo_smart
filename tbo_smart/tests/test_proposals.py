@@ -1273,7 +1273,7 @@ class TestMaster(ProposalTestCase):
 		self.assertEqual(acceptance["email"], "a•••@malabar.example")  # never the full address
 		self.assertNotIn("asha@malabar.example", p.render_html(frappe.get_doc(p.DOCTYPE, name)))
 
-	def test_the_pdf_is_ivory_with_page_numbers(self):
+	def test_the_pdf_is_on_paper_with_page_numbers(self):
 		from pypdf import PdfReader, PdfWriter
 
 		writer = PdfWriter()
@@ -1281,7 +1281,7 @@ class TestMaster(ProposalTestCase):
 			writer.add_blank_page(595, 842)
 		buffer = io.BytesIO()
 		writer.write(buffer)
-		pages = PdfReader(io.BytesIO(p.on_ivory(buffer.getvalue(), p.pdf_page(None)))).pages
+		pages = PdfReader(io.BytesIO(p.on_paper(buffer.getvalue(), p.pdf_page(None)))).pages
 		self.assertEqual(len(pages), 3)
 		self.assertNotIn("1 / 3", pages[0].extract_text())  # not on the cover
 		self.assertIn("2 / 3", pages[1].extract_text())
@@ -1317,7 +1317,7 @@ class TestMaster(ProposalTestCase):
 		buffer = io.BytesIO()
 		writer.write(buffer)
 		frame = p.pdf_page({"footer": {"image": "data:", "height": 29}})
-		page = PdfReader(io.BytesIO(p.on_ivory(buffer.getvalue(), frame))).pages[1]
+		page = PdfReader(io.BytesIO(p.on_paper(buffer.getvalue(), frame))).pages[1]
 		label, tm = pdf_text_positions(page)[0]
 		self.assertEqual(label, "2 / 2")
 		self.assertAlmostEqual(tm[5], frame["number"] * p.PT_PER_MM, places=0)  # above the picture

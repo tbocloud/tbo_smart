@@ -62,7 +62,7 @@
 {%- macro glance(tiles) -%}
 <section class="glance pad" aria-label="{{ _('At a glance') }}">
 	<div class="tiles tiles-{{ tiles | length }}" role="list">
-		{%- for tile in tiles %}<div class="tile" role="listitem"><div class="in {{ tile.tone }}"><span class="label">{{ tile.label | e }}</span><span class="value">{{ tile.value | e }}</span>{% if tile.note %}<span class="note">{{ tile.note | e }}</span>{% endif %}</div></div>{% endfor %}
+		{%- for tile in tiles %}<div class="tile" role="listitem"><div class="in {{ tile.tone }}"><span class="label">{{ tile.label | e }}</span><span class="value">{{ tile.value | e }}</span><span class="note">{% if tile.note %}{{ tile.note | e }}{% else %}&nbsp;{% endif %}</span></div></div>{% endfor %}
 	</div>
 </section>
 {%- endmacro -%}
@@ -320,7 +320,7 @@
 		{#- the footer on every page (proposals.pdf_page): the letter head's footer picture at the
 		    content's width under a line kept for "n / N", else a footer line with the letter head's
 		    footer (or the company) on the left and room on the right for "n / N"; the numbers are
-		    drawn after (proposals.on_ivory) #}
+		    drawn after (proposals.on_paper) #}
 		<footer id="footer-html">
 			{%- if foot and foot.image %}
 			<div class="letter-head-footer running-foot picture{% if foot.align %} align-{{ foot.align | e }}{% endif %}"><div class="number-line"></div><img src="{{ foot.image | e }}" alt="" style="height: {{ p.page.footer }}mm"></div>
