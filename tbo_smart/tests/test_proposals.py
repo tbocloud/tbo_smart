@@ -1291,7 +1291,7 @@ class TestMaster(ProposalTestCase):
 	def test_the_pdf_page_is_a4_with_18_mm_margins(self):
 		self.assertEqual(
 			p.pdf_page({"header": {"image": "data:", "height": 14.5}}),
-			{"header": 14.5, "footer": None, "top": 40.5, "bottom": 27, "number": 18, "cover": 227.5},
+			{"header": 14.5, "footer": None, "top": 40.5, "bottom": 27, "number": 18},
 		)
 		self.assertEqual(p.pdf_page(None)["top"], p.MARGIN_MM + p.BRAND_HEADER_MM + p.HEADER_GAP_MM)
 		options = p.pdf_options(p.pdf_page(None))
@@ -1305,7 +1305,6 @@ class TestMaster(ProposalTestCase):
 		)
 		# 6 mm from the bottom edge + the picture + the page number's line + the gap above it
 		self.assertEqual((page["footer"], page["bottom"], page["number"]), (29, 43, 36.5))
-		self.assertEqual(page["cover"], 297 - 40.5 - 43 - 2)
 		self.assertEqual(p.pdf_options(page)["margin-bottom"], "43mm")
 
 	def test_the_page_number_is_right_aligned_above_a_footer_picture(self):
@@ -1333,6 +1332,17 @@ class TestMaster(ProposalTestCase):
 		with patch("pypdf.PdfReader", return_value=reader):
 			self.assertTrue(p.number_contents(toc, b""))
 		self.assertEqual([item["page"] for item in toc[0]["items"]], [3, 5])
+
+	def test_the_first_section_may_follow_the_contents_on_their_page(self):
+		toc = [
+			{"part": None, "items": [{"number": 1, "heading": "Summary"}, {"number": 2, "heading": "Scope"}]}
+		]
+		# the cover and the contents on page 1, section 1 right after them, section 2 on page 2
+		texts = ["Title Contents 1 Summary . . . 2 Scope 1 Summary of it", "2 Scope"]
+		reader = MagicMock(pages=[MagicMock(**{"extract_text.return_value": text}) for text in texts])
+		with patch("pypdf.PdfReader", return_value=reader):
+			self.assertTrue(p.number_contents(toc, b""))
+		self.assertEqual([item["page"] for item in toc[0]["items"]], [1, 2])
 
 	def test_the_pdf_contents_have_page_numbers_and_dot_leaders(self):
 		doc = frappe.get_doc(p.DOCTYPE, make_hub_proposal(self.lead, BDE, TEMPLATE)["name"])
