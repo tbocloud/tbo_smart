@@ -294,8 +294,7 @@
 	.pdf p, .pdf ul { margin-bottom: 2.5mm; }
 	.pdf li { margin-bottom: 1mm; }
 	.pdf .n { display: inline-block; width: 12mm; margin-right: 0; }
-	/* the cover heads page 1 and the contents follow on it (a cover page of its own was mostly empty) */
-	.pdf .cover { padding-top: 0; padding-bottom: 0; page-break-after: auto; }
+	.pdf .cover { padding-top: 0; padding-bottom: 0; }
 	.pdf .cover td { padding: 0; }
 	.pdf .cover-grid td.top { padding-top: 6mm; }
 	.pdf .cover-grid td.bottom { padding-top: 8mm; }
@@ -311,7 +310,7 @@
 	.pdf .facts .value { margin-top: .5mm; font-size: 10.5pt; }
 	.pdf .cover .cover-foot { margin-top: 5mm; }
 	.pdf .cover .cover-foot td { padding-top: 2.5mm; font-size: 8pt; }
-	.pdf .toc { border-top: 0; padding-top: 10mm; padding-bottom: 0; page-break-after: auto; }  /* Part A follows */
+	.pdf .toc { border-top: 0; padding-top: 10mm; padding-bottom: 0; }
 	.pdf .glance { padding-top: 6mm; padding-bottom: 0; }  /* the tiles under the contents, as on the web page */
 	.pdf .toc h2 { margin-bottom: 4mm; font-size: 14.5pt; line-height: 1.3; }
 	.pdf .toc .part-title { margin: 6mm 0 1.5mm; font-size: 9pt; }
@@ -377,8 +376,9 @@
 		html, body, .wrap { background: #ffffff; padding: 0; }
 		.sheet { border: 0; background: transparent; }
 		.decision, .no-print, .notice.preview { display: none; }
-		.cover, .toc { page-break-after: always; }
-		.part { page-break-before: always; }
+		/* no page of its own for the cover, the contents or a part (they left pages mostly empty):
+		   the PDF and the browser's print run on; a part's name stays with its first heading */
+		.part { page-break-after: avoid; break-after: avoid; }
 		/* the PDF (wkhtmltopdf prints) and the browser's print: four tiles a row leave about 94 pt
 		   for a figure, so the sizes are what fits one line ("₹ 1,25,00,000.00", "15–20%", a
 		   20% payment column); the AMC plans move to the next page as one row, not one by one */
