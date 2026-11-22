@@ -152,11 +152,8 @@
 			(_("Valid till"), p.valid_till),
 			(_("Reference"), p.cover.reference),
 		] | selectattr(1) | list %}
-		{#- in the PDF the at-a-glance tiles sit in the cover's empty middle, not on a page of their own
-		    (a cover picture takes that room, so they stay after the contents then) #}
-		{%- set glance_on_cover = pdf and p.glance and not p.cover.image %}
 		<section class="cover pad" aria-labelledby="proposal-title">
-			<table class="cover-grid" role="presentation"{% if pdf %} style="height: {{ p.page.cover }}mm"{% endif %}>
+			<table class="cover-grid" role="presentation">
 				<tr><td class="top">
 					{%- if p.logo and lh %}<img class="logo" src="{{ p.logo | e }}" alt="{{ (p.company or '') | e }}">{% endif %}
 					<p class="kicker">{{ (p.cover.solution or w.kicker) | e }}</p>
@@ -170,7 +167,6 @@
 					{%- endif %}
 				</td></tr>
 				<tr><td class="bottom">
-					{%- if glance_on_cover %}{{ glance(p.glance) }}{% endif %}
 					<table class="facts" role="presentation">
 						{%- for row in facts | batch(3) %}
 						<tr>{% for label, value in row %}<td><span class="label">{{ label }}</span><span class="value">{{ value | e }}</span></td>{% endfor %}{% for _n in range(3 - row | length) %}<td></td>{% endfor %}</tr>
@@ -199,16 +195,19 @@
 		</nav>
 		{%- endif %}
 
-		{%- if p.glance and not glance_on_cover %}{{ glance(p.glance) }}{% endif %}
+		{%- if p.glance %}{{ glance(p.glance) }}{% endif %}
 
 		{%- for block in p.blocks %}
-		{%- if block.part %}
+		{#- the web page and its print open a part on a new page; the PDF runs on, the part's name kept
+		    with its first heading (in .keep below) so it never sits alone at a page's foot #}
+		{%- if block.part and not pdf %}
 		<div class="part pad"><p>{{ block.part | e }}</p></div>
 		{%- endif %}
-		<section class="block pad{% if block.type in ("Acceptance", "Payment Terms", "AMC", "Project Timeline") %} keep{% endif %}" id="block-{{ block.number or ('i' ~ loop.index) }}" aria-labelledby="h-{{ loop.index }}">
+		<section class="block pad{% if block.type in ("Acceptance", "Payment Terms", "AMC", "Project Timeline") %} keep{% endif %}{% if block.part and pdf %} opens-part{% endif %}" id="block-{{ block.number or ('i' ~ loop.index) }}" aria-labelledby="h-{{ loop.index }}">
 			{%- set shown = block.parts | rejectattr("hidden") | list %}
 			{%- set lead = 2 if (shown and shown[0].kind == "heading") else 1 %}
 			<div class="keep">
+			{%- if block.part and pdf %}<p class="part-name">{{ block.part | e }}</p>{% endif %}
 			<h2 id="h-{{ loop.index }}"{% if block.heading_hidden %} class="sr-only"{% endif %}>{% if block.number %}<span class="n">{{ block.number }}</span>{% endif %}{{ block.heading | e }}</h2>
 			{%- if block.image %}
 			<figure class="{{ block.image.size | e }}">

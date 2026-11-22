@@ -2148,7 +2148,6 @@ def render_page(context: dict, pdf: bool) -> str:
 # footer line with the page number at its right end. The paper, the page numbers and the cover's
 # blank footer line are drawn after (on_paper): wkhtmltopdf's own text footer doesn't render
 # beside an HTML one.
-A4_MM = (210, 297)
 MARGIN_MM = 18
 HEADER_GAP_MM = 8  # under the letter head: its rule and the space before the content
 FOOTER_MM = 9  # the footer line, above the bottom margin
@@ -2165,8 +2164,7 @@ MUTED = (103 / 255, 98 / 255, 90 / 255)
 
 def pdf_page(letter_head: dict | None) -> dict:
 	"""The page frame in mm: the letter head's height, the footer picture's (None for a footer
-	line), the top and bottom margins, the page number's baseline from the bottom edge, and the
-	cover's height (it fills its page)."""
+	line), the top and bottom margins and the page number's baseline from the bottom edge."""
 	header = (letter_head or {}).get("header")
 	height = (header.get("height") or HTML_HEADER_MM) if header else BRAND_HEADER_MM
 	footer = (letter_head or {}).get("footer") or {}
@@ -2183,7 +2181,6 @@ def pdf_page(letter_head: dict | None) -> dict:
 		"top": top,
 		"bottom": bottom,
 		"number": number,
-		"cover": A4_MM[1] - top - bottom - 2,
 	}
 
 
@@ -2213,9 +2210,9 @@ def render_pdf(doc) -> bytes:
 
 
 def number_contents(toc: list[dict], pdf: bytes) -> bool:
-	"""Each contents item's page, from a rendered PDF: the first page after the contents, and not
-	before the item above it, whose text has the section's number and heading. Whether any was
-	found."""
+	"""Each contents item's page, from a rendered PDF: the first page from the contents' end (on
+	that page only after the contents: the first section may follow them there), and not before
+	the item above it, whose text has the section's number and heading. Whether any was found."""
 	import io
 	import unicodedata
 
@@ -2228,7 +2225,9 @@ def number_contents(toc: list[dict], pdf: bytes) -> bool:
 	items = [item for group in toc for item in group["items"]]
 	keys = [squeeze(f"{item['number']}{item['heading']}") for item in items]
 	# the contents list every heading; the sections start after its last one
-	page = next((n for n, text in enumerate(pages) if keys[-1] in text), len(pages)) + 1
+	page = next((n for n, text in enumerate(pages) if keys[-1] in text), len(pages))
+	if page < len(pages):
+		pages[page] = pages[page].split(keys[-1], 1)[1]
 	found = False
 	for item, key in zip(items, keys, strict=True):
 		at = next((n for n in range(page, len(pages)) if key in pages[n]), None)

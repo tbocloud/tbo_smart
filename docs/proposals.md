@@ -512,9 +512,9 @@ the same):
 
 - **At a glance** (`at_a_glance`, a proposal only): tiles before section 1 — the modules in
   scope, the timeline's total, the grand total ("with taxes"), and the recommended AMC plan, else
-  the valid-till date; left out with fewer than two. In the PDF they sit on the cover, above its
-  facts, so they don't take a page of their own after the contents (most of it empty); with a
-  cover picture, which takes that room, they stay after the contents.
+  the valid-till date; left out with fewer than two. After the contents, as on the web page and
+  the hub's preview, in the PDF too (no page break around them; on the cover from #149 until the
+  cover and the contents shared page 1, Nov 2026).
 - **Modules & Features** (`module_cards`): each card's effort days (the proposal's module rows)
   as a bar against the largest; a "n modules · d days of effort" line above the cards; when the
   modules span more than one app (`builder.app_groups`), the cards grouped and each labelled
@@ -547,12 +547,14 @@ the same):
   (6 mm + its height + 5 mm + 3 mm: 6 mm from the bottom edge, not 18, since Nov 2026, so the
   footer is at the bottom of the page and clear of printers' unprintable edge), else the footer
   line (18 mm + 9 mm); the sides are full bleed with 18 mm of padding, so the paper reaches the edges.
-- **The cover** fills page 1: the kicker and the title in its upper third, then the facts grid
-  (client, prepared for — the lead's contact when the client is a company —, prepared by, date,
-  valid till, reference) and its own footer line (company, version). It has no running footer
-  line or page number; a footer picture shows there as on every page.
-- **The contents** on page 2, with dot leaders to each section's page. The PDF is rendered
-  twice: `number_contents` finds each section's page in the first render (its number and heading,
+- **The cover** heads page 1 (a page of its own until Nov 2026, mostly empty): the kicker and
+  the title, then the facts grid (client, prepared for — the lead's
+  contact when the client is a company —, prepared by, date, valid till, reference) and its own
+  footer line (company, version). Page 1 has no running footer line or page number; a footer
+  picture shows there as on every page.
+- **The contents** follow the cover on page 1, running on to page 2 when they are long, and
+  Part A follows them on the same page (no page break: it left page 2 mostly empty); dot
+  leaders to each section's page. The PDF is rendered twice: `number_contents` finds each section's page in the first render (its number and heading,
   after the contents), and the second render prints them; the numbers move nothing. In the PDF
   the contents carry no links (they would open the web page).
 - **Type:** one family, **Geist** (SIL OFL), shipped in `public/fonts` cut to Latin with
@@ -563,9 +565,11 @@ the same):
   `/assets/tbo_smart/fonts/`. Body 10.5 pt at 1.45, the title 22 pt, section headings 14.5 pt,
   subheadings 12 pt, tables 9.5 pt; numbers right-aligned; section, subsection and contents
   numbers in one 12 mm column.
-- **Breaks:** each part starts a new page; a heading is kept with the first thing under it;
-  cards, rows and the signature block don't split; a long table breaks between rows and repeats
-  its header.
+- **Breaks:** a part runs on from the one before (12 mm above it), its name kept with its first
+  heading so it never sits alone at a page's foot; it used to start a new page, which left half
+  pages empty (Nov 2026); the web page's print still starts each part on a new page. A heading
+  is kept with the first thing under it; cards, rows and the signature block don't split; a long
+  table breaks between rows and repeats its header.
 - **After rendering**, `on_paper` lays every page on a white sheet to its edges (the same white
   as the page, under the footer too; it was ivory until Nov 2026 and left an ivory band under
   every page's footer once the page went white), paints over the cover's running footer line, and prints
