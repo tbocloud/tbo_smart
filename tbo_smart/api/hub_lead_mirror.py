@@ -12,6 +12,7 @@ import frappe
 from frappe import _
 from frappe.utils import cint, now_datetime
 
+from tbo_smart import lead_source
 from tbo_smart.api.hub_leads import (
 	ROW_FIELDS,
 	hub_user_problem,
@@ -82,7 +83,9 @@ def get_leads_bulk(names: list | str) -> dict:
 		frappe.throw(_("Ask for at most {0} leads at a time.").format(MAX_BULK))
 	rows = {
 		row["name"]: row
-		for row in serialize_rows(frappe.get_all(LEAD, filters={"name": ("in", names)}, fields=ROW_FIELDS))
+		for row in serialize_rows(
+			frappe.get_all(LEAD, filters={"name": ("in", names)}, fields=lead_source.fields(ROW_FIELDS))
+		)
 	}
 	assignees = assignees_of(list(rows))
 	created_by = dict(
