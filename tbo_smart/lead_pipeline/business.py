@@ -71,18 +71,10 @@ class BusinessOverview(LeadOverview):
 	lead department."""
 
 	def __init__(self, from_date=None, to_date=None, department=None):
-		super().__init__(from_date, to_date, None)
-		self.department = department or None
+		super().__init__(from_date, to_date, None, department=department)
 		self.company = frappe.defaults.get_global_default("company")
 		self._orders = None
 		self._lead_facts = None
-
-	def lead_criterion(self, Lead=None):
-		Lead = Lead or self.Lead
-		criterion = super().lead_criterion(Lead)
-		if self.department:
-			criterion &= Lead.tbo_department == self.department
-		return criterion
 
 	# ---------- the whole page ----------
 

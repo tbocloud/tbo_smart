@@ -69,9 +69,10 @@ def scope_owners() -> list[str] | None:
 
 
 class PipelineDashboard:
-	"""The figures for one set of filters. `owners`: the lead owners counted (None: all)."""
+	"""The figures for one set of filters. `owners`: the lead owners counted (None: all);
+	`source` and `department` narrow the leads counted to one lead source and one lead department."""
 
-	def __init__(self, from_date=None, to_date=None, owners=None, source=None, status=None):
+	def __init__(self, from_date=None, to_date=None, owners=None, source=None, status=None, department=None):
 		self.from_date = getdate(from_date or get_first_day(today()))
 		self.to_date = getdate(to_date or today())
 		if self.to_date < self.from_date:
@@ -82,7 +83,8 @@ class PipelineDashboard:
 			frappe.throw(_("{0} is not a lead stage.").format(status))
 		self.end = add_days(self.to_date, 1)
 		self.owners = owners
-		self.source = source
+		self.source = source or None
+		self.department = department or None
 		self.status = status
 		self.now = now_datetime()
 		self.Lead = frappe.qb.DocType("Lead")
@@ -120,10 +122,28 @@ class PipelineDashboard:
 		criterion = Lead.name.isnotnull()
 		if self.owners is not None:
 			criterion &= Lead.lead_owner.isin(self.owners or [""])
-		if self.source:
-			criterion &= Lead[lead_source.field()] == self.source
+		criterion &= self.narrowing(Lead)
 		if self.status:
 			criterion &= Lead.tbo_stage == self.status
+		return criterion
+
+	def narrowed(self) -> bool:
+		"""True when a source or department narrows the leads counted."""
+		return bool(self.source or self.department)
+
+	def narrowed_by(self) -> dict:
+		"""The source and department the figures keep to, said back in the answer: an older
+		TBO Smart drops arguments it doesn't know, so the hub checks these were applied."""
+		return {"source": self.source, "department": self.department}
+
+	def narrowing(self, Lead):
+		"""The source and department part of the lead filter, for figures that reach the lead
+		through something else (a call, a batch item)."""
+		criterion = Lead.name.isnotnull()
+		if self.source:
+			criterion &= Lead[lead_source.field()] == self.source
+		if self.department:
+			criterion &= Lead.tbo_department == self.department
 		return criterion
 
 	def in_range(self, field):

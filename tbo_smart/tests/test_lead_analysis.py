@@ -137,3 +137,18 @@ class TestLeadAnalysis(FrappeTestCase):
 		with patch("tbo_smart.lead_pipeline.analysis.MIN_CALLED", 1):
 			source = self.analysis(MANAGER)["quality"]["source"]
 		self.assertEqual((source["best"], source["worst"]), (REFERRAL, WEBSITE))
+
+	def test_a_source_keeps_only_the_calls_and_leads_from_it(self):
+		analysis = self.analysis(MANAGER, source=REFERRAL)
+		self.assertEqual(
+			[(row["user"], row["given"], row["reached"]) for row in analysis["calling"]], [(BD2, 1, 1)]
+		)
+		self.assertEqual([row["value"] for row in analysis["quality"]["source"]["rows"]], [REFERRAL])
+		self.assertEqual(analysis["narrowed"], {"source": REFERRAL, "department": None})
+
+	def test_a_department_keeps_only_the_calls_on_its_leads(self):
+		rows = {row["user"]: row for row in self.analysis(MANAGER, department=DEPARTMENT)["calling"]}
+		self.assertEqual((rows[BD]["given"], rows[BD]["called"], rows[BD]["reached"]), (5, 3, 2))
+		# the logged calls were on no lead, so no department has them
+		self.assertEqual(rows[BD]["calls"], 0)
+		self.assertEqual(self.analysis(MANAGER, department="TBO Analysis Elsewhere")["calling"], [])
