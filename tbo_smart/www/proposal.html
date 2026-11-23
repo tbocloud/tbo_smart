@@ -117,6 +117,23 @@
 <meta property="og:url" content="{{ p.share.url | e }}">
 <meta name="twitter:card" content="summary">
 {% include "tbo_smart/templates/includes/client_document_style.html" %}
+{%- set print_foot = lh.footer.image if (lh and lh.footer and lh.footer.image and not pdf) else None %}
+{%- if print_foot %}
+<style>
+	/* the browser's print: the letter head's footer picture at the foot of every page, as in the PDF
+	   (in the page's flow it sat after the last section, mid-page); Chrome draws it in the page's
+	   bottom margin, which text never runs into. The address is percent-encoded where it could end
+	   the CSS string or the style element. */
+	@media print {
+		@page {
+			margin: 12mm 18mm 36mm;
+			@bottom-center { content: ""; height: 30mm; background: url("{{ print_foot | replace('\\', '%5C') | replace('"', '%22') | replace('<', '%3C') }}") center 4mm / contain no-repeat; }
+		}
+		.pad { padding-left: 0; padding-right: 0; }
+		footer.letter-head-footer { display: none; }
+	}
+</style>
+{%- endif %}
 </head>
 <body>
 <main class="wrap">

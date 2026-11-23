@@ -591,7 +591,12 @@ the same):
   (Qty, Rate, Amount) keep 3 mm between them in the browser's print too, as in the PDF.
 
 The browser's print keeps the white
-(`print-color-adjust: exact`) and the same page breaks. Responsive on a phone (one column), dark
+(`print-color-adjust: exact`) and the same page breaks. With a footer picture in the letter head,
+the print shows it at the foot of every page as the PDF does (it sat after the last section,
+mid-page): a print-only style in `proposal.html` puts it in the page's bottom margin (`@page`
+18 mm at the sides, 36 mm at the foot, its `@bottom-center` box), and hides the footer in the
+page's flow. A text footer stays at the end. The picture's address is percent-encoded where it
+could end the CSS string or the style element. Responsive on a phone (one column), dark
 mode follows the page's own white (the document is paper), keyboard reachable with a visible
 focus ring, 44px targets.
 
