@@ -71,6 +71,15 @@ names them in this one module.
   The mobile `set_lead_status`, the MOM's lead stage and the hub's `set_stage` take a
   `lost_reason`: a lost reason's name is used as it is, free text becomes "Other" with the text
   in the notes (one helper, `sales.stages.set_lost_reason`, also for deals).
+- **Won amount:** a lead moving into Closed – Won must say what it was won for
+  (`tbo_won_amount`, above 0; `LeadStage.require_won_amount`). The mobile `set_lead_status`, the
+  MOM's lead stage and the hub's `set_stage` take a `won_amount`; on the desk the field shows at
+  Closed – Won. It is the lead's won value everywhere a won lead is priced (`LeadOverview.won_values`:
+  the overview, sales targets, the business and proposal-money pages), ahead of the quotations,
+  deal and Sales Orders. A move the system makes (a quotation or proposal accepted,
+  `transitions.set_lead_status`) isn't asked and takes the latest quotations' total. Only entering
+  the stage asks: leads won before keep counting their quotation, deal or Sales Orders, and an
+  import (the CRM cutover) is never asked.
 - **Not Responding, Not Interested, Wrong Number** (§2.3): called but not answered (call again,
   open and callable), picked up and declined, an invalid number. The two Lost ones fill their own
   lost reason ("Not interested", "Wrong number" Opportunity Lost Reasons, made on migrate) and
@@ -138,7 +147,7 @@ has it (`erpnext-lead-cutover.md` §4).
 
 | Doctype | Field | Purpose |
 | --- | --- | --- |
-| Lead | `tbo_stage` (Select), `tbo_stage_log` (TBO Stage Change), `tbo_lost_reason`, `tbo_lost_notes`, `tbo_last_call_result`, `tbo_last_call_on` | §2 |
+| Lead | `tbo_stage` (Select), `tbo_stage_log` (TBO Stage Change), `tbo_lost_reason`, `tbo_lost_notes`, `tbo_won_amount`, `tbo_last_call_result`, `tbo_last_call_on` | §2 |
 | Lead | `tbo_segment` (Select Retail, Small, Medium, Large, Premium) | The client's segment: its price list and discount band (§9.8) |
 | Lead | `tbo_department` (Link TBO Lead Department), `tbo_lead_type` (Select) | Lead departments and who sees them (`lead-departments.md`) |
 | Lead / Opportunity | `crm_lead_ref` / `crm_deal_ref` (hidden) | The Frappe CRM record a copy came from (`erpnext-lead-cutover.md`) |
@@ -278,7 +287,7 @@ or (past New Lead) nothing planned at all.
 | `schedule_meeting(lead, values)` | POST | write on the lead | `values`: meeting_type, meeting_link, location, scheduled_at (future), duration_minutes, participants, agenda, bde (an active user) |
 | `update_meeting(meeting, values)` | POST | write | Schedule fields; a new time makes it Rescheduled |
 | `set_meeting_status(meeting, status)` | POST | write | Meeting in Progress, Completed, Follow-up Required, Cancelled |
-| `save_mom(meeting, values, submit=0, lead_status?, lost_reason?, next_meeting?)` | POST | write | §5.3 |
+| `save_mom(meeting, values, submit=0, lead_status?, lost_reason?, next_meeting?, won_amount?)` | POST | write | §5.3 |
 | `draft_mom(meeting, notes)` | POST | write, AI | `{fields, action_items, warnings}`, nothing written |
 
 Settings (`tbo_smart.api.lead_pipeline_settings`, System Manager): `get_settings`,

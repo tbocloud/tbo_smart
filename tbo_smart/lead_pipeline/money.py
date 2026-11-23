@@ -65,7 +65,7 @@ class ProposalMoney(LeadOverview):
 				"proposals_value": sent["value"],
 				"unpriced_sent": sent["unpriced"],
 				"won": len(won),
-				"won_value": self.lead_value(won),
+				"won_value": self.won_value(won),
 				"advances": self.advances(list(orders)),
 				"to_collect": flt(sum(row["outstanding"] for row in splits), 2),
 				"overdue": flt(sum(row["outstanding"] for row in splits if row["status"] == OVERDUE), 2),

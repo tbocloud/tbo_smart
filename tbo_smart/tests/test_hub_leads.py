@@ -7,7 +7,7 @@ from frappe.utils import add_days, now_datetime, today
 
 from tbo_smart import lead_source
 from tbo_smart.api import hub_leads as hub
-from tbo_smart.lead_pipeline.statuses import CLOSED_LOST, CONTACTED, STATUS_NAMES
+from tbo_smart.lead_pipeline.statuses import CLOSED_LOST, CLOSED_WON, CONTACTED, STATUS_NAMES
 from tbo_smart.telephony.calls import log_manual_call
 from tbo_smart.test_utils import (
 	delete_sales_records,
@@ -241,6 +241,20 @@ class TestHubLeads(FrappeTestCase):
 		lost = hub.set_stage(name, CLOSED_LOST, "Bought elsewhere", acting_user=BDE)
 		self.assertEqual(
 			(lost["lead"]["tbo_lost_reason"], lost["lead"]["tbo_lost_notes"]), ("Other", "Bought elsewhere")
+		)
+		# Closed – Won asks what the lead was won for; zero or below isn't an amount
+		self.assertRaises(frappe.ValidationError, hub.set_stage, name, CLOSED_WON, acting_user=BDE)
+		self.assertRaises(
+			frappe.ValidationError, hub.set_stage, name, CLOSED_WON, won_amount=0, acting_user=BDE
+		)
+		self.assertRaises(
+			frappe.ValidationError, hub.set_stage, name, CLOSED_WON, won_amount=-5, acting_user=BDE
+		)
+		won = hub.set_stage(name, CLOSED_WON, won_amount="180000", acting_user=BDE)
+		self.assertEqual((won["lead"]["tbo_stage"], won["lead"]["won_amount"]), (CLOSED_WON, 180000))
+		# a won lead saved again isn't asked again
+		self.assertEqual(
+			hub.update_lead(name, {"job_title": "Founder"}, acting_user=BDE)["lead"]["won_amount"], 180000
 		)
 
 		entry = hub.add_note(name, "Called back", acting_user=BDE)
