@@ -5,6 +5,7 @@ from frappe.custom.doctype.property_setter.property_setter import make_property_
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, now_datetime, today
 
+from tbo_smart import lead_source
 from tbo_smart.api import hub_leads as hub
 from tbo_smart.lead_pipeline.statuses import CLOSED_LOST, CONTACTED, STATUS_NAMES
 from tbo_smart.telephony.calls import log_manual_call
@@ -12,6 +13,7 @@ from tbo_smart.test_utils import (
 	delete_sales_records,
 	disable_sales_hierarchy,
 	make_lead,
+	make_lead_source,
 	make_lead_task,
 	make_user,
 	set_user_enabled,
@@ -55,6 +57,14 @@ class TestHubLeads(FrappeTestCase):
 		frappe.db.set_value("Lead", lead, "owner", BDE, update_modified=False)
 		frappe.set_user(HUB)
 		return lead
+
+	def test_list_rows_carry_the_source(self):
+		frappe.set_user("Administrator")
+		web = make_lead(BDE, "Hub Web", **{lead_source.field(): make_lead_source("Website")})
+		frappe.set_user(HUB)
+		rows = {row["name"]: row for row in hub.list_leads(view="mine", acting_user=BDE)["rows"]}
+		self.assertEqual(rows[web]["source"], "Website")
+		self.assertIsNone(rows[self.mine]["source"])
 
 	def test_my_leads_lists_what_they_created_too_and_only_reads_it(self):
 		created = self.created_by_bde("Hub Created")

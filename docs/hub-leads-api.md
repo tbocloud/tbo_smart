@@ -85,7 +85,7 @@ curl -s -X POST https://india.teambackoffice.com/api/method/tbo_smart.api.hub_le
 
 ```
 Row = {name, lead_name, company_name, email_id, mobile_no, tbo_stage, segment, lead_owner,
-  industry, state, district, org_size, owner_name, created_by (who created it), call_count (calls
+  source (where it came from, `utm_source` from ERPNext v16 on), industry, state, district, org_size, owner_name, created_by (who created it), call_count (calls
   it has had), score (0-100), next_follow_up (date | null), modified,
   latest_quotation: {name, tbo_quote_status, grand_total, currency, tbo_sent_on} | null,
   latest_proposal: {name, document_type (Proposal | Quotation), status, view_count, sent_on} | null}
