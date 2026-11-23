@@ -567,7 +567,8 @@ the same):
   numbers in one 12 mm column.
 - **Breaks:** a part runs on from the one before (12 mm above it), its name kept with its first
   heading so it never sits alone at a page's foot; it used to start a new page, which left half
-  pages empty (Nov 2026); the web page's print still starts each part on a new page. A heading
+  pages empty (Nov 2026). The browser's print runs on the same way: no page of its own for the
+  cover, the contents or a part, the part's line kept with its first heading. A heading
   is kept with the first thing under it; cards, rows and the signature block don't split; a long
   table breaks between rows and repeats its header.
 - **After rendering**, `on_paper` lays every page on a white sheet to its edges (the same white
