@@ -596,7 +596,7 @@ Writes are normal inserts and saves under the session user.
 | `create_lead` | POST | `lead_name`, `organization?`, `email?`, `mobile_no?`, `source?`, `note?`, and for lead capture (§6.2) `follow_up_on?`, `follow_up_note?`, `assign_to?`, `source_channel?`, `card_image?`, `force?` | the new Lead (owner = me), as `get_lead`. Possible duplicates without `force`, or a lead with the same number even with it: 409 `DuplicateLead` |
 | `check_duplicates` | GET | `phone?`, `email?`, `organization?` | `{data: {matches: [Match]}}` (§6.2) |
 | `get_assignable_users` | GET | – | `{data: [{user, full_name, image}]}`: who I may pass as `assign_to` (§6.2) |
-| `set_lead_status` | POST | `name`, `status`, `lost_reason?` (required for a Lost-type status, e.g. Closed – Lost) | `{name, status, lost_reason}` |
+| `set_lead_status` | POST | `name`, `status`, `lost_reason?` (required for a Lost-type status, e.g. Closed – Lost), `won_amount?` (required for Closed – Won, above 0: what the lead was won for) | `{name, status, lost_reason}` |
 | `convert_lead` | POST | `name` | the Deal (an already-converted lead returns its existing deal). With the lead pipeline on, only a Closed – Won lead converts (417 otherwise; its deal is made when it turns Closed – Won) |
 | `get_deals` | GET | `stage?`, `scope?` (§4.1), `mine?` (v1 alias of `scope=mine`), `search?`, `page`, `page_length` | page of Deal |
 | `get_deal` | GET | `name` | Deal plus `erpnext_customer`, `stage_history[]`, `notes[]`, `tasks[]`, `activities[]` |

@@ -62,7 +62,7 @@ curl -s -X POST https://india.teambackoffice.com/api/method/tbo_smart.api.hub_le
 | `upload_lead_photo` | POST | `lead`, `filename`, `content` (base64), `caption?`, `acting_user` | the new `Photo` |
 | `delete_lead_photo` | POST | `lead`, `file` (a Photo's `name`), `acting_user` | `{deleted: file}` |
 | `get_lead_photo` | GET | `lead`, `file`, `thumb?` (1: a small JPEG), `acting_user` | the image bytes (`Content-Type` image/png, image/jpeg or image/webp), not JSON |
-| `set_stage` | POST | `name`, `stage`, `note?`, `acting_user` | as `get_lead` |
+| `set_stage` | POST | `name`, `stage`, `note?`, `won_amount?`, `acting_user` | as `get_lead` |
 | `log_call` | POST | `lead`, `outcome`, `note?`, `callback_at?` (Call back), `acting_user` | `{name, status, outcomes, stage}` (§2.7, §2.16) |
 | `add_note` | POST | `name`, `note`, `acting_user` | the new timeline `Item` |
 | `get_rate_card` | GET | `acting_user` | `RateCard` (§2.3) |
@@ -93,7 +93,9 @@ Row = {name, lead_name, company_name, email_id, mobile_no, tbo_stage, segment, l
 Lead = {name, lead_name, first_name, last_name, company_name, email_id, mobile_no, phone,
   whatsapp_no, job_title, website, source, territory, industry, state, district, org_size, segment, tbo_stage,
   status (ERPNext's own, read only), lead_owner, owner_name, tbo_score, tbo_temperature
-  (Hot / Warm / Cold), tbo_score_reason, tbo_lost_reason, tbo_lost_notes, creation, modified,
+  (Hot / Warm / Cold), tbo_score_reason, tbo_lost_reason, tbo_lost_notes, won_amount (what it was won for | null),
+  quoted_amount (its latest quotations' total, 0 without one: the won amount's suggestion),
+  creation, modified,
   next_follow_up (date | null), deal (the Opportunity once won | null), can_write,
   can_call (the acting user may use click-to-call, through MyOperator or CallerDesk),
   place: {google_profile_url, maps_url, latitude, longitude, location_note} (each null while
@@ -152,6 +154,11 @@ Quotation = {name, docstatus, tbo_quote_status, transaction_date, valid_till, cu
   allow duplicates, and never the owner's own).
 - `set_stage` to **Closed – Lost** needs `note` (Not Interested, Wrong Number and Small Business need none, §2.16): a lost reason's name, or free text saved as
   "Other" with the text as `tbo_lost_notes`. For any other stage `note` is added as a note.
+- `set_stage` to **Closed – Won** needs `won_amount`, above 0: what the lead was won for, saved
+  as `tbo_won_amount`. It is the lead's won value (`won_value` below, sales targets). Only the move
+  into Closed – Won asks; a won lead saved again isn't asked, and leads won before keep their
+  quotation, deal or Sales Orders' worth. A quotation or proposal accepted wins the lead without
+  asking and takes the latest quotations' total.
   Closed – Won makes the deal (with the lead pipeline on).
 - `add_note` needs read on the lead (as the app's notes do).
 
@@ -205,7 +212,7 @@ Overview = {period, from_date, to_date, scope ("own" | "team" | "all"), people: 
 | `contacted` | leads touched in the period: a note, a call or logged activity, an email, a stage change after the first, a follow-up done (the migration note is no touch) |
 | `meetings` | meetings held in the period: a MOM submitted, or the lead entering First / Second / Third Meeting Completed (stage log). A lead moved there by hand or imported has no meeting record, so the MOM alone read 0 |
 | `quotations_sent` | leads a proposal went to in the period, each once: a quotation sent (`tbo_sent_on`), a proposal document sent (`sent_on`), or the lead entering Proposal Sent (stage log) |
-| `won` / `lost` | leads that entered Closed – Won / Closed – Lost in the period (stage log); `won_value` their worth: the latest quotations' total, else the deal's amount, else its Sales Orders' total; `won_unpriced` counts won leads with none of them |
+| `won` / `lost` | leads that entered Closed – Won / Closed – Lost in the period (stage log); `won_value` their worth: the amount entered when it was won (`tbo_won_amount`), else the latest quotations' total, else the deal's amount, else its Sales Orders' total; `won_unpriced` counts won leads with none of them |
 | `stale` | open leads with no touch for `lead_stale_days` (21), counted from creation when never touched |
 | `overdue` | open follow-ups (ToDos) on open leads past their day, now |
 | `hot` | open leads that are Hot or Positive / Interested, now |
@@ -257,7 +264,7 @@ Each counts for the **lead's owner**, follow-ups for whom they are allocated to:
 cancelled), `moms_submitted` (MOM submitted in the range), `mom_pending` (now),
 `quotations_sent`, `follow_ups_done` (closed in the range) and `follow_ups_on_time` (closed by
 their day), `follow_ups_overdue` (open past their day now), `new` (created in the range), `won`
-and `won_value` (latest quotations' total), `conversion` (won of new, %). `calls` and
+and `won_value` (as the overview: the won amount, else the latest quotations' total), `conversion` (won of new, %). `calls` and
 `talk_seconds` count for **the person who took the call**: answered MyOperator calls started in
 the range and their talk time (`telephony-myoperator.md` §4.2; 0 without telephony).
 
@@ -1257,6 +1264,8 @@ without a sales role isn't acted for.
 
 ## Changelog
 
+- **v1.36 (2026-11-23):** `set_stage` to Closed – Won needs `won_amount`; the lead carries
+  `won_amount` and `quoted_amount`; `won_value` counts the won amount first.
 - **v1.35 (2026-11-21):** `get_my_call_counts` adds `contacted` to each period and day: the
   distinct leads reached by a call, a stage move or a completed follow-up (§2.5.2), so leads moved
   to Contacted without a logged call count.

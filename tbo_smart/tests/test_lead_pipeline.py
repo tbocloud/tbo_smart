@@ -358,7 +358,8 @@ class TestDealAtWon(LeadPipelineTestCase):
 		lead = make_lead(BDE, "Winner", company_name="Winner Traders", mobile_no="9847000301")
 		frappe.set_user(BDE)
 		self.assertRaises(frappe.ValidationError, mobile_crm.convert_lead, lead)
-		mobile_crm.set_lead_status(lead, CLOSED_WON)
+		self.assertRaises(frappe.ValidationError, mobile_crm.set_lead_status, lead, CLOSED_WON)
+		mobile_crm.set_lead_status(lead, CLOSED_WON, won_amount=90000)
 		frappe.set_user("Administrator")
 		from_lead = {"tbo_lead": lead}
 		deal = frappe.db.get_value(

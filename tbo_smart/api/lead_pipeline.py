@@ -282,11 +282,13 @@ def save_mom(
 	lead_status: str | None = None,
 	lost_reason: str | None = None,
 	next_meeting: dict | str | None = None,
+	won_amount: float | str | None = None,
 ) -> dict:
 	"""Save the MOM as a draft, or submit it (`submit`): the meeting turns MOM Submitted, the
 	lead moves to Nth Meeting Completed, the next follow-up date becomes a Sales follow-up task,
 	`next_meeting` (schedule values) books the next meeting, and `lead_status` (optional, with
-	`lost_reason` for Closed – Lost) is set by hand after the automatic move."""
+	`lost_reason` for Closed – Lost and `won_amount` for Closed – Won) is set by hand after the
+	automatic move."""
 	doc = get_meeting_doc(meeting, "write")
 	if doc.status in m.FINAL:
 		frappe.throw(_("This meeting is {0}; its MOM can't change.").format(_(doc.status)))
@@ -303,7 +305,7 @@ def save_mom(
 		if next_values:
 			doc.db_set("next_meeting", create_meeting(doc.lead, next_values).name)
 		if lead_status and lead_status != frappe.db.get_value("Lead", doc.lead, "tbo_stage"):
-			set_lead_stage(doc.lead, lead_status, lost_reason)
+			set_lead_stage(doc.lead, lead_status, lost_reason, won_amount)
 	return serialize_meeting(doc)
 
 

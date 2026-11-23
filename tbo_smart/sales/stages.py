@@ -8,11 +8,13 @@ history read it.
 
 import frappe
 from frappe import _
-from frappe.utils import now_datetime
+from frappe.query_builder.functions import Sum
+from frappe.utils import flt, now_datetime
 
 from tbo_smart.lead_pipeline.statuses import (
 	AUTO_LOST_REASONS,
 	CLOSED_LOST,
+	CLOSED_WON,
 	NEW_LEAD,
 	STATUS_NAMES,
 	WRONG_NUMBER,
@@ -57,6 +59,7 @@ class LeadStage:
 		self.fill_lost_reason()
 		self.flag_wrong_number()
 		self.require_lost_reason()
+		self.require_won_amount()
 		record_change(self.doc)
 
 	def set_default(self):
@@ -84,14 +87,47 @@ class LeadStage:
 		if self.doc.tbo_lost_reason == OTHER_REASON and not (self.doc.get("tbo_lost_notes") or "").strip():
 			frappe.throw(_("Describe why the lead was lost."), title=_("Lost reason"))
 
+	def require_won_amount(self):
+		"""A lead entering Closed – Won says what it was won for: that amount is its won value
+		(sales targets, the overview). A move the system makes (a quotation accepted) takes the
+		latest quotations' total. Leads won before keep their quotation, deal or Sales Orders, so
+		only the move into the stage asks."""
+		if self.doc.tbo_stage != CLOSED_WON or frappe.flags.in_import or not self.entering_stage():
+			return
+		if flt(self.doc.get("tbo_won_amount")) <= 0 and self.doc.flags.tbo_auto_status:
+			self.doc.tbo_won_amount = quoted_amount(self.doc.name)
+		if flt(self.doc.get("tbo_won_amount")) < 0:
+			frappe.throw(_("The won amount can't be negative."), title=_("Won amount"))
+		if flt(self.doc.get("tbo_won_amount")) <= 0 and not self.doc.flags.tbo_auto_status:
+			frappe.throw(_("Enter the amount the lead was won for."), title=_("Won amount"))
+
+	def entering_stage(self) -> bool:
+		return self.doc.is_new() or self.doc.has_value_changed("tbo_stage")
+
+
+def quoted_amount(lead: str | None) -> float:
+	"""What the lead's latest quotations add up to, in the company's currency; 0 without one."""
+	if not lead:
+		return 0.0
+	Quotation = frappe.qb.DocType("Quotation")
+	rows = (
+		frappe.qb.from_(Quotation)
+		.select(Sum(Quotation.base_grand_total))
+		.where((Quotation.tbo_lead == lead) & (Quotation.docstatus != 2) & (Quotation.tbo_is_latest == 1))
+	).run()
+	return flt(rows[0][0]) if rows else 0.0
+
 
 def validate_lead(doc, method=None):
 	LeadStage(doc).validate()
 
 
-def set_lead_stage(name: str, stage: str, lost_reason: str | None = None):
+def set_lead_stage(
+	name: str, stage: str, lost_reason: str | None = None, won_amount: float | str | None = None
+):
 	"""Save a lead's new stage under the session user's permissions; a Lost-type stage that
-	needs one (Closed – Lost) gets a reason (`set_lost_reason`); Not Interested, Wrong Number and Small Business fill theirs. Returns the lead."""
+	needs one (Closed – Lost) gets a reason (`set_lost_reason`); Not Interested, Wrong Number and Small Business fill theirs. Closed – Won needs `won_amount`, what it was won
+	for (`LeadStage.require_won_amount`). Returns the lead."""
 	if stage not in STATUS_NAMES:
 		frappe.throw(_("{0} is not a lead stage.").format(stage))
 	lead = frappe.get_doc(LEAD, name)
@@ -99,6 +135,8 @@ def set_lead_stage(name: str, stage: str, lost_reason: str | None = None):
 	lead.tbo_stage = stage
 	if needs_lost_reason(stage):
 		set_lost_reason(lead, lost_reason, _("Give a reason for losing the lead."))
+	if stage == CLOSED_WON and won_amount not in (None, ""):
+		lead.tbo_won_amount = flt(won_amount)
 	system_save(lead)
 	return lead
 
