@@ -24,10 +24,12 @@ salespeople, so it has to be one big button and a photo.
   inserted by the integration user with `tbo_collected_by` set. A collector without a sales role
   never gets access to the lead: the leads API stays closed to anyone without a sales role; the
   Lead Bank methods take any enabled System User (§2.22). A collector **with** a sales role (Sales
-  User or Sales Manager, e.g. a salesperson or a division's sales user in the hub) **reads** the
-  leads they collected, as a creator reads what they made (never writes them; the owner works the
-  lead), and finds them in the hub's My leads and *Created by me* (owner's request, 2026-11-17;
-  `tbo_smart.sales.permissions`, `hub_leads.created_by`).
+  User or Sales Manager, e.g. a salesperson or a division's sales user or admin in the hub)
+  **owns** the lead they add: it is theirs to work, whatever the department's assignment, and
+  never waits in the pool (owner's request, 2026-11-24: their leads were coming out with no
+  owner; `intake.SELLER_ROLES`). Since they work it, it earns them sales commission, not a
+  referral (§5). They also find it in the hub's My leads and *Created by me*
+  (`hub_leads.created_by`).
 - **Region** from the phone prefix (+91 / +971 / +966, or 00 for the plus, or a full number; a
   10-digit mobile starting 6 to 9 is India), else from the GPS fix (rough boxes: the UAE first,
   since the KSA's box overlaps it), else the collector picks. The collector's choice wins.
@@ -35,7 +37,8 @@ salespeople, so it has to be one big button and a photo.
   India falls back to a department called **TBO**. A department that is missing or switched off
   counts as none: the lead waits in the **unassigned pool** with no owner and no department, and
   the Sales Managers and TBO Management get a notification. A round robin department hands the lead
-  to its next member; any other department keeps it unowned for its heads.
+  to its next member; any other department keeps it unowned for its heads. (Not for a collector
+  with a sales role, who owns what they add.)
 - **Country and state:** the country follows the region; the state (or emirate) is whatever the
   photo and the collector give, cleaned like any lead's state.
 - **Source:** "Staff referral" (made on migrate).
