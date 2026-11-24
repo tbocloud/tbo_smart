@@ -712,9 +712,10 @@ def daily_plan(user: str) -> dict:
 	}
 
 
-def overview_ai(owners: list[str] | None, user: str) -> dict:
+def overview_ai(owners: list[str] | None, user: str, narrowing=None) -> dict:
 	"""The overview's AI part: the person's plan for today and what the AI sees across the
-	scope's open leads (high intent, unhappy customers, stage moves waiting for a person)."""
+	scope's open leads (high intent, unhappy customers, stage moves waiting for a person).
+	`narrowing(Lead)`, when given, keeps the counts to one lead source or department."""
 	if not ai_leads_enabled():
 		return {"enabled": False}
 	from tbo_smart.lead_pipeline.overview import AI_METRICS
@@ -723,6 +724,8 @@ def overview_ai(owners: list[str] | None, user: str) -> dict:
 	criterion = Lead.tbo_stage.isin(OPEN_STATUSES)
 	if owners is not None:
 		criterion &= Lead.lead_owner.isin(owners or [""])
+	if narrowing:
+		criterion &= narrowing(Lead)
 
 	def count(extra) -> int:
 		return cint((frappe.qb.from_(Lead).select(Count(Lead.name)).where(criterion & extra)).run()[0][0])

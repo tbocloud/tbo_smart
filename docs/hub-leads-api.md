@@ -44,7 +44,7 @@ curl -s -X POST https://india.teambackoffice.com/api/method/tbo_smart.api.hub_le
 | `get_options` | GET | `acting_user` | `{stages: [{name, label, type, color}], sources: [], segments: [], departments: [{name, lead_type, is_active, assignment, stale_after_days, call_batches_enabled, is_head, is_viewer, is_member}], lead_types: [], owners: [{email, full_name}], territories: [], industries: [], org_sizes: [], states: [], kerala_districts: [], districts_by_state: {state: [district]}, can_call}` (§2.12) |
 | `list_leads` | GET | `search?`, `stage?`, `owner?`, `segment?`, `source?`, `temperature?` (Hot / Warm / Cold), `industry?`, `state?`, `district?`, `org_size?` (each a value or a list, §2.14), `last_call_result?` (a value or a list, §2.16), `metric?` with `period?` / `from_date?` / `to_date?` (§2.4), `view` (`all` / `mine` (owned, created or collected through the Lead Bank) / `call_today` / `follow_up` / `called` (called at least once, last called first; `from_date` / `to_date` without a `metric` keep the leads last called in those days), default `all`), `mine?` (any view kept to the leads they own or created), `created_by_me?` (only the leads they created or collected through the Lead Bank, owned by anyone: read only for them), `due?` (with `follow_up`: the leads whose earliest open follow-up is `overdue`, `today`, `tomorrow`, `week` (2 to 7 days on) or `later`; without it `follow_up` is overdue and today), `due_from?` / `due_to?` (with `follow_up` or `mine`; either may be left out: the leads whose earliest open follow-up falls in those days, earliest first; on `follow_up` they take the place of `due`; the end before the start is refused), `start` (0), `page_length` (20, at most 100), `acting_user` | `{rows: [Row], total}` |
 | `get_follow_up_counts` | GET | `owner?`, `mine?`, `acting_user` | `{overdue, today, tomorrow, week, later}`: how many leads the acting user may see have their earliest open follow-up in each, as `list_leads(view="follow_up", due=…)` lists them |
-| `get_overview` | GET | `period` (`week` / `month` / `quarter` / `custom`; default `month`, or `custom` when dates are sent), `from_date?`, `to_date?` (custom), `owner?`, `acting_user` | Overview (§2.4) |
+| `get_overview` | GET | `period` (`week` / `month` / `quarter` / `custom`; default `month`, or `custom` when dates are sent), `from_date?`, `to_date?` (custom), `owner?`, `source?`, `department?` (only the leads of that lead source and lead department, the AI's counts too; said back as `narrowed: {source, department}`, because an older TBO Smart drops arguments it doesn't know), `acting_user` | Overview (§2.4) |
 | `get_lead_intake` | GET | `from_date?`, `to_date?` (default today, at most 62 days), `owner?`, `acting_user` | Intake (§2.4.1) |
 | `get_proposal_money` | GET | `period`, `from_date?`, `to_date?`, `owner?` (as `get_overview`), `acting_user` | Money (§2.8) |
 | `get_sales_activity` | GET | `from_date?`, `to_date?` (default this month), `acting_user?` (§2.5) | `{from_date, to_date, currency, people: [Activity]}` |
@@ -999,7 +999,10 @@ from X to Y by <user>", "X marked Wrong number by <user>", "Number removed: X by
 
 ### 2.25 Calling performance and Lead quality (the overview's analysis)
 
-`get_lead_analysis` (GET; `period?`, `from_date?`, `to_date?`, `owner?`, `acting_user`; `period` and
+`get_lead_analysis` (GET; `period?`, `from_date?`, `to_date?`, `owner?`, `source?`, `department?`,
+`acting_user`; with `source` or `department` only the batch calls and logged calls on leads of that
+lead source and lead department count, and the lead quality only those leads, said back as
+`narrowed: {source, department}`; `period` and
 the sales scope exactly as `get_overview`: a salesperson sees their own, a head their team, a
 manager everyone; 403 for an `owner` outside it). One response holds every grouping, so the hub's
 switch needs no second request.
@@ -1264,6 +1267,9 @@ without a sales role isn't acted for.
 
 ## Changelog
 
+- **v1.37 (2026-11-24):** `get_overview` and `get_lead_analysis` take `source` and `department`
+  and say them back as `narrowed` (the Sales team dashboard's filters); list rows carry `source`
+  (§2.1).
 - **v1.36 (2026-11-23):** `set_stage` to Closed – Won needs `won_amount`; the lead carries
   `won_amount` and `quoted_amount`; `won_value` counts the won amount first.
 - **v1.35 (2026-11-21):** `get_my_call_counts` adds `contacted` to each period and day: the

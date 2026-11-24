@@ -100,10 +100,11 @@ def stale_days() -> int:
 
 
 class LeadOverview(PipelineDashboard):
-	"""The overview's figures for `owners` (None: everyone) from `from_date` to `to_date`."""
+	"""The overview's figures for `owners` (None: everyone) from `from_date` to `to_date`,
+	optionally for one lead `source` and one lead `department`."""
 
-	def __init__(self, from_date=None, to_date=None, owners=None):
-		super().__init__(from_date, to_date, owners)
+	def __init__(self, from_date=None, to_date=None, owners=None, source=None, department=None):
+		super().__init__(from_date, to_date, owners, source=source, department=department)
 		self.stale_cutoff = add_days(getdate(), -stale_days())
 		self.Quotation = frappe.qb.DocType("Quotation")
 

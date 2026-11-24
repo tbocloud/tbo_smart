@@ -620,10 +620,17 @@ def resolve_period(period: str | None, from_date, to_date) -> str:
 
 
 def overview_board(
-	period: str, from_date, to_date, owner: str | None, board: type[LeadOverview] = LeadOverview
+	period: str,
+	from_date,
+	to_date,
+	owner: str | None,
+	board: type[LeadOverview] = LeadOverview,
+	source: str | None = None,
+	department: str | None = None,
 ) -> tuple[LeadOverview, list | None]:
 	"""(the overview's figures, the scope's owners): the session user's sales scope (their own
-	leads, their team's, or everyone's: None), narrowed to `owner` when that person is in it.
+	leads, their team's, or everyone's: None), narrowed to `owner` when that person is in it,
+	and to one lead `source` and one lead `department` when given.
 	`board`: LeadOverview or a figure set built on it (ProposalMoney)."""
 	allowed = scope_owners()
 	owners = allowed
@@ -632,7 +639,7 @@ def overview_board(
 			frappe.throw(_("{0} is not in your team.").format(owner), frappe.PermissionError)
 		owners = [owner]
 	start, end = period_range(period, from_date, to_date)
-	return board(start, end, owners), allowed
+	return board(start, end, owners, source=source, department=department), allowed
 
 
 @frappe.whitelist()
@@ -641,23 +648,33 @@ def get_overview(
 	from_date: str | None = None,
 	to_date: str | None = None,
 	owner: str | None = None,
+	source: str | None = None,
+	department: str | None = None,
 	acting_user: str | None = None,
 ) -> dict:
 	"""The Leads overview for the acting user's sales scope: totals, the pipeline by stage with
 	its value, the funnel, lost reasons, hot leads, and figures by owner, segment and source.
 	`period`: week, month, quarter or custom (with `from_date` and `to_date`; dates alone are
-	custom too)."""
+	custom too). `source` and `department` count only the leads of that lead source and lead
+	department, the AI's counts too."""
 	with acting_as(acting_user):
 		period = resolve_period(period, from_date, to_date)
-		board, allowed = overview_board(period, from_date, to_date, owner)
+		board, allowed = overview_board(
+			period, from_date, to_date, owner, source=source, department=department
+		)
 		result = board.build_overview()
 		result["period"] = period
 		result["scope"] = (
 			"all" if allowed is None else ("own" if allowed == [frappe.session.user] else "team")
 		)
 		result["people"] = people(allowed)
+		result["narrowed"] = board.narrowed_by()
 		# the AI's part: the plan of the person picked (else the acting user's own)
-		result["ai"] = autopilot.overview_ai(owners_of(owner, allowed), owner or frappe.session.user)
+		result["ai"] = autopilot.overview_ai(
+			owners_of(owner, allowed),
+			owner or frappe.session.user,
+			board.narrowing if board.narrowed() else None,
+		)
 		return result
 
 
@@ -667,15 +684,20 @@ def get_lead_analysis(
 	from_date: str | None = None,
 	to_date: str | None = None,
 	owner: str | None = None,
+	source: str | None = None,
+	department: str | None = None,
 	acting_user: str | None = None,
 ) -> dict:
 	"""The overview's Calling performance (per person) and Lead quality (per source, industry,
 	district, department and product) for the acting user's sales scope (docs/hub-leads-api.md
-	§2.25). `period` as get_overview."""
+	§2.25). `period` as get_overview; `source` and `department` count only the calls and leads
+	of that lead source and lead department."""
 	with acting_as(acting_user):
 		period = resolve_period(period, from_date, to_date)
-		board, _allowed = overview_board(period, from_date, to_date, owner, LeadAnalysis)
-		return board.build_analysis()
+		board, _allowed = overview_board(
+			period, from_date, to_date, owner, LeadAnalysis, source=source, department=department
+		)
+		return {**board.build_analysis(), "narrowed": board.narrowed_by()}
 
 
 @frappe.whitelist()

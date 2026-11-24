@@ -109,6 +109,10 @@ class LeadAnalysis(LeadOverview):
 		)
 		if self.owners is not None:
 			query = query.where(Batch.user.isin(self.owners or [""]))
+		if self.narrowed():
+			# only the calls on leads of that source or department
+			Lead = frappe.qb.DocType("Lead")
+			query = query.join(Lead).on(Lead.name == Item.lead).where(self.narrowing(Lead))
 		return {
 			user: {"given": given, "called": called, "reached": reached, "overdue": overdue}
 			for user, given, called, reached, overdue in query.run()
@@ -131,6 +135,9 @@ class LeadAnalysis(LeadOverview):
 		)
 		if self.owners is not None:
 			query = query.where(Call.agent.isin(self.owners or [""]))
+		if self.narrowed():
+			Lead = frappe.qb.DocType("Lead")
+			query = query.join(Lead).on(Lead.name == Call.lead).where(self.narrowing(Lead))
 		return {
 			agent: {"calls": calls, "missed": missed, "talk_seconds": talk}
 			for agent, calls, missed, talk in query.run()

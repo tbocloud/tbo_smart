@@ -145,6 +145,18 @@ class TestLeadOverview(FrappeTestCase):
 		just_bde2 = hub.get_overview(owner=BDE2, acting_user=MANAGER)
 		self.assertEqual((just_bde2["totals"]["new"], just_bde2["totals"]["won"]), (1, 1))
 
+	def test_a_source_or_department_keeps_only_its_leads(self):
+		totals = hub.get_overview(source=SOURCE, acting_user=BDE)["totals"]
+		self.assertEqual((totals["new"], totals["won"], totals["lost"], totals["hot"]), (2, 1, 0, 0))
+		# a link to a department is all the figures read, so no department record is needed
+		frappe.db.set_value("Lead", self.new, "tbo_department", "TBO Smart Overview Dept")
+		totals = hub.get_overview(department="TBO Smart Overview Dept", acting_user=BDE)["totals"]
+		self.assertEqual((totals["new"], totals["won"], totals["overdue"]), (1, 0, 1))
+		both = hub.get_overview(source=SOURCE, department="TBO Smart Overview Dept", acting_user=MANAGER)
+		self.assertEqual(both["totals"]["new"], 1)
+		self.assertEqual(both["narrowed"], {"source": SOURCE, "department": "TBO Smart Overview Dept"})
+		self.assertEqual(hub.get_overview(acting_user=BDE)["narrowed"], {"source": None, "department": None})
+
 	def test_pipeline_value_funnel_and_breakdowns(self):
 		result = hub.get_overview(acting_user=BDE)
 		stages = {row["stage"]: row for row in result["pipeline"]}
