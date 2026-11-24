@@ -433,6 +433,7 @@ def make_lead(owner: str, first_name: str = "Test Lead", **fields) -> str:
 	(company_name, email_id, mobile_no, source, tbo_stage, …). It is inserted as it was
 	(`leads_as_they_were`), so fixtures may share a number; one lead per number has its own tests."""
 	lead = frappe.get_doc({"doctype": "Lead", "first_name": first_name, "lead_owner": owner, **fields})
+	won_without_amount(lead)
 	with leads_as_they_were():
 		lead.insert(ignore_permissions=True)
 	return lead.name
@@ -1200,7 +1201,16 @@ def change_lead_stage(lead: str, stage: str, **fields) -> None:
 	"""Save a new stage on a lead as Administrator, so its stage log keeps the change."""
 	doc = frappe.get_doc("Lead", lead)
 	doc.update({"tbo_stage": stage, **fields})
+	won_without_amount(doc)
 	doc.save(ignore_permissions=True)
+
+
+def won_without_amount(doc) -> None:
+	"""A lead set to Closed – Won with no `tbo_won_amount` is won as the system wins it (a
+	quotation accepted): no amount asked, its latest quotations' total taken, so fixtures keep
+	counting their quotation, deal or Sales Orders. Tests of the amount pass one."""
+	if doc.get("tbo_stage") == "Closed – Won" and not doc.get("tbo_won_amount"):
+		doc.flags.tbo_auto_status = True
 
 
 def age_lead(lead: str, days: int) -> None:

@@ -203,7 +203,7 @@ class BusinessOverview(LeadOverview):
 		the hub projects linked on a client document changed in the range (the link has no date of
 		its own, so the document's last change stands for it)."""
 		won = self.closed_rows("Won")
-		values = self.lead_values([row.name for row in won])
+		values = self.won_values([row.name for row in won])
 		Proposal, Lead = frappe.qb.DocType(PROPOSAL), self.Lead
 		projects = set(
 			frappe.qb.from_(Proposal)
@@ -570,7 +570,7 @@ class BusinessOverview(LeadOverview):
 			entry["open"], entry["open_value"] = cint(count), flt(value, 2)
 		won = self.closed_rows("Won")
 		if won:
-			values = self.lead_values([lead.name for lead in won])
+			values = self.won_values([lead.name for lead in won])
 			departments = dict(
 				frappe.qb.from_(Lead)
 				.select(Lead.name, IfNull(Lead.tbo_department, ""))

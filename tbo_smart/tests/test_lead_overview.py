@@ -178,6 +178,16 @@ class TestLeadOverview(FrappeTestCase):
 		[owner] = result["by_owner"]
 		self.assertEqual((owner["user"], owner["new"], owner["won"], owner["meetings_held"]), (BDE, 4, 1, 1))
 
+	def test_the_won_amount_counts_over_the_quotation(self):
+		# the won lead has no quotation, deal or Sales Order: it counts nothing
+		before = hub.get_overview(acting_user=BDE)["totals"]
+		self.assertEqual((before["won"], before["won_value"], before["won_unpriced"]), (1, 0, 1))
+		quoted = hub.get_lead(self.hot, acting_user=BDE)["lead"]["quoted_amount"]
+		self.assertGreater(quoted, 7500)
+		hub.set_stage(self.hot, CLOSED_WON, won_amount=7500, acting_user=BDE)
+		after = hub.get_overview(acting_user=BDE)["totals"]
+		self.assertEqual((after["won"], after["won_value"], after["won_unpriced"]), (2, 7500, 1))
+
 	def test_every_number_opens_its_leads(self):
 		def listed(metric, **filters):
 			rows = hub.list_leads(metric=metric, page_length=100, acting_user=BDE, **filters)["rows"]

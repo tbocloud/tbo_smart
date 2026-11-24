@@ -117,7 +117,7 @@ class LeadOverview(PipelineDashboard):
 		lost = self.closed_rows("Lost")
 		quotations = self.quotations()
 		pipeline = self.pipeline()
-		won_values = self.lead_values([row.name for row in won])
+		won_values = self.won_values([row.name for row in won])
 		open_stages = [row for row in pipeline if row["stage"] in OPEN_STATUSES]
 		return {
 			"from_date": self.from_date,
@@ -475,8 +475,23 @@ class LeadOverview(PipelineDashboard):
 					values[lead] = flt(value)
 		return values
 
-	def lead_value(self, leads: list[str]) -> float:
-		return flt(sum(self.lead_values(leads).values()), 2)
+	def won_values(self, leads: list[str]) -> dict:
+		"""{lead: what it was won for}: the amount entered when it moved to Closed – Won, else
+		its worth (`lead_values`), for leads won before that was asked."""
+		values = self.lead_values(leads)
+		if not leads:
+			return values
+		Lead = frappe.qb.DocType("Lead")
+		for lead, amount in (
+			frappe.qb.from_(Lead)
+			.select(Lead.name, Lead.tbo_won_amount)
+			.where(Lead.name.isin(leads) & (Lead.tbo_won_amount > 0))
+		).run():
+			values[lead] = flt(amount)
+		return values
+
+	def won_value(self, leads: list[str]) -> float:
+		return flt(sum(self.won_values(leads).values()), 2)
 
 	def pipeline(self) -> list[dict]:
 		"""Every stage now, in pipeline order: its leads and their latest quotations' value."""
@@ -683,8 +698,8 @@ class SalesActivity(LeadOverview):
 		return rows
 
 	def won_value_by_owner(self, won: list) -> dict:
-		"""{owner: the worth (`lead_values`) of their leads won in the range}."""
-		values = self.lead_values([row.name for row in won])
+		"""{owner: what their leads won in the range were won for (`won_values`)}."""
+		values = self.won_values([row.name for row in won])
 		result = dict.fromkeys((row.lead_owner for row in won), 0.0)
 		for row in won:
 			result[row.lead_owner] += values.get(row.name, 0.0)

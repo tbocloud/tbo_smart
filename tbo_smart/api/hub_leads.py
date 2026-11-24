@@ -64,7 +64,7 @@ from tbo_smart.sales.call_batches import outcomes as call_outcomes
 from tbo_smart.sales.call_batches import plans as call_plans
 from tbo_smart.sales.call_batches import reads as call_reads
 from tbo_smart.sales.opportunity import lead_opportunity
-from tbo_smart.sales.stages import set_lead_stage
+from tbo_smart.sales.stages import quoted_amount, set_lead_stage
 from tbo_smart.smart_leads import (
 	FOLLOW_UP_TYPE,
 	ai_leads_enabled,
@@ -177,6 +177,7 @@ LEAD_DETAIL_FIELDS = [
 	"tbo_score_reason",
 	"tbo_lost_reason",
 	"tbo_lost_notes",
+	"tbo_won_amount",
 	"tbo_google_profile_url",
 	"tbo_maps_url",
 	"tbo_latitude",
@@ -904,6 +905,8 @@ def lead_payload(name: str) -> dict:
 	lead.product_intro = (products.calling_for([name]).get(name) or {}).get("intro_line")
 	lead.owner_name = frappe.utils.get_fullname(lead.lead_owner) if lead.lead_owner else None
 	lead.deal = lead_opportunity(name)
+	lead.won_amount = lead.pop("tbo_won_amount") or None
+	lead.quoted_amount = quoted_amount(name)
 	lead.next_follow_up = next_follow_ups("Lead", [name]).get(name)
 	lead.whatsapp = whatsapp.lead_state(name)
 	lead.can_write = bool(frappe.has_permission("Lead", "write", name))  # a flag for the screen - nosemgrep
@@ -1329,15 +1332,21 @@ def get_lead_file(lead: str, file: str, acting_user: str | None = None) -> None:
 
 
 @frappe.whitelist(methods=["POST"])
-def set_stage(name: str, stage: str, note: str | None = None, acting_user: str | None = None) -> dict:
+def set_stage(
+	name: str,
+	stage: str,
+	note: str | None = None,
+	acting_user: str | None = None,
+	won_amount: float | str | None = None,
+) -> dict:
 	"""Move the lead to `stage`. Closed – Lost needs `note`, its lost reason (Not Interested, Wrong Number and Small Business fill their own) (a lost reason's name,
 	or free text, saved as "Other" with the text); for any other stage `note` is added as a
-	note."""
+	note. Closed – Won needs `won_amount`, what the lead was won for."""
 	with acting_as(acting_user):
 		if needs_lost_reason(stage):
 			set_lead_stage(name, stage, note)
 		else:
-			set_lead_stage(name, stage)
+			set_lead_stage(name, stage, won_amount=won_amount)
 			if (note or "").strip():
 				add_comment_note("Lead", name, note)
 		return lead_payload(name)

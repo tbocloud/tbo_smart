@@ -670,10 +670,13 @@ def describe_duplicates(matches: list[dict]) -> str:
 
 
 @frappe.whitelist(methods=["POST"])
-def set_lead_status(name: str, status: str, lost_reason: str | None = None) -> dict:
-	"""Change a lead's stage. A Lost-type stage (Closed – Lost) needs a reason, as for deals."""
+def set_lead_status(
+	name: str, status: str, lost_reason: str | None = None, won_amount: float | str | None = None
+) -> dict:
+	"""Change a lead's stage. A Lost-type stage (Closed – Lost) needs a reason, as for deals;
+	Closed – Won needs `won_amount`, what the lead was won for."""
 	require_crm()
-	lead = set_lead_stage(name, status, lost_reason)
+	lead = set_lead_stage(name, status, lost_reason, won_amount)
 	return {"name": lead.name, "status": lead.tbo_stage, "lost_reason": lead_lost_reason(lead)}
 
 

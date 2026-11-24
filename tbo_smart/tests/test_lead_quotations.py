@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import add_days, getdate, nowdate
+from frappe.utils import add_days, flt, getdate, nowdate
 
 from tbo_smart.api import lead_quotation as api
 from tbo_smart.api import quotation_adjustment
@@ -201,6 +201,11 @@ class TestStatuses(LeadQuotationTestCase):
 		deal = frappe.db.get_value("Opportunity", {"tbo_lead": self.lead}, "name")
 		self.assertTrue(deal)
 		self.assertEqual(frappe.db.get_value("Lead", self.lead, "tbo_stage"), CLOSED_WON)
+		# won by the quotation: nobody is asked, the quotation's total is what it was won for
+		self.assertEqual(
+			flt(frappe.db.get_value("Lead", self.lead, "tbo_won_amount")),
+			flt(frappe.db.get_value("Quotation", name, "base_grand_total")),
+		)
 		self.assertEqual(
 			frappe.db.get_value("Quotation", name, ["opportunity", "quotation_to", "party_name"]),
 			(deal, "Lead", self.lead),

@@ -8,7 +8,13 @@ from frappe.utils import cint
 
 from tbo_smart import lead_source
 from tbo_smart.lead_pipeline import lead_category
-from tbo_smart.lead_pipeline.statuses import AUTO_LOST_REASONS, LOST_STATUSES, NEW_LEAD, STATUS_NAMES
+from tbo_smart.lead_pipeline.statuses import (
+	AUTO_LOST_REASONS,
+	CLOSED_WON,
+	LOST_STATUSES,
+	NEW_LEAD,
+	STATUS_NAMES,
+)
 from tbo_smart.outreach import REPLY_CLASSES
 from tbo_smart.sales import DEAL, LEAD, LEAD_LINK, erpnext_installed
 from tbo_smart.sales.call_batches import OUTCOMES as CALL_RESULTS
@@ -29,6 +35,7 @@ QUOTE_STATUSES = (
 	"Expired",
 )
 LOST_DEPENDS_ON = "eval:" + str(list(LOST_STATUSES)).replace("'", '"') + ".includes(doc.tbo_stage)"
+WON_DEPENDS_ON = f'eval:doc.tbo_stage == "{CLOSED_WON}"'
 PRINT_FORMAT = "TBO Quotation"
 SEGMENTS = ("Retail", "Small", "Medium", "Large", "Premium")
 HUB_ROLE = "Hub Integration"
@@ -200,6 +207,16 @@ def get_pipeline_fields() -> dict:
 				"label": "Lost notes",
 				"insert_after": "tbo_lost_reason",
 				"depends_on": LOST_DEPENDS_ON,
+			},
+			{
+				# what the lead was won for: its sales targets' won value (sales.stages.require_won_amount)
+				"fieldname": "tbo_won_amount",
+				"fieldtype": "Currency",
+				"label": "Won amount",
+				"insert_after": "tbo_lost_notes",
+				"depends_on": WON_DEPENDS_ON,
+				"no_copy": 1,
+				"description": "Asked when the lead moves to Closed – Won; counts as its won value.",
 			},
 			{
 				# what the client's website says, read once for its proposals (proposal_profile)
