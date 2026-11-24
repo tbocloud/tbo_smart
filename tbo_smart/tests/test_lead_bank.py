@@ -128,6 +128,24 @@ class TestAddALead(LeadBankCase):
 			frappe.db.exists("Comment", {"reference_name": lead.name, "content": ("like", "%Owner is keen%")})
 		)
 
+	def test_a_salesperson_owns_the_lead_they_add(self):
+		# even in a round robin department: the one who found it works it
+		frappe.db.set_value("TBO Lead Department", DEPARTMENT, "assignment", "Round robin")
+		answer = self.submit(user=SELLER)
+		self.assertEqual((answer["department"], answer["in_pool"]), (DEPARTMENT, False))
+		self.assertEqual(frappe.db.get_value("Lead", answer["lead"], "lead_owner"), SELLER)
+
+	def test_a_sales_manager_owns_the_lead_they_add_with_no_department(self):
+		answer = self.submit(
+			user=MANAGER, mobile_no="+966512345600", email_id=f"own1@{LEAD_BANK_EMAIL_DOMAIN}"
+		)
+		self.assertEqual((answer["department"], answer["in_pool"]), (None, False))
+		self.assertEqual(frappe.db.get_value("Lead", answer["lead"], "lead_owner"), MANAGER)
+
+	def test_a_designer_never_owns_the_lead_they_add(self):
+		answer = self.submit()
+		self.assertNotEqual(frappe.db.get_value("Lead", answer["lead"], "lead_owner"), DESIGNER)
+
 	def test_the_business_type_fills_the_industry_when_it_is_one(self):
 		answer = self.submit(business_type="Hotels & Restaurants")
 		self.assertEqual(frappe.db.get_value("Lead", answer["lead"], "industry"), "Hotels & Restaurants")

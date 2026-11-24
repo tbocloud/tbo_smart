@@ -36,6 +36,8 @@ FIELDS = {
 MAX_TEXT = 500
 MAX_PHOTOS = 5
 MANAGER_ROLES = ("Sales Manager", MANAGEMENT_ROLE)
+# a collector who holds one works leads: what they add is theirs (owner, 2026-11-24)
+SELLER_ROLES = {"Sales User", "Sales Manager"}
 
 
 def clean_data(data) -> frappe._dict:
@@ -197,11 +199,15 @@ def submit(user: str, data, photos) -> dict:
 	department = department_for(region)
 	lead = frappe.new_doc("Lead")
 	lead.update(lead_values(user, data, region, department))
-	# the lead belongs to the department's next member, or waits in the pool for its heads and
-	# the managers; it is never owned by whoever happens to insert it
-	lead.flags.round_robin = is_round_robin(department)
-	lead.flags.unassigned_pool = not lead.flags.round_robin
-	lead.flags.ownerless = True
+	if SELLER_ROLES & set(frappe.get_roles(user)):
+		# a salesperson works what they find
+		lead.lead_owner = user
+	else:
+		# the department's next member gets it, or it waits in the pool for its heads and the
+		# managers; it is never owned by whoever happens to insert it
+		lead.flags.round_robin = is_round_robin(department)
+		lead.flags.unassigned_pool = not lead.flags.round_robin
+		lead.flags.ownerless = True
 	lead.flags.number_source = "Lead Bank"
 	lead.insert(ignore_permissions=True)
 	for filename, content in files:
