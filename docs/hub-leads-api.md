@@ -1,4 +1,4 @@
-# Hub leads API (`tbo_smart.api.hub_leads`), v1.35
+# Hub leads API (`tbo_smart.api.hub_leads`), v1.38
 
 **Status:** built 2026-10-16. The TBO Support hub's lead page (tbocloud/helpdesk) shows and edits
 tboindia's leads through these methods. The leads are ERPNext's own **Lead**
@@ -95,6 +95,8 @@ Lead = {name, lead_name, first_name, last_name, company_name, email_id, mobile_n
   status (ERPNext's own, read only), lead_owner, owner_name, tbo_score, tbo_temperature
   (Hot / Warm / Cold), tbo_score_reason, tbo_lost_reason, tbo_lost_notes, won_amount (what it was won for | null),
   quoted_amount (its latest quotations' total, 0 without one: the won amount's suggestion),
+  won_refused (text | null: why the acting user can't move it to Closed – Won yet, the proposal
+  not sent; null once won, while Proposals is off, or once the proposal went),
   creation, modified,
   next_follow_up (date | null), deal (the Opportunity once won | null), can_write,
   can_call (the acting user may use click-to-call, through MyOperator or CallerDesk),
@@ -158,7 +160,9 @@ Quotation = {name, docstatus, tbo_quote_status, transaction_date, valid_till, cu
   as `tbo_won_amount`. It is the lead's won value (`won_value` below, sales targets). Only the move
   into Closed – Won asks; a won lead saved again isn't asked, and leads won before keep their
   quotation, deal or Sales Orders' worth. A quotation or proposal accepted wins the lead without
-  asking and takes the latest quotations' total.
+  asking and takes the latest quotations' total. While Proposals is on it is refused (417) until
+  the lead's proposal has gone to the client, sent from here or sent outside the system
+  (`lead-pipeline.md` §2.1, *Proposal before Won*); the lead's `won_refused` says so beforehand.
   Closed – Won makes the deal (with the lead pipeline on).
 - `add_note` needs read on the lead (as the app's notes do).
 
@@ -1267,6 +1271,8 @@ without a sales role isn't acted for.
 
 ## Changelog
 
+- **v1.38 (2026-11-27):** Closed – Won only once the proposal was sent: `set_stage` refuses it
+  before, and the lead carries `won_refused`.
 - **v1.37 (2026-11-24):** `get_overview` and `get_lead_analysis` take `source` and `department`
   and say them back as `narrowed` (the Sales team dashboard's filters); list rows carry `source`
   (§2.1).

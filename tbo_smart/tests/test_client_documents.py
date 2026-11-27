@@ -9,11 +9,13 @@ from frappe.utils import add_days, getdate, nowdate
 from tbo_smart.api import hub_leads, lead_quotation
 from tbo_smart.api import hub_proposals as hub
 from tbo_smart.api import proposal_page as page
-from tbo_smart.lead_pipeline import brd, srs
+from tbo_smart.lead_pipeline import brd, srs, won
 from tbo_smart.lead_pipeline import client_documents as documents
 from tbo_smart.lead_pipeline import document_types as kinds
 from tbo_smart.lead_pipeline import proposals as p
 from tbo_smart.lead_pipeline import quotations as q
+from tbo_smart.lead_pipeline.statuses import CLOSED_WON, NEGOTIATION
+from tbo_smart.lead_pipeline.transitions import advance_lead
 from tbo_smart.test_utils import (
 	accept_as_client,
 	assign_lead_to,
@@ -1018,10 +1020,12 @@ class TestFlexibleChain(ClientDocumentTestCase):
 			"Comment", {"reference_doctype": "Lead", "reference_name": self.lead, "content": ("like", text)}
 		)
 
-	def test_skip_three_in_a_row_then_continue_and_bring_one_back(self):
+	def test_skip_two_in_a_row_then_continue_and_bring_one_back(self):
 		draft = make_hub_proposal(self.lead, BDE, TEMPLATE)
-		chain = skip_hub_steps(self.lead, list(self.DOCUMENTS[:3]), "Repeat client, scope agreed", BDE)
-		for kind in self.DOCUMENTS[:3]:
+		# the proposal went by email; it is never skipped
+		mark_hub_sent_outside(self.lead, BDE)
+		chain = skip_hub_steps(self.lead, list(self.DOCUMENTS[1:3]), "Repeat client, scope agreed", BDE)
+		for kind in self.DOCUMENTS[1:3]:
 			step = self.step(chain, kind)
 			self.assertEqual((step["status"], step["done"]), ("Skipped", False))
 			self.assertEqual(step["skipped"]["reason"], "Repeat client, scope agreed")
@@ -1030,7 +1034,7 @@ class TestFlexibleChain(ClientDocumentTestCase):
 		self.assertTrue(self.said("Skipped %Repeat client, scope agreed%"))
 		# kept for the app and the reports
 		self.assertEqual(
-			frappe.db.count("TBO Lead Document Step", {"lead": self.lead, "status": "Skipped"}), 3
+			frappe.db.count("TBO Lead Document Step", {"lead": self.lead, "status": "Skipped"}), 2
 		)
 		self.assertEqual(
 			(chain["next"]["action"], chain["next"]["document_type"], chain["next"]["source"]),
@@ -1054,29 +1058,40 @@ class TestFlexibleChain(ClientDocumentTestCase):
 		chain = self.chain()
 		self.assertEqual(self.step(chain, kinds.BRD)["name"], brd_doc)
 		self.assertEqual((chain["next"]["name"], chain["next"]["label"]), (brd_doc, "Review and send"))
-		# the skipped ones stay skipped
-		self.assertEqual(self.step(chain, kinds.PROPOSAL)["status"], "Skipped")
+		# the skipped ones stay skipped, the proposal sent outside
+		self.assertEqual(self.step(chain, kinds.WORK_ORDER)["status"], "Skipped")
+		self.assertEqual(self.step(chain, kinds.PROPOSAL)["status"], "Sent outside")
 
 	def test_start_in_the_middle(self):
 		plan_doc = make_hub_document_from_lead(self.lead, kinds.PLAN, BDE)
 		chain = self.chain()
-		for kind in self.DOCUMENTS[:4]:
+		for kind in self.DOCUMENTS[1:4]:
 			step = self.step(chain, kind)
 			self.assertEqual((step["status"], step.get("implicit")), ("Not used", True))
+		# the proposal is never not used: it is still to send (or mark sent outside), and next
+		proposal_step = self.step(chain, kinds.PROPOSAL)
+		self.assertIsNone(proposal_step["status"])
+		self.assertIn("send_outside", proposal_step["actions"])
+		self.assertNotIn("skip", proposal_step["actions"])
 		self.assertEqual(
 			chain["next"],
-			{"action": "open", "document_type": kinds.PLAN, "name": plan_doc, "label": "Review and send"},
+			{"action": "create_proposal", "document_type": kinds.PROPOSAL, "label": "New proposal"},
 		)
-		# a proposal now is out of order: not for a BD who isn't the lead's owner
+		# a step further on is out of order: not for a BD who isn't the lead's owner
 		assign_lead_to(self.lead, OTHER_BDE)
-		self.assertRaises(frappe.PermissionError, make_hub_proposal, self.lead, OTHER_BDE, TEMPLATE)
+		self.assertRaises(
+			frappe.ValidationError, hub.create_document, None, kinds.BRD, self.lead, acting_user=OTHER_BDE
+		)
 		# marked not used in one go, with one reason, so the app and the reports have them
 		skip_hub_steps(
-			self.lead, list(self.DOCUMENTS[:4]), "Repeat client: plan only", BDE, status="Not used"
+			self.lead, list(self.DOCUMENTS[1:4]), "Repeat client: plan only", BDE, status="Not used"
 		)
 		self.assertEqual(
-			frappe.db.count("TBO Lead Document Step", {"lead": self.lead, "status": "Not used"}), 4
+			frappe.db.count("TBO Lead Document Step", {"lead": self.lead, "status": "Not used"}), 3
 		)
+		with self.assertRaisesRegex(frappe.ValidationError, "can't be skipped"):
+			skip_hub_steps(self.lead, [kinds.PROPOSAL], "Repeat client", BDE, status="Not used")
+		mark_hub_sent_outside(self.lead, BDE)
 		hub.save_proposal(plan_doc, json.dumps({"start_date": nowdate()}), acting_user=BDE)
 		send_hub_proposal(plan_doc, BDE)
 		accept_as_client(plan_doc)
@@ -1094,7 +1109,8 @@ class TestFlexibleChain(ClientDocumentTestCase):
 		)
 
 	def test_a_project_straight_from_the_lead_and_its_uat(self):
-		skip_hub_steps(self.lead, list(self.DOCUMENTS), "Support renewal: straight to the project", BDE)
+		mark_hub_sent_outside(self.lead, BDE)
+		skip_hub_steps(self.lead, list(self.DOCUMENTS[1:]), "Support renewal: straight to the project", BDE)
 		chain = self.chain()
 		self.assertEqual(
 			(chain["next"]["action"], chain["next"]["source_type"], chain["next"]["source"]),
@@ -1127,7 +1143,8 @@ class TestFlexibleChain(ClientDocumentTestCase):
 		)
 
 	def test_no_project(self):
-		chain = skip_hub_steps(self.lead, [*self.DOCUMENTS, "Project", "UAT"], "Consulting only", BDE)
+		mark_hub_sent_outside(self.lead, BDE)
+		chain = skip_hub_steps(self.lead, [*self.DOCUMENTS[1:], "Project", "UAT"], "Consulting only", BDE)
 		self.assertIsNone(chain["next"])
 		self.assertIsNone(chain["note"])
 		self.assertTrue(all(step["skipped"] for step in chain["steps"]))
@@ -1142,15 +1159,18 @@ class TestFlexibleChain(ClientDocumentTestCase):
 		self.assertRaises(frappe.ValidationError, skip_hub_steps, self.lead, ["Invoice"], "Not needed", BDE)
 		proposal = make_hub_proposal(self.lead, BDE, TEMPLATE)["name"]
 		price_hub_proposal(proposal, BDE, SERVICE)
-		# a draft can be skipped, and comes back with its step
-		skip_hub_steps(self.lead, [kinds.PROPOSAL], "Price agreed on the call", BDE)
-		self.assertEqual(self.step(self.chain(), kinds.PROPOSAL)["name"], proposal)
-		hub.bring_back_step(self.lead, kinds.PROPOSAL, acting_user=BDE)
+		# the proposal never: the lead is won only once it has gone; it may be sent outside instead
+		with self.assertRaisesRegex(frappe.ValidationError, "can't be skipped"):
+			skip_hub_steps(self.lead, [kinds.PROPOSAL], "Price agreed on the call", BDE)
+		actions = self.step(self.chain(), kinds.PROPOSAL)["actions"]
+		self.assertIn("send_outside", actions)
+		self.assertNotIn("skip", actions)
+		self.assertIn("skip", self.step(self.chain(), kinds.BRD)["actions"])
 		send_hub_proposal(proposal, BDE)
 		# with the client: only a revision changes it
 		with self.assertRaisesRegex(frappe.ValidationError, "only revised"):
 			skip_hub_steps(self.lead, [kinds.PROPOSAL], "Changed our mind", BDE)
-		self.assertNotIn("skip", self.step(self.chain(), kinds.PROPOSAL)["actions"])
+		self.assertFalse({"skip", "send_outside"} & set(self.step(self.chain(), kinds.PROPOSAL)["actions"]))
 		# made while another is with the client: refused (skip it, or wait for the client)
 		self.assertRaises(
 			frappe.ValidationError, hub.create_document, None, kinds.BRD, self.lead, acting_user=BDE
@@ -1204,9 +1224,9 @@ class TestFlexibleChain(ClientDocumentTestCase):
 		assign_lead_to(self.lead, OTHER_BDE)
 		chain = self.chain(OTHER_BDE)
 		self.assertFalse(chain["can_steer"])
-		self.assertNotIn("skip", self.step(chain, kinds.PROPOSAL)["actions"])
+		self.assertFalse({"skip", "send_outside"} & set(self.step(chain, kinds.PROPOSAL)["actions"]))
 		self.assertRaises(
-			frappe.PermissionError, skip_hub_steps, self.lead, [kinds.PROPOSAL], "Not needed", OTHER_BDE
+			frappe.PermissionError, skip_hub_steps, self.lead, [kinds.BRD], "Not needed", OTHER_BDE
 		)
 		# the next step is theirs to make; a step further on isn't
 		self.assertEqual(chain["next"]["action"], "create_proposal")
@@ -1214,8 +1234,8 @@ class TestFlexibleChain(ClientDocumentTestCase):
 			frappe.ValidationError, hub.create_document, None, kinds.BRD, self.lead, acting_user=OTHER_BDE
 		)
 		# a manager may, and the owner is told
-		chain = skip_hub_steps(self.lead, [kinds.PROPOSAL], "Price agreed with the director", MANAGER)
-		self.assertEqual(self.step(chain, kinds.PROPOSAL)["skipped"]["by"], MANAGER)
+		chain = skip_hub_steps(self.lead, [kinds.BRD], "Price agreed with the director", MANAGER)
+		self.assertEqual(self.step(chain, kinds.BRD)["skipped"]["by"], MANAGER)
 
 	def test_a_lost_lead_moves_nothing(self):
 		frappe.set_user("Administrator")
@@ -1282,3 +1302,64 @@ class TestFlexibleChain(ClientDocumentTestCase):
 		)
 		# the client's page says what happens next
 		self.assertIn("send you the updated agreement with your changes", client_page_html(order))
+
+
+class TestProposalBeforeWon(ClientDocumentTestCase):
+	"""A person marks a lead Closed – Won only once its proposal has reached the client, sent from
+	here or sent outside the system (docs/lead-pipeline.md §2.1, *Proposal before Won*)."""
+
+	def win(self, lead=None):
+		return hub_leads.set_stage(lead or self.lead, CLOSED_WON, won_amount=50000, acting_user=BDE)
+
+	def won_refused(self, lead=None):
+		return hub_leads.get_lead(lead or self.lead, acting_user=BDE)["lead"]["won_refused"]
+
+	def stage(self, lead=None):
+		return frappe.db.get_value("Lead", lead or self.lead, "tbo_stage")
+
+	def test_won_waits_for_the_proposal_to_go(self):
+		self.assertIn("Send the proposal", self.won_refused())
+		with self.assertRaisesRegex(frappe.ValidationError, "Send the proposal"):
+			self.win()
+		# a draft hasn't gone
+		proposal = make_hub_proposal(self.lead, BDE, TEMPLATE)["name"]
+		price_hub_proposal(proposal, BDE, SERVICE)
+		self.assertRaises(frappe.ValidationError, self.win)
+		send_hub_proposal(proposal, BDE)
+		self.assertIsNone(self.won_refused())
+		self.win()
+		self.assertEqual(self.stage(), CLOSED_WON)
+		# a revision made since doesn't take it back
+		hub.create_revision(proposal, acting_user=BDE)
+		hub_leads.set_stage(self.lead, NEGOTIATION, acting_user=BDE)
+		self.win()
+
+	def test_sent_outside_counts_and_undoing_it_takes_it_back(self):
+		mark_hub_sent_outside(self.lead, BDE)
+		self.assertIsNone(self.won_refused())
+		hub.bring_back_step(self.lead, kinds.PROPOSAL, acting_user=BDE)
+		self.assertIn("Send the proposal", self.won_refused())
+		self.assertRaises(frappe.ValidationError, self.win)
+		mark_hub_sent_outside(self.lead, BDE)
+		self.win()
+		self.assertEqual(self.stage(), CLOSED_WON)
+		self.assertIsNone(self.won_refused())
+
+	def test_the_system_and_proposals_off_are_not_asked(self):
+		# the client accepting a document wins the lead as the system does
+		enable_lead_pipeline()
+		self.addCleanup(disable_lead_pipeline)
+		frappe.set_user("Administrator")
+		self.assertTrue(advance_lead(self.lead, CLOSED_WON, "quotation accepted"))
+		self.assertEqual(self.stage(), CLOSED_WON)
+		# Convert by hand (pipeline off) wins it too: asked as a person is
+		disable_lead_pipeline()
+		other = make_lead(BDE, "Ravi Kumar", company_name=f"Kochi Traders {frappe.generate_hash(length=6)}")
+		frappe.set_user(BDE)
+		self.assertRaisesRegex(frappe.ValidationError, "Send the proposal", won.convert_lead, other)
+		frappe.set_user(HUB)
+		# Proposals off: nothing to send, nothing asked
+		disable_proposals()
+		self.assertIsNone(self.won_refused(other))
+		self.win(other)
+		self.assertEqual(self.stage(other), CLOSED_WON)

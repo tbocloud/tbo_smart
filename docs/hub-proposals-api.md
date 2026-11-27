@@ -1,4 +1,4 @@
-# Hub proposals API (`tbo_smart.api.hub_proposals`), v3.1
+# Hub proposals API (`tbo_smart.api.hub_proposals`), v3.2
 
 **Status:** built 2026-10-19. The TBO Support hub's proposal builder (tbocloud/helpdesk
 `docs/proposals.md`) calls these. What proposals are and do: `proposals.md`; the documents after
@@ -111,8 +111,9 @@ Step = {document_type (a type, or "Project" / "UAT" after the plan), label, name
   status_label, done, view_count, quotation_status, url? (the project),
   skipped: null | {status, reason, by, by_name, on, file, file_name} (`file`: the lead's File that
   went, for Sent outside, while it is still on the lead), implicit? (true: shown Not used because a
-  later step started, nothing recorded), wanted (brought back), actions: ["open", "create",
-  "skip", "bring_back"] (what the acting user may do), source (to make it from), prefill (made
+  later step started, nothing recorded; never the Proposal), wanted (brought back), actions:
+  ["open", "create", "send_outside", "skip", "bring_back"] (what the acting user may do; the
+  Proposal offers `send_outside`, never `skip`), source (to make it from), prefill (made
   from the lead: the document it is filled from), in_order (it is the next step),
   create_refused: null | text}
 
@@ -190,7 +191,7 @@ Library = {can_edit, modules: [Module + enabled, sort_order], items: [{name, lib
   when a quotation can't be priced from the modules.
 - `skip_steps`: 417 without a reason, for a step that isn't the lead's, one already skipped, one
   with the client or decided ("…can't be skipped, only revised."), a made project, a signed UAT,
-  or a lost lead; 403 for anyone but the lead's owner, a head or a manager. `bring_back_step`:
+  the Proposal ("The proposal can't be skipped…"), or a lost lead; 403 for anyone but the lead's owner, a head or a manager. `bring_back_step`:
   417 for a step that isn't skipped, 403 as for skipping.
 - `mark_sent_outside`: 417 without the file, for another type, a step already skipped or sent
   outside, one with the client or decided, a file the lead files refuse (type, size, 50 a lead) or
@@ -231,6 +232,9 @@ user with `acting_user`.
 
 ## Changelog
 
+- **v3.2 (2026-11-27):** the Proposal step is never skipped or marked not used (a lead is won
+  only once its proposal was sent, `lead-pipeline.md` §2.1): `skip_steps` refuses it, and its
+  actions offer `send_outside` (the menu's *Sent outside the system…*) instead of `skip`.
 - **v3.1 (2026-11-27):** `mark_sent_outside`: a proposal sent outside the system (made in Word,
   sent by email) recorded with the file that went (`client-documents.md` §9.1); a step's
   `skipped` carries `file` and `file_name`.

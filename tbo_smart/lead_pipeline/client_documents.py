@@ -531,12 +531,15 @@ def settled(step: dict) -> bool:
 
 def mark_not_used(found: list[dict]) -> None:
 	"""A chain started further on: the steps before the furthest one under way that have nothing
-	(and weren't brought back) show as Not used, without a record, until someone marks them."""
+	(and weren't brought back) show as Not used, without a record, until someone marks them. Not
+	the proposal: the lead is won only once it has gone (steps.NEVER_SKIPPED)."""
 	last = max(
 		(index for index, step in enumerate(found) if started(step) and not step["skipped"]), default=0
 	)
 	# nothing under way (last 0): nothing before it
 	for step in found[:last]:
+		if step["document_type"] in steps.NEVER_SKIPPED:
+			continue
 		if not started(step) and not step["skipped"] and not step["wanted"]:
 			step.update({"status": steps.NOT_USED, "status_label": _(steps.NOT_USED), "implicit": True})
 
@@ -635,7 +638,10 @@ def add_actions(found: list[dict], index: int, action: dict | None, may_write: b
 		if step["skipped"]:
 			actions.append("bring_back")
 		elif not steps.skip_refused(step):
-			actions.append("skip")
+			if kind in steps.SENDS_OUTSIDE:
+				actions.append("send_outside")
+			if not steps.never_skipped(kind):
+				actions.append("skip")
 	step["actions"] = actions
 
 
