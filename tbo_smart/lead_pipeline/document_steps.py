@@ -23,6 +23,8 @@ SKIP_STATUSES = (SKIPPED, NOT_USED)
 SETTLED = (*SKIP_STATUSES, SENT_OUTSIDE)
 # made and sent by hand (Word, email): only the proposal so far
 SENDS_OUTSIDE = (kinds.PROPOSAL,)
+# a lead is won only once its proposal has gone (sales.stages.won_refusal), so it is never skipped
+NEVER_SKIPPED = (kinds.PROPOSAL,)
 PROJECT, UAT = "Project", "UAT"
 STEP_TYPES = (*kinds.TYPES, PROJECT, UAT)
 # with the client or decided: only a revision changes it, it can't be skipped
@@ -99,6 +101,15 @@ def get_permission_query_conditions(user=None) -> str:
 # ---------- reading ----------
 
 
+def proposal_sent(lead: str) -> bool:
+	"""The lead's proposal reached the client: a revision went out from here (sent, viewed or
+	decided since), or it was sent outside the system with its file."""
+	return bool(
+		frappe.db.exists(p.DOCTYPE, {"lead": lead, "document_type": kinds.PROPOSAL, "sent_on": ("is", "set")})
+		or frappe.db.exists(STEP, {"lead": lead, "document_type": kinds.PROPOSAL, "status": SENT_OUTSIDE})
+	)
+
+
 def rows(lead: str) -> dict[str, frappe._dict]:
 	"""{step: its row} for the lead."""
 	found = frappe.get_all(STEP, filters={"lead": lead}, fields=list(FIELDS))
@@ -164,7 +175,7 @@ def skip(lead: str, document_types: list, reason: str, status: str = SKIPPED) ->
 		step = steps.get(name)
 		if not step:
 			frappe.throw(_("{0} isn't a step of this lead's documents.").format(_(name)))
-		why = skip_refused(step)
+		why = skip_refused(step) or never_skipped(name)
 		if why:
 			frappe.throw(why)
 	now = now_datetime()
@@ -191,6 +202,16 @@ def skip_refused(step: dict) -> str | None:
 	if step["document_type"] in kinds.TYPES and step.get("document_status") in DECIDED:
 		return _("{0} is {1}. It can't be skipped, only revised.").format(
 			step["label"], (step.get("status_label") or "").lower()
+		)
+	return None
+
+
+def never_skipped(document_type: str) -> str | None:
+	"""Why this step is never skipped or marked not used, or None: the proposal, since a lead is
+	won only once it has gone (it can still be sent outside the system)."""
+	if document_type in NEVER_SKIPPED:
+		return _(
+			"The proposal can't be skipped: a lead is won only after its proposal is sent. Send it, or mark it sent outside the system."
 		)
 	return None
 

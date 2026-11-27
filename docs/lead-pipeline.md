@@ -1,4 +1,4 @@
-# Lead pipeline: stages, meetings, MOM and quotations on the lead (living spec, v1.9)
+# Lead pipeline: stages, meetings, MOM and quotations on the lead (living spec, v1.10)
 
 **Status:** Phases 1 to 3 built 2026-10-16: the pipeline stages, meetings and minutes of meeting
 (MOM), automatic lead stages, the deal at Closed – Won, quotations on the lead (presets,
@@ -80,6 +80,19 @@ names them in this one module.
   `transitions.set_lead_status`) isn't asked and takes the latest quotations' total. Only entering
   the stage asks: leads won before keep counting their quotation, deal or Sales Orders, and an
   import (the CRM cutover) is never asked.
+- **Proposal before Won** (the owner's request of 2026-11-27): while Proposals is on, a person
+  moves a lead into Closed – Won only once its proposal has reached the client: a revision of
+  its Proposal sent from here (`sent_on` set; viewed, accepted, declined or expired since all
+  count), or the Proposal step marked **Sent outside** with the file that went
+  (`client-documents.md` §9.1). A draft doesn't count, and bringing a sent-outside step back
+  takes it back. Otherwise the move is refused with "Send the proposal to the client before
+  marking the lead won…" (`sales.stages.won_refusal`, checked in `LeadStage.require_proposal_sent`
+  on every path: the hub's `set_stage`, the mobile `set_lead_status`, the MOM's lead stage, the
+  ERPNext desk, and Convert while the pipeline is off). The hub reads the same refusal in advance
+  as the lead's `won_refused`. Not asked: a move the system makes (the client accepted a
+  quotation or proposal, so something went out), an import, leads won before, and every lead
+  while Proposals is off. To keep the rule whole, the Proposal step is never skipped or marked
+  not used (every chain starts with it, §13; `client-documents.md` §9.1).
 - **Not Responding, Not Interested, Wrong Number** (§2.3): called but not answered (call again,
   open and callable), picked up and declined, an invalid number. The two Lost ones fill their own
   lost reason ("Not interested", "Wrong number" Opportunity Lost Reasons, made on migrate) and
@@ -604,6 +617,8 @@ The documents a lead goes through follow its `tbo_lead_type` (`lead-departments.
 
 ## Changelog
 
+- **v1.10 (2026-11-27):** Proposal before Won (§2.1): a person marks a lead Closed – Won only
+  once its proposal was sent (from here or sent outside the system), while Proposals is on.
 - **v1.9 (2026-11-14):** the Small Business stage (§2.1): Lost, fills its own lost reason.
 - **v1.8 (2026-10-28):** the document chain by lead type (§13): Content / Digital Marketing leads
   go Proposal (the 6-month strategy) -> project.

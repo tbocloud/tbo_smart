@@ -40,7 +40,7 @@ from tbo_smart.lead_pipeline.proposal_media import decode
 from tbo_smart.lead_pipeline.proposals import latest_proposals, lead_proposals, proposals_enabled
 from tbo_smart.lead_pipeline.quotations import latest_quotations, lead_quotations
 from tbo_smart.lead_pipeline.setup import HUB_ROLE, MANAGEMENT_ROLE, SEGMENTS
-from tbo_smart.lead_pipeline.statuses import STATUS_NAMES, needs_lost_reason, stage_options
+from tbo_smart.lead_pipeline.statuses import CLOSED_WON, STATUS_NAMES, needs_lost_reason, stage_options
 from tbo_smart.outreach import replies, whatsapp
 from tbo_smart.prospecting import runs as prospect_runs
 from tbo_smart.prospecting import signals as prospect_signals
@@ -64,7 +64,7 @@ from tbo_smart.sales.call_batches import outcomes as call_outcomes
 from tbo_smart.sales.call_batches import plans as call_plans
 from tbo_smart.sales.call_batches import reads as call_reads
 from tbo_smart.sales.opportunity import lead_opportunity
-from tbo_smart.sales.stages import quoted_amount, set_lead_stage
+from tbo_smart.sales.stages import quoted_amount, set_lead_stage, won_refusal
 from tbo_smart.smart_leads import (
 	FOLLOW_UP_TYPE,
 	ai_leads_enabled,
@@ -907,6 +907,8 @@ def lead_payload(name: str) -> dict:
 	lead.deal = lead_opportunity(name)
 	lead.won_amount = lead.pop("tbo_won_amount") or None
 	lead.quoted_amount = quoted_amount(name)
+	# why Closed – Won is refused for now (no proposal sent yet), for the Move stage dialog
+	lead.won_refused = None if lead.tbo_stage == CLOSED_WON else won_refusal(name)
 	lead.next_follow_up = next_follow_ups("Lead", [name]).get(name)
 	lead.whatsapp = whatsapp.lead_state(name)
 	lead.can_write = bool(frappe.has_permission("Lead", "write", name))  # a flag for the screen - nosemgrep

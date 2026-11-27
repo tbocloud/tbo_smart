@@ -5,7 +5,8 @@ Won), its deal is made with ERPNext's own Lead → Opportunity mapper, in the fi
 Stage, so the deal-based finance workflow (Finance, Sales Order, invoices) carries on from
 there. A lead that already has a deal keeps it. People don't convert leads by hand while the
 pipeline is on: `convert_lead` (the app's Convert) refuses until the lead is Closed – Won; with
-it off, Convert makes the deal and closes the lead as Closed – Won.
+it off, Convert makes the deal and closes the lead as Closed – Won, once its proposal has gone
+while Proposals is on (`sales.stages.won_refusal`).
 """
 
 import frappe
@@ -16,6 +17,7 @@ from tbo_smart.lead_pipeline.quotations import relink_to_deal
 from tbo_smart.lead_pipeline.statuses import CLOSED_WON, status_type
 from tbo_smart.lead_pipeline.transitions import set_lead_status
 from tbo_smart.sales.opportunity import first_stage, lead_opportunity, make_opportunity
+from tbo_smart.sales.stages import won_refusal
 
 
 def lead_updated(doc, method=None) -> None:
@@ -55,6 +57,9 @@ def convert_lead(lead: str) -> str:
 				frappe.ValidationError,
 			)
 		return create_deal(doc)
+	refusal = won_refusal(lead)
+	if refusal:
+		frappe.throw(refusal, title=_("Proposal not sent"))
 	deal = make_opportunity(doc, first_stage("Open") or first_stage("Ongoing"))
 	# a converted lead is closed, as Frappe CRM's conversion closed it
 	set_lead_status(lead, CLOSED_WON, _("converted to deal {0}").format(deal))

@@ -60,6 +60,7 @@ class LeadStage:
 		self.flag_wrong_number()
 		self.require_lost_reason()
 		self.require_won_amount()
+		self.require_proposal_sent()
 		record_change(self.doc)
 
 	def set_default(self):
@@ -101,8 +102,37 @@ class LeadStage:
 		if flt(self.doc.get("tbo_won_amount")) <= 0 and not self.doc.flags.tbo_auto_status:
 			frappe.throw(_("Enter the amount the lead was won for."), title=_("Won amount"))
 
+	def require_proposal_sent(self):
+		"""A person moves a lead into Closed – Won only once its proposal has reached the client
+		(`won_refusal`). A move the system makes comes from the client accepting a document, so
+		something went out; an import is never asked, and leads won before keep their stage."""
+		if (
+			self.doc.tbo_stage != CLOSED_WON
+			or frappe.flags.in_import
+			or self.doc.flags.tbo_auto_status
+			or not self.entering_stage()
+		):
+			return
+		refusal = won_refusal(self.doc.name)
+		if refusal:
+			frappe.throw(refusal, title=_("Proposal not sent"))
+
 	def entering_stage(self) -> bool:
 		return self.doc.is_new() or self.doc.has_value_changed("tbo_stage")
+
+
+def won_refusal(lead: str | None) -> str | None:
+	"""Why a person can't move the lead into Closed – Won yet, or None: while Proposals is on,
+	its proposal must have gone to the client, from here or sent outside the system with its file
+	(docs/lead-pipeline.md §2.1, *Proposal before Won*)."""
+	from tbo_smart.lead_pipeline import document_steps
+	from tbo_smart.lead_pipeline.proposals import proposals_enabled
+
+	if not proposals_enabled() or (lead and document_steps.proposal_sent(lead)):
+		return None
+	return _(
+		"Send the proposal to the client before marking the lead won. If it went by email or in person, mark it sent outside the system with the file that went."
+	)
 
 
 def quoted_amount(lead: str | None) -> float:

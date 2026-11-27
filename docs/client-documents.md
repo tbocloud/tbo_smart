@@ -1,4 +1,4 @@
-# Client documents after the proposal (living spec, v1.7)
+# Client documents after the proposal (living spec, v1.8)
 
 **Status:** built 2026-10-19/20 (the owner's sales-to-delivery chain of 2026-10-19) in five
 steps: (1) the **Quotation** and the **Project Agreement / Work Order**, (2) the **BRD** with its
@@ -358,7 +358,8 @@ for the acting user:
 {steps: [{document_type, label, name, title, document_status, status, status_label (Signed for
   an accepted agreement; Skipped / Not used), done, view_count, quotation_status, url? (the
   project), skipped: null | {status, reason, by, by_name, on}, implicit?, wanted,
-  actions: [open, create, skip, bring_back], source, prefill, in_order, create_refused}],
+  actions: [open, create, send_outside, skip, bring_back], source, prefill, in_order,
+  create_refused}],
  next: null | {action: "create_proposal" | "create" | "open" | "create_project" | "uat",
   document_type, label, source (create: the accepted document to make it from, null: the lead;
   create_project: the plan or proposal, null: the lead), source_type, name (open, uat)},
@@ -387,9 +388,15 @@ The chain suggests the next step; nothing is hard-locked.
   **Skipped** with who, when and why, and the chain moves on. A step whose document is with the
   client or decided can't be skipped, only revised; nor a made project or a signed UAT. A draft
   left on a skipped step stays (openable), and comes back with it.
+- **The proposal is never skipped** (the owner's decision of 2026-11-27): a lead is marked
+  Closed – Won only once its proposal has reached the client (`lead-pipeline.md` §2.1,
+  *Proposal before Won*), so the Proposal step can't be skipped or marked not used ("The
+  proposal can't be skipped…", `document_steps.never_skipped`) and its actions offer
+  `send_outside` instead of `skip`. It is sent from here, or marked sent outside the system.
+  A Proposal step skipped before the rule stays skipped and can be brought back.
 - **Start anywhere:** a step further on can be made first (`create_document` with the step's
-  `source`, or from the lead). The steps before the furthest one under way that have nothing show
-  as **Not used** (`implicit`, nothing recorded) and can be marked so in one go with one reason
+  `source`, or from the lead). The steps before the furthest one under way that have nothing (but
+  the Proposal, which stays to do) show as **Not used** (`implicit`, nothing recorded) and can be marked so in one go with one reason
   (`skip_steps(…, status="Not used")`), which records them.
 - **Make one in between:** a step skipped or not used can still be made later (the BRD after the
   SRS started): it is filled from whatever exists and takes its place in the chain; making it
@@ -401,7 +408,9 @@ The chain suggests the next step; nothing is hard-locked.
   outside the system") and the file, the chain moves on as for a skip, and the lead moves to
   **Proposal Sent** (a move forward only, with the pipeline on), so the reports and the sales
   targets count it as a send from here would. The proposal only; refused as a skip is (with the
-  client or decided, already settled, a lost lead) and for the same people. Bring back undoes it
+  client or decided, already settled, a lost lead) and for the same people; the step offers it as
+  `send_outside` (the proposal is never skipped, above). It counts as sent for Closed – Won.
+  Bring back undoes it
   (the file stays on the lead); sending a proposal from here later clears it, as it clears a
   skip.
 - **Bring back** (`bring_back_step`): a skipped, not-used or sent-outside step is wanted again (`wanted`; it
@@ -516,6 +525,8 @@ reason, and the client's page says the update follows.
 
 ## Changelog
 
+- **v1.8 (2026-11-27):** the Proposal step is never skipped or not used (Proposal before Won,
+  §9.1); the step's actions offer `send_outside`.
 - **v1.7 (2026-11-27):** a proposal sent outside the system (§9.1): `mark_sent_outside`, with
   the file required; the step's status **Sent outside** and its `file`.
 - **v1.6 (2026-11-14):** a flexible chain (§9.1): skip a step with a reason, start anywhere
