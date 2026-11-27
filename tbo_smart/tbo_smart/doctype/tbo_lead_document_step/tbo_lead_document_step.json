@@ -2,7 +2,7 @@
  "actions": [],
  "autoname": "hash",
  "creation": "2026-11-14 12:00:00.000000",
- "description": "A step of a lead's document chain that no client document carries: skipped or not used (with the reason, who and when), or the project the hub made straight from the lead and its UAT sign-off (docs/client-documents.md §9).",
+ "description": "A step of a lead's document chain that no client document carries: skipped, not used or sent outside the system (with the reason, who and when, and for sent outside the file that went), or the project the hub made straight from the lead and its UAT sign-off (docs/client-documents.md §9).",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
@@ -10,6 +10,7 @@
   "document_type",
   "status",
   "reason",
+  "file",
   "column_break_set",
   "set_by",
   "set_on",
@@ -51,13 +52,21 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "\nSkipped\nNot used",
+   "options": "\nSkipped\nNot used\nSent outside",
    "read_only": 1
   },
   {
    "fieldname": "reason",
    "fieldtype": "Small Text",
    "label": "Reason",
+   "read_only": 1
+  },
+  {
+   "description": "Sent outside: the lead's File (its attachment) that went to the client.",
+   "fieldname": "file",
+   "fieldtype": "Link",
+   "label": "File",
+   "options": "File",
    "read_only": 1
   },
   {
@@ -130,7 +139,7 @@
  "in_create": 1,
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-11-14 12:00:00.000000",
+ "modified": "2026-11-27 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tbo Smart",
  "name": "TBO Lead Document Step",

@@ -1,6 +1,7 @@
 """The steps of a lead's document chain that no client document carries (docs/client-documents.md
 §9): a step skipped for this client, earlier steps not used when the chain starts in the middle,
-and the project made straight from the lead with its UAT sign-off.
+a proposal sent outside the system (with the file that went), and the project made straight from
+the lead with its UAT sign-off.
 
 Each is a TBO Lead Document Step (one per lead and step), so the mobile app and the reports read
 the same state the hub shows. A blank status is a step that is wanted again (brought back) or that
@@ -16,8 +17,12 @@ from tbo_smart.lead_pipeline import proposals as p
 from tbo_smart.lead_pipeline.statuses import status_type
 
 STEP = "TBO Lead Document Step"
-SKIPPED, NOT_USED = "Skipped", "Not used"
-SETTLED = (SKIPPED, NOT_USED)
+SKIPPED, NOT_USED, SENT_OUTSIDE = "Skipped", "Not used", "Sent outside"
+SKIP_STATUSES = (SKIPPED, NOT_USED)
+# the chain moves on past these; bring_back undoes any of them
+SETTLED = (*SKIP_STATUSES, SENT_OUTSIDE)
+# made and sent by hand (Word, email): only the proposal so far
+SENDS_OUTSIDE = (kinds.PROPOSAL,)
 PROJECT, UAT = "Project", "UAT"
 STEP_TYPES = (*kinds.TYPES, PROJECT, UAT)
 # with the client or decided: only a revision changes it, it can't be skipped
@@ -28,6 +33,7 @@ FIELDS = (
 	"document_type",
 	"status",
 	"reason",
+	"file",
 	"set_by",
 	"set_on",
 	"hub_project",
@@ -100,15 +106,19 @@ def rows(lead: str) -> dict[str, frappe._dict]:
 
 
 def payload(row) -> dict | None:
-	"""A skipped or not-used step's who, when and why, for the chain."""
+	"""A skipped, not-used or sent-outside step's who, when and why, for the chain; sent outside
+	also its file, while that is still on the lead."""
 	if not row or row.status not in SETTLED:
 		return None
+	file_name = frappe.db.get_value("File", row.file, "file_name") if row.get("file") else None
 	return {
 		"status": row.status,
 		"reason": row.reason,
 		"by": row.set_by,
 		"by_name": frappe.utils.get_fullname(row.set_by) if row.set_by else None,
 		"on": row.set_on,
+		"file": row.file if file_name else None,
+		"file_name": file_name,
 	}
 
 
@@ -140,7 +150,7 @@ def skip(lead: str, document_types: list, reason: str, status: str = SKIPPED) ->
 
 	require_open(lead)
 	require_steer(lead)
-	if status not in SETTLED:
+	if status not in SKIP_STATUSES:
 		frappe.throw(_("A step is skipped or not used."))
 	reason = p.clean(reason, MAX_REASON)
 	if not reason:
@@ -185,11 +195,55 @@ def skip_refused(step: dict) -> str | None:
 	return None
 
 
-def set_status(lead: str, document_type: str, status: str, reason: str | None, on=None) -> None:
+def mark_sent_outside(
+	lead: str, document_type: str, filename: str | None, content: bytes, note: str | None = None
+) -> None:
+	"""The document went to the client outside the system (made in Word, sent by email): the file
+	that went is attached to the lead, the step shows Sent outside with it, and the chain moves on.
+	The lead moves to Proposal Sent, as a send from here does. Who may, and when, as for a skip;
+	the file is required. bring_back undoes it (the file stays on the lead)."""
+	from tbo_smart.lead_pipeline import client_documents as documents
+	from tbo_smart.lead_pipeline import lead_files
+	from tbo_smart.lead_pipeline.statuses import PROPOSAL_SENT
+	from tbo_smart.lead_pipeline.transitions import advance_lead
+
+	require_open(lead)
+	require_steer(lead)
+	if document_type not in SENDS_OUTSIDE:
+		frappe.throw(_("Only a proposal can be marked as sent outside the system."))
+	if not content:
+		frappe.throw(_("Attach the proposal that was sent."))
+	note = p.clean(note, MAX_REASON)
+	frappe.db.get_value("Lead", lead, "name", for_update=True)
+	step = next((s for s in documents.chain(lead)["steps"] if s["document_type"] == document_type), None)
+	if not step:
+		frappe.throw(_("{0} isn't a step of this lead's documents.").format(_(document_type)))
+	why = skip_refused(step)
+	if why:
+		frappe.throw(why)
+	file = lead_files.add_file(lead, filename, content)
+	set_status(lead, document_type, SENT_OUTSIDE, note or _("Sent outside the system"), file=file["name"])
+	advance_lead(lead, PROPOSAL_SENT, _("proposal sent outside the system"))
+	p.tell_lead_owner(
+		lead,
+		_("{0} sent outside the system: {1}").format(step["label"], file["file_name"])
+		+ (f". {note}" if note else ""),
+	)
+
+
+def set_status(
+	lead: str, document_type: str, status: str, reason: str | None, on=None, file: str | None = None
+) -> None:
 	name = frappe.db.get_value(STEP, {"lead": lead, "document_type": document_type}, "name")
 	doc = frappe.get_doc(STEP, name) if name else new_row(lead, document_type)
 	doc.update(
-		{"status": status, "reason": reason, "set_by": frappe.session.user, "set_on": on or now_datetime()}
+		{
+			"status": status,
+			"reason": reason,
+			"file": file,
+			"set_by": frappe.session.user,
+			"set_on": on or now_datetime(),
+		}
 	)
 	doc.save(ignore_permissions=True)  # written only here, after the checks - nosemgrep
 

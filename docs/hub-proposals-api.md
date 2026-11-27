@@ -1,4 +1,4 @@
-# Hub proposals API (`tbo_smart.api.hub_proposals`), v3.0
+# Hub proposals API (`tbo_smart.api.hub_proposals`), v3.1
 
 **Status:** built 2026-10-19. The TBO Support hub's proposal builder (tbocloud/helpdesk
 `docs/proposals.md`) calls these. What proposals are and do: `proposals.md`; the documents after
@@ -31,7 +31,8 @@ otherwise) and count against the day's limit (417 "Today's AI proposal runs are 
 | `create_document` | POST | `document_type` (`Quotation` (not while the proposal is the quotation), `Work Order`, `BRD`, `SRS`, `Implementation Plan`), `source?` (the step's `source` in the chain: the latest accepted document before it) or `lead?` (when the step has no `source`: made from the lead, filled from its `prefill`), `acting_user` | `{proposal: Proposal, warnings: [text]}` (`client-documents.md` §2, §9) |
 | `get_document_chain` | GET | `lead`, `acting_user` | `Chain` |
 | `skip_steps` | POST | `lead`, `document_types` (JSON list of steps: the types, `Project`, `UAT`), `reason` (required, up to 500), `status?` (`Skipped`, the default, or `Not used`), `acting_user` | `Chain` (`client-documents.md` §9.1) |
-| `bring_back_step` | POST | `lead`, `document_type`, `acting_user` | `Chain` (the step wanted again) |
+| `mark_sent_outside` | POST | `lead`, `filename`, `content` (base64, required: the file that went; the lead files' types and 10 MB), `note?` (up to 500), `document_type?` (`Proposal`, the only one), `acting_user` | `Chain` (the step Sent outside; the file on the lead; the lead at Proposal Sent) |
+| `bring_back_step` | POST | `lead`, `document_type`, `acting_user` | `Chain` (the step wanted again; undoes Skipped, Not used or Sent outside) |
 | `get_project_plan` | GET | `name` (an approved plan), `acting_user` | `{plan, lead, client, project_name, solution_type, start, end, hub_project, phases: [{phase, start, end, tasks: [{subject, start, end, milestone}]}]}` (417 while not approved or undated) |
 | `get_accepted_proposal` | GET | `name` (an accepted, latest proposal of a Content / Digital Marketing lead), `acting_user` | `{proposal, lead, lead_name, client, customer (the ERPNext Customer made from the lead, else null), tbo_lead_type, tbo_department, project_name, solution_type, start, end, months: [{month 1-6, start, end}], roadmap (the accepted 6-Month Roadmap text), deliverables (the accepted Deliverables text), hub_project}` (417 while not accepted or not that kind of proposal). `start` is the proposal's `start_date`, else the day it was accepted; `end` is six months later less a day |
 | `link_project` | POST | `lead`, `project`, `plan?` (the approved plan of an ERP / Software lead) or `proposal?` (the accepted strategy proposal of a Content / Digital Marketing lead), not both; neither: a project made straight from the lead (kept on its Project step, while the chain's Project step offers `create`); `url?`, `acting_user` | `Chain` (the project, once; another name is 417; a document that is not the one its lead type makes a project from, or not the lead's, is 417) |
@@ -105,9 +106,11 @@ Chain = {steps: [Step], next: null | {action ("create_proposal" / "create" / "op
   work out of order), note: null | text (the UAT waits for a project)}
 
 Step = {document_type (a type, or "Project" / "UAT" after the plan), label, name, title,
-  document_status (the document's own), status (the document's, or "Skipped" / "Not used"),
+  document_status (the document's own), status (the document's, or "Skipped" / "Not used" /
+  "Sent outside"),
   status_label, done, view_count, quotation_status, url? (the project),
-  skipped: null | {status, reason, by, by_name, on}, implicit? (true: shown Not used because a
+  skipped: null | {status, reason, by, by_name, on, file, file_name} (`file`: the lead's File that
+  went, for Sent outside, while it is still on the lead), implicit? (true: shown Not used because a
   later step started, nothing recorded), wanted (brought back), actions: ["open", "create",
   "skip", "bring_back"] (what the acting user may do), source (to make it from), prefill (made
   from the lead: the document it is filled from), in_order (it is the next step),
@@ -189,6 +192,10 @@ Library = {can_edit, modules: [Module + enabled, sort_order], items: [{name, lib
   with the client or decided ("…can't be skipped, only revised."), a made project, a signed UAT,
   or a lost lead; 403 for anyone but the lead's owner, a head or a manager. `bring_back_step`:
   417 for a step that isn't skipped, 403 as for skipping.
+- `mark_sent_outside`: 417 without the file, for another type, a step already skipped or sent
+  outside, one with the client or decided, a file the lead files refuse (type, size, 50 a lead) or
+  a lost lead; 403 as for skipping. The lead moves to Proposal Sent when the pipeline is on and it
+  is a move forward; the owner is told. Sending the proposal from here later clears it.
 - `create_proposal`: 417 on a lost lead.
 - `save_pricing`, `price_from_modules`: a proposal or a quotation only (417 for an agreement: its
   price is the accepted quotation's, or the accepted proposal's while the proposal is the
@@ -224,6 +231,9 @@ user with `acting_user`.
 
 ## Changelog
 
+- **v3.1 (2026-11-27):** `mark_sent_outside`: a proposal sent outside the system (made in Word,
+  sent by email) recorded with the file that went (`client-documents.md` §9.1); a step's
+  `skipped` carries `file` and `file_name`.
 - **v3.0 (2026-11-14):** a flexible chain (`client-documents.md` §9.1): `skip_steps`,
   `bring_back_step`; `create_document` takes `lead` (no accepted document before the step) and
   makes a step out of order for the lead's owner, a head or a manager; the chain's steps carry

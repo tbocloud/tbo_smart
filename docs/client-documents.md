@@ -1,4 +1,4 @@
-# Client documents after the proposal (living spec, v1.6)
+# Client documents after the proposal (living spec, v1.7)
 
 **Status:** built 2026-10-19/20 (the owner's sales-to-delivery chain of 2026-10-19) in five
 steps: (1) the **Quotation** and the **Project Agreement / Work Order**, (2) the **BRD** with its
@@ -394,7 +394,17 @@ The chain suggests the next step; nothing is hard-locked.
 - **Make one in between:** a step skipped or not used can still be made later (the BRD after the
   SRS started): it is filled from whatever exists and takes its place in the chain; making it
   clears its skip.
-- **Bring back** (`bring_back_step`): a skipped or not-used step is wanted again (`wanted`; it
+- **Sent outside the system** (`mark_sent_outside(lead, filename, content, note?)`, the owner's
+  request of 2026-11-27): a proposal made and sent by hand (Word, email) is recorded with **the
+  file that went, required**: it is attached to the lead (a lead file, so its types, 10 MB and 50
+  a lead apply), the Proposal step shows **Sent outside** with who, when, the note (or "Sent
+  outside the system") and the file, the chain moves on as for a skip, and the lead moves to
+  **Proposal Sent** (a move forward only, with the pipeline on), so the reports and the sales
+  targets count it as a send from here would. The proposal only; refused as a skip is (with the
+  client or decided, already settled, a lost lead) and for the same people. Bring back undoes it
+  (the file stays on the lead); sending a proposal from here later clears it, as it clears a
+  skip.
+- **Bring back** (`bring_back_step`): a skipped, not-used or sent-outside step is wanted again (`wanted`; it
   is no longer taken as not used) and becomes the next step when it is the first left.
 - **Who:** the lead's owner, a head of its department, or a manager (Sales Manager, System
   Manager) may skip, bring back and work out of order (`can_steer`); anyone else who may write
@@ -404,8 +414,8 @@ The chain suggests the next step; nothing is hard-locked.
   making a proposal or a document, skipping and bringing back are refused (417). A won lead
   carries on (accepting the proposal is what wins it).
 - **Stored with the chain:** each skipped, not-used or brought-back step is a **TBO Lead Document
-  Step** (`lead`, `document_type` (a type, Project, UAT), `status` Skipped / Not used / blank,
-  `reason`, `set_by`, `set_on`), one per lead and step, read by the mobile app and the reports
+  Step** (`lead`, `document_type` (a type, Project, UAT), `status` Skipped / Not used / Sent outside /
+  blank, `reason`, `file` (sent outside: the lead's File that went), `set_by`, `set_on`), one per lead and step, read by the mobile app and the reports
   (its lead decides who reads it, as for proposals; it is written only through this API, and
   changing one is a change in the hub's lead feed). Its Project row also carries the **project
   made straight from the lead** (`hub_project`, `hub_project_url`) and its UAT (`uat_status`,
@@ -497,12 +507,17 @@ isn't the owner; no project (every step skipped, nothing next; a
 UAT brought back without a project waits with a note); a step with the client can't be skipped,
 a reason is required, a skipped draft comes back with its step, nothing is made past a document
 with the client; a BD assigned to the lead can't skip or work out of order, a manager can; a lost
-lead moves nothing; the Quotation made as a draft when the proposal is accepted (once), the
+lead moves nothing; a proposal sent outside the system (helper `mark_hub_sent_outside`: the
+file required, the proposal only, not for a BD assigned to the lead; the step Sent outside with
+the note and the file on the lead, the chain on to the agreement, the lead at Proposal Sent, the
+owner told, not again and not skipped; brought back, the file stays); the Quotation made as a draft when the proposal is accepted (once), the
 agreement prepared while the proposal is the quotation; changes asked make the revision with the
 reason, and the client's page says the update follows.
 
 ## Changelog
 
+- **v1.7 (2026-11-27):** a proposal sent outside the system (§9.1): `mark_sent_outside`, with
+  the file required; the step's status **Sent outside** and its `file`.
 - **v1.6 (2026-11-14):** a flexible chain (§9.1): skip a step with a reason, start anywhere
   (earlier steps Not used), make one in between, bring back; out of order for the lead's owner, a
   head or a manager; nothing moves on a lost lead; **TBO Lead Document Step**; a project (and its

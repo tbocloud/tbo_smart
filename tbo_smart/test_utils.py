@@ -1840,6 +1840,28 @@ def skip_hub_steps(
 	return hub_proposals.skip_steps(lead, json.dumps(steps), reason, status, acting_user=acting_user)
 
 
+def mark_hub_sent_outside(
+	lead: str,
+	acting_user: str,
+	note: str | None = None,
+	content: bytes | None = None,
+	document_type: str = "Proposal",
+) -> dict:
+	"""Mark the lead's proposal sent outside the system through hub_proposals.mark_sent_outside,
+	with "Malabar proposal.pdf" (a one-page PDF unless `content`); returns the chain."""
+	from tbo_smart.api import hub_proposals
+
+	data = make_pdf_bytes() if content is None else content
+	return hub_proposals.mark_sent_outside(
+		lead,
+		"Malabar proposal.pdf",
+		base64.b64encode(data).decode(),
+		note,
+		document_type,
+		acting_user=acting_user,
+	)
+
+
 def make_hub_document_from_lead(lead: str, document_type: str, acting_user: str) -> str:
 	"""A step's document made straight from the lead (no accepted document before it) through
 	hub_proposals.create_document; returns its name."""
