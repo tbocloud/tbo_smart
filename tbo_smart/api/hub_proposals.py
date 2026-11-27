@@ -357,8 +357,26 @@ def skip_steps(
 
 
 @frappe.whitelist(methods=["POST"])
+def mark_sent_outside(
+	lead: str,
+	filename: str,
+	content: str,
+	note: str | None = None,
+	document_type: str = kinds.PROPOSAL,
+	acting_user: str | None = None,
+) -> dict:
+	"""The proposal went to the client outside the system: the file that went (`content` base64,
+	required; the lead files' types and 10 MB) is attached to the lead, the step shows Sent outside
+	and the lead moves to Proposal Sent. Who may as for skip_steps. Returns the chain."""
+	with acting_as(acting_user):
+		p.require_proposals()
+		steps.mark_sent_outside(lead, document_type, filename, media.decode(content), note)
+		return documents.chain(lead)
+
+
+@frappe.whitelist(methods=["POST"])
 def bring_back_step(lead: str, document_type: str, acting_user: str | None = None) -> dict:
-	"""A skipped or not-used step wanted again. Returns the chain."""
+	"""A skipped, not-used or sent-outside step wanted again. Returns the chain."""
 	with acting_as(acting_user):
 		p.require_proposals()
 		steps.bring_back(lead, document_type)

@@ -26,10 +26,12 @@ from tbo_smart.test_utils import (
 	decline_as_client,
 	delete_owner_lead_records,
 	disable_client_documents,
+	disable_lead_pipeline,
 	disable_lead_quotations,
 	disable_proposals,
 	disable_smart_leads,
 	enable_client_documents,
+	enable_lead_pipeline,
 	enable_proposals,
 	make_accepted_proposal,
 	make_accepted_quotation_document,
@@ -49,6 +51,7 @@ from tbo_smart.test_utils import (
 	make_sent_proposal,
 	make_signed_agreement,
 	make_user,
+	mark_hub_sent_outside,
 	mock_ai,
 	price_hub_proposal,
 	send_hub_proposal,
@@ -1152,6 +1155,48 @@ class TestFlexibleChain(ClientDocumentTestCase):
 		self.assertRaises(
 			frappe.ValidationError, hub.create_document, None, kinds.BRD, self.lead, acting_user=BDE
 		)
+
+	def test_proposal_sent_outside_the_system(self):
+		enable_lead_pipeline()
+		self.addCleanup(disable_lead_pipeline)
+		# the file that went is required, and only a proposal goes this way
+		with self.assertRaisesRegex(frappe.ValidationError, "Attach the proposal"):
+			mark_hub_sent_outside(self.lead, BDE, content=b"")
+		self.assertRaises(
+			frappe.ValidationError, mark_hub_sent_outside, self.lead, BDE, document_type=kinds.BRD
+		)
+		# not the lead's owner, a head or a manager: refused, as a skip is
+		assign_lead_to(self.lead, OTHER_BDE)
+		self.assertRaises(frappe.PermissionError, mark_hub_sent_outside, self.lead, OTHER_BDE)
+
+		chain = mark_hub_sent_outside(self.lead, BDE, note="Sent from Outlook on 20 Nov")
+		step = self.step(chain, kinds.PROPOSAL)
+		self.assertEqual((step["status"], step["done"]), ("Sent outside", False))
+		sent = step["skipped"]
+		self.assertEqual(
+			(sent["reason"], sent["by"], sent["file_name"]),
+			("Sent from Outlook on 20 Nov", BDE, "Malabar proposal.pdf"),
+		)
+		self.assertEqual(
+			frappe.db.get_value("File", sent["file"], ["attached_to_doctype", "attached_to_name"]),
+			("Lead", self.lead),
+		)
+		self.assertIn("bring_back", step["actions"])
+		self.assertNotIn("skip", step["actions"])
+		# the chain moves on, the lead is at Proposal Sent and the owner is told
+		self.assertEqual(
+			(chain["next"]["action"], chain["next"]["document_type"]), ("create", kinds.WORK_ORDER)
+		)
+		self.assertEqual(frappe.db.get_value("Lead", self.lead, "tbo_stage"), "Proposal Sent")
+		self.assertTrue(self.said("Proposal sent outside the system: Malabar proposal.pdf%"))
+		with self.assertRaisesRegex(frappe.ValidationError, "already sent outside"):
+			mark_hub_sent_outside(self.lead, BDE)
+		self.assertRaises(frappe.ValidationError, skip_hub_steps, self.lead, [kinds.PROPOSAL], "No", BDE)
+		# undone: a step to do again; the file stays on the lead
+		chain = hub.bring_back_step(self.lead, kinds.PROPOSAL, acting_user=BDE)
+		self.assertIsNone(self.step(chain, kinds.PROPOSAL)["skipped"])
+		self.assertEqual(chain["next"]["action"], "create_proposal")
+		self.assertTrue(frappe.db.exists("File", sent["file"]))
 
 	def test_who_may_skip_and_work_out_of_order(self):
 		make_user(MANAGER, ["Sales User", "Sales Manager"])
